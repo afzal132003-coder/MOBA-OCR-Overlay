@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>MOBA Broadcast Overlay</title>
+<style>
+  /*
+    All positions below are absolute pixel coordinates on a 1920x1080
+    canvas, measured directly off assets/POPUPS - demo.png against the
+    blank assets/POPUPS.png template. Set the OBS Browser Source to
+    1920x1080 so this lines up exactly.
+  */
+
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Regular.ttf') format('truetype');
+    font-weight: 400; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Medium.ttf') format('truetype');
+    font-weight: 500; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Bold.ttf') format('truetype');
+    font-weight: 700; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');
+    font-weight: 800; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
+    font-weight: 900; font-style: normal;
+  }
+
+  :root{
+    --font-display: 'TT Supermolot Neue Trial', 'Arial Narrow', Arial, sans-serif;
+    --value-color: #ffffff;
+    --name-color: #0b193e;
+  }
+
+  html, body{
+    margin:0; padding:0; background:transparent; overflow:hidden;
+    width:1920px; height:1080px;
+    font-family: var(--font-display);
+  }
+
+  #stage{
+    position:relative; width:1920px; height:1080px;
+    opacity:0; transform:translateY(-24px);
+    animation: enter 0.7s ease forwards;
+  }
+  @keyframes enter{ to{ opacity:1; transform:translateY(0); } }
+
+  .bg-frame{
+    position:absolute; top:0; left:0; width:1920px; height:1080px;
+    pointer-events:none;
+  }
+
+  .team-logo{
+    position:absolute; object-fit:contain; display:none;
+  }
+  #team1-logo{ left:368px; top:8px; width:65px; height:71px; }
+  #team2-logo{ left:1485px; top:8px; width:65px; height:71px; }
+
+  .team-name{
+    position:absolute; height:25px; top:62px;
+    display:flex; align-items:center; justify-content:center;
+    color: var(--name-color);
+    font-weight:800; font-size:18px; letter-spacing:0.5px;
+    text-transform:uppercase; white-space:nowrap;
+    transition:background 0.2s;
+  }
+  #team1-name{ left:510px; width:199px; }
+  #team2-name{ left:1218px; width:191px; }
+
+  .stat{
+    position:absolute; display:flex; flex-direction:column;
+    align-items:center; justify-content:flex-start; gap:6px;
+  }
+  .stat img{ display:block; }
+  .stat .value{
+    color: var(--value-color); font-weight:700; font-size:15px;
+    line-height:1; white-space:nowrap; border-radius:3px;
+    transition:background 0.2s;
+  }
+
+  /* Team 1: gold -> structures -> kills (left to right) */
+  #t1-gold{  left:509px; top:8px;  width:70px; }
+  #t1-tower{ left:578px; top:9px;  width:40px; }
+  #t1-kill{  left:633px; top:7px;  width:40px; }
+
+  /* Team 2: gold -> structures -> kills (same reading order, mirrored side) */
+  #t2-gold{  left:1183px; top:8px; width:70px; }
+  #t2-tower{ left:1252px; top:9px; width:40px; }
+  #t2-kill{  left:1307px; top:7px; width:40px; }
+
+  .score{
+    position:absolute; top:15px; width:40px; height:40px;
+    display:flex; align-items:center; justify-content:center;
+    color:#ffffff; font-weight:900; font-size:40px;
+    transition:background 0.2s;
+  }
+  #score-team1{ left:814px; }
+  #score-team2{ left:1063px; }
+
+  .flash{ background:#f2c14e88 !important; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <img class="bg-frame" src="assets/POPUPS.png" alt="">
+
+  <img class="team-logo" id="team1-logo" alt="">
+  <img class="team-logo" id="team2-logo" alt="">
+
+  <div class="team-name" id="team1-name">TEAM 1</div>
+  <div class="team-name" id="team2-name">TEAM 2</div>
+
+  <div class="stat" id="t1-gold">
+    <img src="assets/gold.png" width="24" height="24" alt="">
+    <span class="value" id="team1-gold">0</span>
+  </div>
+  <div class="stat" id="t1-tower">
+    <img src="assets/structures.png" width="18" height="22" alt="">
+    <span class="value" id="team1-objectives">0</span>
+  </div>
+  <div class="stat" id="t1-kill">
+    <img src="assets/kill.png" width="19" height="25" alt="">
+    <span class="value" id="team1-kills">0</span>
+  </div>
+
+  <div class="stat" id="t2-gold">
+    <img src="assets/gold.png" width="24" height="24" alt="">
+    <span class="value" id="team2-gold">0</span>
+  </div>
+  <div class="stat" id="t2-tower">
+    <img src="assets/structures.png" width="18" height="22" alt="">
+    <span class="value" id="team2-objectives">0</span>
+  </div>
+  <div class="stat" id="t2-kill">
+    <img src="assets/kill.png" width="19" height="25" alt="">
+    <span class="value" id="team2-kills">0</span>
+  </div>
+
+  <div class="score" id="score-team1">0</div>
+  <div class="score" id="score-team2">0</div>
+</div>
+
+<script>
+const WS_URL = "ws://localhost:8765";
+let ws;
+
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync"){
+      applyState(msg.data);
+    }
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+
+function setValue(id, value){
+  const el = document.getElementById(id);
+  if(!el) return;
+  if(el.textContent !== String(value)){
+    el.textContent = value;
+    el.classList.add("flash");
+    setTimeout(()=>el.classList.remove("flash"), 400);
+  }
+}
+
+function formatGold(v){
+  v = Number(v) || 0;
+  if(v >= 1000) return (v/1000).toFixed(1).replace(/\.0$/,'') + "K";
+  return String(v);
+}
+
+function setLogo(id, src){
+  const el = document.getElementById(id);
+  if(src){
+    el.src = src;
+    el.style.display = "block";
+  } else {
+    el.style.display = "none";
+  }
+}
+
+function applyState(state){
+  document.getElementById("team1-name").textContent = state.team1.name || "TEAM 1";
+  document.getElementById("team2-name").textContent = state.team2.name || "TEAM 2";
+  setLogo("team1-logo", state.team1.logo);
+  setLogo("team2-logo", state.team2.logo);
+
+  setValue("team1-kills", state.team1.kills);
+  setValue("team1-objectives", state.team1.objectives);
+  setValue("team1-gold", formatGold(state.team1.gold));
+  setValue("team2-kills", state.team2.kills);
+  setValue("team2-objectives", state.team2.objectives);
+  setValue("team2-gold", formatGold(state.team2.gold));
+  setValue("score-team1", state.seriesScore.team1);
+  setValue("score-team2", state.seriesScore.team2);
+}
+
+connect();
+</script>
+</body>
+</html>

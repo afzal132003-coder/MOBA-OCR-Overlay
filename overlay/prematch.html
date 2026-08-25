@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>MOBA Prematch Overlay</title>
+<style>
+  /*
+    Pixel positions measured directly off assets/prematch_demo.png against
+    the blank assets/prematch_blank.png template (same technique as the
+    in-game overlay). Canvas is 1920x1080 — set the OBS Browser Source to
+    match.
+  */
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Regular.ttf') format('truetype');
+    font-weight: 400; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Bold.ttf') format('truetype');
+    font-weight: 700; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');
+    font-weight: 800; font-style: normal;
+  }
+
+  :root{ --gold:#f0ca90; --navy-text:#0b193e; }
+  html,body{ margin:0; padding:0; background:transparent; overflow:hidden;
+    width:1920px; height:1080px; font-family:'TT Supermolot Neue Trial', Arial, sans-serif; }
+
+  #stage{ position:relative; width:1920px; height:1080px; opacity:0;
+    transform:translateY(-16px); animation: enter 0.6s ease forwards; }
+  @keyframes enter{ to{ opacity:1; transform:translateY(0);} }
+
+  .bg-frame{ position:absolute; top:0; left:0; width:1920px; height:1080px; pointer-events:none; }
+
+  /* ---- ban row: true parallelograms (129px wide, sheared 33px over the
+     54px height). Each .ban-slot is sized to the WIDER bounding box that
+     contains both the top and bottom edges, then clip-path carves out the
+     actual slanted shape — image and caption are children of that same
+     clipped box, so both automatically follow the slant with no extra math. ---- */
+  .ban-slot{ position:absolute; top:691px; width:162px; height:54px; overflow:hidden;
+    clip-path: polygon(0% 0%, 79.63% 0%, 100% 100%, 20.37% 100%); }
+  /* Right-side (team2) slots shear the opposite way — the whole ban row
+     fans outward from the center, mirrored left/right. */
+  .ban-slot.mirror{ clip-path: polygon(20.37% 0%, 100% 0%, 79.63% 100%, 0% 100%); }
+  .ban-slot img{ position:absolute; top:0; left:0; width:100%; height:37px; object-fit:cover; object-position:50% 15%; display:none; }
+  .ban-slot .ban-caption{ position:absolute; left:0; right:0; bottom:0; height:17px;
+    display:flex; align-items:center; justify-content:center;
+    color:#0b193e; font-weight:800; font-size:10px; text-transform:uppercase; letter-spacing:0.3px;
+    overflow:hidden; white-space:nowrap; padding:0 3px; box-sizing:border-box; }
+
+  /* ---- pick row (navy body 766-1004, gold footer 1006-1044) ---- */
+  .pick-slot{ position:absolute; top:766px; height:238px; overflow:hidden; }
+  .pick-slot img{ width:100%; height:100%; object-fit:cover; object-position:50% 15%; display:none; }
+  .pick-name{ position:absolute; top:1006px; height:38px; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; color:var(--navy-text);
+    overflow:hidden; padding:2px 4px; box-sizing:border-box; }
+  .pick-name .player{ font-weight:800; font-size:12px; text-transform:uppercase; letter-spacing:0.3px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+  .pick-name .hero{ font-weight:600; font-size:10px; opacity:0.8; text-transform:uppercase;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+
+  /* ---- timer pill ---- */
+  .timer-pill{ position:absolute; left:757px; top:695px; width:405px; height:50px;
+    display:flex; align-items:center; justify-content:center; gap:10px; }
+  .timer-pill .phase{ color:var(--gold); font-weight:800; font-size:20px; font-style:italic; text-transform:uppercase; }
+  .timer-pill .dash{ color:var(--gold); font-weight:800; font-size:20px; }
+  .timer-pill .clock{ color:#ffffff; font-weight:800; font-size:26px; letter-spacing:1px; }
+
+  /* Shows which team is currently on the clock: a green arrow pointing at
+     that team's logo, in the center card's team-name row. Nothing is
+     shown at all for the inactive side (not dimmed — hidden). */
+  .active-arrow{ position:absolute; top:964px; width:0; height:0;
+    border-top:12px solid transparent; border-bottom:12px solid transparent;
+    filter:drop-shadow(0 0 6px #3ddc6a); display:none; }
+  #arrow-team1{ left:758px; border-left:18px solid #3ddc6a; }
+  #arrow-team2{ left:1134px; border-right:18px solid #3ddc6a; }
+
+  /* ---- center match info ---- */
+  .title{ position:absolute; left:750px; width:420px; top:854px; height:24px;
+    text-align:center; color:var(--gold); font-weight:800; font-size:24px; font-style:italic;
+    text-transform:uppercase; letter-spacing:1px; }
+  .subtitle{ position:absolute; left:750px; width:420px; top:887px; height:18px;
+    text-align:center; color:#ffffff; font-weight:600; font-size:15px; font-style:italic;
+    text-transform:uppercase; letter-spacing:0.5px; }
+
+  /* Logo + name form one centered unit per team: team1 centered on x=832,
+     team2 on x=1081.5 (same centers the original smaller versions used). */
+  .team-logo{ position:absolute; top:936px; width:88px; height:80px; object-fit:contain; display:none; }
+  #logo-team1{ left:788px; }
+  #logo-team2{ left:1038px; }
+
+  .team-name{ position:absolute; top:1020px; width:110px; height:16px; text-align:center;
+    color:#ffffff; font-weight:700; font-size:13px; text-transform:uppercase; letter-spacing:0.5px;
+    overflow:hidden; white-space:nowrap; }
+  #name-team1{ left:777px; }
+  #name-team2{ left:1027px; }
+
+  .score-row{ position:absolute; left:903px; top:955px; width:118px; height:52px;
+    display:flex; align-items:center; justify-content:center; gap:6px; }
+  .score-row .score{ color:var(--gold); font-weight:900; font-size:44px; }
+  .score-row .dash{ color:var(--gold); font-weight:900; font-size:32px; }
+
+  .flash{ background:#ffffff33 !important; border-radius:4px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <img class="bg-frame" src="assets/prematch_blank.png" alt="">
+
+  <div class="ban-slot" style="left:53px;" id="ban_team1_0"><img><div class="ban-caption"></div></div>
+  <div class="ban-slot" style="left:184px;" id="ban_team1_1"><img><div class="ban-caption"></div></div>
+  <div class="ban-slot" style="left:316px;" id="ban_team1_2"><img><div class="ban-caption"></div></div>
+  <div class="ban-slot" style="left:447px;" id="ban_team1_3"><img><div class="ban-caption"></div></div>
+  <div class="ban-slot" style="left:579px;" id="ban_team1_4"><img><div class="ban-caption"></div></div>
+
+  <div class="timer-pill">
+    <span class="phase" id="pm-phase">PICKING</span>
+    <span class="dash">-</span>
+    <span class="clock" id="pm-timer">00:00</span>
+  </div>
+  <div class="active-arrow" id="arrow-team1"></div>
+  <div class="active-arrow" id="arrow-team2"></div>
+
+  <div class="ban-slot mirror" style="left:1175px;" id="ban_team2_0"><img><div class="ban-caption"></div></div>
+  <div class="ban-slot mirror" style="left:1306px;" id="ban_team2_1"><img><div class="ban-caption"></div></div>
+  <div class="ban-slot mirror" style="left:1438px;" id="ban_team2_2"><img><div class="ban-caption"></div></div>
+  <div class="ban-slot mirror" style="left:1570px;" id="ban_team2_3"><img><div class="ban-caption"></div></div>
+  <div class="ban-slot mirror" style="left:1701px;" id="ban_team2_4"><img><div class="ban-caption"></div></div>
+
+  <div class="pick-slot" style="left:52px;width:137px;" id="pick_team1_0"><img></div>
+  <div class="pick-slot" style="left:192px;width:136px;" id="pick_team1_1"><img></div>
+  <div class="pick-slot" style="left:330px;width:137px;" id="pick_team1_2"><img></div>
+  <div class="pick-slot" style="left:470px;width:136px;" id="pick_team1_3"><img></div>
+  <div class="pick-slot" style="left:609px;width:137px;" id="pick_team1_4"><img></div>
+  <div class="pick-name" style="left:52px;width:137px;" id="pickname_team1_0"><span class="player"></span><span class="hero"></span></div>
+  <div class="pick-name" style="left:192px;width:136px;" id="pickname_team1_1"><span class="player"></span><span class="hero"></span></div>
+  <div class="pick-name" style="left:330px;width:137px;" id="pickname_team1_2"><span class="player"></span><span class="hero"></span></div>
+  <div class="pick-name" style="left:470px;width:136px;" id="pickname_team1_3"><span class="player"></span><span class="hero"></span></div>
+  <div class="pick-name" style="left:609px;width:137px;" id="pickname_team1_4"><span class="player"></span><span class="hero"></span></div>
+
+  <div class="title" id="pm-line1">LEAGUE STAGE</div>
+  <div class="subtitle" id="pm-line2">DAY 1 MATCH 1</div>
+  <img class="team-logo" id="logo-team1" alt="">
+  <img class="team-logo" id="logo-team2" alt="">
+  <div class="team-name" id="name-team1">TEAM 1</div>
+  <div class="team-name" id="name-team2">TEAM 2</div>
+  <div class="score-row">
+    <span class="score" id="pm-score1">0</span>
+    <span class="dash">-</span>
+    <span class="score" id="pm-score2">0</span>
+  </div>
+
+  <div class="pick-slot" style="left:1169px;width:137px;" id="pick_team2_0"><img></div>
+  <div class="pick-slot" style="left:1309px;width:136px;" id="pick_team2_1"><img></div>
+  <div class="pick-slot" style="left:1447px;width:137px;" id="pick_team2_2"><img></div>
+  <div class="pick-slot" style="left:1587px;width:136px;" id="pick_team2_3"><img></div>
+  <div class="pick-slot" style="left:1726px;width:137px;" id="pick_team2_4"><img></div>
+  <div class="pick-name" style="left:1169px;width:137px;" id="pickname_team2_0"><span class="player"></span><span class="hero"></span></div>
+  <div class="pick-name" style="left:1309px;width:136px;" id="pickname_team2_1"><span class="player"></span><span class="hero"></span></div>
+  <div class="pick-name" style="left:1447px;width:137px;" id="pickname_team2_2"><span class="player"></span><span class="hero"></span></div>
+  <div class="pick-name" style="left:1587px;width:136px;" id="pickname_team2_3"><span class="player"></span><span class="hero"></span></div>
+  <div class="pick-name" style="left:1726px;width:137px;" id="pickname_team2_4"><span class="player"></span><span class="hero"></span></div>
+</div>
+
+<script>
+const WS_URL = "ws://localhost:8765";
+let ws;
+let timerEndsAt = null;
+let timerRemainingMs = 0;
+let timerTickHandle = null;
+
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync") applyState(msg.data);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+
+function setText(id, value){
+  const el = document.getElementById(id);
+  if(el && el.textContent !== String(value)) el.textContent = value;
+}
+
+function fillBanSlot(id, slot){
+  const img = document.querySelector(`#${id} img`);
+  const caption = document.querySelector(`#${id} .ban-caption`);
+  if(slot && slot.image){
+    img.src = `../dashboard/assets/heroes/${encodeURIComponent(slot.image)}`;
+    img.style.display = "block";
+    img.onerror = () => { img.style.display = "none"; };
+  } else {
+    img.style.display = "none";
+  }
+  caption.textContent = (slot && slot.name) || "";
+}
+
+function fillPickSlot(id, nameId, slot, playerName){
+  const img = document.querySelector(`#${id} img`);
+  if(slot && slot.image){
+    img.src = `../dashboard/assets/heroes/${encodeURIComponent(slot.image)}`;
+    img.style.display = "block";
+    img.onerror = () => { img.style.display = "none"; };
+  } else {
+    img.style.display = "none";
+  }
+  const nameEl = document.getElementById(nameId);
+  nameEl.querySelector(".player").textContent = playerName || "";
+  nameEl.querySelector(".hero").textContent = (slot && slot.name) || "";
+}
+
+function updateTimer(){
+  const el = document.getElementById("pm-timer");
+  // Running: count down live from timerEndsAt. Paused/stopped: show the
+  // frozen timerRemainingMs value, no ticking.
+  const remainingMs = timerEndsAt ? Math.max(0, timerEndsAt - Date.now()) : timerRemainingMs;
+  const remaining = Math.ceil(remainingMs / 1000);
+  const mm = String(Math.floor(remaining/60)).padStart(2,"0");
+  const ss = String(remaining%60).padStart(2,"0");
+  el.textContent = `${mm}:${ss}`;
+}
+
+function applyState(state){
+  const pm = state.prematch;
+  if(!pm) return;
+
+  setText("pm-line1", pm.context.line1 || "");
+  setText("pm-line2", pm.context.line2 || "");
+  setText("pm-phase", pm.phase || "");
+  setText("name-team1", state.team1.name || "TEAM 1");
+  setText("name-team2", state.team2.name || "TEAM 2");
+  if(state.team1.logo){
+    const el = document.getElementById("logo-team1");
+    el.src = state.team1.logo; el.style.display = "block";
+  }
+  if(state.team2.logo){
+    const el = document.getElementById("logo-team2");
+    el.src = state.team2.logo; el.style.display = "block";
+  }
+  setText("pm-score1", state.seriesScore.team1);
+  setText("pm-score2", state.seriesScore.team2);
+
+  ["team1","team2"].forEach(team => {
+    const players = state[team].players || [];
+    pm.bans[team].forEach((slot, i) => fillBanSlot(`ban_${team}_${i}`, slot));
+    pm.picks[team].forEach((slot, i) => fillPickSlot(`pick_${team}_${i}`, `pickname_${team}_${i}`, slot, players[i]));
+  });
+
+  document.getElementById("arrow-team1").style.display = pm.activeTeam === "team1" ? "block" : "none";
+  document.getElementById("arrow-team2").style.display = pm.activeTeam === "team2" ? "block" : "none";
+
+  timerEndsAt = pm.timerEndsAt;
+  timerRemainingMs = pm.timerRemainingMs != null ? pm.timerRemainingMs : (pm.timerDuration || 30) * 1000;
+  if(timerTickHandle) clearInterval(timerTickHandle);
+  updateTimer();
+  if(timerEndsAt) timerTickHandle = setInterval(updateTimer, 250);
+}
+
+connect();
+</script>
+</body>
+</html>

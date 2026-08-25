@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>MOBA Broadcast Control Dashboard</title>
+<style>
+  body{font-family:'Segoe UI',Arial,sans-serif;background:#0e1526;color:#eef1fa;margin:0;padding:24px;}
+  h1{font-size:20px;margin-bottom:4px;}
+  #status{display:inline-block;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:700;margin-bottom:16px;}
+  #status.connected{background:#1b5e3a;color:#a4f5c4;}
+  #status.disconnected{background:#5e1b1b;color:#f5a4a4;}
+  .hint{font-size:12px;color:#6d7899;margin-top:-4px;}
+
+  .tabbar{display:flex;gap:8px;margin:16px 0 0;}
+  .tabbar button{
+    background:#161f38;color:#9aa4c0;border:1px solid #2b3860;border-bottom:none;
+    padding:10px 18px;border-radius:8px 8px 0 0;font-weight:700;cursor:pointer;
+    font-size:12px;text-transform:uppercase;letter-spacing:0.5px;
+  }
+  .tabbar button.active{background:#f2c14e;color:#0e1526;border-color:#f2c14e;}
+  .tab-panel{display:none;background:#0e1526;padding-top:4px;}
+  .tab-panel.active{display:block;}
+
+  .card{background:#161f38;border-radius:10px;padding:18px 20px;margin-bottom:20px;}
+  .card h2{margin-top:0;font-size:15px;color:#f2c14e;text-transform:uppercase;letter-spacing:0.5px;}
+  .card h3{font-size:12px;color:#9aa4c0;text-transform:uppercase;margin:0 0 10px;letter-spacing:0.5px;}
+  .row{display:flex;gap:24px;flex-wrap:wrap;}
+  .two-col{display:flex;gap:24px;flex-wrap:wrap;}
+  .col{flex:1;min-width:300px;}
+  .team-form{flex:1;min-width:260px;}
+
+  label{display:block;font-size:12px;color:#9aa4c0;margin:10px 0 4px;}
+  input[type=text], input[type=number]{
+    width:100%;box-sizing:border-box;padding:8px 10px;border-radius:6px;border:1px solid #2b3860;
+    background:#0e1526;color:#eef1fa;font-size:14px;
+  }
+  input[type=file]{color:#9aa4c0;font-size:12px;}
+  .logo-preview{width:48px;height:48px;border-radius:50%;object-fit:cover;background:#0e1526;border:2px solid #f2c14e;margin-top:8px;}
+  button{
+    background:#f2c14e;color:#0e1526;border:none;padding:9px 16px;border-radius:6px;
+    font-weight:700;cursor:pointer;font-size:13px;margin-top:12px;
+  }
+  button.secondary{background:#2b3860;color:#eef1fa;}
+  button:hover{opacity:0.9;}
+
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;}
+  .stat-card{background:#0e1526;border:1px solid #2b3860;border-radius:8px;padding:12px;}
+  .stat-card .label{font-size:12px;color:#9aa4c0;text-transform:uppercase;}
+  .stat-card .live-value{font-size:26px;font-weight:800;color:#f2c14e;margin:6px 0;}
+  .stat-card .override-row{display:flex;align-items:center;gap:8px;margin-top:8px;}
+  .stat-card input[type=number]{width:80px;display:inline-block;}
+  .stat-card.locked{border-color:#f2c14e;}
+
+  .crop-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;}
+  .crop-box{background:#0e1526;border:1px solid #2b3860;border-radius:8px;padding:8px;text-align:center;}
+  .crop-box img{width:100%;height:60px;object-fit:contain;background:#000;border-radius:4px;}
+  .crop-box .label{font-size:11px;color:#9aa4c0;margin-top:6px;text-transform:uppercase;}
+
+  .mini-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+  .mini-grid label{margin:0 0 4px;}
+
+  .player-row{display:grid;grid-template-columns:1fr 80px 80px;gap:8px;align-items:end;margin-bottom:10px;}
+  .player-row label{margin:0 0 4px;}
+
+  .draft-slot{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+  .draft-slot .slot-num{width:16px;color:#6d7899;font-size:11px;text-align:center;flex-shrink:0;}
+  .draft-slot img.hero-preview{width:30px;height:30px;border-radius:4px;object-fit:cover;background:#0e1526;border:1px solid #2b3860;display:none;flex-shrink:0;}
+  .draft-slot input[type=text]{flex:1;font-size:12px;padding:6px 8px;}
+
+  .timer-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;}
+  .timer-row > div{display:flex;flex-direction:column;}
+  .timer-display{font-size:26px;font-weight:800;color:#f2c14e;min-width:80px;align-self:center;}
+  .timer-row input[type=number]{width:80px;}
+  .timer-row button{margin-top:0;}
+</style>
+</head>
+<body>
+<h1>MOBA Broadcast Control Dashboard</h1>
+<span id="status" class="disconnected">DISCONNECTED</span>
+<p class="hint">Connects to the local OCR server at ws://localhost:8765. Start ocr_engine.py first.</p>
+
+<div class="tabbar">
+  <button class="tab-btn active" data-tab="ingame">In-Game Live Ops</button>
+  <button class="tab-btn" data-tab="prematch">Prematch</button>
+  <button class="tab-btn" data-tab="postmatch">Post Match</button>
+</div>
+
+<!-- ===================== IN-GAME LIVE OPS ===================== -->
+<div class="tab-panel active" id="tab-ingame">
+
+  <div class="card">
+    <h2>Team Setup (Manual)</h2>
+    <div class="row">
+      <div class="team-form">
+        <label>Team 1 Name</label>
+        <input type="text" id="team1Name" placeholder="TEAM 1">
+        <label>Team 1 Logo</label>
+        <input type="file" id="team1Logo" accept="image/*">
+        <img class="logo-preview" id="team1LogoPreview">
+      </div>
+      <div class="team-form">
+        <label>Team 2 Name</label>
+        <input type="text" id="team2Name" placeholder="TEAM 2">
+        <label>Team 2 Logo</label>
+        <input type="file" id="team2Logo" accept="image/*">
+        <img class="logo-preview" id="team2LogoPreview">
+      </div>
+    </div>
+    <p class="hint">Player names entered here are shared everywhere — they're what shows next to picks on the
+      Prematch graphic and fill the Post Match player rows automatically. Order matches your pick order (Player 1 = first pick).</p>
+    <div class="row">
+      <div class="team-form">
+        <h3>Team 1 Players</h3>
+        <div id="team1PlayerInputs"></div>
+      </div>
+      <div class="team-form">
+        <h3>Team 2 Players</h3>
+        <div id="team2PlayerInputs"></div>
+      </div>
+    </div>
+    <button id="saveTeamInfo">Save Team Info</button>
+  </div>
+
+  <div class="card">
+    <h2>Live Stats &amp; Manual Override</h2>
+    <p class="hint">Check "Override" to freeze a stat from OCR updates and set it by hand. Uncheck to hand control back to OCR.</p>
+    <div class="stat-grid" id="statGrid"></div>
+    <div>
+      <button class="secondary" id="resetAll">Reset All Stats to 0 (new game)</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>OCR Crop Preview</h2>
+    <p class="hint">Live snapshots of exactly what the OCR engine is reading for each region. Use this to verify calibration.</p>
+    <div class="crop-grid" id="cropGrid"></div>
+  </div>
+</div>
+
+<!-- ===================== PREMATCH ===================== -->
+<div class="tab-panel" id="tab-prematch">
+
+  <div class="card">
+    <h2>Match Context</h2>
+    <div class="row">
+      <div class="team-form">
+        <label>Line 1 (e.g. LEAGUE STAGE)</label>
+        <input type="text" id="pm_line1" placeholder="LEAGUE STAGE">
+      </div>
+      <div class="team-form">
+        <label>Line 2 (e.g. DAY 1 MATCH 1)</label>
+        <input type="text" id="pm_line2" placeholder="DAY 1 MATCH 1">
+      </div>
+    </div>
+    <button id="pm_saveContext">Save Context</button>
+    <p class="hint">Team names and logos are shared with the In-Game tab — set those there.</p>
+  </div>
+
+  <div class="card">
+    <h2>Match Score (Bo3/Bo5)</h2>
+    <p class="hint">The series score shown in the Prematch graphic (e.g. "0-0", "1-1"). Edit it manually here between
+      games — it's the same value used everywhere else, so updating it here also updates the In-Game overlay.</p>
+    <div class="row">
+      <div class="team-form">
+        <label>Team 1 Score</label>
+        <input type="number" id="pm_series_t1" value="0">
+      </div>
+      <div class="team-form">
+        <label>Team 2 Score</label>
+        <input type="number" id="pm_series_t2" value="0">
+      </div>
+    </div>
+    <button id="pm_saveSeries">Save Match Score</button>
+  </div>
+
+  <div class="card">
+    <h2>Draft Timer &amp; Phase</h2>
+    <p class="hint">"On the clock" lights a green indicator on that side of the overlay's timer pill.</p>
+    <div class="timer-row" style="margin-bottom:14px;">
+      <button id="pm_activeTeam1">Team 1 On The Clock</button>
+      <button id="pm_activeTeam2">Team 2 On The Clock</button>
+      <button class="secondary" id="pm_activeNone">Clear Indicator</button>
+    </div>
+    <div class="timer-row">
+      <div>
+        <label>Phase label</label>
+        <input type="text" id="pm_phase" placeholder="PICKING" style="width:140px;">
+      </div>
+      <div>
+        <label>Duration (seconds)</label>
+        <input type="number" id="pm_duration" value="30">
+      </div>
+      <div class="timer-display" id="pm_timerDisplay">00:00</div>
+      <button id="pm_startTimer">Start / Resume</button>
+      <button class="secondary" id="pm_pauseTimer">Pause</button>
+      <button class="secondary" id="pm_resetTimer">Reset to Duration</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Bans</h2>
+    <p class="hint">Start typing a hero name and pick it from the suggestions — the portrait is looked up from
+      <code>dashboard/assets/heroes/</code> automatically once you select a match.</p>
+    <div class="two-col">
+      <div class="col">
+        <h3>Team 1</h3>
+        <div id="pm_bans_team1"></div>
+      </div>
+      <div class="col">
+        <h3>Team 2</h3>
+        <div id="pm_bans_team2"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Picks</h2>
+    <div class="two-col">
+      <div class="col">
+        <h3>Team 1</h3>
+        <div id="pm_picks_team1"></div>
+      </div>
+      <div class="col">
+        <h3>Team 2</h3>
+        <div id="pm_picks_team2"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== POST MATCH ===================== -->
+<div class="tab-panel" id="tab-postmatch">
+
+  <div class="card">
+    <h2>Teams (linked from In-Game Live Ops)</h2>
+    <div class="row">
+      <div class="team-form" style="display:flex;align-items:center;gap:12px;">
+        <img class="logo-preview" id="pom_team1_logo_preview">
+        <div id="pom_team1_name_preview" style="font-weight:800;">TEAM 1</div>
+      </div>
+      <div class="team-form" style="display:flex;align-items:center;gap:12px;">
+        <img class="logo-preview" id="pom_team2_logo_preview">
+        <div id="pom_team2_name_preview" style="font-weight:800;">TEAM 2</div>
+      </div>
+    </div>
+    <p class="hint">Name/logo come from the In-Game Live Ops tab — edit them there, not here.</p>
+  </div>
+
+  <div class="card">
+    <h2>Match Info</h2>
+    <div class="row">
+      <div class="team-form">
+        <label>Title line (e.g. POST MATCH STATS)</label>
+        <input type="text" id="pom_line1" placeholder="POST MATCH STATS">
+      </div>
+      <div class="team-form">
+        <label>Subtitle (e.g. PLAYOFFS / DAY 01)</label>
+        <input type="text" id="pom_line2" placeholder="PLAYOFFS / DAY 01">
+      </div>
+    </div>
+    <div class="row">
+      <div class="team-form">
+        <label>Game Duration (e.g. 13:52)</label>
+        <input type="text" id="pom_duration" placeholder="13:52">
+      </div>
+      <div class="team-form">
+        <label>Date (optional)</label>
+        <input type="text" id="pom_date" placeholder="08/23/2026">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Team Score &amp; Aggregate Stats</h2>
+    <p class="hint">Higher score is shown as VICTORY on the graphic automatically.</p>
+    <div class="two-col">
+      <div class="col">
+        <h3>Team 1</h3>
+        <label>Team Score (total kills)</label>
+        <input type="number" id="pom_t1_score" value="0">
+        <div class="mini-grid">
+          <div><label>Gold</label><input type="number" id="pom_t1_gold" value="0"></div>
+          <div><label>Structures</label><input type="number" id="pom_t1_structures" value="0"></div>
+          <div><label>Kills</label><input type="number" id="pom_t1_kills" value="0"></div>
+          <div><label>Turtles</label><input type="number" id="pom_t1_turtles" value="0"></div>
+        </div>
+      </div>
+      <div class="col">
+        <h3>Team 2</h3>
+        <label>Team Score (total kills)</label>
+        <input type="number" id="pom_t2_score" value="0">
+        <div class="mini-grid">
+          <div><label>Gold</label><input type="number" id="pom_t2_gold" value="0"></div>
+          <div><label>Structures</label><input type="number" id="pom_t2_structures" value="0"></div>
+          <div><label>Kills</label><input type="number" id="pom_t2_kills" value="0"></div>
+          <div><label>Turtles</label><input type="number" id="pom_t2_turtles" value="0"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Players</h2>
+    <div class="two-col">
+      <div class="col">
+        <h3>Team 1</h3>
+        <div id="pom_players_team1"></div>
+      </div>
+      <div class="col">
+        <h3>Team 2</h3>
+        <div id="pom_players_team2"></div>
+      </div>
+    </div>
+  </div>
+
+  <button id="pom_push">Push Post Match to Overlay</button>
+</div>
+
+<datalist id="heroDatalist"></datalist>
+
+<script>
+const WS_URL = "ws://localhost:8765";
+let ws;
+
+const STAT_FIELDS = [
+  {key:"team1.kills", team:"team1", field:"kills", label:"Team 1 - Kills"},
+  {key:"team1.objectives", team:"team1", field:"objectives", label:"Team 1 - Objectives"},
+  {key:"team1.gold", team:"team1", field:"gold", label:"Team 1 - Gold"},
+  {key:"team2.kills", team:"team2", field:"kills", label:"Team 2 - Kills"},
+  {key:"team2.objectives", team:"team2", field:"objectives", label:"Team 2 - Objectives"},
+  {key:"team2.gold", team:"team2", field:"gold", label:"Team 2 - Gold"},
+  {key:"seriesScore.team1", team:"seriesScore", field:"team1", label:"Series Score - Team 1"},
+  {key:"seriesScore.team2", team:"seriesScore", field:"team2", label:"Series Score - Team 2"},
+];
+
+const CROP_REGIONS = [
+  "team1_kills","team1_objectives","team1_gold",
+  "team2_gold","team2_objectives","team2_kills",
+  "team1_series_score","team2_series_score"
+];
+
+/* name -> filename in dashboard/assets/heroes/, generated from the files
+   you saved there. Re-run the mapping script and paste a fresh HERO_LIST
+   here if you add/rename hero images later. */
+const HERO_LIST = [["Aamon","600px-Aamon_infobox.jpg"],["Akai","600px-Akai_infobox.jpg"],["Aldous","600px-Aldous_infobox.jpg"],["Alice","600px-Alice_infobox.jpg"],["Alpha","600px-Alpha_infobox.jpg"],["Alucard","600px-Alucard_infobox.jpg"],["Angela","600px-Angela_infobox.jpg"],["Argus","600px-Argus_infobox.jpg"],["Arlott","600px-Arlott_infobox.jpg"],["Atlas","600px-Atlas_Infobox.jpg"],["Aulus","Aulus_2026_infobox.png"],["Aurora","Aurora_infobox.png"],["Badang","600px-Badang_infobox.jpg"],["Balmond","600px-Balmond_infobox.jpg"],["Bane","600px-Bane_Frozen_King.jpg"],["Barats","600px-Barats_infobox.jpg"],["Baxia","600px-Baxia_Infobox.jpg"],["Beatrix","600px-Beatrix_infobox.jpg"],["Belerick","600px-Belerick_Infobox.jpg"],["Benedetta","600px-Benedetta_infobox.jpg"],["Brody","600px-Brody_infobox.jpg"],["Bruno","Bruno_infobox.jpg"],["Carmilla","600px-Carmilla_infobox.jpg"],["Cecilion","600px-Cecilion_infobox.jpg"],["Chang'e","600px-Chang_e_infobox.jpg"],["Chip","Chip_infobox.jpg"],["Chou","600px-Chou_Infobox.jpg"],["Cici","600px-Cici_infobox.jpg"],["Claude","600px-Claude_infobox.jpg"],["Clint","600px-Clint_Infobox.jpg"],["Cyclops","600px-Cyclops_infobox.jpg"],["Diggie","600px-Diggie_infobox.png"],["Dyrroth","600px-Dyrroth_infobox.jpg"],["Edith","Edith_infobox.jpg"],["Esmeralda","600px-Esmeralda_infobox.jpg"],["Estes","600px-Estes_infobox.png"],["Eudora","600px-Eudora_infobox.jpg"],["Fanny","600px-Fanny_infobox.jpg"],["Faramis","600px-Faramis_infobox.jpg"],["Floryn","Floryn_infobox.jpg"],["Franco","600px-Franco_infobox.jpg"],["Fredrinn","600px-Fredrinn_infobox.jpg"],["Freya","600px-Freya_infobox.jpg"],["Gatotkaca","600px-Gatotkaca_Infobox.jpg"],["Gloo","Gloo_Infobox.jpg"],["Gord","600px-Gord_infobox.jpg"],["Granger","Granger_Infobox_V2.png"],["Grock","600px-Grock_Infobox.jpg"],["Guinevere","600px-Guinevere_infobox.jpg"],["Gusion","600px-Gusion_infobox.jpg"],["Hanabi","Hanabi_infobox.jpg"],["Hanzo","600px-Hanzo_infobox.jpg"],["Harith","600px-Harith_infobox.jpg"],["Harley","600px-Harley_infobox.png"],["Hayabusa","Hayabusa_infobox.jpg"],["Helcurt","600px-Helcurt_infobox.jpg"],["Hilda","600px-Hilda_infobox.jpg"],["Hirara","Hirara_infobox.jpg"],["Hylos","600px-Hylos_Infobox.jpg"],["Irithel","600px-Irithel_infobox.png"],["Ixia","600px-Ixia_infobox.jpg"],["Jawhead","600px-Jawhead_infobox.jpg"],["Johnson","600px-Johnson_Infobox.jpg"],["Joy","600px-Joy_infobox.jpg"],["Julian","600px-Julian_infobox.jpg"],["Kadita","600px-Kadita_infobox.jpg"],["Kagura","600px-Kagura_infobox.jpg"],["Kaja","600px-Kaja_infobox.jpg"],["Kalea","Kalea_infobox.png"],["Karina","600px-Karina_infobox.jpg"],["Karrie","600px-Karrie_infobox.png"],["Khaleed","600px-Khaleed_infobox.jpg"],["Khufra","600px-Khufra_Infobox.jpg"],["Kimmy","600px-Kimmy_infobox.jpg"],["Lancelot","600px-Lancelot_infobox.jpg"],["Lapu-Lapu","Lapu-lapu_infobox.png"],["Layla","600px-Layla_Energy_Gunner.png"],["Leomord","600px-Leomord_infobox.jpg"],["Lesley","600px-Lesley_infobox.jpg"],["Ling","600px-Ling_infobox.jpg"],["Lolita","600px-Lolita_infobox.jpg"],["Lukas","Lukas_infobox.png"],["Lunox","600px-Lunox_infobox.jpg"],["Luo Yi","600px-Luo_Yi_infobox.jpg"],["Lylia","600px-Lylia_infobox.jpg"],["Marcel","Marcel_infobox.jpg"],["Martis","600px-Martis_infobox.jpg"],["Masha","600px-Masha_infobox.jpg"],["Mathilda","600px-Mathilda_infobox.jpg"],["Melissa","600px-Melissa_infobox.jpg"],["Minotaur","600px-Minotaur_infobox.jpg"],["Minsitthar","600px-Minsitthar_infobox.jpg"],["Miya","600px-Miya_infobox.jpg"],["Moskov","600px-Moskov_Infobox.jpg"],["Nana","600px-Nana_infobox.jpg"],["Natalia","600px-Natalia_infobox.jpg"],["Natan","600px-Natan_infobox.jpg"],["Nolan","600px-Nolan_infobox.jpeg"],["Novaria","600px-Novaria_infobox.jpg"],["Obsidia","Obsidia_infobox.png"],["Odette","600px-Odette_infobox.png"],["Paquito","600px-Paquito_infobox.jpg"],["Pharsa","600px-Pharsa_Infobox.jpg"],["Phoveus","600px-Phoveus_infobox.jpg"],["Popol and Kupa","600px-Popol_and_Kupa_infobox.jpg"],["Rafaela","600px-Rafaela_infobox.jpg"],["Roger","600px-Roger_infobox.png"],["Ruby","600px-Ruby_infobox.jpeg"],["Saber","600px-Saber_infobox.jpg"],["Selena","600px-Selena_infobox.jpg"],["Silvanna","600px-Silvanna_infobox.jpg"],["Sora","Sora_infobox.png"],["Sun","600px-Sun_Monkey_King.png"],["Suyou","Suyou_infobox.png"],["Terizla","600px-Terizla_infobox.jpg"],["Thamuz","600px-Thamuz_infobox.jpg"],["Tigreal","600px-Tigreal_infobox.jpg"],["Uranus","600px-Uranus_Infobox.jpg"],["Vale","600px-Vale_infobox.jpg"],["Valentina","600px-Valentina_infobox.jpg"],["Valir","600px-Valir_infobox.jpg"],["Vexana","600px-Vexana_infobox.jpg"],["Wanwan","600px-Wanwan_infobox.jpg"],["X.Borg","X.Borg_infobox.jpg"],["Xavier","600px-Xavier_infobox.jpg"],["Yi Sun-Shin","600px-Yi_Sun-Shin_infobox.jpg"],["Yin","600px-Yin_infobox.jpg"],["Yu Zhong","600px-Yu_Zhong_infobox.jpg"],["Yve","Yve_infobox.jpg"],["Zetian","Zetian_infobox.png"],["Zhask","600px-Zhask_infobox.png"],["Zhuxin","Zhuxin_infobox.jpg"],["Zilong","Zilong_Spear_of_Dragon.png"]];
+const HERO_MAP = {};
+HERO_LIST.forEach(([name, file]) => { HERO_MAP[name.toLowerCase()] = {name, file}; });
+
+let currentState = null;
+let lockedFields = new Set();
+let prematchHydrated = false;
+let postMatchHydrated = false;
+let timerTickHandle = null;
+
+/* ---------- tabs ---------- */
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+  });
+});
+
+/* ---------- shared helpers ---------- */
+function readFileAsDataURL(file){
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
+}
+
+function populateHeroDatalist(){
+  const datalist = document.getElementById("heroDatalist");
+  datalist.innerHTML = HERO_LIST.map(([name]) => `<option value="${name}">`).join("");
+}
+
+function sendManualUpdate(data, lock, unlock){
+  if(ws && ws.readyState === WebSocket.OPEN){
+    ws.send(JSON.stringify({type:"manual_update", data, lock: lock||[], unlock: unlock||[]}));
+  }
+}
+
+/* ---------- in-game live ops ---------- */
+function buildStatGrid(){
+  const grid = document.getElementById("statGrid");
+  grid.innerHTML = "";
+  STAT_FIELDS.forEach(f => {
+    const card = document.createElement("div");
+    card.className = "stat-card";
+    card.id = "card-" + f.key;
+    card.innerHTML = `
+      <div class="label">${f.label}</div>
+      <div class="live-value" id="live-${f.key}">0</div>
+      <div class="override-row">
+        <label style="margin:0;display:inline-block;">
+          <input type="checkbox" id="lock-${f.key}"> Override
+        </label>
+      </div>
+      <div class="override-row">
+        <input type="number" id="input-${f.key}" disabled>
+        <button data-key="${f.key}" class="apply-btn">Apply</button>
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+
+  grid.querySelectorAll(".apply-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.key;
+      const field = STAT_FIELDS.find(f => f.key === key);
+      const val = Number(document.getElementById(`input-${key}`).value || 0);
+      const data = {};
+      data[field.team] = {};
+      data[field.team][field.field] = val;
+      sendManualUpdate(data, [key], []);
+    });
+  });
+
+  STAT_FIELDS.forEach(f => {
+    document.getElementById(`lock-${f.key}`).addEventListener("change", (e) => {
+      const input = document.getElementById(`input-${f.key}`);
+      input.disabled = !e.target.checked;
+      if(!e.target.checked){
+        sendManualUpdate({}, [], [f.key]);
+      }
+    });
+  });
+}
+
+function buildCropGrid(){
+  const grid = document.getElementById("cropGrid");
+  grid.innerHTML = "";
+  CROP_REGIONS.forEach(key => {
+    const box = document.createElement("div");
+    box.className = "crop-box";
+    box.innerHTML = `<img id="crop-${key}"><div class="label">${key.replace(/_/g," ")}</div>`;
+    grid.appendChild(box);
+  });
+}
+
+function buildPlayerNameInputs(containerId, team){
+  const container = document.getElementById(containerId);
+  container.innerHTML = "";
+  for(let i=0;i<5;i++){
+    const wrap = document.createElement("div");
+    wrap.style.marginBottom = "6px";
+    wrap.innerHTML = `<input type="text" id="${team}Player${i}" placeholder="Player ${i+1} name">`;
+    container.appendChild(wrap);
+  }
+}
+
+function renderIngameState(){
+  if(!currentState) return;
+  document.getElementById("team1LogoPreview").src = currentState.team1.logo || "";
+  document.getElementById("team2LogoPreview").src = currentState.team2.logo || "";
+  if(document.activeElement.id !== "team1Name") document.getElementById("team1Name").value = currentState.team1.name || "";
+  if(document.activeElement.id !== "team2Name") document.getElementById("team2Name").value = currentState.team2.name || "";
+
+  if(document.activeElement.id !== "pm_series_t1") document.getElementById("pm_series_t1").value = currentState.seriesScore.team1;
+  if(document.activeElement.id !== "pm_series_t2") document.getElementById("pm_series_t2").value = currentState.seriesScore.team2;
+
+  document.getElementById("pom_team1_name_preview").textContent = currentState.team1.name || "TEAM 1";
+  document.getElementById("pom_team2_name_preview").textContent = currentState.team2.name || "TEAM 2";
+  document.getElementById("pom_team1_logo_preview").src = currentState.team1.logo || "";
+  document.getElementById("pom_team2_logo_preview").src = currentState.team2.logo || "";
+
+  ["team1","team2"].forEach(team => {
+    (currentState[team].players || []).forEach((name, i) => {
+      const input = document.getElementById(`${team}Player${i}`);
+      if(input && document.activeElement !== input) input.value = name || "";
+      const label = document.getElementById(`pom_${team}_${i}_nameLabel`);
+      if(label) label.textContent = name || `Player ${i+1}`;
+      const pickNum = document.getElementById(`picks_${team}_${i}_playerNum`);
+      if(pickNum) pickNum.textContent = name ? name : String(i+1);
+    });
+  });
+
+  if(currentState.prematch){
+    ["team1","team2"].forEach(team => {
+      (currentState.prematch.picks[team] || []).forEach((pick, i) => {
+        const heroLabel = document.getElementById(`pom_${team}_${i}_heroLabel`);
+        if(heroLabel) heroLabel.textContent = (pick && pick.name) ? pick.name : "no pick yet";
+      });
+    });
+  }
+
+  STAT_FIELDS.forEach(f => {
+    const value = currentState[f.team][f.field];
+    const liveEl = document.getElementById(`live-${f.key}`);
+    if(liveEl) liveEl.textContent = value;
+    const isLocked = lockedFields.has(f.key);
+    const lockCheckbox = document.getElementById(`lock-${f.key}`);
+    const input = document.getElementById(`input-${f.key}`);
+    const card = document.getElementById(`card-${f.key}`);
+    lockCheckbox.checked = isLocked;
+    input.disabled = !isLocked;
+    card.classList.toggle("locked", isLocked);
+    if(document.activeElement !== input){
+      input.value = value;
+    }
+  });
+}
+
+document.getElementById("team1Logo").addEventListener("change", async (e) => {
+  if(e.target.files[0]){
+    const dataUrl = await readFileAsDataURL(e.target.files[0]);
+    document.getElementById("team1LogoPreview").src = dataUrl;
+  }
+});
+document.getElementById("team2Logo").addEventListener("change", async (e) => {
+  if(e.target.files[0]){
+    const dataUrl = await readFileAsDataURL(e.target.files[0]);
+    document.getElementById("team2LogoPreview").src = dataUrl;
+  }
+});
+
+document.getElementById("saveTeamInfo").addEventListener("click", () => {
+  const data = {
+    team1: { name: document.getElementById("team1Name").value },
+    team2: { name: document.getElementById("team2Name").value },
+  };
+  const logo1 = document.getElementById("team1LogoPreview").src;
+  const logo2 = document.getElementById("team2LogoPreview").src;
+  if(logo1 && logo1.startsWith("data:")) data.team1.logo = logo1;
+  if(logo2 && logo2.startsWith("data:")) data.team2.logo = logo2;
+  ["team1","team2"].forEach(team => {
+    data[team].players = [];
+    for(let i=0;i<5;i++){
+      data[team].players.push(document.getElementById(`${team}Player${i}`).value);
+    }
+  });
+  sendManualUpdate(data, [], []);
+});
+
+document.getElementById("resetAll").addEventListener("click", () => {
+  const data = {
+    team1: { kills:0, objectives:0, gold:0 },
+    team2: { kills:0, objectives:0, gold:0 },
+    seriesScore: { team1:0, team2:0 },
+  };
+  const allKeys = STAT_FIELDS.map(f => f.key);
+  sendManualUpdate(data, [], allKeys);
+});
+
+/* ---------- prematch ---------- */
+function debounce(fn, delay){
+  let handle;
+  return (...args) => {
+    clearTimeout(handle);
+    handle = setTimeout(() => fn(...args), delay);
+  };
+}
+
+function buildDraftSlots(containerId, team, kind){
+  const container = document.getElementById(containerId);
+  container.innerHTML = "";
+  for(let i=0;i<5;i++){
+    const row = document.createElement("div");
+    row.className = "draft-slot";
+    const slotLabel = kind === "picks"
+      ? `<span class="slot-num" id="picks_${team}_${i}_playerNum" style="width:auto;min-width:16px;">${i+1}</span>`
+      : `<span class="slot-num">${i+1}</span>`;
+    row.innerHTML = `
+      ${slotLabel}
+      <img class="hero-preview" id="${kind}_${team}_${i}_img">
+      <input type="text" id="${kind}_${team}_${i}_name" list="heroDatalist"
+             placeholder="Type to search hero...">
+    `;
+    container.appendChild(row);
+    const input = row.querySelector("input");
+    const img = row.querySelector("img");
+    const update = () => {
+      const match = HERO_MAP[input.value.trim().toLowerCase()];
+      if(match){
+        input.value = match.name; // normalize casing once it's a real match
+        img.src = `assets/heroes/${encodeURIComponent(match.file)}`;
+        img.style.display = "block";
+        img.onerror = () => { img.style.display = "none"; };
+      } else {
+        img.style.display = "none";
+      }
+      sendPrematchDebounced();
+    };
+    input.addEventListener("input", update);
+  }
+}
+
+function gatherPrematch(){
+  const bans = {team1:[], team2:[]};
+  const picks = {team1:[], team2:[]};
+  ["team1","team2"].forEach(team => {
+    for(let i=0;i<5;i++){
+      const banName = document.getElementById(`bans_${team}_${i}_name`).value.trim();
+      const pickName = document.getElementById(`picks_${team}_${i}_name`).value.trim();
+      const banMatch = HERO_MAP[banName.toLowerCase()];
+      const pickMatch = HERO_MAP[pickName.toLowerCase()];
+      bans[team].push({ name: banName, image: banMatch ? banMatch.file : "" });
+      picks[team].push({ name: pickName, image: pickMatch ? pickMatch.file : "" });
+    }
+  });
+  const existing = (currentState && currentState.prematch) || {};
+  // Number(x) || 30 misbehaves if x is the string "0" (non-empty strings are
+  // truthy, so the fallback never kicks in and Number("0")||30 still gives
+  // 30 anyway by luck — but converting to a Number FIRST avoids relying on
+  // that coincidence and is the actually-correct order of operations).
+  const durationSec = Number(document.getElementById("pm_duration").value) || 30;
+  return {
+    context: {
+      line1: document.getElementById("pm_line1").value,
+      line2: document.getElementById("pm_line2").value,
+    },
+    phase: document.getElementById("pm_phase").value,
+    activeTeam: existing.activeTeam != null ? existing.activeTeam : null,
+    timerEndsAt: existing.timerEndsAt != null ? existing.timerEndsAt : null,
+    timerDuration: durationSec,
+    timerRemainingMs: existing.timerRemainingMs != null ? existing.timerRemainingMs : durationSec * 1000,
+    bans, picks,
+  };
+}
+
+function sendPrematch(){
+  sendManualUpdate({ prematch: gatherPrematch() });
+}
+const sendPrematchDebounced = debounce(sendPrematch, 400);
+
+function hydratePrematch(pm){
+  if(!pm) return;
+  document.getElementById("pm_line1").value = pm.context.line1 || "";
+  document.getElementById("pm_line2").value = pm.context.line2 || "";
+  document.getElementById("pm_phase").value = pm.phase || "";
+  document.getElementById("pm_duration").value = pm.timerDuration || 30;
+  ["bans","picks"].forEach(kind => {
+    ["team1","team2"].forEach(team => {
+      for(let i=0;i<5;i++){
+        const slot = (pm[kind] && pm[kind][team] && pm[kind][team][i]) || {name:"",image:""};
+        const input = document.getElementById(`${kind}_${team}_${i}_name`);
+        const img = document.getElementById(`${kind}_${team}_${i}_img`);
+        if(!input) continue;
+        input.value = slot.name || "";
+        if(slot.image){
+          img.src = `assets/heroes/${encodeURIComponent(slot.image)}`;
+          img.style.display = "block";
+          img.onerror = () => { img.style.display = "none"; };
+        } else {
+          img.style.display = "none";
+        }
+      }
+    });
+  });
+  updateTimerDisplay(pm.timerEndsAt, pm.timerRemainingMs);
+}
+
+document.getElementById("pm_saveContext").addEventListener("click", sendPrematch);
+
+document.getElementById("pm_saveSeries").addEventListener("click", () => {
+  const t1 = Number(document.getElementById("pm_series_t1").value || 0);
+  const t2 = Number(document.getElementById("pm_series_t2").value || 0);
+  sendManualUpdate(
+    { seriesScore: { team1: t1, team2: t2 } },
+    ["seriesScore.team1", "seriesScore.team2"],
+    []
+  );
+});
+
+// Start/Resume always counts down from whatever timerRemainingMs currently
+// holds (the full duration if never paused, or the frozen remainder if
+// paused) — so resuming continues from where it left off, not from scratch.
+document.getElementById("pm_startTimer").addEventListener("click", () => {
+  const data = gatherPrematch();
+  data.timerEndsAt = Date.now() + data.timerRemainingMs;
+  sendManualUpdate({ prematch: data });
+});
+document.getElementById("pm_pauseTimer").addEventListener("click", () => {
+  const data = gatherPrematch();
+  if(data.timerEndsAt){
+    data.timerRemainingMs = Math.max(0, data.timerEndsAt - Date.now());
+  }
+  data.timerEndsAt = null;
+  sendManualUpdate({ prematch: data });
+});
+document.getElementById("pm_resetTimer").addEventListener("click", () => {
+  const data = gatherPrematch();
+  data.timerEndsAt = null;
+  data.timerRemainingMs = data.timerDuration * 1000;
+  sendManualUpdate({ prematch: data });
+});
+
+// Switching whose turn it is also resets the countdown to the full
+// configured duration — a new team's clock shouldn't inherit whatever
+// time was left on the previous team's turn.
+["team1","team2"].forEach(team => {
+  document.getElementById(`pm_activeTeam${team.slice(-1)}`).addEventListener("click", () => {
+    const data = gatherPrematch();
+    data.activeTeam = team;
+    data.timerEndsAt = null;
+    data.timerRemainingMs = data.timerDuration * 1000;
+    sendManualUpdate({ prematch: data });
+  });
+});
+document.getElementById("pm_activeNone").addEventListener("click", () => {
+  const data = gatherPrematch();
+  data.activeTeam = null;
+  sendManualUpdate({ prematch: data });
+});
+
+function updateTimerDisplay(timerEndsAt, timerRemainingMs){
+  const el = document.getElementById("pm_timerDisplay");
+  if(timerTickHandle) clearInterval(timerTickHandle);
+  const tick = () => {
+    const remainingMs = timerEndsAt ? Math.max(0, timerEndsAt - Date.now()) : (timerRemainingMs || 0);
+    const secs = Math.ceil(remainingMs / 1000);
+    el.textContent = String(secs).padStart(2,"0") + "s";
+    if(timerEndsAt && remainingMs <= 0) clearInterval(timerTickHandle);
+  };
+  tick();
+  if(timerEndsAt) timerTickHandle = setInterval(tick, 250);
+}
+
+/* ---------- post match ---------- */
+function buildPlayerRows(containerId, team){
+  const container = document.getElementById(containerId);
+  container.innerHTML = "";
+  for(let i=0;i<5;i++){
+    const row = document.createElement("div");
+    row.className = "player-row";
+    row.innerHTML = `
+      <div>
+        <label>Player ${i+1}</label>
+        <div id="pom_${team}_${i}_nameLabel" style="font-weight:700;color:#9aa4c0;">—</div>
+        <div id="pom_${team}_${i}_heroLabel" style="font-size:11px;color:#6d7899;padding-top:2px;">no pick yet</div>
+      </div>
+      <div>
+        <label>Dmg Dealt</label>
+        <input type="number" id="pom_${team}_${i}_dealt" value="0">
+      </div>
+      <div>
+        <label>Dmg Taken</label>
+        <input type="number" id="pom_${team}_${i}_taken" value="0">
+      </div>
+    `;
+    container.appendChild(row);
+  }
+}
+
+function gatherPostMatch(){
+  const players = {team1:[], team2:[]};
+  ["team1","team2"].forEach(team => {
+    for(let i=0;i<5;i++){
+      players[team].push({
+        damageDealt: Number(document.getElementById(`pom_${team}_${i}_dealt`).value || 0),
+        damageTaken: Number(document.getElementById(`pom_${team}_${i}_taken`).value || 0),
+      });
+    }
+  });
+  return {
+    context: {
+      line1: document.getElementById("pom_line1").value,
+      line2: document.getElementById("pom_line2").value,
+    },
+    duration: document.getElementById("pom_duration").value,
+    date: document.getElementById("pom_date").value,
+    team1Score: Number(document.getElementById("pom_t1_score").value || 0),
+    team2Score: Number(document.getElementById("pom_t2_score").value || 0),
+    stats: {
+      team1: {
+        gold: Number(document.getElementById("pom_t1_gold").value || 0),
+        structures: Number(document.getElementById("pom_t1_structures").value || 0),
+        kills: Number(document.getElementById("pom_t1_kills").value || 0),
+        turtles: Number(document.getElementById("pom_t1_turtles").value || 0),
+      },
+      team2: {
+        gold: Number(document.getElementById("pom_t2_gold").value || 0),
+        structures: Number(document.getElementById("pom_t2_structures").value || 0),
+        kills: Number(document.getElementById("pom_t2_kills").value || 0),
+        turtles: Number(document.getElementById("pom_t2_turtles").value || 0),
+      },
+    },
+    players,
+  };
+}
+
+function hydratePostMatch(pom){
+  if(!pom) return;
+  document.getElementById("pom_line1").value = pom.context.line1 || "";
+  document.getElementById("pom_line2").value = pom.context.line2 || "";
+  document.getElementById("pom_duration").value = pom.duration || "";
+  document.getElementById("pom_date").value = pom.date || "";
+  document.getElementById("pom_t1_score").value = pom.team1Score || 0;
+  document.getElementById("pom_t2_score").value = pom.team2Score || 0;
+  ["team1","team2"].forEach(team => {
+    const s = pom.stats[team];
+    document.getElementById(`pom_${team === "team1" ? "t1" : "t2"}_gold`).value = s.gold;
+    document.getElementById(`pom_${team === "team1" ? "t1" : "t2"}_structures`).value = s.structures;
+    document.getElementById(`pom_${team === "team1" ? "t1" : "t2"}_kills`).value = s.kills;
+    document.getElementById(`pom_${team === "team1" ? "t1" : "t2"}_turtles`).value = s.turtles;
+    pom.players[team].forEach((p, i) => {
+      document.getElementById(`pom_${team}_${i}_dealt`).value = p.damageDealt || 0;
+      document.getElementById(`pom_${team}_${i}_taken`).value = p.damageTaken || 0;
+      if(p.photo) document.getElementById(`pom_${team}_${i}_photoPreview`).src = p.photo;
+    });
+  });
+}
+
+document.getElementById("pom_push").addEventListener("click", () => {
+  sendManualUpdate({ postMatch: gatherPostMatch() });
+});
+
+/* ---------- websocket ---------- */
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => {
+    document.getElementById("status").textContent = "CONNECTED";
+    document.getElementById("status").className = "connected";
+  };
+  ws.onclose = () => {
+    document.getElementById("status").textContent = "DISCONNECTED";
+    document.getElementById("status").className = "disconnected";
+    setTimeout(connect, 2000);
+  };
+  ws.onerror = () => ws.close();
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync"){
+      currentState = msg.data;
+      lockedFields = new Set(msg.locked || []);
+      renderIngameState();
+      if(!prematchHydrated && currentState.prematch){
+        hydratePrematch(currentState.prematch);
+        prematchHydrated = true;
+      } else if(currentState.prematch){
+        // Keep the countdown display live even without re-hydrating the form,
+        // so a timer started from another tab/session still counts down here.
+        updateTimerDisplay(currentState.prematch.timerEndsAt, currentState.prematch.timerRemainingMs);
+      }
+      if(!postMatchHydrated && currentState.postMatch){
+        hydratePostMatch(currentState.postMatch);
+        postMatchHydrated = true;
+      }
+    } else if(msg.type === "crop_preview"){
+      const img = document.getElementById(`crop-${msg.region}`);
+      if(img) img.src = msg.image;
+    }
+  };
+}
+
+buildStatGrid();
+buildCropGrid();
+buildPlayerNameInputs("team1PlayerInputs", "team1");
+buildPlayerNameInputs("team2PlayerInputs", "team2");
+populateHeroDatalist();
+buildDraftSlots("pm_bans_team1", "team1", "bans");
+buildDraftSlots("pm_bans_team2", "team2", "bans");
+buildDraftSlots("pm_picks_team1", "team1", "picks");
+buildDraftSlots("pm_picks_team2", "team2", "picks");
+buildPlayerRows("pom_players_team1", "team1");
+buildPlayerRows("pom_players_team2", "team2");
+connect();
+</script>
+</body>
+</html>

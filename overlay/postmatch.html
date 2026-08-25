@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>MOBA Post Match Overlay</title>
+<style>
+  /*
+    Pixel positions measured directly off assets/postmatch_demo.png against
+    the blank assets/postmatch_blank.png template (same technique as the
+    in-game overlay and prematch). Title, dividers, diamonds, VICTORY/DEFEAT
+    labels, diagonal slashes, corner accents, and the 3 center-column icons
+    are all static background art — only text/photos below are drawn here.
+
+    Team1 is always rendered on the left (under the baked "VICTORY" text)
+    and team2 always on the right (under "DEFEAT") — fixed positions, no
+    score-based swapping. Enter the winning team as team1 for that game.
+  */
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Regular.ttf') format('truetype');
+    font-weight: 400; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Bold.ttf') format('truetype');
+    font-weight: 700; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');
+    font-weight: 800; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
+    font-weight: 900; font-style: normal;
+  }
+
+  :root{ --gold:#f0ca90; --white:#ffffff; }
+  html,body{ margin:0; padding:0; background:transparent; overflow:hidden;
+    width:1920px; height:1080px; font-family:'TT Supermolot Neue Trial', Arial, sans-serif; }
+
+  #stage{ position:relative; width:1920px; height:1080px; opacity:0;
+    transform:translateY(16px); animation: enter 0.6s ease forwards; }
+  @keyframes enter{ to{ opacity:1; transform:translateY(0);} }
+
+  .bg-frame{ position:absolute; top:0; left:0; width:1920px; height:1080px; pointer-events:none; }
+
+  /* ---- header: team logo + name + score (everything else is baked art) ----
+     Team name sits in the divider-bounded box the art reserves. The logo
+     isn't part of the original art at all — it goes at the outer corner of
+     the header bar itself, beyond the divider, near the bar's edge. */
+  .team-block{ position:absolute; top:298px; width:132px; height:38px;
+    display:flex; align-items:center; justify-content:center; }
+  #block-left{ left:249px; }
+  #block-right{ left:1540px; }
+  .team-block .team-name{
+    color:var(--white); font-weight:700; font-size:14px; text-transform:uppercase; letter-spacing:0.3px;
+    overflow:hidden; white-space:nowrap; text-overflow:ellipsis; min-width:0; }
+
+  .header-logo{ position:absolute; top:291px; width:60px; height:60px;
+    border-radius:50%; object-fit:cover; display:none; }
+  #logo-left{ left:145px; }
+  #logo-right{ left:1715px; }
+
+  /* You removed "VICTORY"/"DEFEAT" from the template but kept the diamonds
+     baked in (fixed gold-left/gray-right regardless of actual score) — so
+     the diamonds still need to be redrawn on top to reflect the real
+     winner, but the text now drops straight onto genuinely empty space,
+     no covering trick needed. Diamonds are simple opaque shapes sized to
+     fully overlap the baked ones, so no blur is needed there either. */
+  .result-diamonds{ position:absolute; top:296px; width:80px; height:51px;
+    display:flex; align-items:center; justify-content:center; gap:8px; }
+  #diamonds-left{ left:428px; }
+  #diamonds-right{ left:1414px; width:78px; height:48px; }
+  .result-diamonds svg{ width:34px; height:44px; flex-shrink:0; }
+
+  .result-text{ position:absolute; top:311px; width:140px; height:24px;
+    display:flex; align-items:center;
+    font-weight:800; font-size:15px; font-style:italic; text-transform:uppercase; letter-spacing:1px; }
+  .result-text.win{ color:#ffffff; }
+  .result-text.lose{ color:#9aa0ab; }
+  #result-left{ left:552px; justify-content:flex-start; }
+  #result-right{ left:1228px; justify-content:flex-end; }
+
+  .score-block{ position:absolute; left:864px; top:278px; width:195px; height:100px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; }
+  .score-row{ display:flex; align-items:center; gap:14px; }
+  .score-row .score{ color:var(--white); font-weight:900; font-size:38px; }
+  .score-row .dash{ color:var(--gold); font-weight:900; font-size:26px; }
+  .score-block .meta{ display:flex; flex-direction:column; align-items:center; color:var(--white); opacity:0.85; }
+  .score-block .meta .label{ font-size:9px; text-transform:uppercase; letter-spacing:1px; opacity:0.7; }
+  .score-block .meta .value{ font-size:13px; font-weight:800; }
+
+  /* ---- center column stat values (icons are baked art) ---- */
+  .stat-val{ position:absolute; width:130px; height:30px; display:flex; align-items:center;
+    color:var(--white); font-weight:900; font-size:24px; }
+  .stat-val.left{ left:790px; justify-content:flex-end; }
+  .stat-val.right{ left:1000px; justify-content:flex-start; }
+  .stat-row-1{ top:481px; } .stat-row-2{ top:621px; } .stat-row-3{ top:762px; }
+
+  /* ---- player rows ----
+     "DAMAGE DEALT/TAKEN" labels are baked into the background art at fixed
+     positions, closer to the outer edge on the right column than on the
+     left. The real template only reserves an image slot on the left, but
+     both sides show the picked hero here — the right slot is added,
+     mirrored to the outer (right) edge of its row, in the space the real
+     labels leave free. */
+  .players-col{ position:absolute; top:391px; width:564px; }
+  #col-team1{ left:113px; }
+  #col-team2{ left:1246px; }
+  .player-row{ position:absolute; width:564px; height:100px; }
+
+  /* The hero art the player picked is the main image here — no player
+     headshots. It fills the slot, with player name + hero name captioned
+     on top of the bottom of the art, not as a tiny corner badge. */
+  .photo-wrap{ position:absolute; top:0; width:180px; height:100px; overflow:hidden; }
+  #col-team1 .photo-wrap{ left:0; }
+  #col-team2 .photo-wrap{ right:0; }
+  .photo-wrap img.hero-photo{ width:100%; height:100%; object-fit:cover; object-position:50% 15%; display:none; }
+  .photo-caption{ position:absolute; left:0; right:0; bottom:0; background:rgba(0,0,0,0.65);
+    padding:3px 6px; box-sizing:border-box; display:none; }
+  .photo-caption .pname{ color:#fff; font-weight:800; font-size:11px; text-transform:uppercase;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .photo-caption .hname{ color:var(--gold); font-weight:600; font-size:10px; text-transform:uppercase;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  .dmg-val{ position:absolute; top:51px; height:25px; width:120px;
+    color:var(--gold); font-weight:800; font-size:23px; text-align:center; }
+  /* left values are positioned relative to #col-team1 (canvas left=113px);
+     right values relative to #col-team2 (canvas left=1246px) */
+  #col-team1 .dmg-val.dealt{ left:220px; } /* canvas center ~393, under the real label */
+  #col-team1 .dmg-val.taken{ left:410px; } /* canvas center ~583 */
+  #col-team2 .dmg-val.dealt{ left:54px; }  /* canvas center ~1360 */
+  #col-team2 .dmg-val.taken{ left:228px; } /* canvas center ~1534 */
+
+  .flash{ background:#f0ca9033 !important; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <img class="bg-frame" src="assets/postmatch_blank.png" alt="">
+
+  <img class="header-logo" id="logo-left" alt="">
+  <img class="header-logo" id="logo-right" alt="">
+  <div class="team-block" id="block-left">
+    <div class="team-name" id="name-left">TEAM 1</div>
+  </div>
+  <div class="team-block" id="block-right">
+    <div class="team-name" id="name-right">TEAM 2</div>
+  </div>
+
+  <div class="result-diamonds" id="diamonds-left">
+    <svg viewBox="0 0 20 20"><polygon points="10,0 20,10 10,20 0,10"/></svg>
+    <svg viewBox="0 0 20 20"><polygon points="10,0 20,10 10,20 0,10"/></svg>
+  </div>
+  <span class="result-text" id="result-left">VICTORY</span>
+
+  <div class="result-diamonds" id="diamonds-right">
+    <svg viewBox="0 0 20 20"><polygon points="10,0 20,10 10,20 0,10"/></svg>
+    <svg viewBox="0 0 20 20"><polygon points="10,0 20,10 10,20 0,10"/></svg>
+  </div>
+  <span class="result-text" id="result-right">DEFEAT</span>
+
+  <div class="score-block">
+    <div class="score-row">
+      <span class="score" id="score-left">0</span>
+      <span class="dash">-</span>
+      <span class="score" id="score-right">0</span>
+    </div>
+    <div class="meta">
+      <span class="label">Game Time</span>
+      <span class="value" id="pom-duration">00:00</span>
+    </div>
+  </div>
+
+  <div class="stat-val left stat-row-1" id="stat-left-gold">0</div>
+  <div class="stat-val right stat-row-1" id="stat-right-gold">0</div>
+  <div class="stat-val left stat-row-2" id="stat-left-structures">0</div>
+  <div class="stat-val right stat-row-2" id="stat-right-structures">0</div>
+  <div class="stat-val left stat-row-3" id="stat-left-kills">0</div>
+  <div class="stat-val right stat-row-3" id="stat-right-kills">0</div>
+
+  <div class="players-col" id="col-team1"></div>
+  <div class="players-col" id="col-team2"></div>
+</div>
+
+<script>
+const WS_URL = "ws://localhost:8765";
+let ws;
+
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync") applyState(msg.data);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+
+function setText(id, value){
+  const el = document.getElementById(id);
+  if(el && el.textContent !== String(value)) el.textContent = value;
+}
+
+function buildColumn(containerId, side){
+  const container = document.getElementById(containerId);
+  container.innerHTML = "";
+  for(let i=0;i<5;i++){
+    const row = document.createElement("div");
+    row.className = "player-row";
+    row.style.top = (i*106) + "px";
+    const photoBlock = `
+      <div class="photo-wrap">
+        <img class="hero-photo" id="${side}-${i}-heroimg">
+        <div class="photo-caption" id="${side}-${i}-caption">
+          <div class="pname" id="${side}-${i}-name"></div>
+          <div class="hname" id="${side}-${i}-heroname"></div>
+        </div>
+      </div>`;
+    row.innerHTML = `
+      ${photoBlock}
+      <div class="dmg-val dealt" id="${side}-${i}-dealt">0</div>
+      <div class="dmg-val taken" id="${side}-${i}-taken">0</div>
+    `;
+    container.appendChild(row);
+  }
+}
+
+function renderSide(side, teamKey, pom, state, picks){
+  setText(`name-${side}`, state[teamKey].name || teamKey.toUpperCase());
+  const logo = document.getElementById(`logo-${side}`);
+  if(state[teamKey].logo){
+    logo.src = state[teamKey].logo; logo.style.display = "block";
+  } else {
+    logo.style.display = "none";
+  }
+
+  const players = state[teamKey].players || [];
+  pom.players[teamKey].forEach((p, i) => {
+    const prefix = `${side}-${i}`;
+    setText(`${prefix}-dealt`, p.damageDealt);
+    setText(`${prefix}-taken`, p.damageTaken);
+    // Image shown is whichever hero the player picked in Prematch — not a
+    // player headshot.
+    const heroImg = document.getElementById(`${prefix}-heroimg`);
+    if(heroImg){
+      const caption = document.getElementById(`${prefix}-caption`);
+      const pick = (picks[teamKey] || [])[i];
+      if(pick && pick.image){
+        heroImg.src = `../dashboard/assets/heroes/${encodeURIComponent(pick.image)}`;
+        heroImg.style.display = "block";
+        heroImg.onerror = () => { heroImg.style.display = "none"; };
+      } else {
+        heroImg.style.display = "none";
+      }
+      setText(`${prefix}-name`, players[i] || "");
+      setText(`${prefix}-heroname`, (pick && pick.name) || "");
+      caption.style.display = (players[i] || (pick && pick.name)) ? "block" : "none";
+    }
+  });
+}
+
+function applyState(state){
+  const pom = state.postMatch;
+  if(!pom) return;
+  const picks = (state.prematch && state.prematch.picks) || {team1:[], team2:[]};
+
+  // Team1 always renders on the left, team2 always on the right — fixed,
+  // regardless of score. Whoever actually won is whichever team the
+  // operator entered as team1 for that game, not auto-detected here.
+  const leftTeam = "team1", rightTeam = "team2";
+  const leftScore = pom.team1Score, rightScore = pom.team2Score;
+  const leftStats = pom.stats[leftTeam];
+  const rightStats = pom.stats[rightTeam];
+
+  setText("pom-duration", pom.duration || "00:00");
+  setText("score-left", leftScore);
+  setText("score-right", rightScore);
+
+  setText("stat-left-gold", leftStats.gold);
+  setText("stat-right-gold", rightStats.gold);
+  setText("stat-left-structures", leftStats.structures);
+  setText("stat-right-structures", rightStats.structures);
+  setText("stat-left-kills", leftStats.kills);
+  setText("stat-right-kills", rightStats.kills);
+
+  // "VICTORY"/"DEFEAT" reflect the real score regardless of which side
+  // that team is fixed to — team1 might be on the left and still lose.
+  const leftWins = leftScore >= rightScore;
+  setResult("left", leftWins);
+  setResult("right", !leftWins);
+
+  renderSide("left", leftTeam, pom, state, picks);
+  renderSide("right", rightTeam, pom, state, picks);
+}
+
+function setResult(side, wins){
+  const text = document.getElementById(`result-${side}`);
+  text.textContent = wins ? "VICTORY" : "DEFEAT";
+  text.className = "result-text " + (wins ? "win" : "lose");
+  const color = wins ? "#f0ca90" : "#8a93ab";
+  document.querySelectorAll(`#diamonds-${side} polygon`).forEach(p => p.setAttribute("fill", color));
+}
+
+buildColumn("col-team1", "left");
+buildColumn("col-team2", "right");
+connect();
+</script>
+</body>
+</html>
