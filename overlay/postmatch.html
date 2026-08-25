@@ -83,14 +83,14 @@
   #result-left{ left:552px; justify-content:flex-start; }
   #result-right{ left:1228px; justify-content:flex-end; }
 
-  .score-block{ position:absolute; left:864px; top:278px; width:195px; height:100px;
-    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; }
-  .score-row{ display:flex; align-items:center; gap:14px; }
-  .score-row .score{ color:var(--white); font-weight:900; font-size:38px; }
-  .score-row .dash{ color:var(--gold); font-weight:900; font-size:26px; }
-  .score-block .meta{ display:flex; flex-direction:column; align-items:center; color:var(--white); opacity:0.85; }
-  .score-block .meta .label{ font-size:9px; text-transform:uppercase; letter-spacing:1px; opacity:0.7; }
-  .score-block .meta .value{ font-size:13px; font-weight:800; }
+  .score-block{ position:absolute; left:864px; top:298px; width:195px;
+    display:flex; flex-direction:column; align-items:center; }
+  .score-row{ display:flex; align-items:center; gap:14px; line-height:1; }
+  .score-row .score{ color:var(--white); font-weight:900; font-size:38px; line-height:1; }
+  .score-row .dash{ color:var(--gold); font-weight:900; font-size:26px; line-height:1; }
+  .score-block .meta{ display:flex; flex-direction:column; align-items:center; color:var(--white); opacity:0.85; margin-top:8px; }
+  .score-block .meta .label{ font-size:9px; text-transform:uppercase; letter-spacing:1px; opacity:0.7; line-height:1.3; }
+  .score-block .meta .value{ font-size:13px; font-weight:800; line-height:1.2; margin-top:2px; }
 
   /* ---- center column stat values (icons are baked art) ---- */
   .stat-val{ position:absolute; width:130px; height:30px; display:flex; align-items:center;
@@ -186,7 +186,21 @@
 </div>
 
 <script>
-const WS_URL = "ws://localhost:8765";
+// Defaults to local (works as-is when the OCR engine is on the same PC as
+// this browser source). To read from the cloud relay instead — e.g. this
+// is running in vMix/OBS on a different PC/network than wherever OCR is
+// happening — set this Browser Source's URL once to:
+//   postmatch.html?relay=wss://your-relay-host&token=yourViewerToken
+// Remembered in this browser's localStorage after that, so a plain reload
+// of the source still works even without the query string.
+const _params = new URLSearchParams(location.search);
+if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
+if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token)
+  : "ws://localhost:8765";
 let ws;
 
 function connect(){
@@ -286,9 +300,13 @@ function applyState(state){
   setText("stat-left-kills", leftStats.kills);
   setText("stat-right-kills", rightStats.kills);
 
-  // "VICTORY"/"DEFEAT" reflect the real score regardless of which side
-  // that team is fixed to — team1 might be on the left and still lose.
-  const leftWins = leftScore >= rightScore;
+  // "VICTORY"/"DEFEAT" are set explicitly from the dashboard's per-team
+  // dropdown (pom.result) — not auto-derived from score, since the operator
+  // needs to be able to override it (e.g. tie-breaker rules, forfeits).
+  // Falls back to the old score comparison if result is missing (stale
+  // cached page against an older state.json).
+  const result = pom.result || {};
+  const leftWins = result[leftTeam] ? result[leftTeam] === "victory" : (leftScore >= rightScore);
   setResult("left", leftWins);
   setResult("right", !leftWins);
 

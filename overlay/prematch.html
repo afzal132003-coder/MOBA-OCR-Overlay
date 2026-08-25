@@ -167,7 +167,21 @@
 </div>
 
 <script>
-const WS_URL = "ws://localhost:8765";
+// Defaults to local (works as-is when the OCR engine is on the same PC as
+// this browser source). To read from the cloud relay instead — e.g. this
+// is running in vMix/OBS on a different PC/network than wherever OCR is
+// happening — set this Browser Source's URL once to:
+//   prematch.html?relay=wss://your-relay-host&token=yourViewerToken
+// Remembered in this browser's localStorage after that, so a plain reload
+// of the source still works even without the query string.
+const _params = new URLSearchParams(location.search);
+if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
+if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token)
+  : "ws://localhost:8765";
 let ws;
 let timerEndsAt = null;
 let timerRemainingMs = 0;
@@ -243,8 +257,9 @@ function applyState(state){
     const el = document.getElementById("logo-team2");
     el.src = state.team2.logo; el.style.display = "block";
   }
-  setText("pm-score1", state.seriesScore.team1);
-  setText("pm-score2", state.seriesScore.team2);
+  const pmSeries = pm.seriesScore || {team1:0, team2:0};
+  setText("pm-score1", pmSeries.team1);
+  setText("pm-score2", pmSeries.team2);
 
   ["team1","team2"].forEach(team => {
     const players = state[team].players || [];

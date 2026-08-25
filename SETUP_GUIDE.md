@@ -15,6 +15,14 @@ server on `ws://localhost:8765`. `overlay.html` and `dashboard.html` are just
 web pages that connect to that address — nothing needs to be uploaded
 anywhere, it all stays on your PC.
 
+**Multiple people, multiple PCs (remote team / hosted dashboard)** — if
+different team members need admin access from their own machines, or the
+overlay sources need to run on a separate production PC than the one doing
+OCR, see `ocr/relay/README.md`. That's an optional add-on (everything
+above still works local-only and unchanged by default) that connects
+everything through a small cloud relay with token-based access instead of
+`localhost`.
+
 ---
 
 ## Step 1 — Install software (one time)

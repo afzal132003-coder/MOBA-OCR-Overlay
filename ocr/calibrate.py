@@ -26,6 +26,7 @@ REGION_ORDER = [
     "team1_kills", "team1_objectives", "team1_gold",
     "team2_gold", "team2_objectives", "team2_kills",
     "team1_series_score", "team2_series_score",
+    "turtle_announcement",
 ]
 
 LABELS = {
@@ -37,7 +38,37 @@ LABELS = {
     "team2_kills": "TEAM 2 - KILLS",
     "team1_series_score": "TEAM 1 - SERIES SCORE (single number)",
     "team2_series_score": "TEAM 2 - SERIES SCORE (single number)",
+    "turtle_announcement": "TURTLE ANNOUNCEMENT (the 'Turtle spawning in Ns' / 'Turtle Spawned' toast zone) - draw it generously, wider/taller than the text itself since the toast can shift slightly",
 }
+
+# Post Match screen regions — same live screen-capture calibration as
+# everything above, just pointed at the post-game "Overall" (gold) and
+# "Data" (Hero Damage / Damage Taken) screens instead of the in-game HUD.
+# Have that screen actually on screen (paused/still showing) when you run
+# this. Reading these live off the screen at capture time is what makes
+# extraction fast — the same reason the in-game kills/gold regions are
+# fast, instead of running OCR over a whole uploaded screenshot image.
+POSTGAME_GOLD_KEYS = [
+    f"postgame_gold_{team}_{i}" for team in ("team1", "team2") for i in range(5)
+]
+POSTGAME_BATTLE_KEYS = [
+    f"postgame_{field}_{team}_{i}"
+    for team in ("team1", "team2") for i in range(5) for field in ("dealt", "taken")
+]
+REGION_ORDER += POSTGAME_GOLD_KEYS + POSTGAME_BATTLE_KEYS
+
+for _team in ("team1", "team2"):
+    _team_label = "TEAM 1" if _team == "team1" else "TEAM 2"
+    for _i in range(5):
+        LABELS[f"postgame_gold_{_team}_{_i}"] = (
+            f"POST MATCH (Overall screen) - {_team_label} PLAYER {_i+1} - GOLD"
+        )
+        LABELS[f"postgame_dealt_{_team}_{_i}"] = (
+            f"POST MATCH (Data screen) - {_team_label} PLAYER {_i+1} - HERO DAMAGE"
+        )
+        LABELS[f"postgame_taken_{_team}_{_i}"] = (
+            f"POST MATCH (Data screen) - {_team_label} PLAYER {_i+1} - DAMAGE TAKEN"
+        )
 
 
 def load_config():

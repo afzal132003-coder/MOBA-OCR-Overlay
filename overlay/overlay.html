@@ -109,6 +109,44 @@
   #score-team2{ left:1063px; }
 
   .flash{ background:#f2c14e88 !important; }
+
+  /* ---- turtle announcement ----
+     Both graphics are full 1920x1080 transparent PNGs with the actual
+     banner already drawn at its final position (top-right) — same pattern
+     as .bg-frame, not a small image to be placed via CSS. */
+  .turtle-popup{
+    position:absolute; top:0; left:0; width:1920px; height:1080px;
+    display:none; pointer-events:none;
+  }
+  .turtle-popup img{ position:absolute; top:0; left:0; width:1920px; height:1080px; }
+  /* Broadcast-style entrance/exit: flies in from off-canvas with a slight
+     overshoot ("back ease"), flies back out on the way down — snappier
+     than the entrance, typical of on-air graphic stingers. Replayed each
+     time via showTurtlePopup/hideTurtlePopup in the script. */
+  @keyframes turtleFlyIn{
+    0%{ transform:translateX(160px); opacity:0; }
+    100%{ transform:translateX(0); opacity:1; }
+  }
+  @keyframes turtleFlyOut{
+    0%{ transform:translateX(0); opacity:1; }
+    100%{ transform:translateX(160px); opacity:0; }
+  }
+  .turtle-popup.turtle-anim-enter{
+    animation: turtleFlyIn 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .turtle-popup.turtle-anim-exit{
+    animation: turtleFlyOut 0.4s cubic-bezier(0.55, 0, 0.85, 0.35) both;
+  }
+  /* Countdown number, measured directly off the empty navy space to the
+     right of the turtle icon on the TURTLE TIME graphic (box: x1675-1919,
+     y223-322; icon occupies roughly x1675-1773 of that) — centered in the
+     remaining space (x1775-1919), not eyeballed. Bright gold so it reads
+     against the dark banner. */
+  .turtle-popup .turtle-countdown{
+    position:absolute; left:1847px; top:272px; transform:translate(-50%,-50%);
+    color:#f0ca90; font-weight:900; font-size:42px;
+    text-shadow:0 2px 6px rgba(0,0,0,0.7);
+  }
 </style>
 </head>
 <body>
@@ -149,10 +187,32 @@
 
   <div class="score" id="score-team1">0</div>
   <div class="score" id="score-team2">0</div>
+
+  <div class="turtle-popup" id="turtle-time">
+    <img src="assets/turtle_time.png" alt="">
+    <span class="turtle-countdown" id="turtle-countdown">0</span>
+  </div>
+  <div class="turtle-popup" id="turtle-spawned">
+    <img src="assets/turtle_spawned.png" alt="">
+  </div>
 </div>
 
 <script>
-const WS_URL = "ws://localhost:8765";
+// Defaults to local (works as-is when the OCR engine is on the same PC as
+// this browser source). To read from the cloud relay instead — e.g. this
+// is running in vMix/OBS on a different PC/network than wherever OCR is
+// happening — set this Browser Source's URL once to:
+//   overlay.html?relay=wss://your-relay-host&token=yourViewerToken
+// Remembered in this browser's localStorage after that, so a plain reload
+// of the source still works even without the query string.
+const _params = new URLSearchParams(location.search);
+if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
+if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token)
+  : "ws://localhost:8765";
 let ws;
 
 function connect(){
@@ -193,6 +253,62 @@ function setLogo(id, src){
   }
 }
 
+let turtleTickHandle = null;
+let lastTurtleStatus = "idle";
+
+// Slides an already-hidden popup in. Forces a reflow before adding the
+// class -- re-adding the same class name without that is a no-op if it's
+// already applied (wouldn't replay on back-to-back triggers).
+function showTurtlePopup(el){
+  el.classList.remove("turtle-anim-exit");
+  el.style.display = "block";
+  el.classList.remove("turtle-anim-enter");
+  void el.offsetWidth;
+  el.classList.add("turtle-anim-enter");
+}
+
+// Slides a visible popup out, THEN hides it once the animation finishes --
+// unlike the old version, this doesn't just cut straight to display:none.
+function hideTurtlePopup(el){
+  if(el.style.display === "none") return; // already hidden, nothing to animate
+  el.classList.remove("turtle-anim-enter");
+  void el.offsetWidth;
+  el.classList.add("turtle-anim-exit");
+  el.addEventListener("animationend", () => {
+    el.style.display = "none";
+    el.classList.remove("turtle-anim-exit");
+  }, { once: true });
+}
+
+// endsAt is an absolute timestamp (ms), so the countdown number just ticks
+// locally against it rather than waiting for a fresh broadcast every
+// second — the server only broadcasts on actual status transitions.
+function updateTurtleDisplay(tt){
+  const timeEl = document.getElementById("turtle-time");
+  const spawnedEl = document.getElementById("turtle-spawned");
+  const countdownEl = document.getElementById("turtle-countdown");
+
+  if(turtleTickHandle){ clearInterval(turtleTickHandle); turtleTickHandle = null; }
+
+  if(tt.status === "countdown" && tt.endsAt){
+    if(lastTurtleStatus === "spawned") hideTurtlePopup(spawnedEl); // cross-transition
+    if(lastTurtleStatus !== "countdown") showTurtlePopup(timeEl);
+    const tick = () => {
+      const remainingMs = Math.max(0, tt.endsAt - Date.now());
+      countdownEl.textContent = String(Math.ceil(remainingMs / 1000));
+    };
+    tick();
+    turtleTickHandle = setInterval(tick, 250);
+  } else if(tt.status === "spawned"){
+    if(lastTurtleStatus === "countdown") hideTurtlePopup(timeEl); // cross-transition
+    if(lastTurtleStatus !== "spawned") showTurtlePopup(spawnedEl);
+  } else {
+    if(lastTurtleStatus === "countdown") hideTurtlePopup(timeEl);
+    if(lastTurtleStatus === "spawned") hideTurtlePopup(spawnedEl);
+  }
+  lastTurtleStatus = tt.status;
+}
+
 function applyState(state){
   document.getElementById("team1-name").textContent = state.team1.name || "TEAM 1";
   document.getElementById("team2-name").textContent = state.team2.name || "TEAM 2";
@@ -207,6 +323,8 @@ function applyState(state){
   setValue("team2-gold", formatGold(state.team2.gold));
   setValue("score-team1", state.seriesScore.team1);
   setValue("score-team2", state.seriesScore.team2);
+
+  if(state.turtleTimer) updateTurtleDisplay(state.turtleTimer);
 }
 
 connect();

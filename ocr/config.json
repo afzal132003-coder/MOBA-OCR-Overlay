@@ -5,54 +5,246 @@
   "debounce_frames": 2,
   "server_host": "localhost",
   "server_port": 8765,
+  "turtle_enabled": true,
+  "relay": {
+    "enabled": false,
+    "url": "wss://your-relay-host.example.com",
+    "token": "paste-your-OCR_TOKEN-here"
+  },
   "regions": {
     "team1_kills": {
-      "x": -1328,
-      "y": 40,
-      "w": 41,
-      "h": 43
+      "x": -1333,
+      "y": 38,
+      "w": 43,
+      "h": 44
     },
     "team1_objectives": {
-      "x": -1250,
-      "y": 46,
-      "w": 49,
-      "h": 32
+      "x": -1253,
+      "y": 37,
+      "w": 46,
+      "h": 46
     },
     "team1_gold": {
       "x": -1179,
-      "y": 43,
-      "w": 73,
+      "y": 42,
+      "w": 89,
       "h": 36
     },
     "team2_gold": {
-      "x": -815,
-      "y": 46,
-      "w": 65,
-      "h": 29
+      "x": -816,
+      "y": 38,
+      "w": 68,
+      "h": 41
     },
     "team2_objectives": {
-      "x": -704,
-      "y": 44,
-      "w": 36,
-      "h": 32
+      "x": -709,
+      "y": 41,
+      "w": 50,
+      "h": 38
     },
     "team2_kills": {
-      "x": -631,
+      "x": -634,
       "y": 42,
-      "w": 46,
-      "h": 34
-    },
-    "team1_series_score": {
-      "x": -1072,
-      "y": 43,
-      "w": 37,
+      "w": 51,
       "h": 36
     },
+    "team1_series_score": {
+      "x": -1379,
+      "y": 75,
+      "w": 142,
+      "h": 95
+    },
     "team2_series_score": {
-      "x": -913,
-      "y": 39,
-      "w": 43,
+      "x": -704,
+      "y": 77,
+      "w": 116,
+      "h": 94
+    },
+    "turtle_announcement": {
+      "x": -1286,
+      "y": 128,
+      "w": 755,
+      "h": 256
+    },
+    "postgame_dealt_team1_0": {
+      "x": -1561,
+      "y": 285,
+      "w": 107,
+      "h": 38
+    },
+    "postgame_taken_team1_0": {
+      "x": -1280,
+      "y": 293,
+      "w": 114,
+      "h": 28
+    },
+    "postgame_dealt_team1_1": {
+      "x": -1560,
+      "y": 422,
+      "w": 120,
+      "h": 27
+    },
+    "postgame_taken_team1_1": {
+      "x": -1278,
+      "y": 420,
+      "w": 134,
+      "h": 31
+    },
+    "postgame_dealt_team1_2": {
+      "x": -1558,
+      "y": 543,
+      "w": 134,
+      "h": 35
+    },
+    "postgame_taken_team1_2": {
+      "x": -1281,
+      "y": 546,
+      "w": 122,
+      "h": 34
+    },
+    "postgame_dealt_team1_3": {
+      "x": -1558,
+      "y": 673,
+      "w": 129,
+      "h": 34
+    },
+    "postgame_taken_team1_3": {
+      "x": -1277,
+      "y": 672,
+      "w": 119,
+      "h": 34
+    },
+    "postgame_dealt_team1_4": {
+      "x": -1560,
+      "y": 796,
+      "w": 124,
+      "h": 39
+    },
+    "postgame_taken_team1_4": {
+      "x": -1277,
+      "y": 801,
+      "w": 125,
+      "h": 30
+    },
+    "postgame_dealt_team2_0": {
+      "x": -945,
+      "y": 287,
+      "w": 125,
+      "h": 38
+    },
+    "postgame_taken_team2_0": {
+      "x": -663,
+      "y": 292,
+      "w": 126,
+      "h": 30
+    },
+    "postgame_dealt_team2_1": {
+      "x": -958,
+      "y": 409,
+      "w": 119,
+      "h": 41
+    },
+    "postgame_taken_team2_1": {
+      "x": -666,
+      "y": 418,
+      "w": 122,
+      "h": 32
+    },
+    "postgame_dealt_team2_2": {
+      "x": -950,
+      "y": 543,
+      "w": 129,
+      "h": 35
+    },
+    "postgame_taken_team2_2": {
+      "x": -669,
+      "y": 546,
+      "w": 127,
+      "h": 32
+    },
+    "postgame_dealt_team2_3": {
+      "x": -945,
+      "y": 671,
+      "w": 128,
+      "h": 33
+    },
+    "postgame_taken_team2_3": {
+      "x": -668,
+      "y": 669,
+      "w": 129,
+      "h": 36
+    },
+    "postgame_dealt_team2_4": {
+      "x": -944,
+      "y": 801,
+      "w": 122,
+      "h": 33
+    },
+    "postgame_taken_team2_4": {
+      "x": -668,
+      "y": 799,
+      "w": 135,
+      "h": 33
+    },
+    "postgame_gold_team1_0": {
+      "x": -1185,
+      "y": 247,
+      "w": 89,
+      "h": 42
+    },
+    "postgame_gold_team1_1": {
+      "x": -1190,
+      "y": 373,
+      "w": 100,
+      "h": 47
+    },
+    "postgame_gold_team1_2": {
+      "x": -1190,
+      "y": 501,
+      "w": 102,
       "h": 43
+    },
+    "postgame_gold_team1_3": {
+      "x": -1192,
+      "y": 632,
+      "w": 104,
+      "h": 44
+    },
+    "postgame_gold_team1_4": {
+      "x": -1191,
+      "y": 754,
+      "w": 96,
+      "h": 51
+    },
+    "postgame_gold_team2_0": {
+      "x": -856,
+      "y": 243,
+      "w": 102,
+      "h": 47
+    },
+    "postgame_gold_team2_1": {
+      "x": -862,
+      "y": 372,
+      "w": 105,
+      "h": 48
+    },
+    "postgame_gold_team2_2": {
+      "x": -863,
+      "y": 500,
+      "w": 110,
+      "h": 47
+    },
+    "postgame_gold_team2_3": {
+      "x": -862,
+      "y": 629,
+      "w": 113,
+      "h": 46
+    },
+    "postgame_gold_team2_4": {
+      "x": -862,
+      "y": 752,
+      "w": 108,
+      "h": 53
     }
   }
 }

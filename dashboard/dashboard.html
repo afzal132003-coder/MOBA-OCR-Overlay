@@ -41,7 +41,13 @@
     font-weight:700;cursor:pointer;font-size:13px;margin-top:12px;
   }
   button.secondary{background:#2b3860;color:#eef1fa;}
+  button.danger{background:#c0453f;color:#fff;}
   button:hover{opacity:0.9;}
+
+  select{
+    width:100%;box-sizing:border-box;padding:8px 10px;border-radius:6px;border:1px solid #2b3860;
+    background:#0e1526;color:#eef1fa;font-size:14px;
+  }
 
   .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;}
   .stat-card{background:#0e1526;border:1px solid #2b3860;border-radius:8px;padding:12px;}
@@ -59,13 +65,32 @@
   .mini-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
   .mini-grid label{margin:0 0 4px;}
 
-  .player-row{display:grid;grid-template-columns:1fr 80px 80px;gap:8px;align-items:end;margin-bottom:10px;}
+  .player-row{display:grid;grid-template-columns:1fr 80px 80px 40px;gap:8px;align-items:end;margin-bottom:10px;}
   .player-row label{margin:0 0 4px;}
 
   .draft-slot{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
   .draft-slot .slot-num{width:16px;color:#6d7899;font-size:11px;text-align:center;flex-shrink:0;}
   .draft-slot img.hero-preview{width:30px;height:30px;border-radius:4px;object-fit:cover;background:#0e1526;border:1px solid #2b3860;display:none;flex-shrink:0;}
   .draft-slot input[type=text]{flex:1;font-size:12px;padding:6px 8px;}
+
+  /* Picks-only reorder arrows: move the hero pick up/down a slot without
+     touching the player name/number label, which is a separate element
+     driven off the players roster, not the pick array. */
+  .reorder-btns{display:flex;flex-direction:column;gap:2px;flex-shrink:0;}
+  .reorder-btn{
+    background:#2b3860;color:#eef1fa;border:none;border-radius:4px;
+    width:20px;height:16px;font-size:9px;line-height:1;padding:0;margin:0;
+    cursor:pointer;display:flex;align-items:center;justify-content:center;
+  }
+  .reorder-btn:hover{background:#3a4a80;}
+  .reorder-btn:disabled{opacity:0.25;cursor:default;}
+  .reorder-btn:disabled:hover{background:#2b3860;}
+
+  .paste-zone{
+    border:1px dashed #2b3860; border-radius:8px; padding:14px; outline:none; cursor:text;
+  }
+  .paste-zone:focus{ border-color:#f2c14e; background:#161f38; }
+  .paste-hint{ font-size:12px; color:#6d7899; margin-top:8px; }
 
   .timer-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;}
   .timer-row > div{display:flex;flex-direction:column;}
@@ -77,16 +102,26 @@
 <body>
 <h1>MOBA Broadcast Control Dashboard</h1>
 <span id="status" class="disconnected">DISCONNECTED</span>
+<span id="connectionMode" class="hint" style="margin-left:8px;"></span>
 <p class="hint">Connects to the local OCR server at ws://localhost:8765. Start ocr_engine.py first.</p>
 
 <div class="tabbar">
   <button class="tab-btn active" data-tab="ingame">In-Game Live Ops</button>
   <button class="tab-btn" data-tab="prematch">Prematch</button>
   <button class="tab-btn" data-tab="postmatch">Post Match</button>
+  <button class="tab-btn" data-tab="import">Import Stats</button>
 </div>
 
 <!-- ===================== IN-GAME LIVE OPS ===================== -->
 <div class="tab-panel active" id="tab-ingame">
+
+  <div class="card">
+    <h2>Team Sides</h2>
+    <p class="hint">If the teams switch sides mid-series, hit this once — it swaps EVERYTHING tagged Team 1
+      vs Team 2 in one go: names, logos, players, live OCR stats, series score, prematch bans/picks, and
+      post match data. Overlay, Prematch, and Post Match graphics all update automatically, no other changes needed.</p>
+    <button class="danger" id="swapSides">Swap Team 1 &lt;-&gt; Team 2</button>
+  </div>
 
   <div class="card">
     <h2>Team Setup (Manual)</h2>
@@ -135,10 +170,60 @@
     <p class="hint">Live snapshots of exactly what the OCR engine is reading for each region. Use this to verify calibration.</p>
     <div class="crop-grid" id="cropGrid"></div>
   </div>
+
+  <div class="card">
+    <h2>Turtle Announcement</h2>
+    <p class="hint">Calibrate with <code>python calibrate.py turtle_announcement</code> — draw the box around the
+      "Turtle spawning in Ns" / "Turtle Spawned" toast zone, generously (wider/taller than the text). The crop and
+      the exact text OCR is reading are shown live below so you can confirm it's catching the right thing before
+      trusting it on air.</p>
+    <div class="row">
+      <div class="crop-box" style="max-width:220px;">
+        <img id="crop-turtle_announcement">
+        <div class="label">turtle announcement</div>
+      </div>
+      <div class="team-form">
+        <label>Status</label>
+        <div id="turtle_status" style="font-weight:800;color:#f2c14e;">idle</div>
+        <label>Last OCR reading</label>
+        <div id="turtle_lastText" style="font-size:12px;color:#9aa4c0;min-height:18px;">&mdash;</div>
+        <label>Live countdown</label>
+        <div id="turtle_countdownDisplay" style="font-size:20px;font-weight:800;">&mdash;</div>
+      </div>
+    </div>
+    <p class="hint">Manual override — works regardless of what OCR is doing, useful while detection is still
+      being tuned or if you'd just rather trigger it yourself.</p>
+    <div class="timer-row">
+      <div>
+        <label>Countdown seconds</label>
+        <input type="number" id="turtle_manualSeconds" value="15" style="width:80px;">
+      </div>
+      <button id="turtle_pushCountdown">Push Countdown</button>
+      <button id="turtle_pushSpawned">Push Turtle Spawned Now</button>
+      <button class="secondary" id="turtle_resetManual">Reset to Idle</button>
+    </div>
+  </div>
 </div>
 
 <!-- ===================== PREMATCH ===================== -->
 <div class="tab-panel" id="tab-prematch">
+
+  <div class="card">
+    <h2>Player Order</h2>
+    <p class="hint">Entered in the wrong order? Swap here — it's the same roster used everywhere (In-Game, Prematch,
+      Post Match), so this updates all of them at once. To rename a player, do that on the In-Game tab; this only
+      reorders. Picks/bans/damage stats already entered stay in their slot, only the name moves.</p>
+    <div class="two-col">
+      <div class="col">
+        <h3>Team 1</h3>
+        <div id="pm_playerOrder_team1"></div>
+      </div>
+      <div class="col">
+        <h3>Team 2</h3>
+        <div id="pm_playerOrder_team2"></div>
+      </div>
+    </div>
+  </div>
 
   <div class="card">
     <h2>Match Context</h2>
@@ -158,8 +243,8 @@
 
   <div class="card">
     <h2>Match Score (Bo3/Bo5)</h2>
-    <p class="hint">The series score shown in the Prematch graphic (e.g. "0-0", "1-1"). Edit it manually here between
-      games — it's the same value used everywhere else, so updating it here also updates the In-Game overlay.</p>
+    <p class="hint">The series score shown in the Prematch graphic only (e.g. "0-0", "1-1"). Independent from the
+      In-Game overlay's score — editing it here does not touch the live HUD.</p>
     <div class="row">
       <div class="team-form">
         <label>Team 1 Score</label>
@@ -271,8 +356,29 @@
   </div>
 
   <div class="card">
+    <h2>Result</h2>
+    <p class="hint">Set which team shows VICTORY vs DEFEAT on the graphic — this is explicit now, it no longer
+      follows the score automatically. Picking one side flips the other to match.</p>
+    <div class="two-col">
+      <div class="col">
+        <h3>Team 1</h3>
+        <select id="pom_t1_result">
+          <option value="victory">Victory</option>
+          <option value="defeat">Defeat</option>
+        </select>
+      </div>
+      <div class="col">
+        <h3>Team 2</h3>
+        <select id="pom_t2_result">
+          <option value="victory">Victory</option>
+          <option value="defeat">Defeat</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>Team Score &amp; Aggregate Stats</h2>
-    <p class="hint">Higher score is shown as VICTORY on the graphic automatically.</p>
     <div class="two-col">
       <div class="col">
         <h3>Team 1</h3>
@@ -316,10 +422,121 @@
   <button id="pom_push">Push Post Match to Overlay</button>
 </div>
 
+<!-- ===================== IMPORT STATS ===================== -->
+<div class="tab-panel" id="tab-import">
+
+  <div class="card">
+    <h2>Battle Report (Hero Damage / Damage Taken)</h2>
+    <p class="hint">Have the game's post-match "Data" screen up on your monitor, then hit Capture — this reads
+      straight off the screen through the same fast per-region OCR your live kills/gold HUD uses, no image upload
+      needed. First time only: calibrate the 20 regions once with the command below (like you did for the HUD),
+      it's reused after that.</p>
+    <div class="hint" style="background:#0e1526;border:1px solid #2b3860;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+      cd ocr &amp;&amp; python calibrate.py postgame_dealt_team1_0 postgame_taken_team1_0 postgame_dealt_team1_1 postgame_taken_team1_1 postgame_dealt_team1_2 postgame_taken_team1_2 postgame_dealt_team1_3 postgame_taken_team1_3 postgame_dealt_team1_4 postgame_taken_team1_4 postgame_dealt_team2_0 postgame_taken_team2_0 postgame_dealt_team2_1 postgame_taken_team2_1 postgame_dealt_team2_2 postgame_taken_team2_2 postgame_dealt_team2_3 postgame_taken_team2_3 postgame_dealt_team2_4 postgame_taken_team2_4
+    </div>
+    <button id="import_battleReport_capture">Capture From Screen Now</button>
+    <div id="import_battleReport_status" class="hint"></div>
+    <div id="import_battleReport_table" style="margin-top:14px;overflow-x:auto;"></div>
+    <button class="secondary" id="import_battleReport_apply" style="display:none;">Apply to Post Match Players</button>
+
+    <details style="margin-top:14px;">
+      <summary style="cursor:pointer;color:#9aa4c0;font-size:12px;">Or upload/paste a screenshot instead (slower — full-page OCR, fuzzy name match)</summary>
+      <div class="paste-zone" id="import_battleReport_zone" tabindex="0" style="margin-top:10px;">
+        <input type="file" id="import_battleReport_file" accept="image/*">
+        <div class="paste-hint">or click in this box and press Ctrl+V to paste a screenshot</div>
+        <div><img id="import_battleReport_preview" style="max-width:100%;border-radius:8px;display:none;margin-top:10px;"></div>
+      </div>
+      <button class="secondary" id="import_battleReport_extract">Extract From Upload</button>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>Gold</h2>
+    <p class="hint">Have the game's post-match "Overall" screen up (per-player gold next to KDA), then hit Capture.
+      Gold is read per player straight off the screen and summed per team automatically. First time only:
+      calibrate the 10 regions once with the command below.</p>
+    <div class="hint" style="background:#0e1526;border:1px solid #2b3860;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+      cd ocr &amp;&amp; python calibrate.py postgame_gold_team1_0 postgame_gold_team1_1 postgame_gold_team1_2 postgame_gold_team1_3 postgame_gold_team1_4 postgame_gold_team2_0 postgame_gold_team2_1 postgame_gold_team2_2 postgame_gold_team2_3 postgame_gold_team2_4
+    </div>
+    <button id="import_gold_capture">Capture From Screen Now</button>
+    <div id="import_gold_status" class="hint"></div>
+    <div id="import_gold_table" style="margin-top:14px;overflow-x:auto;"></div>
+    <div id="import_gold_candidates" style="margin:10px 0;display:flex;gap:8px;flex-wrap:wrap;"></div>
+    <div class="row">
+      <div class="team-form">
+        <label>Team 1 Gold (total)</label>
+        <input type="number" id="import_gold_t1">
+      </div>
+      <div class="team-form">
+        <label>Team 2 Gold (total)</label>
+        <input type="number" id="import_gold_t2">
+      </div>
+    </div>
+
+    <details style="margin-top:14px;">
+      <summary style="cursor:pointer;color:#9aa4c0;font-size:12px;">Or upload/paste a screenshot instead (slower — full-page OCR, fuzzy name match)</summary>
+      <div class="paste-zone" id="import_gold_zone" tabindex="0" style="margin-top:10px;">
+        <input type="file" id="import_gold_file" accept="image/*">
+        <div class="paste-hint">or click in this box and press Ctrl+V to paste a screenshot</div>
+        <div><img id="import_gold_preview" style="max-width:100%;border-radius:8px;display:none;margin-top:10px;"></div>
+      </div>
+      <button class="secondary" id="import_gold_extract">Extract From Upload</button>
+    </details>
+    <button class="secondary" id="import_gold_apply">Apply to Post Match Gold</button>
+  </div>
+</div>
+
 <datalist id="heroDatalist"></datalist>
 
 <script>
-const WS_URL = "ws://localhost:8765";
+// Defaults to local (works as-is when this dashboard is opened on the same
+// PC as the OCR engine). To connect through the cloud relay instead — e.g.
+// admins working from a different PC than wherever OCR is running — open
+// this once with ?relay=wss://your-relay-host in the URL; if no admin
+// token is known yet, you'll be prompted for one (remembered afterward in
+// this browser's localStorage, so you won't be asked again here).
+const _params = new URLSearchParams(location.search);
+if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
+if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
+let _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+if (_relay && !_token) {
+  _token = window.prompt("Enter your dashboard admin token:") || "";
+  if (_token) { try { localStorage.setItem("moba_token", _token); } catch(e) {} }
+}
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token)
+  : "ws://localhost:8765";
+
+function changeConnection(){
+  const currentRelay = localStorage.getItem("moba_relay") || "";
+  const nextRelay = window.prompt("Relay URL (wss://...) — leave blank to use local instead:", currentRelay);
+  if (nextRelay === null) return;
+  try {
+    if (nextRelay) {
+      localStorage.setItem("moba_relay", nextRelay);
+      const nextToken = window.prompt("Admin token for that relay:", localStorage.getItem("moba_token") || "");
+      if (nextToken !== null) localStorage.setItem("moba_token", nextToken);
+    } else {
+      localStorage.removeItem("moba_relay");
+      localStorage.removeItem("moba_token");
+    }
+  } catch(e) {}
+  location.reload();
+}
+
+(function showConnectionMode(){
+  const el = document.getElementById("connectionMode");
+  if (!el) return;
+  if (_relay) {
+    let host = _relay;
+    try { host = new URL(_relay.replace(/^ws/, "http")).host; } catch(e) {}
+    el.innerHTML = `Relay: ${host} &mdash; <a href="#" onclick="changeConnection();return false;" style="color:#f2c14e;">change</a>`;
+  } else {
+    el.innerHTML = `Local &mdash; <a href="#" onclick="changeConnection();return false;" style="color:#f2c14e;">use relay instead</a>`;
+  }
+})();
+
 let ws;
 
 const STAT_FIELDS = [
@@ -440,15 +657,76 @@ function buildCropGrid(){
   });
 }
 
+// Shared by all three tabs (In-Game, Prematch, Post Match) — they're all
+// just different views of the same team1.players/team2.players roster, so
+// one swap function reading/writing the canonical In-Game inputs keeps
+// everything in sync. Reads current DOM values (not currentState) so it
+// respects any not-yet-saved typing in the In-Game name fields.
+function swapPlayerNames(team, i, j){
+  const inputA = document.getElementById(`${team}Player${i}`);
+  const inputB = document.getElementById(`${team}Player${j}`);
+  if(!inputA || !inputB) return;
+  const tmp = inputA.value;
+  inputA.value = inputB.value;
+  inputB.value = tmp;
+  const players = [];
+  for(let k=0;k<5;k++) players.push(document.getElementById(`${team}Player${k}`).value);
+  const data = {}; data[team] = { players };
+  sendManualUpdate(data, [], []);
+
+  // The hero pick belongs to the PLAYER, not the slot position — without
+  // this, swapping players would leave the wrong character image behind
+  // at the old slot. Damage dealt/taken deliberately stays put (matched
+  // up separately by the operator), not swapped along with the player.
+  swapPickSlots(team, i, j);
+}
+
+function wirePlayerReorderButtons(container){
+  container.querySelectorAll(".reorder-btn[data-swap-player]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const team = btn.dataset.team;
+      const i = Number(btn.dataset.i);
+      const j = btn.dataset.dir === "up" ? i - 1 : i + 1;
+      if(j < 0 || j > 4) return;
+      swapPlayerNames(team, i, j);
+    });
+  });
+}
+
+function playerReorderButtonsHtml(team, i){
+  return `
+    <div class="reorder-btns">
+      <button type="button" class="reorder-btn" data-swap-player="1" data-dir="up" data-team="${team}" data-i="${i}" title="Swap player with row above" ${i===0?"disabled":""}>&#9650;</button>
+      <button type="button" class="reorder-btn" data-swap-player="1" data-dir="down" data-team="${team}" data-i="${i}" title="Swap player with row below" ${i===4?"disabled":""}>&#9660;</button>
+    </div>`;
+}
+
+function buildPlayerOrderList(containerId, team){
+  const container = document.getElementById(containerId);
+  container.innerHTML = "";
+  for(let i=0;i<5;i++){
+    const row = document.createElement("div");
+    row.className = "draft-slot";
+    row.innerHTML = `
+      <span class="slot-num">${i+1}</span>
+      <div id="pm_playerOrder_${team}_${i}_name" style="flex:1;font-size:13px;color:#eef1fa;">—</div>
+      ${playerReorderButtonsHtml(team, i)}
+    `;
+    container.appendChild(row);
+  }
+  wirePlayerReorderButtons(container);
+}
+
 function buildPlayerNameInputs(containerId, team){
   const container = document.getElementById(containerId);
   container.innerHTML = "";
   for(let i=0;i<5;i++){
     const wrap = document.createElement("div");
-    wrap.style.marginBottom = "6px";
-    wrap.innerHTML = `<input type="text" id="${team}Player${i}" placeholder="Player ${i+1} name">`;
+    wrap.style.cssText = "margin-bottom:6px;display:flex;align-items:center;gap:8px;";
+    wrap.innerHTML = `<input type="text" id="${team}Player${i}" placeholder="Player ${i+1} name" style="flex:1;">${playerReorderButtonsHtml(team, i)}`;
     container.appendChild(wrap);
   }
+  wirePlayerReorderButtons(container);
 }
 
 function renderIngameState(){
@@ -457,9 +735,6 @@ function renderIngameState(){
   document.getElementById("team2LogoPreview").src = currentState.team2.logo || "";
   if(document.activeElement.id !== "team1Name") document.getElementById("team1Name").value = currentState.team1.name || "";
   if(document.activeElement.id !== "team2Name") document.getElementById("team2Name").value = currentState.team2.name || "";
-
-  if(document.activeElement.id !== "pm_series_t1") document.getElementById("pm_series_t1").value = currentState.seriesScore.team1;
-  if(document.activeElement.id !== "pm_series_t2") document.getElementById("pm_series_t2").value = currentState.seriesScore.team2;
 
   document.getElementById("pom_team1_name_preview").textContent = currentState.team1.name || "TEAM 1";
   document.getElementById("pom_team2_name_preview").textContent = currentState.team2.name || "TEAM 2";
@@ -474,6 +749,8 @@ function renderIngameState(){
       if(label) label.textContent = name || `Player ${i+1}`;
       const pickNum = document.getElementById(`picks_${team}_${i}_playerNum`);
       if(pickNum) pickNum.textContent = name ? name : String(i+1);
+      const orderLabel = document.getElementById(`pm_playerOrder_${team}_${i}_name`);
+      if(orderLabel) orderLabel.textContent = name || `Player ${i+1}`;
     });
   });
 
@@ -534,6 +811,13 @@ document.getElementById("saveTeamInfo").addEventListener("click", () => {
   sendManualUpdate(data, [], []);
 });
 
+document.getElementById("swapSides").addEventListener("click", () => {
+  if(!confirm("Swap Team 1 and Team 2? This interchanges names, logos, players, live stats, series score, prematch bans/picks, and post match data between the two sides.")) return;
+  if(ws && ws.readyState === WebSocket.OPEN){
+    ws.send(JSON.stringify({type:"swap_sides"}));
+  }
+});
+
 document.getElementById("resetAll").addEventListener("click", () => {
   const data = {
     team1: { kills:0, objectives:0, gold:0 },
@@ -562,11 +846,20 @@ function buildDraftSlots(containerId, team, kind){
     const slotLabel = kind === "picks"
       ? `<span class="slot-num" id="picks_${team}_${i}_playerNum" style="width:auto;min-width:16px;">${i+1}</span>`
       : `<span class="slot-num">${i+1}</span>`;
+    // Picks only: up/down arrows to swap which hero sits in this slot,
+    // independent of the player name/number (that label is driven off the
+    // separate players roster by slot index, so it never moves).
+    const reorderButtons = kind === "picks" ? `
+      <div class="reorder-btns">
+        <button type="button" class="reorder-btn" data-dir="up" title="Swap with pick above" ${i===0?"disabled":""}>&#9650;</button>
+        <button type="button" class="reorder-btn" data-dir="down" title="Swap with pick below" ${i===4?"disabled":""}>&#9660;</button>
+      </div>` : "";
     row.innerHTML = `
       ${slotLabel}
       <img class="hero-preview" id="${kind}_${team}_${i}_img">
       <input type="text" id="${kind}_${team}_${i}_name" list="heroDatalist"
              placeholder="Type to search hero...">
+      ${reorderButtons}
     `;
     container.appendChild(row);
     const input = row.querySelector("input");
@@ -584,7 +877,32 @@ function buildDraftSlots(containerId, team, kind){
       sendPrematchDebounced();
     };
     input.addEventListener("input", update);
+
+    if(kind === "picks"){
+      row.querySelectorAll(".reorder-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const j = btn.dataset.dir === "up" ? i - 1 : i + 1;
+          if(j < 0 || j > 4) return;
+          swapPickSlots(team, i, j);
+        });
+      });
+    }
   }
+}
+
+// Swaps only the hero pick (text + preview image) between two slots for a
+// team's picks column. Player name/number labels are separate DOM elements
+// tied to the players array by index, so they're untouched by this.
+function swapPickSlots(team, i, j){
+  const inputA = document.getElementById(`picks_${team}_${i}_name`);
+  const inputB = document.getElementById(`picks_${team}_${j}_name`);
+  const tmp = inputA.value;
+  inputA.value = inputB.value;
+  inputB.value = tmp;
+  // Re-run each input's own normalize/preview/send logic via its existing
+  // "input" listener rather than duplicating that logic here.
+  inputA.dispatchEvent(new Event("input"));
+  inputB.dispatchEvent(new Event("input"));
 }
 
 function gatherPrematch(){
@@ -616,6 +934,14 @@ function gatherPrematch(){
     timerEndsAt: existing.timerEndsAt != null ? existing.timerEndsAt : null,
     timerDuration: durationSec,
     timerRemainingMs: existing.timerRemainingMs != null ? existing.timerRemainingMs : durationSec * 1000,
+    // Prematch-only series score — deliberately separate from the
+    // top-level seriesScore that drives the In-Game overlay's live HUD
+    // (that one's OCR-fed and shared; this one is manual and local to
+    // the Prematch graphic).
+    seriesScore: {
+      team1: Number(document.getElementById("pm_series_t1").value) || 0,
+      team2: Number(document.getElementById("pm_series_t2").value) || 0,
+    },
     bans, picks,
   };
 }
@@ -631,6 +957,9 @@ function hydratePrematch(pm){
   document.getElementById("pm_line2").value = pm.context.line2 || "";
   document.getElementById("pm_phase").value = pm.phase || "";
   document.getElementById("pm_duration").value = pm.timerDuration || 30;
+  const series = pm.seriesScore || {team1:0, team2:0};
+  if(document.activeElement.id !== "pm_series_t1") document.getElementById("pm_series_t1").value = series.team1 || 0;
+  if(document.activeElement.id !== "pm_series_t2") document.getElementById("pm_series_t2").value = series.team2 || 0;
   ["bans","picks"].forEach(kind => {
     ["team1","team2"].forEach(team => {
       for(let i=0;i<5;i++){
@@ -654,15 +983,7 @@ function hydratePrematch(pm){
 
 document.getElementById("pm_saveContext").addEventListener("click", sendPrematch);
 
-document.getElementById("pm_saveSeries").addEventListener("click", () => {
-  const t1 = Number(document.getElementById("pm_series_t1").value || 0);
-  const t2 = Number(document.getElementById("pm_series_t2").value || 0);
-  sendManualUpdate(
-    { seriesScore: { team1: t1, team2: t2 } },
-    ["seriesScore.team1", "seriesScore.team2"],
-    []
-  );
-});
+document.getElementById("pm_saveSeries").addEventListener("click", sendPrematch);
 
 // Start/Resume always counts down from whatever timerRemainingMs currently
 // holds (the full duration if never paused, or the frozen remainder if
@@ -739,9 +1060,14 @@ function buildPlayerRows(containerId, team){
         <label>Dmg Taken</label>
         <input type="number" id="pom_${team}_${i}_taken" value="0">
       </div>
+      <div>
+        <label>&nbsp;</label>
+        ${playerReorderButtonsHtml(team, i)}
+      </div>
     `;
     container.appendChild(row);
   }
+  wirePlayerReorderButtons(container);
 }
 
 function gatherPostMatch(){
@@ -763,6 +1089,10 @@ function gatherPostMatch(){
     date: document.getElementById("pom_date").value,
     team1Score: Number(document.getElementById("pom_t1_score").value || 0),
     team2Score: Number(document.getElementById("pom_t2_score").value || 0),
+    result: {
+      team1: document.getElementById("pom_t1_result").value,
+      team2: document.getElementById("pom_t2_result").value,
+    },
     stats: {
       team1: {
         gold: Number(document.getElementById("pom_t1_gold").value || 0),
@@ -789,6 +1119,9 @@ function hydratePostMatch(pom){
   document.getElementById("pom_date").value = pom.date || "";
   document.getElementById("pom_t1_score").value = pom.team1Score || 0;
   document.getElementById("pom_t2_score").value = pom.team2Score || 0;
+  const result = pom.result || {team1:"victory", team2:"defeat"};
+  document.getElementById("pom_t1_result").value = result.team1 || "victory";
+  document.getElementById("pom_t2_result").value = result.team2 || "defeat";
   ["team1","team2"].forEach(team => {
     const s = pom.stats[team];
     document.getElementById(`pom_${team === "team1" ? "t1" : "t2"}_gold`).value = s.gold;
@@ -805,6 +1138,384 @@ function hydratePostMatch(pom){
 
 document.getElementById("pom_push").addEventListener("click", () => {
   sendManualUpdate({ postMatch: gatherPostMatch() });
+});
+
+// A best-of-1 game has exactly one winner, so keep the two dropdowns from
+// both landing on "victory" (or both "defeat") — flip the other side
+// whenever one changes. Still two independent selects, just kept sane.
+document.getElementById("pom_t1_result").addEventListener("change", (e) => {
+  document.getElementById("pom_t2_result").value = e.target.value === "victory" ? "defeat" : "victory";
+});
+document.getElementById("pom_t2_result").addEventListener("change", (e) => {
+  document.getElementById("pom_t1_result").value = e.target.value === "victory" ? "defeat" : "victory";
+});
+
+/* ---------- import stats (screenshot -> post match fields) ---------- */
+async function setImportPreview(previewId, file, statusId){
+  if(!file || !file.type.startsWith("image/")) return;
+  const dataUrl = await readFileAsDataURL(file);
+  const preview = document.getElementById(previewId);
+  preview.src = dataUrl;
+  preview.style.display = "block";
+  if(statusId) document.getElementById(statusId).textContent = "Image ready — click Extract.";
+}
+
+function wireImportUpload(fileId, previewId, statusId){
+  document.getElementById(fileId).addEventListener("change", (e) => {
+    if(e.target.files[0]) setImportPreview(previewId, e.target.files[0], statusId);
+  });
+}
+wireImportUpload("import_battleReport_file", "import_battleReport_preview", "import_battleReport_status");
+wireImportUpload("import_gold_file", "import_gold_preview", "import_gold_status");
+
+// Click the dashed box, then Ctrl+V a screenshot straight from the
+// clipboard (no need to save it to a file first and browse for it).
+function wirePasteZone(zoneId, previewId, statusId){
+  document.getElementById(zoneId).addEventListener("paste", (e) => {
+    const items = (e.clipboardData || window.clipboardData || {}).items || [];
+    for(const item of items){
+      if(item.type && item.type.startsWith("image/")){
+        const file = item.getAsFile();
+        if(file){
+          setImportPreview(previewId, file, statusId);
+          e.preventDefault();
+        }
+        break;
+      }
+    }
+  });
+}
+wirePasteZone("import_battleReport_zone", "import_battleReport_preview", "import_battleReport_status");
+wirePasteZone("import_gold_zone", "import_gold_preview", "import_gold_status");
+
+// Live elapsed-time readout while an extraction is in flight — actual
+// duration depends on image size/content, so a fixed ETA would just be a
+// guess; showing how long it's actually taken so far is more honest and
+// still answers "is this done yet / how long has this been running."
+const extractTimers = {};
+function startExtractTimer(statusId, label){
+  stopExtractTimer(statusId);
+  const start = Date.now();
+  const el = document.getElementById(statusId);
+  const tick = () => { el.textContent = `${label}... ${((Date.now()-start)/1000).toFixed(1)}s elapsed`; };
+  tick();
+  extractTimers[statusId] = { handle: setInterval(tick, 100), start };
+}
+// Returns how long it actually took (e.g. "3.2s") so the finished status
+// message can report it, or "" if no timer was running for this id.
+function stopExtractTimer(statusId){
+  const t = extractTimers[statusId];
+  if(!t) return "";
+  clearInterval(t.handle);
+  delete extractTimers[statusId];
+  return ((Date.now() - t.start) / 1000).toFixed(1) + "s";
+}
+
+document.getElementById("import_battleReport_extract").addEventListener("click", () => {
+  const preview = document.getElementById("import_battleReport_preview");
+  const statusEl = document.getElementById("import_battleReport_status");
+  if(!preview.src || !preview.src.startsWith("data:")){
+    statusEl.textContent = "Upload a screenshot first.";
+    return;
+  }
+  if(!(ws && ws.readyState === WebSocket.OPEN)){
+    statusEl.textContent = "Not connected to the OCR server.";
+    return;
+  }
+  startExtractTimer("import_battleReport_status", "Extracting");
+  ws.send(JSON.stringify({type:"extract_battle_report", image: preview.src}));
+});
+
+document.getElementById("import_gold_extract").addEventListener("click", () => {
+  const preview = document.getElementById("import_gold_preview");
+  const statusEl = document.getElementById("import_gold_status");
+  if(!preview.src || !preview.src.startsWith("data:")){
+    statusEl.textContent = "Upload a screenshot first.";
+    return;
+  }
+  if(!(ws && ws.readyState === WebSocket.OPEN)){
+    statusEl.textContent = "Not connected to the OCR server.";
+    return;
+  }
+  startExtractTimer("import_gold_status", "Extracting");
+  ws.send(JSON.stringify({type:"extract_gold", image: preview.src}));
+});
+
+/* ---------- live screen capture (fast path — reads the post-game screen
+   directly, same mechanism as the in-game kills/gold HUD, no upload) ---------- */
+document.getElementById("import_battleReport_capture").addEventListener("click", () => {
+  const statusEl = document.getElementById("import_battleReport_status");
+  if(!(ws && ws.readyState === WebSocket.OPEN)){
+    statusEl.textContent = "Not connected to the OCR server.";
+    return;
+  }
+  startExtractTimer("import_battleReport_status", "Capturing");
+  ws.send(JSON.stringify({type:"capture_postmatch_battle_report"}));
+});
+document.getElementById("import_gold_capture").addEventListener("click", () => {
+  const statusEl = document.getElementById("import_gold_status");
+  if(!(ws && ws.readyState === WebSocket.OPEN)){
+    statusEl.textContent = "Not connected to the OCR server.";
+    return;
+  }
+  startExtractTimer("import_gold_status", "Capturing");
+  ws.send(JSON.stringify({type:"capture_postmatch_gold"}));
+});
+
+function buildImportBattleReportTable(extractedRows){
+  const container = document.getElementById("import_battleReport_table");
+  container.innerHTML = "";
+  const byTeamIdx = {};
+  extractedRows.forEach(r => { byTeamIdx[`${r.team}_${r.playerIndex}`] = r; });
+  // Calibrated results have no name/confidence to show (the region IS the
+  // player slot) — instead they get reorder arrows, since the player name
+  // stays fixed from the roster and only the VALUES need to line up with
+  // the right row if screen order doesn't match roster order.
+  const isCalibrated = extractedRows.length > 0 && extractedRows[0].calibrated;
+
+  const table = document.createElement("table");
+  table.style.cssText = "width:100%;border-collapse:collapse;font-size:13px;";
+  table.innerHTML = `
+    <thead><tr style="text-align:left;color:#9aa4c0;">
+      <th style="padding:6px;">Player</th>
+      ${isCalibrated ? "" : '<th style="padding:6px;">OCR read (reference)</th>'}
+      <th style="padding:6px;">Hero Damage</th>
+      <th style="padding:6px;">Damage Taken</th>
+      ${isCalibrated ? '<th style="padding:6px;">Reorder</th>' : ""}
+    </tr></thead>
+    <tbody></tbody>
+  `;
+  const tbody = table.querySelector("tbody");
+
+  ["team1","team2"].forEach(team => {
+    const players = (currentState && currentState[team].players) || ["","","","",""];
+    for(let i=0;i<5;i++){
+      const rosterName = players[i] || `(unnamed player ${i+1})`;
+      const found = byTeamIdx[`${team}_${i}`];
+      const tr = document.createElement("tr");
+      tr.style.borderTop = "1px solid #2b3860";
+      const refCell = isCalibrated ? "" :
+        `<td style="padding:6px;color:#6d7899;font-size:11px;">${found ? `"${found.ocrName}" (${Math.round(found.matchScore*100)}%)` : "not detected"}</td>`;
+      const reorderCell = isCalibrated ? `
+        <td style="padding:6px;">
+          <div class="reorder-btns">
+            <button type="button" class="reorder-btn" data-dir="up" data-team="${team}" data-i="${i}" title="Swap with row above" ${i===0?"disabled":""}>&#9650;</button>
+            <button type="button" class="reorder-btn" data-dir="down" data-team="${team}" data-i="${i}" title="Swap with row below" ${i===4?"disabled":""}>&#9660;</button>
+          </div>
+        </td>` : "";
+      tr.innerHTML = `
+        <td style="padding:6px;font-weight:700;">${rosterName}
+          <span style="color:#6d7899;font-size:11px;">(${team === "team1" ? "T1" : "T2"} #${i+1})</span></td>
+        ${refCell}
+        <td style="padding:6px;"><input type="number" id="import_br_${team}_${i}_dealt" style="width:90px;" value="${found && found.heroDamage != null ? found.heroDamage : ""}"></td>
+        <td style="padding:6px;"><input type="number" id="import_br_${team}_${i}_taken" style="width:90px;" value="${found && found.damageTaken != null ? found.damageTaken : ""}"></td>
+        ${reorderCell}
+      `;
+      tbody.appendChild(tr);
+    }
+  });
+
+  container.appendChild(table);
+  if(isCalibrated){
+    container.querySelectorAll(".reorder-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const team = btn.dataset.team;
+        const i = Number(btn.dataset.i);
+        const j = btn.dataset.dir === "up" ? i - 1 : i + 1;
+        if(j < 0 || j > 4) return;
+        ["dealt","taken"].forEach(field => {
+          const a = document.getElementById(`import_br_${team}_${i}_${field}`);
+          const b = document.getElementById(`import_br_${team}_${j}_${field}`);
+          const tmp = a.value; a.value = b.value; b.value = tmp;
+        });
+      });
+    });
+  }
+  document.getElementById("import_battleReport_apply").style.display = "inline-block";
+}
+
+document.getElementById("import_battleReport_apply").addEventListener("click", () => {
+  ["team1","team2"].forEach(team => {
+    for(let i=0;i<5;i++){
+      const dealtSrc = document.getElementById(`import_br_${team}_${i}_dealt`);
+      const takenSrc = document.getElementById(`import_br_${team}_${i}_taken`);
+      if(!dealtSrc) continue;
+      if(dealtSrc.value !== "") document.getElementById(`pom_${team}_${i}_dealt`).value = dealtSrc.value;
+      if(takenSrc.value !== "") document.getElementById(`pom_${team}_${i}_taken`).value = takenSrc.value;
+    }
+  });
+  document.getElementById("import_battleReport_status").textContent =
+    "Applied — go to the Post Match tab and click 'Push Post Match to Overlay' to send it live.";
+});
+
+function recalcGoldTotals(){
+  ["team1","team2"].forEach(team => {
+    let total = 0;
+    for(let i=0;i<5;i++){
+      const el = document.getElementById(`import_gr_${team}_${i}_gold`);
+      if(el && el.value !== "") total += Number(el.value) || 0;
+    }
+    document.getElementById(team === "team1" ? "import_gold_t1" : "import_gold_t2").value = total;
+    // Keep the actual Post Match field in sync too — otherwise a correction
+    // made here after already clicking "Apply" once silently doesn't reach
+    // it until Apply gets clicked again.
+    const pomField = document.getElementById(team === "team1" ? "pom_t1_gold" : "pom_t2_gold");
+    if(pomField) pomField.value = total;
+  });
+}
+
+function buildImportGoldTable(rows){
+  const container = document.getElementById("import_gold_table");
+  document.getElementById("import_gold_candidates").innerHTML = "";
+  container.innerHTML = "";
+  const byTeamIdx = {};
+  rows.forEach(r => { byTeamIdx[`${r.team}_${r.playerIndex}`] = r; });
+  const isCalibrated = rows.length > 0 && rows[0].calibrated;
+
+  const table = document.createElement("table");
+  table.style.cssText = "width:100%;border-collapse:collapse;font-size:13px;";
+  table.innerHTML = `
+    <thead><tr style="text-align:left;color:#9aa4c0;">
+      <th style="padding:6px;">Player</th>
+      ${isCalibrated ? "" : '<th style="padding:6px;">OCR read (reference)</th>'}
+      <th style="padding:6px;">Gold</th>
+      ${isCalibrated ? '<th style="padding:6px;">Reorder</th>' : ""}
+    </tr></thead>
+    <tbody></tbody>
+  `;
+  const tbody = table.querySelector("tbody");
+
+  ["team1","team2"].forEach(team => {
+    const players = (currentState && currentState[team].players) || ["","","","",""];
+    for(let i=0;i<5;i++){
+      const rosterName = players[i] || `(unnamed player ${i+1})`;
+      const found = byTeamIdx[`${team}_${i}`];
+      const tr = document.createElement("tr");
+      tr.style.borderTop = "1px solid #2b3860";
+      const refCell = isCalibrated ? "" :
+        `<td style="padding:6px;color:#6d7899;font-size:11px;">${found ? `"${found.ocrName}" (${Math.round(found.matchScore*100)}%)` : "not detected"}</td>`;
+      const reorderCell = isCalibrated ? `
+        <td style="padding:6px;">
+          <div class="reorder-btns">
+            <button type="button" class="reorder-btn" data-dir="up" data-team="${team}" data-i="${i}" title="Swap with row above" ${i===0?"disabled":""}>&#9650;</button>
+            <button type="button" class="reorder-btn" data-dir="down" data-team="${team}" data-i="${i}" title="Swap with row below" ${i===4?"disabled":""}>&#9660;</button>
+          </div>
+        </td>` : "";
+      tr.innerHTML = `
+        <td style="padding:6px;font-weight:700;">${rosterName}
+          <span style="color:#6d7899;font-size:11px;">(${team === "team1" ? "T1" : "T2"} #${i+1})</span></td>
+        ${refCell}
+        <td style="padding:6px;"><input type="number" id="import_gr_${team}_${i}_gold" style="width:90px;" value="${found && found.gold != null ? found.gold : ""}"></td>
+        ${reorderCell}
+      `;
+      tbody.appendChild(tr);
+    }
+  });
+
+  container.appendChild(table);
+  if(isCalibrated){
+    container.querySelectorAll(".reorder-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const team = btn.dataset.team;
+        const i = Number(btn.dataset.i);
+        const j = btn.dataset.dir === "up" ? i - 1 : i + 1;
+        if(j < 0 || j > 4) return;
+        const a = document.getElementById(`import_gr_${team}_${i}_gold`);
+        const b = document.getElementById(`import_gr_${team}_${j}_gold`);
+        const tmp = a.value; a.value = b.value; b.value = tmp;
+        recalcGoldTotals();
+      });
+    });
+  }
+  container.querySelectorAll("input").forEach(el => el.addEventListener("input", recalcGoldTotals));
+  recalcGoldTotals();
+}
+
+// Fallback UI for when no roster names were found on the screenshot at
+// all (extract_gold_report came back empty) — raw number candidates the
+// operator can assign or just ignore and type values in directly.
+function renderGoldCandidates(candidates){
+  document.getElementById("import_gold_table").innerHTML = "";
+  const el = document.getElementById("import_gold_candidates");
+  el.innerHTML = "";
+  if(!candidates.length){
+    el.textContent = "No players matched and no gold-shaped numbers found — enter values manually below.";
+    return;
+  }
+  const note = document.createElement("div");
+  note.className = "hint";
+  note.style.width = "100%";
+  note.textContent = "No roster names matched this screenshot — here's every gold-shaped number found instead:";
+  el.appendChild(note);
+  candidates.forEach(c => {
+    const chip = document.createElement("div");
+    chip.style.cssText = "background:#161f38;border:1px solid #2b3860;border-radius:6px;padding:6px 10px;font-size:12px;display:flex;gap:6px;align-items:center;";
+    const label = document.createElement("span");
+    label.textContent = c.value.toLocaleString() + `  ("${c.rawText}")`;
+    const b1 = document.createElement("button");
+    b1.textContent = "→ T1"; b1.className = "secondary"; b1.style.cssText = "margin:0;padding:4px 8px;";
+    b1.addEventListener("click", () => { document.getElementById("import_gold_t1").value = c.value; });
+    const b2 = document.createElement("button");
+    b2.textContent = "→ T2"; b2.className = "secondary"; b2.style.cssText = "margin:0;padding:4px 8px;";
+    b2.addEventListener("click", () => { document.getElementById("import_gold_t2").value = c.value; });
+    chip.appendChild(label); chip.appendChild(b1); chip.appendChild(b2);
+    el.appendChild(chip);
+  });
+}
+
+document.getElementById("import_gold_apply").addEventListener("click", () => {
+  const t1 = document.getElementById("import_gold_t1").value;
+  const t2 = document.getElementById("import_gold_t2").value;
+  if(t1 !== "") document.getElementById("pom_t1_gold").value = t1;
+  if(t2 !== "") document.getElementById("pom_t2_gold").value = t2;
+  document.getElementById("import_gold_status").textContent =
+    "Applied — go to the Post Match tab and click 'Push Post Match to Overlay' to send it live.";
+});
+
+/* ---------- turtle announcement (debug/status readout) ---------- */
+let turtleTickHandle = null;
+
+function updateTurtleDebugDisplay(tt){
+  if(!tt) return;
+  document.getElementById("turtle_status").textContent = tt.status;
+  // "Last OCR reading" itself is kept live by the crop_preview handler
+  // below (fires every ~0.7s regardless of whether it triggered anything),
+  // which is more useful for calibration than only showing whatever text
+  // last caused a state transition.
+
+  if(turtleTickHandle){ clearInterval(turtleTickHandle); turtleTickHandle = null; }
+  const countdownEl = document.getElementById("turtle_countdownDisplay");
+
+  if(tt.status === "countdown" && tt.endsAt){
+    const tick = () => {
+      const remainingMs = Math.max(0, tt.endsAt - Date.now());
+      countdownEl.textContent = Math.ceil(remainingMs / 1000) + "s";
+    };
+    tick();
+    turtleTickHandle = setInterval(tick, 250);
+  } else if(tt.status === "spawned"){
+    countdownEl.textContent = "SPAWNED";
+  } else {
+    countdownEl.textContent = "—";
+  }
+}
+
+document.getElementById("turtle_pushCountdown").addEventListener("click", () => {
+  const seconds = Number(document.getElementById("turtle_manualSeconds").value || 0);
+  if(seconds <= 0){ return; }
+  if(ws && ws.readyState === WebSocket.OPEN){
+    ws.send(JSON.stringify({type:"turtle_manual_countdown", seconds}));
+  }
+});
+document.getElementById("turtle_pushSpawned").addEventListener("click", () => {
+  if(ws && ws.readyState === WebSocket.OPEN){
+    ws.send(JSON.stringify({type:"turtle_manual_spawned"}));
+  }
+});
+document.getElementById("turtle_resetManual").addEventListener("click", () => {
+  if(ws && ws.readyState === WebSocket.OPEN){
+    ws.send(JSON.stringify({type:"turtle_manual_reset"}));
+  }
 });
 
 /* ---------- websocket ---------- */
@@ -826,6 +1537,7 @@ function connect(){
       currentState = msg.data;
       lockedFields = new Set(msg.locked || []);
       renderIngameState();
+      if(currentState.turtleTimer) updateTurtleDebugDisplay(currentState.turtleTimer);
       if(!prematchHydrated && currentState.prematch){
         hydratePrematch(currentState.prematch);
         prematchHydrated = true;
@@ -841,6 +1553,28 @@ function connect(){
     } else if(msg.type === "crop_preview"){
       const img = document.getElementById(`crop-${msg.region}`);
       if(img) img.src = msg.image;
+      if(msg.region === "turtle_announcement"){
+        document.getElementById("turtle_lastText").textContent = (msg.text && msg.text.trim()) ? msg.text : "(nothing read this frame)";
+      }
+    } else if(msg.type === "battle_report_result"){
+      const took = stopExtractTimer("import_battleReport_status");
+      document.getElementById("import_battleReport_status").textContent = msg.error
+        ? ("Error: " + msg.error)
+        : `Found ${msg.rows.length} of 10 players in ${took} — review before applying.`;
+      buildImportBattleReportTable(msg.rows || []);
+    } else if(msg.type === "gold_extract_result"){
+      const took = stopExtractTimer("import_gold_status");
+      if(msg.error){
+        document.getElementById("import_gold_status").textContent = "Error: " + msg.error;
+      } else if(msg.rows && msg.rows.length){
+        document.getElementById("import_gold_status").textContent =
+          `Found ${msg.rows.length} of 10 players in ${took} — totals recalculate as you edit below.`;
+        buildImportGoldTable(msg.rows);
+      } else {
+        document.getElementById("import_gold_status").textContent =
+          `No roster names matched (${took}) — showing ${(msg.candidates||[]).length} raw number candidate(s) instead.`;
+        renderGoldCandidates(msg.candidates || []);
+      }
     }
   };
 }
@@ -849,6 +1583,8 @@ buildStatGrid();
 buildCropGrid();
 buildPlayerNameInputs("team1PlayerInputs", "team1");
 buildPlayerNameInputs("team2PlayerInputs", "team2");
+buildPlayerOrderList("pm_playerOrder_team1", "team1");
+buildPlayerOrderList("pm_playerOrder_team2", "team2");
 populateHeroDatalist();
 buildDraftSlots("pm_bans_team1", "team1", "bans");
 buildDraftSlots("pm_bans_team2", "team2", "bans");
