@@ -95,7 +95,7 @@
      fallback) so "GODLIKE ESPORTS" — a genuinely long team name — doesn't
      silently clip: at 14px it renders ~126px, so 140px leaves real margin
      without the box reaching the score-row (which starts at x=903). */
-  .team-logo{ position:absolute; top:898px; width:140px; height:118px; object-fit:contain; display:none; }
+  .team-logo{ position:absolute; top:872px; width:140px; height:118px; object-fit:contain; display:none; }
   #logo-team1{ left:762px; }
   #logo-team2{ left:1012px; }
 
@@ -246,6 +246,21 @@ function updateTimer(){
   el.textContent = `${mm}:${ss}`;
 }
 
+// Per-element position/scale nudges saved from the dashboard's Graphic
+// Fixing tab — purely additive on top of each element's base CSS
+// position/size, applied as a transform so it never disturbs the
+// underlying layout math (centering, etc.) those positions rely on.
+function applyGraphicOverrides(overrides, elementIds){
+  (elementIds || []).forEach(id => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    const o = (overrides && overrides[id]) || {};
+    const dx = o.dx || 0, dy = o.dy || 0, scale = o.scale || 1;
+    el.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+    el.style.transformOrigin = "top left";
+  });
+}
+
 function applyState(state){
   const pm = state.prematch;
   if(!pm) return;
@@ -281,6 +296,9 @@ function applyState(state){
   if(timerTickHandle) clearInterval(timerTickHandle);
   updateTimer();
   if(timerEndsAt) timerTickHandle = setInterval(updateTimer, 250);
+
+  applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.prematch,
+    ["logo-team1", "logo-team2", "name-team1", "name-team2"]);
 }
 
 connect();

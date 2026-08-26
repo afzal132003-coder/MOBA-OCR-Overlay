@@ -134,6 +134,19 @@ def default_state():
             "spawnedUntil": None,
             "lastRawText": "",
         },
+        # Per-element position/scale nudges from the dashboard's Graphic
+        # Fixing tab, e.g. graphicOverrides["prematch"]["logo-team1"] =
+        # {"dx":0,"dy":0,"scale":1}. Purely additive on top of each page's
+        # base CSS position (applied as a CSS transform) — the base
+        # position stays the source of truth, this just nudges it. Keyed
+        # by element id, NOT by team, so it doesn't move when sides swap
+        # (it's correcting a fixed screen position, not following a team).
+        "graphicOverrides": {
+            "prematch": {},
+            "postmatch": {},
+            "overlay": {},
+            "turtle": {},
+        },
         # Prematch (manual, pick/ban draft). Each slot is {name, image} —
         # "image" is the exact filename in dashboard/assets/heroes/, resolved
         # by the dashboard's hero picker, not guessed from the name.
@@ -880,6 +893,8 @@ async def handle_client(websocket, path=None):
                     server_state["prematch"] = data["prematch"]
                 if "postMatch" in data:
                     server_state["postMatch"] = data["postMatch"]
+                if "graphicOverrides" in data:
+                    server_state["graphicOverrides"] = data["graphicOverrides"]
                 for field in payload.get("lock", []):
                     locked_fields.add(field)
                 for field in payload.get("unlock", []):

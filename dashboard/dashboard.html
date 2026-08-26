@@ -92,6 +92,19 @@
   .paste-zone:focus{ border-color:#f2c14e; background:#161f38; }
   .paste-hint{ font-size:12px; color:#6d7899; margin-top:8px; }
 
+  .gfx-box{
+    position:absolute; border:2px solid #f2c14e; box-sizing:border-box;
+    cursor:move; display:flex; align-items:center; justify-content:center;
+    overflow:hidden; background:rgba(242,193,78,0.10);
+  }
+  .gfx-box:hover{ background:rgba(242,193,78,0.22); }
+  .gfx-box img{ max-width:100%; max-height:100%; object-fit:contain; pointer-events:none; }
+  .gfx-box .gfx-label{ color:#f2c14e; font-size:10px; text-align:center; pointer-events:none; padding:2px; }
+  .gfx-handle{
+    position:absolute; right:-5px; bottom:-5px; width:12px; height:12px;
+    background:#f2c14e; border:1px solid #0e1526; cursor:nwse-resize; border-radius:2px;
+  }
+
   .timer-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;}
   .timer-row > div{display:flex;flex-direction:column;}
   .timer-display{font-size:26px;font-weight:800;color:#f2c14e;min-width:80px;align-self:center;}
@@ -110,6 +123,7 @@
   <button class="tab-btn" data-tab="prematch">Prematch</button>
   <button class="tab-btn" data-tab="postmatch">Post Match</button>
   <button class="tab-btn" data-tab="import">Import Stats</button>
+  <button class="tab-btn" data-tab="graphics">Graphic Fixing</button>
 </div>
 
 <!-- ===================== IN-GAME LIVE OPS ===================== -->
@@ -486,6 +500,31 @@
   </div>
 </div>
 
+<!-- ===================== GRAPHIC FIXING ===================== -->
+<div class="tab-panel" id="tab-graphics">
+  <div class="card">
+    <h2>Graphic Fixing</h2>
+    <p class="hint">Drag a logo or name to reposition it; drag the little gold handle on its corner to resize.
+      This preview updates instantly, but nothing changes on the real overlay until you click Save Positions —
+      safe to experiment. Positions are per-element nudges on top of the normal layout, not a replacement for it.</p>
+    <div class="row" style="gap:8px;margin-bottom:14px;">
+      <button class="secondary" id="gfx_page_prematch">Prematch</button>
+      <button class="secondary" id="gfx_page_postmatch">Post Match</button>
+      <button class="secondary" id="gfx_page_overlay">In-Game</button>
+      <button class="secondary" id="gfx_page_turtle">Turtle</button>
+    </div>
+    <div id="gfx_stage_wrap" style="position:relative;width:960px;height:540px;background:#000;border:1px solid #2b3860;border-radius:6px;overflow:hidden;">
+      <img id="gfx_bg" style="position:absolute;top:0;left:0;width:960px;height:540px;object-fit:cover;" alt="">
+      <div id="gfx_stage" style="position:absolute;top:0;left:0;width:960px;height:540px;"></div>
+    </div>
+    <div class="row" style="margin-top:14px;gap:10px;align-items:center;">
+      <button id="gfx_save">Save Positions</button>
+      <button class="secondary" id="gfx_reset">Reset This Page to Default</button>
+      <span id="gfx_status" class="hint" style="margin:0;"></span>
+    </div>
+  </div>
+</div>
+
 <datalist id="heroDatalist"></datalist>
 
 <script>
@@ -576,6 +615,7 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
     document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
     btn.classList.add("active");
     document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+    if(btn.dataset.tab === "graphics") gfxLoadPage(gfxCurrentPage);
   });
 });
 
@@ -1573,6 +1613,169 @@ document.getElementById("turtle_resetManual").addEventListener("click", () => {
     ws.send(JSON.stringify({type:"turtle_manual_reset"}));
   }
 });
+
+/* ---------- graphic fixing (drag/resize position editor) ----------
+   Base geometry here deliberately mirrors the CSS in overlay.html /
+   prematch.html / postmatch.html — this tab doesn't read those files, it
+   just needs to know where things start so dragging can compute a delta
+   from that starting point. If a base position ever gets hand-edited in
+   one of those files, update it here too so the preview stays honest. */
+const GRAPHIC_PAGES = {
+  prematch: {
+    label: "Prematch", background: "../overlay/assets/prematch_blank.png",
+    elements: {
+      "logo-team1": { left:762, top:872, width:140, height:118, kind:"logo", team:"team1" },
+      "logo-team2": { left:1012, top:872, width:140, height:118, kind:"logo", team:"team2" },
+      "name-team1": { left:762, top:1020, width:140, height:18, kind:"name", team:"team1" },
+      "name-team2": { left:1012, top:1020, width:140, height:18, kind:"name", team:"team2" },
+    },
+  },
+  postmatch: {
+    label: "Post Match", background: "../overlay/assets/postmatch_blank.png",
+    elements: {
+      "logo-left": { left:145, top:291, width:60, height:60, kind:"logo", team:"team1" },
+      "logo-right": { left:1715, top:291, width:60, height:60, kind:"logo", team:"team2" },
+      "name-left": { left:249, top:298, width:132, height:38, kind:"name", team:"team1" },
+      "name-right": { left:1540, top:298, width:132, height:38, kind:"name", team:"team2" },
+    },
+  },
+  overlay: {
+    label: "In-Game", background: "../overlay/assets/POPUPS.png",
+    elements: {
+      "team1-logo": { left:368, top:8, width:65, height:71, kind:"logo", team:"team1" },
+      "team2-logo": { left:1485, top:8, width:65, height:71, kind:"logo", team:"team2" },
+      "team1-name": { left:510, top:62, width:199, height:25, kind:"name", team:"team1" },
+      "team2-name": { left:1218, top:62, width:191, height:25, kind:"name", team:"team2" },
+    },
+  },
+  turtle: {
+    label: "Turtle", background: null,
+    elements: {
+      "turtle-time": { left:1675, top:192, width:244, height:130, kind:"box", label:"Turtle Time graphic" },
+      "turtle-spawned": { left:1622, top:303, width:298, height:352, kind:"box", label:"Turtle Spawned graphic" },
+      "turtle-countdown": { left:1817, top:257, width:60, height:30, kind:"box", label:"Countdown number" },
+    },
+  },
+};
+const GFX_SCALE = 0.5; // 960x540 preview of the 1920x1080 canvas
+
+let gfxCurrentPage = "prematch";
+let gfxPending = {}; // elementId -> {dx,dy,scale}, for whichever page is currently loaded
+
+function gfxPositionBox(box, geo){
+  const o = gfxPending[box.dataset.id] || {dx:0, dy:0, scale:1};
+  box.style.left = ((geo.left + o.dx) * GFX_SCALE) + "px";
+  box.style.top = ((geo.top + o.dy) * GFX_SCALE) + "px";
+  box.style.width = (geo.width * o.scale * GFX_SCALE) + "px";
+  box.style.height = (geo.height * o.scale * GFX_SCALE) + "px";
+}
+
+function gfxWireDrag(box, geo){
+  const id = box.dataset.id;
+  let mode = null; // "move" | "resize"
+  let startX = 0, startY = 0, startDx = 0, startDy = 0, startScale = 1;
+
+  box.addEventListener("mousedown", (e) => {
+    mode = e.target.classList.contains("gfx-handle") ? "resize" : "move";
+    startX = e.clientX; startY = e.clientY;
+    const o = gfxPending[id];
+    startDx = o.dx; startDy = o.dy; startScale = o.scale;
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if(!mode) return;
+    const deltaX = (e.clientX - startX) / GFX_SCALE;
+    const deltaY = (e.clientY - startY) / GFX_SCALE;
+    if(mode === "move"){
+      gfxPending[id].dx = Math.round(startDx + deltaX);
+      gfxPending[id].dy = Math.round(startDy + deltaY);
+    } else {
+      let newScale = (geo.width * startScale + deltaX) / geo.width;
+      if(newScale < 0.2) newScale = 0.2;
+      gfxPending[id].scale = Math.round(newScale * 100) / 100;
+    }
+    gfxPositionBox(box, geo);
+  });
+
+  window.addEventListener("mouseup", () => { mode = null; });
+}
+
+function gfxLoadPage(pageKey){
+  gfxCurrentPage = pageKey;
+  const pageDef = GRAPHIC_PAGES[pageKey];
+  const bgImg = document.getElementById("gfx_bg");
+  const wrap = document.getElementById("gfx_stage_wrap");
+  if(pageDef.background){
+    bgImg.src = pageDef.background;
+    bgImg.style.display = "block";
+    wrap.style.background = "#000";
+  } else {
+    bgImg.style.display = "none";
+    wrap.style.background = "linear-gradient(135deg,#1a2f28,#294a3d)";
+  }
+
+  document.querySelectorAll("#tab-graphics .row button.secondary").forEach(b => b.classList.remove("gfx-active"));
+  const pageBtn = document.getElementById(`gfx_page_${pageKey}`);
+  if(pageBtn) pageBtn.style.background = "#f2c14e", pageBtn.style.color = "#0e1526";
+  Object.keys(GRAPHIC_PAGES).filter(k => k !== pageKey).forEach(k => {
+    const b = document.getElementById(`gfx_page_${k}`);
+    if(b){ b.style.background = ""; b.style.color = ""; }
+  });
+
+  const existing = (currentState && currentState.graphicOverrides && currentState.graphicOverrides[pageKey]) || {};
+  gfxPending = {};
+  Object.keys(pageDef.elements).forEach(id => {
+    gfxPending[id] = Object.assign({dx:0, dy:0, scale:1}, existing[id] || {});
+  });
+
+  const stage = document.getElementById("gfx_stage");
+  stage.innerHTML = "";
+  Object.entries(pageDef.elements).forEach(([id, geo]) => {
+    const box = document.createElement("div");
+    box.className = "gfx-box";
+    box.dataset.id = id;
+
+    let inner;
+    if(geo.kind === "logo"){
+      const src = currentState && currentState[geo.team] && currentState[geo.team].logo;
+      inner = src ? `<img src="${src}" alt="">` : `<span class="gfx-label">${geo.team} logo</span>`;
+    } else if(geo.kind === "name"){
+      const name = (currentState && currentState[geo.team] && currentState[geo.team].name) || geo.team;
+      inner = `<span class="gfx-label" style="color:#fff;">${name}</span>`;
+    } else {
+      inner = `<span class="gfx-label">${geo.label || id}</span>`;
+    }
+    box.innerHTML = inner + `<div class="gfx-handle" title="Drag to resize"></div>`;
+
+    stage.appendChild(box);
+    gfxPositionBox(box, geo);
+    gfxWireDrag(box, geo);
+  });
+
+  document.getElementById("gfx_status").textContent = "";
+}
+
+document.getElementById("gfx_save").addEventListener("click", () => {
+  const allOverrides = Object.assign({}, (currentState && currentState.graphicOverrides) || {});
+  allOverrides[gfxCurrentPage] = gfxPending;
+  sendManualUpdate({ graphicOverrides: allOverrides }, [], []);
+  document.getElementById("gfx_status").textContent = "Saved — live on the overlay now.";
+});
+
+document.getElementById("gfx_reset").addEventListener("click", () => {
+  Object.keys(gfxPending).forEach(id => { gfxPending[id] = {dx:0, dy:0, scale:1}; });
+  document.querySelectorAll("#gfx_stage .gfx-box").forEach(box => {
+    gfxPositionBox(box, GRAPHIC_PAGES[gfxCurrentPage].elements[box.dataset.id]);
+  });
+  document.getElementById("gfx_status").textContent = "Reset locally — click Save Positions to make it permanent.";
+});
+
+Object.keys(GRAPHIC_PAGES).forEach(key => {
+  document.getElementById(`gfx_page_${key}`).addEventListener("click", () => gfxLoadPage(key));
+});
+gfxLoadPage("prematch");
 
 /* ---------- websocket ---------- */
 function connect(){

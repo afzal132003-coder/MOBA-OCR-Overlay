@@ -309,6 +309,24 @@ function updateTurtleDisplay(tt){
   lastTurtleStatus = tt.status;
 }
 
+// Per-element position/scale nudges saved from the dashboard's Graphic
+// Fixing tab — purely additive on top of each element's base CSS
+// position/size, applied as a transform so it never disturbs the
+// underlying layout math those positions rely on. baseTransforms lets a
+// specific element (e.g. the turtle countdown, which self-centers via its
+// own translate(-50%,-50%)) keep that transform instead of losing it.
+function applyGraphicOverrides(overrides, elementIds, baseTransforms){
+  (elementIds || []).forEach(id => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    const o = (overrides && overrides[id]) || {};
+    const dx = o.dx || 0, dy = o.dy || 0, scale = o.scale || 1;
+    const base = (baseTransforms && baseTransforms[id]) || "";
+    el.style.transform = `${base} translate(${dx}px, ${dy}px) scale(${scale})`.trim();
+    el.style.transformOrigin = "top left";
+  });
+}
+
 function applyState(state){
   document.getElementById("team1-name").textContent = state.team1.name || "TEAM 1";
   document.getElementById("team2-name").textContent = state.team2.name || "TEAM 2";
@@ -325,6 +343,12 @@ function applyState(state){
   setValue("score-team2", state.seriesScore.team2);
 
   if(state.turtleTimer) updateTurtleDisplay(state.turtleTimer);
+
+  applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.overlay,
+    ["team1-logo", "team2-logo", "team1-name", "team2-name"]);
+  applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.turtle,
+    ["turtle-time", "turtle-spawned", "turtle-countdown"],
+    { "turtle-countdown": "translate(-50%,-50%)" });
 }
 
 connect();

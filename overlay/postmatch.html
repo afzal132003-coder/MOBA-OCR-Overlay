@@ -276,6 +276,21 @@ function renderSide(side, teamKey, pom, state, picks){
   });
 }
 
+// Per-element position/scale nudges saved from the dashboard's Graphic
+// Fixing tab — purely additive on top of each element's base CSS
+// position/size, applied as a transform so it never disturbs the
+// underlying layout math (centering, etc.) those positions rely on.
+function applyGraphicOverrides(overrides, elementIds){
+  (elementIds || []).forEach(id => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    const o = (overrides && overrides[id]) || {};
+    const dx = o.dx || 0, dy = o.dy || 0, scale = o.scale || 1;
+    el.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+    el.style.transformOrigin = "top left";
+  });
+}
+
 function applyState(state){
   const pom = state.postMatch;
   if(!pom) return;
@@ -312,6 +327,9 @@ function applyState(state){
 
   renderSide("left", leftTeam, pom, state, picks);
   renderSide("right", rightTeam, pom, state, picks);
+
+  applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.postmatch,
+    ["logo-left", "logo-right", "name-left", "name-right"]);
 }
 
 function setResult(side, wins){
