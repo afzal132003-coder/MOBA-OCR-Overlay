@@ -7,64 +7,64 @@
   "server_port": 8765,
   "turtle_enabled": true,
   "relay": {
-    "enabled": false,
-    "url": "wss://your-relay-host.example.com",
-    "token": "paste-your-OCR_TOKEN-here"
+    "enabled": true,
+    "url": "wss://moba-ocr-overlay-production.up.railway.app",
+    "token": "7NAmOd7tkqRC7IUcgdG3fHeWtmpQw82z"
   },
   "regions": {
     "team1_kills": {
-      "x": -1333,
-      "y": 38,
-      "w": 43,
-      "h": 44
+      "x": -746,
+      "y": -136,
+      "w": 17,
+      "h": 17
     },
     "team1_objectives": {
-      "x": -1253,
-      "y": 37,
-      "w": 46,
-      "h": 46
+      "x": -773,
+      "y": -139,
+      "w": 20,
+      "h": 21
     },
     "team1_gold": {
-      "x": -1179,
-      "y": 42,
-      "w": 89,
-      "h": 36
+      "x": -803,
+      "y": -134,
+      "w": 32,
+      "h": 14
     },
     "team2_gold": {
-      "x": -816,
-      "y": 38,
-      "w": 68,
-      "h": 41
+      "x": -372,
+      "y": -136,
+      "w": 32,
+      "h": 16
     },
     "team2_objectives": {
-      "x": -709,
-      "y": 41,
-      "w": 50,
-      "h": 38
+      "x": -345,
+      "y": -137,
+      "w": 20,
+      "h": 17
     },
     "team2_kills": {
-      "x": -634,
-      "y": 42,
-      "w": 51,
-      "h": 36
+      "x": -318,
+      "y": -136,
+      "w": 24,
+      "h": 18
     },
     "team1_series_score": {
-      "x": -1379,
-      "y": 75,
-      "w": 142,
-      "h": 95
+      "x": -293,
+      "y": -136,
+      "w": 21,
+      "h": 17
     },
     "team2_series_score": {
-      "x": -704,
-      "y": 77,
-      "w": 116,
-      "h": 94
+      "x": -669,
+      "y": -150,
+      "w": 50,
+      "h": 46
     },
     "turtle_announcement": {
-      "x": -1286,
-      "y": 128,
-      "w": 755,
-      "h": 256
+      "x": -463,
+      "y": -150,
+      "w": 43,
+      "h": 42
     },
     "postgame_dealt_team1_0": {
       "x": -1561,

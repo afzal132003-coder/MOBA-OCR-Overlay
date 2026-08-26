@@ -88,16 +88,22 @@
     text-transform:uppercase; letter-spacing:0.5px; }
 
   /* Logo + name form one centered unit per team: team1 centered on x=832,
-     team2 on x=1081.5 (same centers the original smaller versions used). */
-  .team-logo{ position:absolute; top:936px; width:88px; height:80px; object-fit:contain; display:none; }
-  #logo-team1{ left:788px; }
-  #logo-team2{ left:1038px; }
+     team2 on x=1082 (same centers the original smaller versions used, just
+     bigger — logo bottom edge kept where it was so the name doesn't get
+     pushed down into the score-row divider above the bottom edge).
+     Name box width/font measured against the ACTUAL custom font (not a
+     fallback) so "GODLIKE ESPORTS" — a genuinely long team name — doesn't
+     silently clip: at 14px it renders ~126px, so 140px leaves real margin
+     without the box reaching the score-row (which starts at x=903). */
+  .team-logo{ position:absolute; top:898px; width:140px; height:118px; object-fit:contain; display:none; }
+  #logo-team1{ left:762px; }
+  #logo-team2{ left:1012px; }
 
-  .team-name{ position:absolute; top:1020px; width:110px; height:16px; text-align:center;
-    color:#ffffff; font-weight:700; font-size:13px; text-transform:uppercase; letter-spacing:0.5px;
+  .team-name{ position:absolute; top:1020px; width:140px; height:18px; text-align:center;
+    color:#ffffff; font-weight:700; font-size:14px; text-transform:uppercase; letter-spacing:0.5px;
     overflow:hidden; white-space:nowrap; }
-  #name-team1{ left:777px; }
-  #name-team2{ left:1027px; }
+  #name-team1{ left:762px; }
+  #name-team2{ left:1012px; }
 
   .score-row{ position:absolute; left:903px; top:955px; width:118px; height:52px;
     display:flex; align-items:center; justify-content:center; gap:6px; }
