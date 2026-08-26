@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Titanium Aero - GEN</title>
+<title>Titanium Aero - GEN6.7</title>
 <style>
   body{font-family:'Segoe UI',Arial,sans-serif;background:#0c0a17;color:#eef1fa;margin:0;padding:24px;
     border-top:4px solid transparent;
@@ -14,17 +14,9 @@
   #status.disconnected{background:#5e1b1b;color:#f5a4a4;}
   .hint{font-size:12px;color:#6d7899;margin-top:-4px;}
 
-  .brand-header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;}
   .brand-title{font-size:26px;font-weight:800;letter-spacing:0.5px;margin:0 0 2px;color:#8b5cf6;}
   .brand-title span{color:#eef1fa;font-weight:600;}
   .brand-tagline{font-size:13px;color:#9aa4c0;margin:0 0 16px;font-style:italic;}
-  .brand-icon{
-    position:relative;width:52px;height:52px;border-radius:14px;flex-shrink:0;
-    background:linear-gradient(135deg,#7c3aed,#a855f7 55%,#ec4899);
-    display:flex;align-items:center;justify-content:center;
-    box-shadow:0 6px 20px rgba(124,58,237,0.35);
-  }
-  .brand-icon-live{position:absolute;top:-4px;right:-4px;border:2px solid #0c0a17;}
 
   .category-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;}
   .category-btn{
@@ -161,9 +153,18 @@
   .session-card.accent-pink .s-value{color:#f472b6;}
   .session-card.accent-blue .s-value{color:#60a5fa;}
   .session-card.accent-purple .s-value{color:#a855f7;}
-  .spark-svg{width:100%;height:34px;margin-top:6px;display:block;overflow:visible;}
-  .spark-svg .spark-line{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round;transition:d 0.4s ease;}
-  .spark-svg .spark-fill{stroke:none;transition:d 0.4s ease;}
+  .spark-svg{
+    width:100%;height:38px;margin-top:8px;display:block;border-radius:6px;
+    background-color:#0a0818;
+    background-image:
+      repeating-linear-gradient(0deg, rgba(139,92,246,0.10) 0 1px, transparent 1px 7px),
+      repeating-linear-gradient(90deg, rgba(139,92,246,0.10) 0 1px, transparent 1px 7px);
+    border:1px solid #241d3d;
+  }
+  .spark-svg .spark-line{
+    fill:none;stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round;
+    transition:d 0.4s ease;filter:drop-shadow(0 0 2.5px currentColor);
+  }
 
   .uptime-ring{position:relative;width:52px;height:52px;flex-shrink:0;}
   .uptime-ring svg{transform:rotate(-90deg);}
@@ -181,24 +182,43 @@
     70%{box-shadow:0 0 0 7px rgba(74,222,128,0);}
     100%{box-shadow:0 0 0 0 rgba(74,222,128,0);}
   }
+
+  .entry-gate{
+    position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(circle at 50% 40%,#1a1330 0%,#0a0814 70%);
+    transition:opacity 0.5s ease;
+  }
+  .entry-gate.hidden{opacity:0;pointer-events:none;}
+  .entry-gate-box{text-align:center;max-width:640px;padding:0 24px;animation:gateIn 0.7s ease both;}
+  @keyframes gateIn{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:translateY(0);}}
+  .entry-gate-eyebrow{
+    font-size:12px;letter-spacing:3px;color:#f472b6;text-transform:uppercase;font-weight:700;margin-bottom:14px;
+  }
+  .entry-gate-title{
+    font-size:32px;font-weight:800;line-height:1.3;margin:0 0 14px;
+    background:linear-gradient(90deg,#a855f7,#ec4899,#8b5cf6);-webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .entry-gate-sub{font-size:14px;color:#9aa4c0;margin:0 0 30px;}
+  .entry-gate-enter{
+    background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;border:none;
+    padding:12px 40px;border-radius:8px;font-weight:800;letter-spacing:1px;text-transform:uppercase;
+    cursor:pointer;font-size:13px;box-shadow:0 6px 20px rgba(124,58,237,0.4);
+  }
+  .entry-gate-enter:hover{filter:brightness(1.1);}
 </style>
 </head>
 <body>
-<div class="brand-header">
-  <div>
-    <h1 class="brand-title">TITANIUM AERO <span>— GEN</span></h1>
-    <p class="brand-tagline">Aero: Clean and fast, implying a versatile system that adapts to any environment.</p>
-  </div>
-  <div class="brand-icon" title="Gaming &amp; Broadcasting">
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#f5f3ff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M6 9h12a4 4 0 0 1 4 4v3a3 3 0 0 1-5.2 2.1L15 16H9l-1.8 2.1A3 3 0 0 1 2 16v-3a4 4 0 0 1 4-4z"/>
-      <path d="M7 11.5v3M5.5 13h3"/>
-      <circle cx="16.5" cy="11.5" r="0.7" fill="#f5f3ff" stroke="none"/>
-      <circle cx="18.5" cy="13.5" r="0.7" fill="#f5f3ff" stroke="none"/>
-    </svg>
-    <span class="brand-icon-live pulse-dot"></span>
+<div class="entry-gate" id="entry_gate">
+  <div class="entry-gate-box">
+    <div class="entry-gate-eyebrow">⚠ Restricted Access</div>
+    <h2 class="entry-gate-title">You are entering the Aero Titanium Prod Zone.<br>Be Aware.</h2>
+    <p class="entry-gate-sub">Changes made past this point go live on the broadcast immediately.</p>
+    <button class="entry-gate-enter" id="entry_gate_enter">Enter</button>
   </div>
 </div>
+
+<h1 class="brand-title">TITANIUM AERO <span>- GEN6.7</span></h1>
+<p class="brand-tagline">Aero: Clean and fast, implying a versatile system that adapts to any environment.</p>
 
 <div class="session-strip" id="session_strip">
   <div class="session-card accent-green">
@@ -247,6 +267,7 @@
   <button class="category-btn" data-category="cs2">CS2</button>
   <button class="category-btn" data-category="dota2">Dota 2</button>
   <button class="category-btn" data-category="hok">HOK</button>
+  <button class="category-btn" data-category="freefire">FreeFire Max</button>
 </div>
 
 <div class="category-panel active" id="category-moba">
@@ -716,7 +737,21 @@
   </div>
 </div>
 
+<div class="category-panel" id="category-freefire">
+  <div class="coming-soon">
+    <h2>FreeFire Max</h2>
+    <p class="hint">Tools for this game are coming soon.</p>
+  </div>
+</div>
+
 <script>
+/* ---------- entry gate ---------- */
+document.getElementById("entry_gate_enter").addEventListener("click", () => {
+  const gate = document.getElementById("entry_gate");
+  gate.classList.add("hidden");
+  setTimeout(() => gate.remove(), 500);
+});
+
 /* ---------- session activity stats (purely local to this browser tab —
    not persisted, not sent anywhere; just a live feel for what this
    session has been doing). Sparklines are real data (bucketed event
@@ -735,25 +770,33 @@ function statBuildSparks(){
     const el = document.getElementById(`stat_${key}_spark`);
     if(!el) return;
     const color = STAT_ACCENT[key];
-    const gradId = `spark_grad_${key}`;
     el.innerHTML = `<svg class="spark-svg" viewBox="0 0 100 30" preserveAspectRatio="none">
-      <defs><linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="${color}" stop-opacity="0.45"/>
-        <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
-      </linearGradient></defs>
-      <path class="spark-fill" fill="url(#${gradId})" d=""></path>
-      <path class="spark-line" stroke="${color}" d=""></path>
+      <path class="spark-line" stroke="${color}" style="color:${color};" d="M0,20 L100,20"></path>
     </svg>`;
   });
 }
 
-function statBucketPoints(buckets){
+// Heart-monitor style trace: a flat resting line that spikes sharply at
+// each bucket with real activity in it (spike height = how much activity),
+// staying flat where nothing happened — instead of a smoothed-out hill.
+function statBucketPath(buckets){
   const max = Math.max(1, ...buckets);
-  return buckets.map((v, i) => {
-    const x = (i / (buckets.length - 1)) * 100;
-    const y = 28 - (v / max) * 24;
-    return [x, y];
+  const n = buckets.length;
+  const baseline = 21;
+  const amplitude = 17;
+  const spikeHalfWidth = (100 / n) * 0.16;
+  const points = [[0, baseline]];
+  buckets.forEach((v, i) => {
+    const cx = ((i + 0.5) / n) * 100;
+    if(v > 0){
+      const peakY = baseline - (v / max) * amplitude;
+      points.push([cx - spikeHalfWidth, baseline]);
+      points.push([cx, peakY]);
+      points.push([cx + spikeHalfWidth, baseline]);
+    }
   });
+  points.push([100, baseline]);
+  return points.map((p, i) => (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
 }
 
 function statRender(key){
@@ -761,14 +804,8 @@ function statRender(key){
   const valueEl = document.getElementById(`stat_${key}_value`);
   if(valueEl) valueEl.textContent = t.count;
 
-  const points = statBucketPoints(t.buckets);
-  const linePath = points.map((p, i) => (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
-  const fillPath = linePath + ` L100,30 L0,30 Z`;
   const svg = document.querySelector(`#stat_${key}_spark svg`);
-  if(svg){
-    svg.querySelector(".spark-line").setAttribute("d", linePath);
-    svg.querySelector(".spark-fill").setAttribute("d", fillPath);
-  }
+  if(svg) svg.querySelector(".spark-line").setAttribute("d", statBucketPath(t.buckets));
 
   // Real trend: activity in the most recent half of the window vs the
   // half before it — not a fabricated percentage.
