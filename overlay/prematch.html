@@ -54,13 +54,17 @@
 
   /* ---- pick row (navy body 766-1004, gold footer 1006-1044) ---- */
   .pick-slot{ position:absolute; top:766px; height:238px; overflow:hidden; }
-  /* Slightly oversized (scale) so the slow drift/breathing motion never
-     exposes an edge of the source image inside the clipped slot. */
+  /* Oversized from its CENTER (not an edge) so the drift never runs out of
+     overhang on either side — a bottom-anchored scale only added margin
+     above, so an upward drift could shift the actual bottom edge past the
+     slot's own bottom and expose a gap there (seen live: a blank strip
+     under Gatotkaca/Diggie/Freya's portraits). Center-anchored scale adds
+     margin on every side equally, comfortably covering the small drift. */
   .pick-slot img{ width:100%; height:100%; object-fit:cover; object-position:50% 15%; display:none;
-    transform-origin:center bottom; animation:pickFloat 5s ease-in-out infinite; }
+    transform-origin:center center; animation:pickFloat 5s ease-in-out infinite; }
   @keyframes pickFloat{
-    0%,100%{ transform:scale(1.08) translateY(0); }
-    50%{ transform:scale(1.08) translateY(-6px); }
+    0%,100%{ transform:scale(1.12) translateY(2px); }
+    50%{ transform:scale(1.12) translateY(-2px); }
   }
   /* Small embers drifting up from the footer, only while a slot actually
      has a hero in it — matches the ambient fire/energy look used on the

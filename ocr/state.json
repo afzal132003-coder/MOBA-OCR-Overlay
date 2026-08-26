@@ -3,7 +3,7 @@
     "name": "TEAM 1",
     "logo": "",
     "kills": 7,
-    "objectives": 0,
+    "objectives": 174,
     "gold": 4,
     "players": [
       "",
@@ -18,7 +18,7 @@
     "logo": "",
     "kills": 4,
     "objectives": 4,
-    "gold": 4,
+    "gold": 7,
     "players": [
       "",
       "",
@@ -28,20 +28,20 @@
     ]
   },
   "seriesScore": {
-    "team1": 7,
+    "team1": 4,
     "team2": 0
   },
   "turtleTimer": {
     "status": "idle",
-    "countdownSeconds": 15,
+    "countdownSeconds": 0,
     "endsAt": null,
     "spawnedUntil": null,
-    "lastRawText": "(manual)"
+    "lastRawText": ""
   },
   "lordTimer": {
     "status": "idle",
     "spawnedUntil": null,
-    "lastRawText": "(manual)"
+    "lastRawText": ""
   },
   "graphicOverrides": {
     "prematch": {},
@@ -113,12 +113,12 @@
     "picks": {
       "team1": [
         {
-          "name": "",
-          "image": ""
+          "name": "Gatotkaca",
+          "image": "600px-Gatotkaca_Infobox.jpg"
         },
         {
-          "name": "",
-          "image": ""
+          "name": "Diggie",
+          "image": "600px-Diggie_infobox.png"
         },
         {
           "name": "",
@@ -135,8 +135,8 @@
       ],
       "team2": [
         {
-          "name": "",
-          "image": ""
+          "name": "Freya",
+          "image": "600px-Freya_infobox.jpg"
         },
         {
           "name": "",
