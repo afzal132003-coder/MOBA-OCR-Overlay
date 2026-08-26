@@ -1758,10 +1758,17 @@ function gfxLoadPage(pageKey){
 }
 
 document.getElementById("gfx_save").addEventListener("click", () => {
+  const statusEl = document.getElementById("gfx_status");
+  if(!(ws && ws.readyState === WebSocket.OPEN)){
+    statusEl.textContent = "NOT saved — not connected to the OCR engine right now.";
+    statusEl.style.color = "#f5a4a4";
+    return;
+  }
   const allOverrides = Object.assign({}, (currentState && currentState.graphicOverrides) || {});
   allOverrides[gfxCurrentPage] = gfxPending;
   sendManualUpdate({ graphicOverrides: allOverrides }, [], []);
-  document.getElementById("gfx_status").textContent = "Saved — live on the overlay now.";
+  statusEl.style.color = "";
+  statusEl.textContent = "Saved — live on the overlay now.";
 });
 
 document.getElementById("gfx_reset").addEventListener("click", () => {
