@@ -6,11 +6,11 @@
     "objectives": 174,
     "gold": 4,
     "players": [
-      "",
-      "",
-      "",
-      "",
-      ""
+      "T1 Player 1",
+      "T1 Player 2",
+      "T1 Player 3",
+      "T1 Player 4",
+      "T1 Player 5"
     ]
   },
   "team2": {
@@ -20,15 +20,15 @@
     "objectives": 4,
     "gold": 7,
     "players": [
-      "",
-      "",
-      "",
-      "",
-      ""
+      "T2 Player 1",
+      "T2 Player 2",
+      "T2 Player 3",
+      "T2 Player 4",
+      "T2 Player 5"
     ]
   },
   "seriesScore": {
-    "team1": 4,
+    "team1": 7,
     "team2": 0
   },
   "turtleTimer": {
@@ -67,16 +67,16 @@
     "bans": {
       "team1": [
         {
-          "name": "",
-          "image": ""
+          "name": "Eudora",
+          "image": "600px-Eudora_infobox.jpg"
         },
         {
-          "name": "",
-          "image": ""
+          "name": "Faramis",
+          "image": "600px-Faramis_infobox.jpg"
         },
         {
-          "name": "",
-          "image": ""
+          "name": "Eudora",
+          "image": "600px-Eudora_infobox.jpg"
         },
         {
           "name": "",
@@ -89,16 +89,16 @@
       ],
       "team2": [
         {
-          "name": "",
-          "image": ""
+          "name": "Franco",
+          "image": "600px-Franco_infobox.jpg"
         },
         {
-          "name": "",
-          "image": ""
+          "name": "Fanny",
+          "image": "600px-Fanny_infobox.jpg"
         },
         {
-          "name": "",
-          "image": ""
+          "name": "Faramis",
+          "image": "600px-Faramis_infobox.jpg"
         },
         {
           "name": "",
@@ -139,12 +139,12 @@
           "image": "600px-Freya_infobox.jpg"
         },
         {
-          "name": "",
-          "image": ""
+          "name": "Gloo",
+          "image": "Gloo_Infobox.jpg"
         },
         {
-          "name": "",
-          "image": ""
+          "name": "Jawhead",
+          "image": "600px-Jawhead_infobox.jpg"
         },
         {
           "name": "",

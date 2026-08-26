@@ -52,6 +52,18 @@
     color:#0b193e; font-weight:800; font-size:10px; text-transform:uppercase; letter-spacing:0.3px;
     overflow:hidden; white-space:nowrap; padding:0 3px; box-sizing:border-box; }
 
+  /* Glows an empty pick/ban box to flag "pick or ban here next" — driven
+     by prematch.highlight from the dashboard, always pointing at whichever
+     slot(s) are actually still empty (see updateHighlight()), so it keeps
+     advancing on its own as the draft fills in. */
+  .pick-slot.highlight, .ban-slot.highlight{
+    animation: slotHighlightPulse 1.4s ease-in-out infinite;
+  }
+  @keyframes slotHighlightPulse{
+    0%,100%{ box-shadow: inset 0 0 0 3px rgba(255,215,80,0.95), 0 0 14px 3px rgba(255,215,80,0.5); }
+    50%{ box-shadow: inset 0 0 0 3px rgba(255,215,80,0.55), 0 0 24px 7px rgba(255,215,80,0.85); }
+  }
+
   /* ---- pick row (navy body 766-1004, gold footer 1006-1044) ---- */
   .pick-slot{ position:absolute; top:766px; height:238px; overflow:hidden; }
   /* Oversized from its CENTER (not an edge) so the drift never runs out of
@@ -60,11 +72,18 @@
      slot's own bottom and expose a gap there (seen live: a blank strip
      under Gatotkaca/Diggie/Freya's portraits). Center-anchored scale adds
      margin on every side equally, comfortably covering the small drift. */
+  /* A whole flat portrait can't isolate "just the hair" without a
+     per-hero masked layer (impractical for the full roster), so the
+     nearest practical stand-in is a gentle sway/rotate added on top of
+     the vertical drift — reads as wind moving the whole silhouette
+     rather than a rigid mechanical up-down bob. Still small enough that
+     the 1.12 scale overhang comfortably covers it (a sub-degree rotation
+     only shifts the corners by ~1px on a box this size). */
   .pick-slot img{ width:100%; height:100%; object-fit:cover; object-position:50% 15%; display:none;
     transform-origin:center center; animation:pickFloat 5s ease-in-out infinite; }
   @keyframes pickFloat{
-    0%,100%{ transform:scale(1.12) translateY(2px); }
-    50%{ transform:scale(1.12) translateY(-2px); }
+    0%,100%{ transform:scale(1.12) translateY(2px) rotate(-0.5deg); }
+    50%{ transform:scale(1.12) translateY(-2px) rotate(0.5deg); }
   }
   /* Small embers drifting up from the footer, only while a slot actually
      has a hero in it — matches the ambient fire/energy look used on the
@@ -164,11 +183,15 @@
   <div class="active-arrow" id="arrow-team1"></div>
   <div class="active-arrow" id="arrow-team2"></div>
 
-  <div class="ban-slot mirror" style="left:1175px;" id="ban_team2_0"><img><div class="ban-caption"></div></div>
-  <div class="ban-slot mirror" style="left:1306px;" id="ban_team2_1"><img><div class="ban-caption"></div></div>
+  <!-- Positions reversed from index order (0 gets the outermost slot,
+       4 the innermost) so Player 1..5 reads outer-to-inner on this side
+       too, mirroring team1 instead of running the same left-to-right
+       direction as it. Data binding (which id = which player) unchanged. -->
+  <div class="ban-slot mirror" style="left:1701px;" id="ban_team2_0"><img><div class="ban-caption"></div></div>
+  <div class="ban-slot mirror" style="left:1570px;" id="ban_team2_1"><img><div class="ban-caption"></div></div>
   <div class="ban-slot mirror" style="left:1438px;" id="ban_team2_2"><img><div class="ban-caption"></div></div>
-  <div class="ban-slot mirror" style="left:1570px;" id="ban_team2_3"><img><div class="ban-caption"></div></div>
-  <div class="ban-slot mirror" style="left:1701px;" id="ban_team2_4"><img><div class="ban-caption"></div></div>
+  <div class="ban-slot mirror" style="left:1306px;" id="ban_team2_3"><img><div class="ban-caption"></div></div>
+  <div class="ban-slot mirror" style="left:1175px;" id="ban_team2_4"><img><div class="ban-caption"></div></div>
 
   <div class="pick-slot" style="left:52px;width:137px;" id="pick_team1_0"><img></div>
   <div class="pick-slot" style="left:192px;width:136px;" id="pick_team1_1"><img></div>
@@ -193,16 +216,17 @@
     <span class="score" id="pm-score2">0</span>
   </div>
 
-  <div class="pick-slot" style="left:1169px;width:137px;" id="pick_team2_0"><img></div>
-  <div class="pick-slot" style="left:1309px;width:136px;" id="pick_team2_1"><img></div>
+  <!-- Same mirrored reversal as the ban slots above. -->
+  <div class="pick-slot" style="left:1726px;width:137px;" id="pick_team2_0"><img></div>
+  <div class="pick-slot" style="left:1587px;width:136px;" id="pick_team2_1"><img></div>
   <div class="pick-slot" style="left:1447px;width:137px;" id="pick_team2_2"><img></div>
-  <div class="pick-slot" style="left:1587px;width:136px;" id="pick_team2_3"><img></div>
-  <div class="pick-slot" style="left:1726px;width:137px;" id="pick_team2_4"><img></div>
-  <div class="pick-name" style="left:1169px;width:137px;" id="pickname_team2_0"><span class="player"></span><span class="hero"></span></div>
-  <div class="pick-name" style="left:1309px;width:136px;" id="pickname_team2_1"><span class="player"></span><span class="hero"></span></div>
+  <div class="pick-slot" style="left:1309px;width:136px;" id="pick_team2_3"><img></div>
+  <div class="pick-slot" style="left:1169px;width:137px;" id="pick_team2_4"><img></div>
+  <div class="pick-name" style="left:1726px;width:137px;" id="pickname_team2_0"><span class="player"></span><span class="hero"></span></div>
+  <div class="pick-name" style="left:1587px;width:136px;" id="pickname_team2_1"><span class="player"></span><span class="hero"></span></div>
   <div class="pick-name" style="left:1447px;width:137px;" id="pickname_team2_2"><span class="player"></span><span class="hero"></span></div>
-  <div class="pick-name" style="left:1587px;width:136px;" id="pickname_team2_3"><span class="player"></span><span class="hero"></span></div>
-  <div class="pick-name" style="left:1726px;width:137px;" id="pickname_team2_4"><span class="player"></span><span class="hero"></span></div>
+  <div class="pick-name" style="left:1309px;width:136px;" id="pickname_team2_3"><span class="player"></span><span class="hero"></span></div>
+  <div class="pick-name" style="left:1169px;width:137px;" id="pickname_team2_4"><span class="player"></span><span class="hero"></span></div>
 </div>
 
 <script>
@@ -362,6 +386,39 @@ function applyGraphicOverrides(overrides, elementIds){
   });
 }
 
+// Glows whichever empty pick/ban slot(s) come next for pm.highlight.team,
+// recomputed fresh from the current bans/picks every call — so once the
+// highlighted slot actually gets filled, the very next state_sync just
+// naturally finds the FOLLOWING empty one instead, with no extra logic
+// needed to "advance" it manually.
+function updateHighlight(pm){
+  document.querySelectorAll(".pick-slot.highlight, .ban-slot.highlight")
+    .forEach(el => el.classList.remove("highlight"));
+
+  const hl = pm.highlight;
+  if(!hl || !hl.team || !hl.type) return;
+  const team = hl.team;
+
+  if(hl.type === "ban"){
+    const idx = pm.bans[team].findIndex(slot => !slot || !slot.image);
+    if(idx !== -1){
+      const el = document.getElementById(`ban_${team}_${idx}`);
+      if(el) el.classList.add("highlight");
+    }
+  } else {
+    const wantCount = hl.type === "pick2" ? 2 : 1;
+    let found = 0;
+    for(let i = 0; i < pm.picks[team].length && found < wantCount; i++){
+      const slot = pm.picks[team][i];
+      if(!slot || !slot.image){
+        const el = document.getElementById(`pick_${team}_${i}`);
+        if(el) el.classList.add("highlight");
+        found++;
+      }
+    }
+  }
+}
+
 function applyState(state){
   const pm = state.prematch;
   if(!pm) return;
@@ -388,6 +445,7 @@ function applyState(state){
     pm.bans[team].forEach((slot, i) => fillBanSlot(`ban_${team}_${i}`, slot));
     pm.picks[team].forEach((slot, i) => fillPickSlot(`pick_${team}_${i}`, `pickname_${team}_${i}`, slot, players[i]));
   });
+  updateHighlight(pm);
 
   document.getElementById("arrow-team1").style.display = pm.activeTeam === "team1" ? "block" : "none";
   document.getElementById("arrow-team2").style.display = pm.activeTeam === "team2" ? "block" : "none";

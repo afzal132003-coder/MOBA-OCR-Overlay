@@ -458,6 +458,14 @@
       <button id="pm_activeTeam2">Team 2 On The Clock</button>
       <button class="secondary" id="pm_activeNone">Clear Indicator</button>
     </div>
+    <p class="hint">Highlight glows the next empty box for whichever team is currently on the clock above — it
+      keeps advancing to the following empty slot by itself as picks/bans come in, no need to re-click after each
+      one. "Clear Indicator" also turns the glow off.</p>
+    <div class="timer-row">
+      <button id="pm_highlightPick1">Highlight Next Pick</button>
+      <button id="pm_highlightPick2">Highlight Next 2 Picks</button>
+      <button id="pm_highlightBan">Highlight Next Ban</button>
+    </div>
     <div class="timer-row">
       <div>
         <label>Phase label</label>
@@ -1460,6 +1468,7 @@ function gatherPrematch(){
     },
     phase: document.getElementById("pm_phase").value,
     activeTeam: existing.activeTeam != null ? existing.activeTeam : null,
+    highlight: existing.highlight || { team: null, type: null },
     timerEndsAt: existing.timerEndsAt != null ? existing.timerEndsAt : null,
     timerDuration: durationSec,
     timerRemainingMs: existing.timerRemainingMs != null ? existing.timerRemainingMs : durationSec * 1000,
@@ -1552,7 +1561,20 @@ document.getElementById("pm_resetTimer").addEventListener("click", () => {
 document.getElementById("pm_activeNone").addEventListener("click", () => {
   const data = gatherPrematch();
   data.activeTeam = null;
+  data.highlight = { team: null, type: null };
   sendManualUpdate({ prematch: data });
+});
+
+// Highlights whichever team is currently on the clock (activeTeam) — does
+// nothing if no side is selected there yet, since there'd be no team to
+// highlight for.
+[["pm_highlightPick1", "pick1"], ["pm_highlightPick2", "pick2"], ["pm_highlightBan", "ban"]].forEach(([id, type]) => {
+  document.getElementById(id).addEventListener("click", () => {
+    const data = gatherPrematch();
+    if(!data.activeTeam) return;
+    data.highlight = { team: data.activeTeam, type };
+    sendManualUpdate({ prematch: data });
+  });
 });
 
 function updateTimerDisplay(timerEndsAt, timerRemainingMs){

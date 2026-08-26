@@ -177,6 +177,16 @@ def default_state():
             # Which team is currently on the clock — "team1", "team2", or
             # None. Purely a display indicator, doesn't gate anything.
             "activeTeam": None,
+            # Which empty pick/ban slot(s) to glow on the overlay, for
+            # whichever team the operator has on the clock. "type" is
+            # "pick1" (single next empty pick), "pick2" (next two empty
+            # picks, for a double-pick round), "ban", or None. The overlay
+            # itself finds the actual next-empty slot(s) live off the
+            # current bans/picks each time it renders, so this only needs
+            # to say WHICH kind of slot to look for — it naturally keeps
+            # advancing to the next empty one as picks/bans get filled in,
+            # with no need to re-click after every single pick.
+            "highlight": {"team": None, "type": None},
             # Timer is either running (timerEndsAt set, counting down to
             # that timestamp) or stopped/paused (timerEndsAt is None and
             # timerRemainingMs holds the frozen value to resume/display).
