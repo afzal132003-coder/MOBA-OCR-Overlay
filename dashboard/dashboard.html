@@ -93,12 +93,12 @@
   .paste-hint{ font-size:12px; color:#6d7899; margin-top:8px; }
 
   .gfx-box{
-    position:absolute; border:1px solid rgba(242,193,78,0.55); box-sizing:border-box;
+    position:absolute; border:1px dashed rgba(242,193,78,0.35); box-sizing:border-box;
     cursor:move; display:flex; align-items:center; justify-content:center;
-    overflow:hidden; background:rgba(242,193,78,0.04);
+    overflow:hidden; background:none;
   }
-  .gfx-box:hover{ border-color:#f2c14e; background:rgba(242,193,78,0.10); }
-  .gfx-box.gfx-selected{ border-width:1.5px; border-color:#ff5050; box-shadow:0 0 0 1px rgba(255,80,80,0.45); }
+  .gfx-box:hover{ border:1px solid #f2c14e; background:rgba(242,193,78,0.08); }
+  .gfx-box.gfx-selected{ border:1px solid #ff5050; box-shadow:0 0 0 1px rgba(255,80,80,0.45); }
   .gfx-box.gfx-arrow{ border:none; background:none; }
   .gfx-box.gfx-arrow:hover{ border:none; background:none; }
   .gfx-box.gfx-arrow.gfx-selected{ box-shadow:0 0 0 1px rgba(255,80,80,0.6); border-radius:2px; }
@@ -521,7 +521,8 @@
     </div>
     <p class="hint">Click a box to select it, then nudge with arrow keys (hold Shift for 10px steps) for
       pixel-precise placement. Red guide lines appear while dragging when an edge or center lines up with
-      another box or the canvas center/edges — drag onto one to snap to it.</p>
+      another box or the canvas center/edges — drag onto one to snap to it. Ctrl+Z undoes the last
+      drag/resize/nudge/reset on this page.</p>
     <div id="gfx_stage_wrap" style="position:relative;width:960px;height:540px;background:#000;border:1px solid #2b3860;border-radius:6px;overflow:hidden;">
       <img id="gfx_bg" style="position:absolute;top:0;left:0;width:960px;height:540px;object-fit:cover;" alt="">
       <div id="gfx_stage" style="position:absolute;top:0;left:0;width:960px;height:540px;"></div>
@@ -1690,6 +1691,23 @@ const GFX_SNAP_THRESHOLD = 4; // preview px (~8 real px) — how close counts as
 let gfxCurrentPage = "prematch";
 let gfxPending = {}; // elementId -> {dx,dy,scale}, for whichever page is currently loaded
 let gfxSelectedId = null;
+let gfxHistory = []; // stack of gfxPending snapshots, for Ctrl+Z on this page
+const GFX_HISTORY_LIMIT = 50;
+
+function gfxSnapshot(){
+  gfxHistory.push(JSON.parse(JSON.stringify(gfxPending)));
+  if(gfxHistory.length > GFX_HISTORY_LIMIT) gfxHistory.shift();
+}
+
+function gfxUndo(){
+  const prev = gfxHistory.pop();
+  if(!prev) return;
+  gfxPending = prev;
+  document.querySelectorAll("#gfx_stage .gfx-box").forEach(box => {
+    gfxPositionBox(box, GRAPHIC_PAGES[gfxCurrentPage].elements[box.dataset.id]);
+  });
+  document.getElementById("gfx_status").textContent = "Undone locally — click Save Positions to make it permanent.";
+}
 
 function gfxPositionBox(box, geo){
   const o = gfxPending[box.dataset.id] || {dx:0, dy:0, scale:1};
@@ -1789,6 +1807,7 @@ function gfxWireDrag(box, geo){
     startX = e.clientX; startY = e.clientY;
     const o = gfxPending[id];
     startDx = o.dx; startDy = o.dy; startScale = o.scale;
+    gfxSnapshot();
     gfxSelectBox(id);
     e.preventDefault();
     e.stopPropagation();
@@ -1820,14 +1839,21 @@ function gfxWireDrag(box, geo){
 }
 
 // Arrow-key nudge for the selected box — 1px per press, 10px with Shift.
-// Only acts while the Graphic Fixing tab is visible, something is
-// selected, and focus isn't in a text field elsewhere on the page.
+// Ctrl+Z (or Cmd+Z) undoes the last drag/resize/nudge/reset on this page.
+// Only acts while the Graphic Fixing tab is visible and focus isn't in a
+// text field elsewhere on the page.
 document.addEventListener("keydown", (e) => {
-  if(!gfxSelectedId) return;
   if(!document.getElementById("tab-graphics").classList.contains("active")) return;
   const tag = document.activeElement && document.activeElement.tagName;
   if(tag === "INPUT" || tag === "TEXTAREA") return;
 
+  if((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z"){
+    e.preventDefault();
+    gfxUndo();
+    return;
+  }
+
+  if(!gfxSelectedId) return;
   const step = e.shiftKey ? 10 : 1;
   let dx = 0, dy = 0;
   if(e.key === "ArrowLeft") dx = -step;
@@ -1837,6 +1863,7 @@ document.addEventListener("keydown", (e) => {
   else return;
 
   e.preventDefault();
+  gfxSnapshot();
   gfxPending[gfxSelectedId].dx += dx;
   gfxPending[gfxSelectedId].dy += dy;
   const box = document.querySelector(`#gfx_stage .gfx-box[data-id="${gfxSelectedId}"]`);
@@ -1855,6 +1882,7 @@ document.getElementById("gfx_stage_wrap").addEventListener("mousedown", (e) => {
 function gfxLoadPage(pageKey){
   gfxCurrentPage = pageKey;
   gfxSelectedId = null;
+  gfxHistory = [];
   gfxClearGuides();
   const pageDef = GRAPHIC_PAGES[pageKey];
   const bgImg = document.getElementById("gfx_bg");
@@ -1944,6 +1972,7 @@ document.getElementById("gfx_save").addEventListener("click", () => {
 });
 
 document.getElementById("gfx_reset").addEventListener("click", () => {
+  gfxSnapshot();
   Object.keys(gfxPending).forEach(id => { gfxPending[id] = {dx:0, dy:0, scale:1}; });
   document.querySelectorAll("#gfx_stage .gfx-box").forEach(box => {
     gfxPositionBox(box, GRAPHIC_PAGES[gfxCurrentPage].elements[box.dataset.id]);
