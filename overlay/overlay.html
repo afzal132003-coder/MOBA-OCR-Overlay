@@ -211,8 +211,8 @@ if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get
 const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
 const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
 const WS_URL = _relay
-  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token)
-  : "ws://localhost:8765";
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=overlay"
+  : "ws://localhost:8765?page=overlay";
 let ws;
 
 function connect(){

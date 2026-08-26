@@ -14,9 +14,17 @@
   #status.disconnected{background:#5e1b1b;color:#f5a4a4;}
   .hint{font-size:12px;color:#6d7899;margin-top:-4px;}
 
+  .brand-header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;}
   .brand-title{font-size:26px;font-weight:800;letter-spacing:0.5px;margin:0 0 2px;color:#8b5cf6;}
   .brand-title span{color:#eef1fa;font-weight:600;}
   .brand-tagline{font-size:13px;color:#9aa4c0;margin:0 0 16px;font-style:italic;}
+  .brand-icon{
+    position:relative;width:52px;height:52px;border-radius:14px;flex-shrink:0;
+    background:linear-gradient(135deg,#7c3aed,#a855f7 55%,#ec4899);
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 6px 20px rgba(124,58,237,0.35);
+  }
+  .brand-icon-live{position:absolute;top:-4px;right:-4px;border:2px solid #0c0a17;}
 
   .category-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;}
   .category-btn{
@@ -146,13 +154,24 @@
   .session-card .s-label{font-size:11px;color:#9aa4c0;text-transform:uppercase;letter-spacing:0.5px;}
   .session-card .s-value{font-size:26px;font-weight:800;color:#eef1fa;margin:4px 0 2px;}
   .session-card .s-sub{font-size:11px;color:#7c8bb0;}
-  .session-card .s-sub.up::before{content:"\2191 ";color:#4ade80;}
-  .spark{display:flex;align-items:flex-end;gap:2px;height:26px;margin-top:8px;}
-  .spark .spark-bar{
-    flex:1;min-width:3px;height:6%;border-radius:2px 2px 0 0;
-    background:linear-gradient(180deg,#a855f7,#7c3aed);
-    transition:height 0.4s ease;
-  }
+  .session-card .s-trend{font-size:11px;font-weight:700;margin-top:2px;display:inline-flex;align-items:center;gap:3px;}
+  .session-card .s-trend.up{color:#4ade80;}
+  .session-card .s-trend.down{color:#7c8bb0;}
+  .session-card.accent-green .s-value{color:#4ade80;}
+  .session-card.accent-pink .s-value{color:#f472b6;}
+  .session-card.accent-blue .s-value{color:#60a5fa;}
+  .session-card.accent-purple .s-value{color:#a855f7;}
+  .spark-svg{width:100%;height:34px;margin-top:6px;display:block;overflow:visible;}
+  .spark-svg .spark-line{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round;transition:d 0.4s ease;}
+  .spark-svg .spark-fill{stroke:none;transition:d 0.4s ease;}
+
+  .uptime-ring{position:relative;width:52px;height:52px;flex-shrink:0;}
+  .uptime-ring svg{transform:rotate(-90deg);}
+  .uptime-ring .ring-track{fill:none;stroke:#241d3d;stroke-width:5;}
+  .uptime-ring .ring-fill{fill:none;stroke:#a855f7;stroke-width:5;stroke-linecap:round;transition:stroke-dashoffset 0.5s ease;}
+  .uptime-ring .ring-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#eef1fa;}
+  .uptime-row{display:flex;align-items:center;gap:12px;}
+
   .pulse-dot{
     display:inline-block;width:8px;height:8px;border-radius:50%;background:#4ade80;
     box-shadow:0 0 0 rgba(74,222,128,0.6);animation:pulseDot 1.6s infinite;margin-right:6px;
@@ -165,32 +184,58 @@
 </style>
 </head>
 <body>
-<h1 class="brand-title">TITANIUM AERO <span>— GEN</span></h1>
-<p class="brand-tagline">Aero: Clean and fast, implying a versatile system that adapts to any environment.</p>
+<div class="brand-header">
+  <div>
+    <h1 class="brand-title">TITANIUM AERO <span>— GEN</span></h1>
+    <p class="brand-tagline">Aero: Clean and fast, implying a versatile system that adapts to any environment.</p>
+  </div>
+  <div class="brand-icon" title="Gaming &amp; Broadcasting">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#f5f3ff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M6 9h12a4 4 0 0 1 4 4v3a3 3 0 0 1-5.2 2.1L15 16H9l-1.8 2.1A3 3 0 0 1 2 16v-3a4 4 0 0 1 4-4z"/>
+      <path d="M7 11.5v3M5.5 13h3"/>
+      <circle cx="16.5" cy="11.5" r="0.7" fill="#f5f3ff" stroke="none"/>
+      <circle cx="18.5" cy="13.5" r="0.7" fill="#f5f3ff" stroke="none"/>
+    </svg>
+    <span class="brand-icon-live pulse-dot"></span>
+  </div>
+</div>
 
 <div class="session-strip" id="session_strip">
-  <div class="session-card">
+  <div class="session-card accent-green">
     <div class="s-label">State Syncs</div>
     <div class="s-value" id="stat_ocr_value">0</div>
-    <div class="s-sub">updates received this session</div>
+    <div class="s-trend" id="stat_ocr_trend"></div>
     <div class="spark" id="stat_ocr_spark"></div>
   </div>
-  <div class="session-card">
-    <div class="s-label">Manual Edits Sent</div>
-    <div class="s-value" id="stat_edits_value">0</div>
-    <div class="s-sub">pushed to the overlay</div>
-    <div class="spark" id="stat_edits_spark"></div>
+  <div class="session-card accent-pink">
+    <div class="s-label">Overlay Sources</div>
+    <div id="overlay_presence_list" style="margin-top:10px;display:flex;flex-direction:column;gap:6px;">
+      <div class="s-sub"><span class="pulse-dot" id="presence_dot_overlay" style="background:#5e1b1b;box-shadow:none;animation:none;"></span>In-Game</div>
+      <div class="s-sub"><span class="pulse-dot" id="presence_dot_prematch" style="background:#5e1b1b;box-shadow:none;animation:none;"></span>Prematch</div>
+      <div class="s-sub"><span class="pulse-dot" id="presence_dot_postmatch" style="background:#5e1b1b;box-shadow:none;animation:none;"></span>Post Match</div>
+    </div>
   </div>
-  <div class="session-card">
+  <div class="session-card accent-blue">
     <div class="s-label">Graphics Saved</div>
     <div class="s-value" id="stat_saves_value">0</div>
-    <div class="s-sub">position saves</div>
+    <div class="s-trend" id="stat_saves_trend"></div>
     <div class="spark" id="stat_saves_spark"></div>
   </div>
-  <div class="session-card">
-    <div class="s-label"><span class="pulse-dot"></span>Session Uptime</div>
-    <div class="s-value" id="stat_uptime_value">0:00</div>
-    <div class="s-sub">since this tab was opened</div>
+  <div class="session-card accent-purple">
+    <div class="s-label">Session Uptime</div>
+    <div class="uptime-row">
+      <div class="uptime-ring">
+        <svg viewBox="0 0 60 60" width="52" height="52">
+          <circle class="ring-track" cx="30" cy="30" r="25"></circle>
+          <circle class="ring-fill" id="uptime_ring_fill" cx="30" cy="30" r="25" stroke-dasharray="157" stroke-dashoffset="157"></circle>
+        </svg>
+        <div class="ring-label" id="uptime_ring_label">0%</div>
+      </div>
+      <div>
+        <div class="s-value" id="stat_uptime_value" style="font-size:20px;">0:00</div>
+        <div class="s-sub">connected time</div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -248,7 +293,8 @@
       </div>
     </div>
     <p class="hint">Player names entered here are shared everywhere — they're what shows next to picks on the
-      Prematch graphic and fill the Post Match player rows automatically. Order matches your pick order (Player 1 = first pick).</p>
+      Prematch graphic and fill the Post Match player rows automatically. Order matches your pick order (Player 1 = first pick).
+      Tip: copy a 5-line list of IGNs and paste into Player 1's box to fill all five at once.</p>
     <div class="row">
       <div class="team-form">
         <h3>Team 1 Players</h3>
@@ -673,12 +719,13 @@
 <script>
 /* ---------- session activity stats (purely local to this browser tab —
    not persisted, not sent anywhere; just a live feel for what this
-   session has been doing) ---------- */
+   session has been doing). Sparklines are real data (bucketed event
+   counts over the last ~1 minute), not decorative. ---------- */
+const STAT_ACCENT = { ocr: "#4ade80", saves: "#60a5fa" };
 const STAT_BUCKET_MS = 4000;
 const STAT_BUCKETS = 14;
 const statTrackers = {
   ocr: { count: 0, buckets: new Array(STAT_BUCKETS).fill(0) },
-  edits: { count: 0, buckets: new Array(STAT_BUCKETS).fill(0) },
   saves: { count: 0, buckets: new Array(STAT_BUCKETS).fill(0) },
 };
 const statSessionStart = Date.now();
@@ -687,12 +734,25 @@ function statBuildSparks(){
   Object.keys(statTrackers).forEach(key => {
     const el = document.getElementById(`stat_${key}_spark`);
     if(!el) return;
-    el.innerHTML = "";
-    for(let i = 0; i < STAT_BUCKETS; i++){
-      const bar = document.createElement("div");
-      bar.className = "spark-bar";
-      el.appendChild(bar);
-    }
+    const color = STAT_ACCENT[key];
+    const gradId = `spark_grad_${key}`;
+    el.innerHTML = `<svg class="spark-svg" viewBox="0 0 100 30" preserveAspectRatio="none">
+      <defs><linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${color}" stop-opacity="0.45"/>
+        <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+      </linearGradient></defs>
+      <path class="spark-fill" fill="url(#${gradId})" d=""></path>
+      <path class="spark-line" stroke="${color}" d=""></path>
+    </svg>`;
+  });
+}
+
+function statBucketPoints(buckets){
+  const max = Math.max(1, ...buckets);
+  return buckets.map((v, i) => {
+    const x = (i / (buckets.length - 1)) * 100;
+    const y = 28 - (v / max) * 24;
+    return [x, y];
   });
 }
 
@@ -700,12 +760,34 @@ function statRender(key){
   const t = statTrackers[key];
   const valueEl = document.getElementById(`stat_${key}_value`);
   if(valueEl) valueEl.textContent = t.count;
-  const bars = document.querySelectorAll(`#stat_${key}_spark .spark-bar`);
-  const max = Math.max(1, ...t.buckets);
-  bars.forEach((bar, i) => {
-    const h = t.buckets[i] > 0 ? Math.max(15, Math.round((t.buckets[i] / max) * 100)) : 6;
-    bar.style.height = h + "%";
-  });
+
+  const points = statBucketPoints(t.buckets);
+  const linePath = points.map((p, i) => (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
+  const fillPath = linePath + ` L100,30 L0,30 Z`;
+  const svg = document.querySelector(`#stat_${key}_spark svg`);
+  if(svg){
+    svg.querySelector(".spark-line").setAttribute("d", linePath);
+    svg.querySelector(".spark-fill").setAttribute("d", fillPath);
+  }
+
+  // Real trend: activity in the most recent half of the window vs the
+  // half before it — not a fabricated percentage.
+  const trendEl = document.getElementById(`stat_${key}_trend`);
+  if(trendEl){
+    const half = Math.floor(t.buckets.length / 2);
+    const recent = t.buckets.slice(half).reduce((a, b) => a + b, 0);
+    const prior = t.buckets.slice(0, half).reduce((a, b) => a + b, 0);
+    if(recent > prior){
+      trendEl.className = "s-trend up";
+      trendEl.textContent = `↑ picking up`;
+    } else if(recent > 0 || prior > 0){
+      trendEl.className = "s-trend down";
+      trendEl.textContent = `→ steady`;
+    } else {
+      trendEl.className = "s-trend down";
+      trendEl.textContent = "no activity yet";
+    }
+  }
 }
 
 function statTick(key){
@@ -725,11 +807,54 @@ function statShiftBuckets(){
   });
 }
 
+// Session uptime ring: fraction of elapsed time this tab has actually
+// been connected (not just open), so a dropped/reconnecting connection
+// visibly shows up as the ring falling behind.
+let statConnectedMs = 0;
+let statConnectedSince = null;
+
+function statMarkConnected(){ statConnectedSince = Date.now(); }
+function statMarkDisconnected(){
+  if(statConnectedSince){
+    statConnectedMs += Date.now() - statConnectedSince;
+    statConnectedSince = null;
+  }
+}
+
 function statUpdateUptime(){
-  const secs = Math.floor((Date.now() - statSessionStart) / 1000);
+  const elapsedMs = Date.now() - statSessionStart;
+  const secs = Math.floor(elapsedMs / 1000);
   const m = Math.floor(secs / 60), s = secs % 60;
   const el = document.getElementById("stat_uptime_value");
   if(el) el.textContent = `${m}:${String(s).padStart(2, "0")}`;
+
+  const liveConnectedMs = statConnectedMs + (statConnectedSince ? Date.now() - statConnectedSince : 0);
+  const pct = elapsedMs > 0 ? Math.min(100, Math.round((liveConnectedMs / elapsedMs) * 100)) : 0;
+  const circumference = 157;
+  const ringFill = document.getElementById("uptime_ring_fill");
+  if(ringFill) ringFill.style.strokeDashoffset = circumference - (circumference * pct) / 100;
+  const ringLabel = document.getElementById("uptime_ring_label");
+  if(ringLabel) ringLabel.textContent = pct + "%";
+}
+
+// Which OBS/vMix browser sources (overlay, prematch, postmatch pages) are
+// actually connected right now, per the "presence" broadcasts from the
+// engine/relay.
+function statUpdatePresence(pages){
+  ["overlay", "prematch", "postmatch"].forEach(page => {
+    const dot = document.getElementById(`presence_dot_${page}`);
+    if(!dot) return;
+    const connectedCount = (pages && pages[page]) || 0;
+    if(connectedCount > 0){
+      dot.style.background = "#4ade80";
+      dot.style.boxShadow = "";
+      dot.style.animation = "";
+    } else {
+      dot.style.background = "#5e1b1b";
+      dot.style.boxShadow = "none";
+      dot.style.animation = "none";
+    }
+  });
 }
 
 statBuildSparks();
@@ -912,7 +1037,6 @@ function populateHeroDatalist(){
 function sendManualUpdate(data, lock, unlock){
   if(ws && ws.readyState === WebSocket.OPEN){
     ws.send(JSON.stringify({type:"manual_update", data, lock: lock||[], unlock: unlock||[]}));
-    statTick("edits");
   }
 }
 
@@ -1044,6 +1168,29 @@ function buildPlayerNameInputs(containerId, team){
     container.appendChild(wrap);
   }
   wirePlayerReorderButtons(container);
+  wirePlayerPasteFill(team);
+}
+
+// Pasting a multi-line block of IGNs (one per line) into any player-name
+// field fills that field and the ones after it, in order — so copying a
+// full roster and pasting once into Player 1 fills all 5 instead of
+// needing five separate paste actions. A single-line paste behaves like a
+// normal paste into just that one field.
+function wirePlayerPasteFill(team){
+  for(let i=0;i<5;i++){
+    const input = document.getElementById(`${team}Player${i}`);
+    if(!input) continue;
+    input.addEventListener("paste", (e) => {
+      const text = (e.clipboardData || window.clipboardData).getData("text");
+      const lines = text.split(/\r\n|\r|\n/).map(l => l.trim()).filter(l => l.length > 0);
+      if(lines.length <= 1) return;
+      e.preventDefault();
+      for(let j = 0; j < lines.length && i + j < 5; j++){
+        const target = document.getElementById(`${team}Player${i + j}`);
+        if(target) target.value = lines[j];
+      }
+    });
+  }
 }
 
 function renderIngameState(){
@@ -2277,15 +2424,22 @@ function connect(){
   ws.onopen = () => {
     document.getElementById("status").textContent = "CONNECTED";
     document.getElementById("status").className = "connected";
+    statMarkConnected();
   };
   ws.onclose = () => {
     document.getElementById("status").textContent = "DISCONNECTED";
     document.getElementById("status").className = "disconnected";
+    statMarkDisconnected();
+    statUpdatePresence({});
     setTimeout(connect, 2000);
   };
   ws.onerror = () => ws.close();
   ws.onmessage = (evt) => {
     const msg = JSON.parse(evt.data);
+    if(msg.type === "presence"){
+      statUpdatePresence(msg.pages || {});
+      return;
+    }
     if(msg.type === "state_sync"){
       currentState = msg.data;
       lockedFields = new Set(msg.locked || []);

@@ -16,6 +16,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from urllib.parse import urlparse, parse_qs
 
 import cv2
 import numpy as np
@@ -100,6 +101,11 @@ TURTLE_MAX_COUNTDOWN = 120
 ocr_executor = ThreadPoolExecutor(max_workers=len(REGION_ORDER) + 1)
 
 connected_clients = set()
+# websocket -> the "page" query param it connected with (overlay.html,
+# prematch.html, postmatch.html send their own name; dashboard.html and
+# anything older that doesn't send one falls back to "unknown"). Lets the
+# dashboard show whether each OBS/vMix browser source is actually reachable.
+connected_pages = {}
 
 
 def default_player():
@@ -383,6 +389,17 @@ async def broadcast(message):
         return
     data = json.dumps(message)
     await asyncio.gather(*[c.send(data) for c in connected_clients], return_exceptions=True)
+
+
+def presence_counts():
+    counts = {}
+    for page in connected_pages.values():
+        counts[page] = counts.get(page, 0) + 1
+    return counts
+
+
+async def broadcast_presence():
+    await broadcast({"type": "presence", "pages": presence_counts()})
 
 
 def confirm_reading(key, raw_value):
@@ -869,6 +886,13 @@ def build_roster_names():
 
 async def handle_client(websocket, path=None):
     connected_clients.add(websocket)
+    try:
+        query = parse_qs(urlparse(websocket.request.path).query)
+        page = (query.get("page") or ["unknown"])[0]
+    except Exception:
+        page = "unknown"
+    connected_pages[websocket] = page
+    await broadcast_presence()
     await websocket.send(json.dumps({
         "type": "state_sync", "data": server_state, "locked": list(locked_fields),
     }))
@@ -1016,6 +1040,8 @@ async def handle_client(websocket, path=None):
                     }))
     finally:
         connected_clients.discard(websocket)
+        connected_pages.pop(websocket, None)
+        await broadcast_presence()
 
 
 async def relay_client_loop():

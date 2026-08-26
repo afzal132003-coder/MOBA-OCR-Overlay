@@ -46,6 +46,10 @@ for env_name, role in (("OCR_TOKEN", "ocr"), ("ADMIN_TOKEN", "admin"), ("VIEWER_
 
 # websocket -> role, for every currently-connected client
 connected = {}
+# websocket -> the "page" query param it connected with (overlay.html,
+# prematch.html, postmatch.html each send their own name), so admins can
+# see which OBS/vMix browser sources are actually reachable right now.
+connected_pages = {}
 # The most recent full state_sync payload (raw JSON text), so a client that
 # connects between updates still gets the current state immediately instead
 # of sitting blank until something changes.
@@ -54,6 +58,28 @@ last_state_sync = None
 
 def role_for_token(token):
     return TOKEN_ROLES.get(token)
+
+
+def presence_counts():
+    counts = {}
+    for page in connected_pages.values():
+        counts[page] = counts.get(page, 0) + 1
+    return counts
+
+
+async def broadcast_presence():
+    if not connected:
+        return
+    raw = json.dumps({"type": "presence", "pages": presence_counts()})
+    stale = []
+    for peer in connected:
+        try:
+            await peer.send(raw)
+        except websockets.exceptions.ConnectionClosed:
+            stale.append(peer)
+    for peer in stale:
+        connected.pop(peer, None)
+        connected_pages.pop(peer, None)
 
 
 async def handler(websocket):
@@ -68,7 +94,9 @@ async def handler(websocket):
         return
 
     connected[websocket] = role
+    connected_pages[websocket] = (query.get("page") or ["unknown"])[0]
     print(f"[connect] role={role} total_connected={len(connected)}")
+    await broadcast_presence()
     try:
         if last_state_sync is not None:
             await websocket.send(last_state_sync)
@@ -95,9 +123,12 @@ async def handler(websocket):
                     stale.append(peer)
             for peer in stale:
                 connected.pop(peer, None)
+                connected_pages.pop(peer, None)
     finally:
         connected.pop(websocket, None)
+        connected_pages.pop(websocket, None)
         print(f"[disconnect] role={role} total_connected={len(connected)}")
+        await broadcast_presence()
 
 
 async def main():
