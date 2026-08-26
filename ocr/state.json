@@ -33,10 +33,10 @@
   },
   "turtleTimer": {
     "status": "idle",
-    "countdownSeconds": 0,
+    "countdownSeconds": 15,
     "endsAt": null,
     "spawnedUntil": null,
-    "lastRawText": ""
+    "lastRawText": "(manual)"
   },
   "lordTimer": {
     "status": "idle",

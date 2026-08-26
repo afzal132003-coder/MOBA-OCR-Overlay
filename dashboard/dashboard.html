@@ -355,23 +355,30 @@
   </div>
 
   <div class="card">
-    <h2>Turtle Announcement</h2>
+    <h2>Turtle &amp; Lord Announcement</h2>
     <p class="hint">Calibrate with <code>python calibrate.py turtle_announcement</code> — draw the box around the
-      "Turtle spawning in Ns" / "Turtle Spawned" toast zone, generously (wider/taller than the text). The crop and
-      the exact text OCR is reading are shown live below so you can confirm it's catching the right thing before
-      trusting it on air.</p>
+      "Turtle spawning in Ns" / "Turtle Spawned" / "Lord Spawned" toast zone, generously (wider/taller than the
+      text). Both objectives are read from this same zone, so one calibration covers both. The crop and the exact
+      text OCR is reading are shown live below so you can confirm it's catching the right thing before trusting it
+      on air.</p>
     <div class="row">
       <div class="crop-box" style="max-width:220px;">
         <img id="crop-turtle_announcement">
         <div class="label">turtle announcement</div>
       </div>
       <div class="team-form">
-        <label>Status</label>
+        <label>Turtle Status</label>
         <div id="turtle_status" style="font-weight:800;color:#8b5cf6;">idle</div>
         <label>Last OCR reading</label>
         <div id="turtle_lastText" style="font-size:12px;color:#9aa4c0;min-height:18px;">&mdash;</div>
         <label>Live countdown</label>
         <div id="turtle_countdownDisplay" style="font-size:20px;font-weight:800;">&mdash;</div>
+      </div>
+      <div class="team-form">
+        <label>Lord Status</label>
+        <div id="lord_status" style="font-weight:800;color:#8b5cf6;">idle</div>
+        <label>Last OCR reading</label>
+        <div id="lord_lastText" style="font-size:12px;color:#9aa4c0;min-height:18px;">&mdash;</div>
       </div>
     </div>
     <p class="hint">Manual override — works regardless of what OCR is doing, useful while detection is still
@@ -384,24 +391,8 @@
       <button id="turtle_pushCountdown">Push Countdown</button>
       <button id="turtle_pushSpawned">Push Turtle Spawned Now</button>
       <button class="secondary" id="turtle_resetManual">Reset to Idle</button>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2>Lord Announcement</h2>
-    <p class="hint">Reads the exact same detection zone as Turtle Announcement above (Lord's "Spawned" toast shows
-      in the same place) — no separate calibration needed. Only a spawned-now trigger exists, since Mobile Legends
-      doesn't show a pre-warning countdown for Lord the way it does for Turtle.</p>
-    <div class="team-form">
-      <label>Status</label>
-      <div id="lord_status" style="font-weight:800;color:#8b5cf6;">idle</div>
-      <label>Last OCR reading</label>
-      <div id="lord_lastText" style="font-size:12px;color:#9aa4c0;min-height:18px;">&mdash;</div>
-    </div>
-    <p class="hint">Manual override — works regardless of what OCR is doing.</p>
-    <div class="timer-row">
       <button id="lord_pushSpawned">Push Lord Spawned Now</button>
-      <button class="secondary" id="lord_resetManual">Reset to Idle</button>
+      <button class="secondary" id="lord_resetManual">Reset Lord to Idle</button>
     </div>
   </div>
 </div>
