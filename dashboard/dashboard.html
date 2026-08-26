@@ -99,6 +99,7 @@
   }
   .gfx-box:hover{ background:rgba(242,193,78,0.22); }
   .gfx-box.gfx-selected{ border-color:#ff5050; box-shadow:0 0 0 2px rgba(255,80,80,0.45); }
+  .gfx-ghost{ opacity:0.85; }
   .gfx-box img{ max-width:100%; max-height:100%; object-fit:contain; pointer-events:none; }
   .gfx-box .gfx-label{ color:#f2c14e; font-size:10px; text-align:center; pointer-events:none; padding:2px; }
   .gfx-handle{
@@ -1629,13 +1630,27 @@ const GRAPHIC_PAGES = {
   prematch: {
     label: "Prematch", background: "../overlay/assets/prematch_blank.png",
     elements: {
-      "logo-team1": { left:762, top:872, width:140, height:118, kind:"logo", team:"team1" },
-      "logo-team2": { left:1012, top:872, width:140, height:118, kind:"logo", team:"team2" },
+      "logo-team1": { left:762, top:908, width:140, height:110, kind:"logo", team:"team1" },
+      "logo-team2": { left:1012, top:908, width:140, height:110, kind:"logo", team:"team2" },
       "name-team1": { left:762, top:1020, width:140, height:18, kind:"name", team:"team1" },
       "name-team2": { left:1012, top:1020, width:140, height:18, kind:"name", team:"team2" },
-      "arrow-team1": { left:750, top:964, width:20, height:24, kind:"box", label:"On-clock indicator (Team 1)" },
-      "arrow-team2": { left:1124, top:964, width:20, height:24, kind:"box", label:"On-clock indicator (Team 2)" },
+      "arrow-team1": { left:750, top:951, width:20, height:24, kind:"box", label:"On-clock indicator (Team 1)" },
+      "arrow-team2": { left:1124, top:951, width:20, height:24, kind:"box", label:"On-clock indicator (Team 2)" },
     },
+    // Non-draggable ghost elements: real content that isn't editable here
+    // but visually overlaps the same area, so drags can be judged against
+    // what's ACTUALLY behind them instead of guessing blind.
+    context: [
+      { left:750, top:854, width:420, height:24, fontSize:24,
+        css:"text-align:center;color:#f2c14e;font-weight:800;font-style:italic;text-transform:uppercase;letter-spacing:1px;",
+        text: state => (state && state.prematch && state.prematch.context && state.prematch.context.line1) || "" },
+      { left:750, top:887, width:420, height:18, fontSize:15,
+        css:"text-align:center;color:#fff;font-weight:600;font-style:italic;text-transform:uppercase;letter-spacing:0.5px;",
+        text: state => (state && state.prematch && state.prematch.context && state.prematch.context.line2) || "" },
+      { left:903, top:955, width:118, height:52, fontSize:44,
+        css:"display:flex;align-items:center;justify-content:center;gap:6px;color:#f2c14e;font-weight:900;",
+        text: state => { const s = (state && state.prematch && state.prematch.seriesScore) || {team1:0,team2:0}; return `${s.team1} - ${s.team2}`; } },
+    ],
   },
   postmatch: {
     label: "Post Match", background: "../overlay/assets/postmatch_blank.png",
@@ -1865,6 +1880,20 @@ function gfxLoadPage(pageKey){
 
   const stage = document.getElementById("gfx_stage");
   stage.innerHTML = "";
+
+  // Ghost context: real page content that isn't editable from here but
+  // occupies the same space, rendered behind the draggable boxes so drags
+  // can be judged against what's actually there instead of guessing blind.
+  (pageDef.context || []).forEach(ctx => {
+    const ghost = document.createElement("div");
+    ghost.className = "gfx-ghost";
+    ghost.style.cssText = `position:absolute; left:${ctx.left*GFX_SCALE}px; top:${ctx.top*GFX_SCALE}px; ` +
+      `width:${ctx.width*GFX_SCALE}px; height:${ctx.height*GFX_SCALE}px; pointer-events:none; ` +
+      `font-size:${(ctx.fontSize||20)*GFX_SCALE}px; white-space:nowrap; overflow:hidden; ` + ctx.css;
+    ghost.textContent = ctx.text ? ctx.text(currentState) : "";
+    stage.appendChild(ghost);
+  });
+
   Object.entries(pageDef.elements).forEach(([id, geo]) => {
     const box = document.createElement("div");
     box.className = "gfx-box";

@@ -70,15 +70,6 @@
   .timer-pill .dash{ color:var(--gold); font-weight:800; font-size:20px; }
   .timer-pill .clock{ color:#ffffff; font-weight:800; font-size:26px; letter-spacing:1px; }
 
-  /* Shows which team is currently on the clock: a green arrow pointing at
-     that team's logo, in the center card's team-name row. Nothing is
-     shown at all for the inactive side (not dimmed — hidden). */
-  .active-arrow{ position:absolute; top:964px; width:0; height:0;
-    border-top:12px solid transparent; border-bottom:12px solid transparent;
-    filter:drop-shadow(0 0 6px #3ddc6a); display:none; }
-  #arrow-team1{ left:758px; border-left:18px solid #3ddc6a; }
-  #arrow-team2{ left:1134px; border-right:18px solid #3ddc6a; }
-
   /* ---- center match info ---- */
   .title{ position:absolute; left:750px; width:420px; top:854px; height:24px;
     text-align:center; color:var(--gold); font-weight:800; font-size:24px; font-style:italic;
@@ -88,16 +79,28 @@
     text-transform:uppercase; letter-spacing:0.5px; }
 
   /* Logo + name form one centered unit per team: team1 centered on x=832,
-     team2 on x=1082 (same centers the original smaller versions used, just
-     bigger — logo bottom edge kept where it was so the name doesn't get
-     pushed down into the score-row divider above the bottom edge).
+     team2 on x=1082. Top/height kept below the subtitle (ends y=905) and
+     the template's own connector-dot line (y=920-926) so nothing overlaps
+     the "INVITED / SEMI FINALS" text baked above — measured directly off
+     the current prematch_blank.png template, not the older art it used to
+     be tuned against.
      Name box width/font measured against the ACTUAL custom font (not a
      fallback) so "GODLIKE ESPORTS" — a genuinely long team name — doesn't
      silently clip: at 14px it renders ~126px, so 140px leaves real margin
      without the box reaching the score-row (which starts at x=903). */
-  .team-logo{ position:absolute; top:872px; width:140px; height:118px; object-fit:contain; display:none; }
+  .team-logo{ position:absolute; top:908px; width:140px; height:110px; object-fit:contain; display:none; }
   #logo-team1{ left:762px; }
   #logo-team2{ left:1012px; }
+
+  /* Shows which team is currently on the clock: a green arrow pointing at
+     that team's logo. Vertically centered on the (now shorter) logo box
+     above. Nothing is shown at all for the inactive side (not dimmed —
+     hidden). */
+  .active-arrow{ position:absolute; top:951px; width:0; height:0;
+    border-top:12px solid transparent; border-bottom:12px solid transparent;
+    filter:drop-shadow(0 0 6px #3ddc6a); display:none; }
+  #arrow-team1{ left:758px; border-left:18px solid #3ddc6a; }
+  #arrow-team2{ left:1134px; border-right:18px solid #3ddc6a; }
 
   .team-name{ position:absolute; top:1020px; width:140px; height:18px; text-align:center;
     color:#ffffff; font-weight:700; font-size:14px; text-transform:uppercase; letter-spacing:0.5px;
