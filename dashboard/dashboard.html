@@ -4,40 +4,46 @@
 <meta charset="UTF-8">
 <title>Titanium Aero - GEN</title>
 <style>
-  body{font-family:'Segoe UI',Arial,sans-serif;background:#0e1526;color:#eef1fa;margin:0;padding:24px;}
+  body{font-family:'Segoe UI',Arial,sans-serif;background:#0c0a17;color:#eef1fa;margin:0;padding:24px;
+    border-top:4px solid transparent;
+    border-image:linear-gradient(90deg,#7c3aed,#a855f7,#ec4899,#8b5cf6) 1;
+  }
   h1{font-size:20px;margin-bottom:4px;}
   #status{display:inline-block;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:700;margin-bottom:16px;}
   #status.connected{background:#1b5e3a;color:#a4f5c4;}
   #status.disconnected{background:#5e1b1b;color:#f5a4a4;}
   .hint{font-size:12px;color:#6d7899;margin-top:-4px;}
 
-  .brand-title{font-size:26px;font-weight:800;letter-spacing:0.5px;margin:0 0 14px;color:#f2c14e;}
+  .brand-title{font-size:26px;font-weight:800;letter-spacing:0.5px;margin:0 0 2px;color:#8b5cf6;}
   .brand-title span{color:#eef1fa;font-weight:600;}
+  .brand-tagline{font-size:13px;color:#9aa4c0;margin:0 0 16px;font-style:italic;}
 
   .category-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;}
   .category-btn{
-    background:#161f38;color:#9aa4c0;border:1px solid #2b3860;
+    background:#181430;color:#9aa4c0;border:1px solid #332b52;
     padding:10px 20px;border-radius:8px;font-weight:800;cursor:pointer;
     font-size:13px;text-transform:uppercase;letter-spacing:0.5px;
   }
-  .category-btn.active{background:#f2c14e;color:#0e1526;border-color:#f2c14e;}
+  .category-btn.active{background:#8b5cf6;color:#0c0a17;border-color:#8b5cf6;}
   .category-panel{display:none;}
   .category-panel.active{display:block;}
-  .coming-soon{background:#161f38;border:1px dashed #2b3860;border-radius:10px;padding:40px 20px;text-align:center;}
-  .coming-soon h2{color:#f2c14e;text-transform:uppercase;letter-spacing:0.5px;margin-top:0;}
+  .coming-soon{background:#181430;border:1px dashed #332b52;border-radius:10px;padding:40px 20px;text-align:center;}
+  .coming-soon h2{color:#8b5cf6;text-transform:uppercase;letter-spacing:0.5px;margin-top:0;}
 
   .tabbar{display:flex;gap:8px;margin:16px 0 0;}
   .tabbar button{
-    background:#161f38;color:#9aa4c0;border:1px solid #2b3860;border-bottom:none;
+    background:#181430;color:#9aa4c0;border:1px solid #332b52;border-bottom:none;
     padding:10px 18px;border-radius:8px 8px 0 0;font-weight:700;cursor:pointer;
     font-size:12px;text-transform:uppercase;letter-spacing:0.5px;
   }
-  .tabbar button.active{background:#f2c14e;color:#0e1526;border-color:#f2c14e;}
-  .tab-panel{display:none;background:#0e1526;padding-top:4px;}
+  .tabbar button.active{background:#8b5cf6;color:#0c0a17;border-color:#8b5cf6;}
+  .tab-panel{display:none;background:#0c0a17;padding-top:4px;}
   .tab-panel.active{display:block;}
 
-  .card{background:#161f38;border-radius:10px;padding:18px 20px;margin-bottom:20px;}
-  .card h2{margin-top:0;font-size:15px;color:#f2c14e;text-transform:uppercase;letter-spacing:0.5px;}
+  .card{background:#181430;border:1px solid #241d3d;border-radius:14px;padding:18px 20px;margin-bottom:20px;
+    box-shadow:0 4px 18px rgba(0,0,0,0.25);
+  }
+  .card h2{margin-top:0;font-size:15px;color:#8b5cf6;text-transform:uppercase;letter-spacing:0.5px;}
   .card h3{font-size:12px;color:#9aa4c0;text-transform:uppercase;margin:0 0 10px;letter-spacing:0.5px;}
   .row{display:flex;gap:24px;flex-wrap:wrap;}
   .two-col{display:flex;gap:24px;flex-wrap:wrap;}
@@ -46,34 +52,34 @@
 
   label{display:block;font-size:12px;color:#9aa4c0;margin:10px 0 4px;}
   input[type=text], input[type=number]{
-    width:100%;box-sizing:border-box;padding:8px 10px;border-radius:6px;border:1px solid #2b3860;
-    background:#0e1526;color:#eef1fa;font-size:14px;
+    width:100%;box-sizing:border-box;padding:8px 10px;border-radius:6px;border:1px solid #332b52;
+    background:#0c0a17;color:#eef1fa;font-size:14px;
   }
   input[type=file]{color:#9aa4c0;font-size:12px;}
-  .logo-preview{width:48px;height:48px;border-radius:50%;object-fit:cover;background:#0e1526;border:2px solid #f2c14e;margin-top:8px;}
+  .logo-preview{width:48px;height:48px;border-radius:50%;object-fit:cover;background:#0c0a17;border:2px solid #8b5cf6;margin-top:8px;}
   button{
-    background:#f2c14e;color:#0e1526;border:none;padding:9px 16px;border-radius:6px;
+    background:#8b5cf6;color:#0c0a17;border:none;padding:9px 16px;border-radius:6px;
     font-weight:700;cursor:pointer;font-size:13px;margin-top:12px;
   }
-  button.secondary{background:#2b3860;color:#eef1fa;}
+  button.secondary{background:#332b52;color:#eef1fa;}
   button.danger{background:#c0453f;color:#fff;}
   button:hover{opacity:0.9;}
 
   select{
-    width:100%;box-sizing:border-box;padding:8px 10px;border-radius:6px;border:1px solid #2b3860;
-    background:#0e1526;color:#eef1fa;font-size:14px;
+    width:100%;box-sizing:border-box;padding:8px 10px;border-radius:6px;border:1px solid #332b52;
+    background:#0c0a17;color:#eef1fa;font-size:14px;
   }
 
   .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;}
-  .stat-card{background:#0e1526;border:1px solid #2b3860;border-radius:8px;padding:12px;}
+  .stat-card{background:#0c0a17;border:1px solid #332b52;border-radius:8px;padding:12px;}
   .stat-card .label{font-size:12px;color:#9aa4c0;text-transform:uppercase;}
-  .stat-card .live-value{font-size:26px;font-weight:800;color:#f2c14e;margin:6px 0;}
+  .stat-card .live-value{font-size:26px;font-weight:800;color:#8b5cf6;margin:6px 0;}
   .stat-card .override-row{display:flex;align-items:center;gap:8px;margin-top:8px;}
   .stat-card input[type=number]{width:80px;display:inline-block;}
   .stat-card.locked{border-color:#f2c14e;}
 
   .crop-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;}
-  .crop-box{background:#0e1526;border:1px solid #2b3860;border-radius:8px;padding:8px;text-align:center;}
+  .crop-box{background:#0c0a17;border:1px solid #332b52;border-radius:8px;padding:8px;text-align:center;}
   .crop-box img{width:100%;height:60px;object-fit:contain;background:#000;border-radius:4px;}
   .crop-box .label{font-size:11px;color:#9aa4c0;margin-top:6px;text-transform:uppercase;}
 
@@ -85,7 +91,7 @@
 
   .draft-slot{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
   .draft-slot .slot-num{width:16px;color:#6d7899;font-size:11px;text-align:center;flex-shrink:0;}
-  .draft-slot img.hero-preview{width:30px;height:30px;border-radius:4px;object-fit:cover;background:#0e1526;border:1px solid #2b3860;display:none;flex-shrink:0;}
+  .draft-slot img.hero-preview{width:30px;height:30px;border-radius:4px;object-fit:cover;background:#0c0a17;border:1px solid #332b52;display:none;flex-shrink:0;}
   .draft-slot input[type=text]{flex:1;font-size:12px;padding:6px 8px;}
 
   /* Picks-only reorder arrows: move the hero pick up/down a slot without
@@ -93,26 +99,26 @@
      driven off the players roster, not the pick array. */
   .reorder-btns{display:flex;flex-direction:column;gap:2px;flex-shrink:0;}
   .reorder-btn{
-    background:#2b3860;color:#eef1fa;border:none;border-radius:4px;
+    background:#332b52;color:#eef1fa;border:none;border-radius:4px;
     width:20px;height:16px;font-size:9px;line-height:1;padding:0;margin:0;
     cursor:pointer;display:flex;align-items:center;justify-content:center;
   }
   .reorder-btn:hover{background:#3a4a80;}
   .reorder-btn:disabled{opacity:0.25;cursor:default;}
-  .reorder-btn:disabled:hover{background:#2b3860;}
+  .reorder-btn:disabled:hover{background:#332b52;}
 
   .paste-zone{
-    border:1px dashed #2b3860; border-radius:8px; padding:14px; outline:none; cursor:text;
+    border:1px dashed #332b52; border-radius:8px; padding:14px; outline:none; cursor:text;
   }
-  .paste-zone:focus{ border-color:#f2c14e; background:#161f38; }
+  .paste-zone:focus{ border-color:#8b5cf6; background:#181430; }
   .paste-hint{ font-size:12px; color:#6d7899; margin-top:8px; }
 
   .gfx-box{
-    position:absolute; border:1px dashed rgba(242,193,78,0.35); box-sizing:border-box;
+    position:absolute; border:1px dashed rgba(139,92,246,0.35); box-sizing:border-box;
     cursor:move; display:flex; align-items:center; justify-content:center;
     overflow:hidden; background:none;
   }
-  .gfx-box:hover{ border:1px solid #f2c14e; background:rgba(242,193,78,0.08); }
+  .gfx-box:hover{ border:1px solid #8b5cf6; background:rgba(139,92,246,0.08); }
   .gfx-box.gfx-selected{ border:1px solid #ff5050; box-shadow:0 0 0 1px rgba(255,80,80,0.45); }
   .gfx-box.gfx-arrow{ border:none; background:none; }
   .gfx-box.gfx-arrow:hover{ border:none; background:none; }
@@ -120,25 +126,78 @@
   .gfx-arrow-shape{ width:100%; height:100%; background:#3ddc6a; filter:drop-shadow(0 0 4px #3ddc6a); }
   .gfx-ghost{ opacity:0.85; }
   .gfx-box img{ max-width:100%; max-height:100%; object-fit:contain; pointer-events:none; }
-  .gfx-box .gfx-label{ color:#f2c14e; font-size:10px; text-align:center; pointer-events:none; padding:2px; }
+  .gfx-box .gfx-label{ color:#8b5cf6; font-size:10px; text-align:center; pointer-events:none; padding:2px; }
   .gfx-handle{
     position:absolute; right:-5px; bottom:-5px; width:12px; height:12px;
-    background:#f2c14e; border:1px solid #0e1526; cursor:nwse-resize; border-radius:2px;
+    background:#8b5cf6; border:1px solid #0c0a17; cursor:nwse-resize; border-radius:2px;
   }
 
   .timer-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;}
   .timer-row > div{display:flex;flex-direction:column;}
-  .timer-display{font-size:26px;font-weight:800;color:#f2c14e;min-width:80px;align-self:center;}
+  .timer-display{font-size:26px;font-weight:800;color:#8b5cf6;min-width:80px;align-self:center;}
   .timer-row input[type=number]{width:80px;}
   .timer-row button{margin-top:0;}
+
+  .session-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:20px;}
+  .session-card{
+    background:#181430;border:1px solid #241d3d;border-radius:14px;padding:14px 16px;
+    box-shadow:0 4px 18px rgba(0,0,0,0.25);
+  }
+  .session-card .s-label{font-size:11px;color:#9aa4c0;text-transform:uppercase;letter-spacing:0.5px;}
+  .session-card .s-value{font-size:26px;font-weight:800;color:#eef1fa;margin:4px 0 2px;}
+  .session-card .s-sub{font-size:11px;color:#7c8bb0;}
+  .session-card .s-sub.up::before{content:"\2191 ";color:#4ade80;}
+  .spark{display:flex;align-items:flex-end;gap:2px;height:26px;margin-top:8px;}
+  .spark .spark-bar{
+    flex:1;min-width:3px;height:6%;border-radius:2px 2px 0 0;
+    background:linear-gradient(180deg,#a855f7,#7c3aed);
+    transition:height 0.4s ease;
+  }
+  .pulse-dot{
+    display:inline-block;width:8px;height:8px;border-radius:50%;background:#4ade80;
+    box-shadow:0 0 0 rgba(74,222,128,0.6);animation:pulseDot 1.6s infinite;margin-right:6px;
+  }
+  @keyframes pulseDot{
+    0%{box-shadow:0 0 0 0 rgba(74,222,128,0.55);}
+    70%{box-shadow:0 0 0 7px rgba(74,222,128,0);}
+    100%{box-shadow:0 0 0 0 rgba(74,222,128,0);}
+  }
 </style>
 </head>
 <body>
 <h1 class="brand-title">TITANIUM AERO <span>— GEN</span></h1>
+<p class="brand-tagline">Aero: Clean and fast, implying a versatile system that adapts to any environment.</p>
+
+<div class="session-strip" id="session_strip">
+  <div class="session-card">
+    <div class="s-label">State Syncs</div>
+    <div class="s-value" id="stat_ocr_value">0</div>
+    <div class="s-sub">updates received this session</div>
+    <div class="spark" id="stat_ocr_spark"></div>
+  </div>
+  <div class="session-card">
+    <div class="s-label">Manual Edits Sent</div>
+    <div class="s-value" id="stat_edits_value">0</div>
+    <div class="s-sub">pushed to the overlay</div>
+    <div class="spark" id="stat_edits_spark"></div>
+  </div>
+  <div class="session-card">
+    <div class="s-label">Graphics Saved</div>
+    <div class="s-value" id="stat_saves_value">0</div>
+    <div class="s-sub">position saves</div>
+    <div class="spark" id="stat_saves_spark"></div>
+  </div>
+  <div class="session-card">
+    <div class="s-label"><span class="pulse-dot"></span>Session Uptime</div>
+    <div class="s-value" id="stat_uptime_value">0:00</div>
+    <div class="s-sub">since this tab was opened</div>
+  </div>
+</div>
 
 <div class="category-bar">
   <button class="category-btn active" data-category="moba">MOBA</button>
-  <button class="category-btn" data-category="fc-tekken8">FC &amp; Tekken 8</button>
+  <button class="category-btn" data-category="fc">FC</button>
+  <button class="category-btn" data-category="tekken8">Tekken 8</button>
   <button class="category-btn" data-category="valorant">Valorant</button>
   <button class="category-btn" data-category="cs2">CS2</button>
   <button class="category-btn" data-category="dota2">Dota 2</button>
@@ -231,7 +290,7 @@
       </div>
       <div class="team-form">
         <label>Status</label>
-        <div id="turtle_status" style="font-weight:800;color:#f2c14e;">idle</div>
+        <div id="turtle_status" style="font-weight:800;color:#8b5cf6;">idle</div>
         <label>Last OCR reading</label>
         <div id="turtle_lastText" style="font-size:12px;color:#9aa4c0;min-height:18px;">&mdash;</div>
         <label>Live countdown</label>
@@ -478,7 +537,7 @@
       straight off the screen through the same fast per-region OCR your live kills/gold HUD uses, no image upload
       needed. First time only: calibrate the 20 regions once with the command below (like you did for the HUD),
       it's reused after that.</p>
-    <div class="hint" style="background:#0e1526;border:1px solid #2b3860;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+    <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
       cd ocr &amp;&amp; python calibrate.py postgame_dealt_team1_0 postgame_taken_team1_0 postgame_dealt_team1_1 postgame_taken_team1_1 postgame_dealt_team1_2 postgame_taken_team1_2 postgame_dealt_team1_3 postgame_taken_team1_3 postgame_dealt_team1_4 postgame_taken_team1_4 postgame_dealt_team2_0 postgame_taken_team2_0 postgame_dealt_team2_1 postgame_taken_team2_1 postgame_dealt_team2_2 postgame_taken_team2_2 postgame_dealt_team2_3 postgame_taken_team2_3 postgame_dealt_team2_4 postgame_taken_team2_4
     </div>
     <button id="import_battleReport_capture">Capture From Screen Now</button>
@@ -502,7 +561,7 @@
     <p class="hint">Have the game's post-match "Overall" screen up (per-player gold next to KDA), then hit Capture.
       Gold is read per player straight off the screen and summed per team automatically. First time only:
       calibrate the 10 regions once with the command below.</p>
-    <div class="hint" style="background:#0e1526;border:1px solid #2b3860;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+    <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
       cd ocr &amp;&amp; python calibrate.py postgame_gold_team1_0 postgame_gold_team1_1 postgame_gold_team1_2 postgame_gold_team1_3 postgame_gold_team1_4 postgame_gold_team2_0 postgame_gold_team2_1 postgame_gold_team2_2 postgame_gold_team2_3 postgame_gold_team2_4
     </div>
     <button id="import_gold_capture">Capture From Screen Now</button>
@@ -552,7 +611,7 @@
       multiple boxes and move them together with arrow keys or by dragging any one of them. Ctrl+Z
       undoes the last drag/resize/nudge/reset on this page, Ctrl+S saves. The two on-clock arrows
       stay level with each other — moving one vertically moves both.</p>
-    <div id="gfx_stage_wrap" style="position:relative;width:960px;height:540px;background:#000;border:1px solid #2b3860;border-radius:6px;overflow:hidden;">
+    <div id="gfx_stage_wrap" style="position:relative;width:960px;height:540px;background:#000;border:1px solid #332b52;border-radius:6px;overflow:hidden;">
       <img id="gfx_bg" style="position:absolute;top:0;left:0;width:960px;height:540px;object-fit:cover;" alt="">
       <div id="gfx_stage" style="position:absolute;top:0;left:0;width:960px;height:540px;"></div>
       <div id="gfx_guides" style="position:absolute;top:0;left:0;width:960px;height:540px;pointer-events:none;z-index:50;"></div>
@@ -569,9 +628,16 @@
 
 </div><!-- /category-moba -->
 
-<div class="category-panel" id="category-fc-tekken8">
+<div class="category-panel" id="category-fc">
   <div class="coming-soon">
-    <h2>FC &amp; Tekken 8</h2>
+    <h2>FC</h2>
+    <p class="hint">Tools for this game are coming soon.</p>
+  </div>
+</div>
+
+<div class="category-panel" id="category-tekken8">
+  <div class="coming-soon">
+    <h2>Tekken 8</h2>
     <p class="hint">Tools for this game are coming soon.</p>
   </div>
 </div>
@@ -605,6 +671,73 @@
 </div>
 
 <script>
+/* ---------- session activity stats (purely local to this browser tab —
+   not persisted, not sent anywhere; just a live feel for what this
+   session has been doing) ---------- */
+const STAT_BUCKET_MS = 4000;
+const STAT_BUCKETS = 14;
+const statTrackers = {
+  ocr: { count: 0, buckets: new Array(STAT_BUCKETS).fill(0) },
+  edits: { count: 0, buckets: new Array(STAT_BUCKETS).fill(0) },
+  saves: { count: 0, buckets: new Array(STAT_BUCKETS).fill(0) },
+};
+const statSessionStart = Date.now();
+
+function statBuildSparks(){
+  Object.keys(statTrackers).forEach(key => {
+    const el = document.getElementById(`stat_${key}_spark`);
+    if(!el) return;
+    el.innerHTML = "";
+    for(let i = 0; i < STAT_BUCKETS; i++){
+      const bar = document.createElement("div");
+      bar.className = "spark-bar";
+      el.appendChild(bar);
+    }
+  });
+}
+
+function statRender(key){
+  const t = statTrackers[key];
+  const valueEl = document.getElementById(`stat_${key}_value`);
+  if(valueEl) valueEl.textContent = t.count;
+  const bars = document.querySelectorAll(`#stat_${key}_spark .spark-bar`);
+  const max = Math.max(1, ...t.buckets);
+  bars.forEach((bar, i) => {
+    const h = t.buckets[i] > 0 ? Math.max(15, Math.round((t.buckets[i] / max) * 100)) : 6;
+    bar.style.height = h + "%";
+  });
+}
+
+function statTick(key){
+  const t = statTrackers[key];
+  if(!t) return;
+  t.count++;
+  t.buckets[t.buckets.length - 1]++;
+  statRender(key);
+}
+
+function statShiftBuckets(){
+  Object.keys(statTrackers).forEach(key => {
+    const t = statTrackers[key];
+    t.buckets.push(0);
+    t.buckets.shift();
+    statRender(key);
+  });
+}
+
+function statUpdateUptime(){
+  const secs = Math.floor((Date.now() - statSessionStart) / 1000);
+  const m = Math.floor(secs / 60), s = secs % 60;
+  const el = document.getElementById("stat_uptime_value");
+  if(el) el.textContent = `${m}:${String(s).padStart(2, "0")}`;
+}
+
+statBuildSparks();
+Object.keys(statTrackers).forEach(statRender);
+statUpdateUptime();
+setInterval(statShiftBuckets, STAT_BUCKET_MS);
+setInterval(statUpdateUptime, 1000);
+
 // Defaults to local (works as-is when this dashboard is opened on the same
 // PC as the OCR engine). To connect through the cloud relay instead — e.g.
 // admins working from a different PC than wherever OCR is running — open
@@ -647,9 +780,9 @@ function changeConnection(){
   if (_relay) {
     let host = _relay;
     try { host = new URL(_relay.replace(/^ws/, "http")).host; } catch(e) {}
-    el.innerHTML = `Relay: ${host} &mdash; <a href="#" onclick="changeConnection();return false;" style="color:#f2c14e;">change</a>`;
+    el.innerHTML = `Relay: ${host} &mdash; <a href="#" onclick="changeConnection();return false;" style="color:#8b5cf6;">change</a>`;
   } else {
-    el.innerHTML = `Local &mdash; <a href="#" onclick="changeConnection();return false;" style="color:#f2c14e;">use relay instead</a>`;
+    el.innerHTML = `Local &mdash; <a href="#" onclick="changeConnection();return false;" style="color:#8b5cf6;">use relay instead</a>`;
   }
 })();
 
@@ -779,6 +912,7 @@ function populateHeroDatalist(){
 function sendManualUpdate(data, lock, unlock){
   if(ws && ws.readyState === WebSocket.OPEN){
     ws.send(JSON.stringify({type:"manual_update", data, lock: lock||[], unlock: unlock||[]}));
+    statTick("edits");
   }
 }
 
@@ -1476,7 +1610,7 @@ function buildImportBattleReportTable(extractedRows){
       const rosterName = players[i] || `(unnamed player ${i+1})`;
       const found = byTeamIdx[`${team}_${i}`];
       const tr = document.createElement("tr");
-      tr.style.borderTop = "1px solid #2b3860";
+      tr.style.borderTop = "1px solid #332b52";
       const refCell = isCalibrated ? "" :
         `<td style="padding:6px;color:#6d7899;font-size:11px;">${found ? `"${found.ocrName}" (${Math.round(found.matchScore*100)}%)` : "not detected"}</td>`;
       const reorderCell = isCalibrated ? `
@@ -1574,7 +1708,7 @@ function buildImportGoldTable(rows){
       const rosterName = players[i] || `(unnamed player ${i+1})`;
       const found = byTeamIdx[`${team}_${i}`];
       const tr = document.createElement("tr");
-      tr.style.borderTop = "1px solid #2b3860";
+      tr.style.borderTop = "1px solid #332b52";
       const refCell = isCalibrated ? "" :
         `<td style="padding:6px;color:#6d7899;font-size:11px;">${found ? `"${found.ocrName}" (${Math.round(found.matchScore*100)}%)` : "not detected"}</td>`;
       const reorderCell = isCalibrated ? `
@@ -1632,7 +1766,7 @@ function renderGoldCandidates(candidates){
   el.appendChild(note);
   candidates.forEach(c => {
     const chip = document.createElement("div");
-    chip.style.cssText = "background:#161f38;border:1px solid #2b3860;border-radius:6px;padding:6px 10px;font-size:12px;display:flex;gap:6px;align-items:center;";
+    chip.style.cssText = "background:#181430;border:1px solid #332b52;border-radius:6px;padding:6px 10px;font-size:12px;display:flex;gap:6px;align-items:center;";
     const label = document.createElement("span");
     label.textContent = c.value.toLocaleString() + `  ("${c.rawText}")`;
     const b1 = document.createElement("button");
@@ -2049,7 +2183,7 @@ function gfxLoadPage(pageKey){
 
   document.querySelectorAll("#tab-graphics .row button.secondary").forEach(b => b.classList.remove("gfx-active"));
   const pageBtn = document.getElementById(`gfx_page_${pageKey}`);
-  if(pageBtn) pageBtn.style.background = "#f2c14e", pageBtn.style.color = "#0e1526";
+  if(pageBtn) pageBtn.style.background = "#8b5cf6", pageBtn.style.color = "#0c0a17";
   Object.keys(GRAPHIC_PAGES).filter(k => k !== pageKey).forEach(k => {
     const b = document.getElementById(`gfx_page_${k}`);
     if(b){ b.style.background = ""; b.style.color = ""; }
@@ -2118,6 +2252,7 @@ document.getElementById("gfx_save").addEventListener("click", () => {
   const allOverrides = Object.assign({}, (currentState && currentState.graphicOverrides) || {});
   allOverrides[gfxCurrentPage] = gfxPending;
   sendManualUpdate({ graphicOverrides: allOverrides }, [], []);
+  statTick("saves");
   statusEl.style.color = "";
   statusEl.textContent = "Saved — live on the overlay now.";
 });
@@ -2154,6 +2289,7 @@ function connect(){
     if(msg.type === "state_sync"){
       currentState = msg.data;
       lockedFields = new Set(msg.locked || []);
+      statTick("ocr");
       renderIngameState();
       if(currentState.turtleTimer) updateTurtleDebugDisplay(currentState.turtleTimer);
       if(!prematchHydrated && currentState.prematch){
