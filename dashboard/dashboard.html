@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>MOBA Broadcast Control Dashboard</title>
+<title>Titanium Aero - GEN</title>
 <style>
   body{font-family:'Segoe UI',Arial,sans-serif;background:#0e1526;color:#eef1fa;margin:0;padding:24px;}
   h1{font-size:20px;margin-bottom:4px;}
@@ -10,6 +10,21 @@
   #status.connected{background:#1b5e3a;color:#a4f5c4;}
   #status.disconnected{background:#5e1b1b;color:#f5a4a4;}
   .hint{font-size:12px;color:#6d7899;margin-top:-4px;}
+
+  .brand-title{font-size:26px;font-weight:800;letter-spacing:0.5px;margin:0 0 14px;color:#f2c14e;}
+  .brand-title span{color:#eef1fa;font-weight:600;}
+
+  .category-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;}
+  .category-btn{
+    background:#161f38;color:#9aa4c0;border:1px solid #2b3860;
+    padding:10px 20px;border-radius:8px;font-weight:800;cursor:pointer;
+    font-size:13px;text-transform:uppercase;letter-spacing:0.5px;
+  }
+  .category-btn.active{background:#f2c14e;color:#0e1526;border-color:#f2c14e;}
+  .category-panel{display:none;}
+  .category-panel.active{display:block;}
+  .coming-soon{background:#161f38;border:1px dashed #2b3860;border-radius:10px;padding:40px 20px;text-align:center;}
+  .coming-soon h2{color:#f2c14e;text-transform:uppercase;letter-spacing:0.5px;margin-top:0;}
 
   .tabbar{display:flex;gap:8px;margin:16px 0 0;}
   .tabbar button{
@@ -119,7 +134,19 @@
 </style>
 </head>
 <body>
-<h1>MOBA Broadcast Control Dashboard</h1>
+<h1 class="brand-title">TITANIUM AERO <span>— GEN</span></h1>
+
+<div class="category-bar">
+  <button class="category-btn active" data-category="moba">MOBA</button>
+  <button class="category-btn" data-category="fc-tekken8">FC &amp; Tekken 8</button>
+  <button class="category-btn" data-category="valorant">Valorant</button>
+  <button class="category-btn" data-category="cs2">CS2</button>
+  <button class="category-btn" data-category="dota2">Dota 2</button>
+  <button class="category-btn" data-category="hok">HOK</button>
+</div>
+
+<div class="category-panel active" id="category-moba">
+
 <span id="status" class="disconnected">DISCONNECTED</span>
 <span id="connectionMode" class="hint" style="margin-left:8px;"></span>
 <p class="hint">Connects to the local OCR server at ws://localhost:8765. Start ocr_engine.py first.</p>
@@ -540,6 +567,43 @@
 
 <datalist id="heroDatalist"></datalist>
 
+</div><!-- /category-moba -->
+
+<div class="category-panel" id="category-fc-tekken8">
+  <div class="coming-soon">
+    <h2>FC &amp; Tekken 8</h2>
+    <p class="hint">Tools for this game are coming soon.</p>
+  </div>
+</div>
+
+<div class="category-panel" id="category-valorant">
+  <div class="coming-soon">
+    <h2>Valorant</h2>
+    <p class="hint">Tools for this game are coming soon.</p>
+  </div>
+</div>
+
+<div class="category-panel" id="category-cs2">
+  <div class="coming-soon">
+    <h2>CS2</h2>
+    <p class="hint">Tools for this game are coming soon.</p>
+  </div>
+</div>
+
+<div class="category-panel" id="category-dota2">
+  <div class="coming-soon">
+    <h2>Dota 2</h2>
+    <p class="hint">Tools for this game are coming soon.</p>
+  </div>
+</div>
+
+<div class="category-panel" id="category-hok">
+  <div class="coming-soon">
+    <h2>HOK</h2>
+    <p class="hint">Tools for this game are coming soon.</p>
+  </div>
+</div>
+
 <script>
 // Defaults to local (works as-is when this dashboard is opened on the same
 // PC as the OCR engine). To connect through the cloud relay instead — e.g.
@@ -620,6 +684,16 @@ let lockedFields = new Set();
 let prematchHydrated = false;
 let postMatchHydrated = false;
 let timerTickHandle = null;
+
+/* ---------- game categories ---------- */
+document.querySelectorAll(".category-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".category-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".category-panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("category-" + btn.dataset.category).classList.add("active");
+  });
+});
 
 /* ---------- tabs ---------- */
 document.querySelectorAll(".tab-btn").forEach(btn => {
