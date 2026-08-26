@@ -522,7 +522,8 @@
     <p class="hint">Click a box to select it, then nudge with arrow keys (hold Shift for 10px steps) for
       pixel-precise placement. Red guide lines appear while dragging when an edge or center lines up with
       another box or the canvas center/edges — drag onto one to snap to it. Ctrl+Z undoes the last
-      drag/resize/nudge/reset on this page.</p>
+      drag/resize/nudge/reset on this page, Ctrl+S saves. The two on-clock arrows stay level with
+      each other — moving one vertically moves both.</p>
     <div id="gfx_stage_wrap" style="position:relative;width:960px;height:540px;background:#000;border:1px solid #2b3860;border-radius:6px;overflow:hidden;">
       <img id="gfx_bg" style="position:absolute;top:0;left:0;width:960px;height:540px;object-fit:cover;" alt="">
       <div id="gfx_stage" style="position:absolute;top:0;left:0;width:960px;height:540px;"></div>
@@ -1639,8 +1640,8 @@ const GRAPHIC_PAGES = {
       "logo-team2": { left:1012, top:908, width:140, height:110, kind:"logo", team:"team2" },
       "name-team1": { left:762, top:1020, width:140, height:18, kind:"name", team:"team1" },
       "name-team2": { left:1012, top:1020, width:140, height:18, kind:"name", team:"team2" },
-      "arrow-team1": { left:750, top:951, width:20, height:24, kind:"arrow", direction:"right" },
-      "arrow-team2": { left:1124, top:951, width:20, height:24, kind:"arrow", direction:"left" },
+      "arrow-team1": { left:750, top:951, width:20, height:24, kind:"arrow", direction:"right", linkGroup:"onclock-arrow" },
+      "arrow-team2": { left:1124, top:951, width:20, height:24, kind:"arrow", direction:"left", linkGroup:"onclock-arrow" },
     },
     // Non-draggable ghost elements: real content that isn't editable here
     // but visually overlaps the same area, so drags can be judged against
@@ -1697,6 +1698,22 @@ const GFX_HISTORY_LIMIT = 50;
 function gfxSnapshot(){
   gfxHistory.push(JSON.parse(JSON.stringify(gfxPending)));
   if(gfxHistory.length > GFX_HISTORY_LIMIT) gfxHistory.shift();
+}
+
+// Some elements are meant to always stay level with each other (e.g. the
+// on-clock arrows on either side) — moving one vertically carries the same
+// dy over to every other element sharing its linkGroup on this page.
+// Horizontal position (dx) and size (scale) are left independent.
+function gfxApplyLink(movedId){
+  const geo = GRAPHIC_PAGES[gfxCurrentPage].elements[movedId];
+  if(!geo || !geo.linkGroup) return;
+  const dy = gfxPending[movedId].dy;
+  Object.entries(GRAPHIC_PAGES[gfxCurrentPage].elements).forEach(([otherId, otherGeo]) => {
+    if(otherId === movedId || otherGeo.linkGroup !== geo.linkGroup) return;
+    gfxPending[otherId].dy = dy;
+    const box = document.querySelector(`#gfx_stage .gfx-box[data-id="${otherId}"]`);
+    if(box) gfxPositionBox(box, otherGeo);
+  });
 }
 
 function gfxUndo(){
@@ -1824,6 +1841,7 @@ function gfxWireDrag(box, geo){
       gfxPending[id].dx = Math.round(snap.left / GFX_SCALE - geo.left);
       gfxPending[id].dy = Math.round(snap.top / GFX_SCALE - geo.top);
       gfxShowGuides(snap.vGuides, snap.hGuides);
+      gfxApplyLink(id);
     } else {
       let newScale = (geo.width * startScale + deltaX) / geo.width;
       if(newScale < 0.2) newScale = 0.2;
@@ -1853,6 +1871,12 @@ document.addEventListener("keydown", (e) => {
     return;
   }
 
+  if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s"){
+    e.preventDefault();
+    document.getElementById("gfx_save").click();
+    return;
+  }
+
   if(!gfxSelectedId) return;
   const step = e.shiftKey ? 10 : 1;
   let dx = 0, dy = 0;
@@ -1866,6 +1890,7 @@ document.addEventListener("keydown", (e) => {
   gfxSnapshot();
   gfxPending[gfxSelectedId].dx += dx;
   gfxPending[gfxSelectedId].dy += dy;
+  gfxApplyLink(gfxSelectedId);
   const box = document.querySelector(`#gfx_stage .gfx-box[data-id="${gfxSelectedId}"]`);
   const geo = GRAPHIC_PAGES[gfxCurrentPage].elements[gfxSelectedId];
   if(box) gfxPositionBox(box, geo);

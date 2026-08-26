@@ -42,22 +42,22 @@
     "prematch": {
       "logo-team1": {
         "dx": 0,
-        "dy": 0,
+        "dy": -43,
         "scale": 1
       },
       "logo-team2": {
-        "dx": 0,
-        "dy": 0,
-        "scale": 1
+        "dx": 4,
+        "dy": -40,
+        "scale": 0.94
       },
       "name-team1": {
         "dx": 0,
-        "dy": 0,
+        "dy": -32,
         "scale": 1
       },
       "name-team2": {
         "dx": 0,
-        "dy": 0,
+        "dy": -32,
         "scale": 1
       },
       "arrow-team1": {
