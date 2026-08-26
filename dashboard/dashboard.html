@@ -521,9 +521,10 @@
     </div>
     <p class="hint">Click a box to select it, then nudge with arrow keys (hold Shift for 10px steps) for
       pixel-precise placement. Red guide lines appear while dragging when an edge or center lines up with
-      another box or the canvas center/edges — drag onto one to snap to it. Ctrl+Z undoes the last
-      drag/resize/nudge/reset on this page, Ctrl+S saves. The two on-clock arrows stay level with
-      each other — moving one vertically moves both.</p>
+      another box or the canvas center/edges — drag onto one to snap to it. Ctrl/Cmd+click to select
+      multiple boxes and move them together with arrow keys or by dragging any one of them. Ctrl+Z
+      undoes the last drag/resize/nudge/reset on this page, Ctrl+S saves. The two on-clock arrows
+      stay level with each other — moving one vertically moves both.</p>
     <div id="gfx_stage_wrap" style="position:relative;width:960px;height:540px;background:#000;border:1px solid #2b3860;border-radius:6px;overflow:hidden;">
       <img id="gfx_bg" style="position:absolute;top:0;left:0;width:960px;height:540px;object-fit:cover;" alt="">
       <div id="gfx_stage" style="position:absolute;top:0;left:0;width:960px;height:540px;"></div>
@@ -1691,7 +1692,7 @@ const GFX_SNAP_THRESHOLD = 4; // preview px (~8 real px) — how close counts as
 
 let gfxCurrentPage = "prematch";
 let gfxPending = {}; // elementId -> {dx,dy,scale}, for whichever page is currently loaded
-let gfxSelectedId = null;
+let gfxSelectedIds = new Set(); // Ctrl/Cmd+click toggles a box in/out of this set
 let gfxHistory = []; // stack of gfxPending snapshots, for Ctrl+Z on this page
 const GFX_HISTORY_LIMIT = 50;
 
@@ -1734,11 +1735,23 @@ function gfxPositionBox(box, geo){
   box.style.height = (geo.height * o.scale * GFX_SCALE) + "px";
 }
 
-function gfxSelectBox(id){
-  gfxSelectedId = id;
+// additive=true (Ctrl/Cmd held) toggles id in/out of the multi-selection.
+// additive=false replaces the selection with just id.
+function gfxSelectBox(id, additive){
+  if(additive){
+    if(gfxSelectedIds.has(id)) gfxSelectedIds.delete(id);
+    else gfxSelectedIds.add(id);
+  } else {
+    gfxSelectedIds = new Set([id]);
+  }
   document.querySelectorAll("#gfx_stage .gfx-box").forEach(b => {
-    b.classList.toggle("gfx-selected", b.dataset.id === id);
+    b.classList.toggle("gfx-selected", gfxSelectedIds.has(b.dataset.id));
   });
+}
+
+function gfxDeselectAll(){
+  gfxSelectedIds = new Set();
+  document.querySelectorAll("#gfx_stage .gfx-box").forEach(b => b.classList.remove("gfx-selected"));
 }
 
 // Preview-space rect {left,right,top,bottom,centerX,centerY} for a box at
@@ -1817,15 +1830,33 @@ function gfxClearGuides(){ document.getElementById("gfx_guides").innerHTML = "";
 function gfxWireDrag(box, geo){
   const id = box.dataset.id;
   let mode = null; // "move" | "resize"
-  let startX = 0, startY = 0, startDx = 0, startDy = 0, startScale = 1;
+  let startX = 0, startY = 0, startScale = 1;
+  let startPositions = {}; // id -> {dx,dy} at drag start, for every box moving together
 
   box.addEventListener("mousedown", (e) => {
     mode = e.target.classList.contains("gfx-handle") ? "resize" : "move";
     startX = e.clientX; startY = e.clientY;
-    const o = gfxPending[id];
-    startDx = o.dx; startDy = o.dy; startScale = o.scale;
+    const additive = e.ctrlKey || e.metaKey;
+
+    if(mode === "resize"){
+      // Group-resize isn't supported — a resize drag always targets just this box.
+      gfxSelectBox(id, false);
+    } else if(additive){
+      gfxSelectBox(id, true);
+    } else if(!gfxSelectedIds.has(id)){
+      // Plain click on a box outside the current multi-selection replaces it.
+      gfxSelectBox(id, false);
+    }
+    // else: plain click on a box already inside a multi-selection — keep
+    // the whole group selected so it can be dragged together.
+
     gfxSnapshot();
-    gfxSelectBox(id);
+    startScale = gfxPending[id].scale;
+    startPositions = {};
+    const idsToMove = mode === "move" && gfxSelectedIds.size > 0 ? gfxSelectedIds : new Set([id]);
+    idsToMove.forEach(sid => {
+      startPositions[sid] = { dx: gfxPending[sid].dx, dy: gfxPending[sid].dy };
+    });
     e.preventDefault();
     e.stopPropagation();
   });
@@ -1835,19 +1866,34 @@ function gfxWireDrag(box, geo){
     const deltaX = (e.clientX - startX) / GFX_SCALE;
     const deltaY = (e.clientY - startY) / GFX_SCALE;
     if(mode === "move"){
-      const proposedLeft = (geo.left + startDx + deltaX) * GFX_SCALE;
-      const proposedTop = (geo.top + startDy + deltaY) * GFX_SCALE;
-      const snap = gfxSnap(id, proposedLeft, proposedTop);
-      gfxPending[id].dx = Math.round(snap.left / GFX_SCALE - geo.left);
-      gfxPending[id].dy = Math.round(snap.top / GFX_SCALE - geo.top);
-      gfxShowGuides(snap.vGuides, snap.hGuides);
-      gfxApplyLink(id);
+      const ids = Object.keys(startPositions);
+      if(ids.length > 1){
+        // Group drag: same raw delta for everyone, no snapping (snap
+        // targets among the group members themselves would fight each
+        // other), and no guide lines.
+        ids.forEach(sid => {
+          gfxPending[sid].dx = Math.round(startPositions[sid].dx + deltaX);
+          gfxPending[sid].dy = Math.round(startPositions[sid].dy + deltaY);
+          const sbox = document.querySelector(`#gfx_stage .gfx-box[data-id="${sid}"]`);
+          const sgeo = GRAPHIC_PAGES[gfxCurrentPage].elements[sid];
+          if(sbox) gfxPositionBox(sbox, sgeo);
+        });
+      } else {
+        const proposedLeft = (geo.left + startPositions[id].dx + deltaX) * GFX_SCALE;
+        const proposedTop = (geo.top + startPositions[id].dy + deltaY) * GFX_SCALE;
+        const snap = gfxSnap(id, proposedLeft, proposedTop);
+        gfxPending[id].dx = Math.round(snap.left / GFX_SCALE - geo.left);
+        gfxPending[id].dy = Math.round(snap.top / GFX_SCALE - geo.top);
+        gfxShowGuides(snap.vGuides, snap.hGuides);
+        gfxApplyLink(id);
+        gfxPositionBox(box, geo);
+      }
     } else {
       let newScale = (geo.width * startScale + deltaX) / geo.width;
       if(newScale < 0.2) newScale = 0.2;
       gfxPending[id].scale = Math.round(newScale * 100) / 100;
+      gfxPositionBox(box, geo);
     }
-    gfxPositionBox(box, geo);
   });
 
   window.addEventListener("mouseup", () => {
@@ -1856,7 +1902,9 @@ function gfxWireDrag(box, geo){
   });
 }
 
-// Arrow-key nudge for the selected box — 1px per press, 10px with Shift.
+// Arrow-key nudge for the selected box(es) — 1px per press, 10px with
+// Shift, moving every selected box by the same amount simultaneously.
+// Ctrl/Cmd+click a box to add or remove it from the selection.
 // Ctrl+Z (or Cmd+Z) undoes the last drag/resize/nudge/reset on this page.
 // Only acts while the Graphic Fixing tab is visible and focus isn't in a
 // text field elsewhere on the page.
@@ -1877,7 +1925,7 @@ document.addEventListener("keydown", (e) => {
     return;
   }
 
-  if(!gfxSelectedId) return;
+  if(gfxSelectedIds.size === 0) return;
   const step = e.shiftKey ? 10 : 1;
   let dx = 0, dy = 0;
   if(e.key === "ArrowLeft") dx = -step;
@@ -1888,25 +1936,29 @@ document.addEventListener("keydown", (e) => {
 
   e.preventDefault();
   gfxSnapshot();
-  gfxPending[gfxSelectedId].dx += dx;
-  gfxPending[gfxSelectedId].dy += dy;
-  gfxApplyLink(gfxSelectedId);
-  const box = document.querySelector(`#gfx_stage .gfx-box[data-id="${gfxSelectedId}"]`);
-  const geo = GRAPHIC_PAGES[gfxCurrentPage].elements[gfxSelectedId];
-  if(box) gfxPositionBox(box, geo);
+  gfxSelectedIds.forEach(sid => {
+    gfxPending[sid].dx += dx;
+    gfxPending[sid].dy += dy;
+    gfxApplyLink(sid);
+    const box = document.querySelector(`#gfx_stage .gfx-box[data-id="${sid}"]`);
+    const geo = GRAPHIC_PAGES[gfxCurrentPage].elements[sid];
+    if(box) gfxPositionBox(box, geo);
+  });
 });
 
-// Click on empty stage background (not a box) deselects.
+// Click on empty stage background (not a box) deselects — unless
+// Ctrl/Cmd is held, so an accidental miss-click doesn't wipe out a
+// multi-selection mid-Ctrl-click.
 document.getElementById("gfx_stage_wrap").addEventListener("mousedown", (e) => {
+  if(e.ctrlKey || e.metaKey) return;
   if(e.target.id === "gfx_stage_wrap" || e.target.id === "gfx_stage" || e.target.id === "gfx_bg"){
-    gfxSelectedId = null;
-    document.querySelectorAll("#gfx_stage .gfx-box").forEach(b => b.classList.remove("gfx-selected"));
+    gfxDeselectAll();
   }
 });
 
 function gfxLoadPage(pageKey){
   gfxCurrentPage = pageKey;
-  gfxSelectedId = null;
+  gfxSelectedIds = new Set();
   gfxHistory = [];
   gfxClearGuides();
   const pageDef = GRAPHIC_PAGES[pageKey];

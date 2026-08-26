@@ -47,11 +47,11 @@
       },
       "logo-team2": {
         "dx": 4,
-        "dy": -40,
-        "scale": 0.94
+        "dy": -31,
+        "scale": 0.84
       },
       "name-team1": {
-        "dx": 0,
+        "dx": -2,
         "dy": -32,
         "scale": 1
       },
@@ -61,13 +61,13 @@
         "scale": 1
       },
       "arrow-team1": {
-        "dx": 0,
-        "dy": 0,
+        "dx": 1,
+        "dy": -38,
         "scale": 1
       },
       "arrow-team2": {
-        "dx": 0,
-        "dy": 0,
+        "dx": 3,
+        "dy": -38,
         "scale": 1
       }
     },
@@ -102,7 +102,7 @@
       "line2": "SEMI FINALS"
     },
     "phase": "PICK/BAN",
-    "activeTeam": "team1",
+    "activeTeam": "team2",
     "timerEndsAt": null,
     "timerDuration": 50,
     "timerRemainingMs": 50000,
