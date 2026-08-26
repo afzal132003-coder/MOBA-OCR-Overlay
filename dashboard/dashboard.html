@@ -93,12 +93,16 @@
   .paste-hint{ font-size:12px; color:#6d7899; margin-top:8px; }
 
   .gfx-box{
-    position:absolute; border:2px solid #f2c14e; box-sizing:border-box;
+    position:absolute; border:1px solid rgba(242,193,78,0.55); box-sizing:border-box;
     cursor:move; display:flex; align-items:center; justify-content:center;
-    overflow:hidden; background:rgba(242,193,78,0.10);
+    overflow:hidden; background:rgba(242,193,78,0.04);
   }
-  .gfx-box:hover{ background:rgba(242,193,78,0.22); }
-  .gfx-box.gfx-selected{ border-color:#ff5050; box-shadow:0 0 0 2px rgba(255,80,80,0.45); }
+  .gfx-box:hover{ border-color:#f2c14e; background:rgba(242,193,78,0.10); }
+  .gfx-box.gfx-selected{ border-width:1.5px; border-color:#ff5050; box-shadow:0 0 0 1px rgba(255,80,80,0.45); }
+  .gfx-box.gfx-arrow{ border:none; background:none; }
+  .gfx-box.gfx-arrow:hover{ border:none; background:none; }
+  .gfx-box.gfx-arrow.gfx-selected{ box-shadow:0 0 0 1px rgba(255,80,80,0.6); border-radius:2px; }
+  .gfx-arrow-shape{ width:100%; height:100%; background:#3ddc6a; filter:drop-shadow(0 0 4px #3ddc6a); }
   .gfx-ghost{ opacity:0.85; }
   .gfx-box img{ max-width:100%; max-height:100%; object-fit:contain; pointer-events:none; }
   .gfx-box .gfx-label{ color:#f2c14e; font-size:10px; text-align:center; pointer-events:none; padding:2px; }
@@ -1634,8 +1638,8 @@ const GRAPHIC_PAGES = {
       "logo-team2": { left:1012, top:908, width:140, height:110, kind:"logo", team:"team2" },
       "name-team1": { left:762, top:1020, width:140, height:18, kind:"name", team:"team1" },
       "name-team2": { left:1012, top:1020, width:140, height:18, kind:"name", team:"team2" },
-      "arrow-team1": { left:750, top:951, width:20, height:24, kind:"box", label:"On-clock indicator (Team 1)" },
-      "arrow-team2": { left:1124, top:951, width:20, height:24, kind:"box", label:"On-clock indicator (Team 2)" },
+      "arrow-team1": { left:750, top:951, width:20, height:24, kind:"arrow", direction:"right" },
+      "arrow-team2": { left:1124, top:951, width:20, height:24, kind:"arrow", direction:"left" },
     },
     // Non-draggable ghost elements: real content that isn't editable here
     // but visually overlaps the same area, so drags can be judged against
@@ -1906,6 +1910,12 @@ function gfxLoadPage(pageKey){
     } else if(geo.kind === "name"){
       const name = (currentState && currentState[geo.team] && currentState[geo.team].name) || geo.team;
       inner = `<span class="gfx-label" style="color:#fff;">${name}</span>`;
+    } else if(geo.kind === "arrow"){
+      box.classList.add("gfx-arrow");
+      const clip = geo.direction === "left"
+        ? "polygon(100% 0, 0 50%, 100% 100%)"
+        : "polygon(0 0, 100% 50%, 0 100%)";
+      inner = `<div class="gfx-arrow-shape" style="clip-path:${clip};"></div>`;
     } else {
       inner = `<span class="gfx-label">${geo.label || id}</span>`;
     }
