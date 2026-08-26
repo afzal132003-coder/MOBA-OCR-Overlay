@@ -98,6 +98,7 @@
     overflow:hidden; background:rgba(242,193,78,0.10);
   }
   .gfx-box:hover{ background:rgba(242,193,78,0.22); }
+  .gfx-box.gfx-selected{ border-color:#ff5050; box-shadow:0 0 0 2px rgba(255,80,80,0.45); }
   .gfx-box img{ max-width:100%; max-height:100%; object-fit:contain; pointer-events:none; }
   .gfx-box .gfx-label{ color:#f2c14e; font-size:10px; text-align:center; pointer-events:none; padding:2px; }
   .gfx-handle{
@@ -513,9 +514,13 @@
       <button class="secondary" id="gfx_page_overlay">In-Game</button>
       <button class="secondary" id="gfx_page_turtle">Turtle</button>
     </div>
+    <p class="hint">Click a box to select it, then nudge with arrow keys (hold Shift for 10px steps) for
+      pixel-precise placement. Red guide lines appear while dragging when an edge or center lines up with
+      another box or the canvas center/edges — drag onto one to snap to it.</p>
     <div id="gfx_stage_wrap" style="position:relative;width:960px;height:540px;background:#000;border:1px solid #2b3860;border-radius:6px;overflow:hidden;">
       <img id="gfx_bg" style="position:absolute;top:0;left:0;width:960px;height:540px;object-fit:cover;" alt="">
       <div id="gfx_stage" style="position:absolute;top:0;left:0;width:960px;height:540px;"></div>
+      <div id="gfx_guides" style="position:absolute;top:0;left:0;width:960px;height:540px;pointer-events:none;z-index:50;"></div>
     </div>
     <div class="row" style="margin-top:14px;gap:10px;align-items:center;">
       <button id="gfx_save">Save Positions</button>
@@ -1658,9 +1663,12 @@ const GRAPHIC_PAGES = {
   },
 };
 const GFX_SCALE = 0.5; // 960x540 preview of the 1920x1080 canvas
+const GFX_STAGE_W = 960, GFX_STAGE_H = 540;
+const GFX_SNAP_THRESHOLD = 4; // preview px (~8 real px) — how close counts as "aligned"
 
 let gfxCurrentPage = "prematch";
 let gfxPending = {}; // elementId -> {dx,dy,scale}, for whichever page is currently loaded
+let gfxSelectedId = null;
 
 function gfxPositionBox(box, geo){
   const o = gfxPending[box.dataset.id] || {dx:0, dy:0, scale:1};
@@ -1669,6 +1677,86 @@ function gfxPositionBox(box, geo){
   box.style.width = (geo.width * o.scale * GFX_SCALE) + "px";
   box.style.height = (geo.height * o.scale * GFX_SCALE) + "px";
 }
+
+function gfxSelectBox(id){
+  gfxSelectedId = id;
+  document.querySelectorAll("#gfx_stage .gfx-box").forEach(b => {
+    b.classList.toggle("gfx-selected", b.dataset.id === id);
+  });
+}
+
+// Preview-space rect {left,right,top,bottom,centerX,centerY} for a box at
+// its CURRENT (already-overridden) position — used as snap targets for
+// whichever OTHER box is being dragged.
+function gfxBoxRect(id){
+  const geo = GRAPHIC_PAGES[gfxCurrentPage].elements[id];
+  const o = gfxPending[id] || {dx:0, dy:0, scale:1};
+  const left = (geo.left + o.dx) * GFX_SCALE;
+  const top = (geo.top + o.dy) * GFX_SCALE;
+  const width = geo.width * o.scale * GFX_SCALE;
+  const height = geo.height * o.scale * GFX_SCALE;
+  return { left, right: left + width, top, bottom: top + height, centerX: left + width / 2, centerY: top + height / 2 };
+}
+
+// Given a proposed top-left (preview px) for the box being dragged, finds
+// the nearest matching edge/center among every other box on this page plus
+// the canvas's own edges/center, snaps to it if within threshold, and
+// returns which reference lines are actually active (to draw as guides).
+function gfxSnap(movingId, proposedLeft, proposedTop){
+  const geo = GRAPHIC_PAGES[gfxCurrentPage].elements[movingId];
+  const o = gfxPending[movingId];
+  const width = geo.width * o.scale * GFX_SCALE;
+  const height = geo.height * o.scale * GFX_SCALE;
+
+  const refX = [0, GFX_STAGE_W / 2, GFX_STAGE_W];
+  const refY = [0, GFX_STAGE_H / 2, GFX_STAGE_H];
+  Object.keys(GRAPHIC_PAGES[gfxCurrentPage].elements).forEach(otherId => {
+    if(otherId === movingId) return;
+    const r = gfxBoxRect(otherId);
+    refX.push(r.left, r.centerX, r.right);
+    refY.push(r.top, r.centerY, r.bottom);
+  });
+
+  const findBestDelta = (candidates, refs) => {
+    let best = null;
+    candidates.forEach(c => {
+      refs.forEach(r => {
+        const delta = r - c;
+        if(Math.abs(delta) <= GFX_SNAP_THRESHOLD && (best === null || Math.abs(delta) < Math.abs(best))) best = delta;
+      });
+    });
+    return best;
+  };
+
+  const deltaX = findBestDelta([proposedLeft, proposedLeft + width / 2, proposedLeft + width], refX);
+  const deltaY = findBestDelta([proposedTop, proposedTop + height / 2, proposedTop + height], refY);
+  const snappedLeft = deltaX === null ? proposedLeft : proposedLeft + deltaX;
+  const snappedTop = deltaY === null ? proposedTop : proposedTop + deltaY;
+
+  const near = (a, b) => Math.abs(a - b) < 0.6;
+  const finalX = [snappedLeft, snappedLeft + width / 2, snappedLeft + width];
+  const finalY = [snappedTop, snappedTop + height / 2, snappedTop + height];
+  const vGuides = [...new Set(refX.filter(r => finalX.some(c => near(c, r))))];
+  const hGuides = [...new Set(refY.filter(r => finalY.some(c => near(c, r))))];
+
+  return { left: snappedLeft, top: snappedTop, vGuides, hGuides };
+}
+
+function gfxShowGuides(vGuides, hGuides){
+  const container = document.getElementById("gfx_guides");
+  container.innerHTML = "";
+  vGuides.forEach(x => {
+    const line = document.createElement("div");
+    line.style.cssText = `position:absolute;left:${x}px;top:0;width:1px;height:${GFX_STAGE_H}px;background:#ff3b3b;`;
+    container.appendChild(line);
+  });
+  hGuides.forEach(y => {
+    const line = document.createElement("div");
+    line.style.cssText = `position:absolute;top:${y}px;left:0;height:1px;width:${GFX_STAGE_W}px;background:#ff3b3b;`;
+    container.appendChild(line);
+  });
+}
+function gfxClearGuides(){ document.getElementById("gfx_guides").innerHTML = ""; }
 
 function gfxWireDrag(box, geo){
   const id = box.dataset.id;
@@ -1680,6 +1768,7 @@ function gfxWireDrag(box, geo){
     startX = e.clientX; startY = e.clientY;
     const o = gfxPending[id];
     startDx = o.dx; startDy = o.dy; startScale = o.scale;
+    gfxSelectBox(id);
     e.preventDefault();
     e.stopPropagation();
   });
@@ -1689,8 +1778,12 @@ function gfxWireDrag(box, geo){
     const deltaX = (e.clientX - startX) / GFX_SCALE;
     const deltaY = (e.clientY - startY) / GFX_SCALE;
     if(mode === "move"){
-      gfxPending[id].dx = Math.round(startDx + deltaX);
-      gfxPending[id].dy = Math.round(startDy + deltaY);
+      const proposedLeft = (geo.left + startDx + deltaX) * GFX_SCALE;
+      const proposedTop = (geo.top + startDy + deltaY) * GFX_SCALE;
+      const snap = gfxSnap(id, proposedLeft, proposedTop);
+      gfxPending[id].dx = Math.round(snap.left / GFX_SCALE - geo.left);
+      gfxPending[id].dy = Math.round(snap.top / GFX_SCALE - geo.top);
+      gfxShowGuides(snap.vGuides, snap.hGuides);
     } else {
       let newScale = (geo.width * startScale + deltaX) / geo.width;
       if(newScale < 0.2) newScale = 0.2;
@@ -1699,11 +1792,49 @@ function gfxWireDrag(box, geo){
     gfxPositionBox(box, geo);
   });
 
-  window.addEventListener("mouseup", () => { mode = null; });
+  window.addEventListener("mouseup", () => {
+    if(mode) gfxClearGuides();
+    mode = null;
+  });
 }
+
+// Arrow-key nudge for the selected box — 1px per press, 10px with Shift.
+// Only acts while the Graphic Fixing tab is visible, something is
+// selected, and focus isn't in a text field elsewhere on the page.
+document.addEventListener("keydown", (e) => {
+  if(!gfxSelectedId) return;
+  if(!document.getElementById("tab-graphics").classList.contains("active")) return;
+  const tag = document.activeElement && document.activeElement.tagName;
+  if(tag === "INPUT" || tag === "TEXTAREA") return;
+
+  const step = e.shiftKey ? 10 : 1;
+  let dx = 0, dy = 0;
+  if(e.key === "ArrowLeft") dx = -step;
+  else if(e.key === "ArrowRight") dx = step;
+  else if(e.key === "ArrowUp") dy = -step;
+  else if(e.key === "ArrowDown") dy = step;
+  else return;
+
+  e.preventDefault();
+  gfxPending[gfxSelectedId].dx += dx;
+  gfxPending[gfxSelectedId].dy += dy;
+  const box = document.querySelector(`#gfx_stage .gfx-box[data-id="${gfxSelectedId}"]`);
+  const geo = GRAPHIC_PAGES[gfxCurrentPage].elements[gfxSelectedId];
+  if(box) gfxPositionBox(box, geo);
+});
+
+// Click on empty stage background (not a box) deselects.
+document.getElementById("gfx_stage_wrap").addEventListener("mousedown", (e) => {
+  if(e.target.id === "gfx_stage_wrap" || e.target.id === "gfx_stage" || e.target.id === "gfx_bg"){
+    gfxSelectedId = null;
+    document.querySelectorAll("#gfx_stage .gfx-box").forEach(b => b.classList.remove("gfx-selected"));
+  }
+});
 
 function gfxLoadPage(pageKey){
   gfxCurrentPage = pageKey;
+  gfxSelectedId = null;
+  gfxClearGuides();
   const pageDef = GRAPHIC_PAGES[pageKey];
   const bgImg = document.getElementById("gfx_bg");
   const wrap = document.getElementById("gfx_stage_wrap");
