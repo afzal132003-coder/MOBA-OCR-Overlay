@@ -171,7 +171,8 @@
   .uptime-ring .ring-track{fill:none;stroke:#241d3d;stroke-width:6;}
   .uptime-ring .ring-fill{fill:none;stroke:#a855f7;stroke-width:6;stroke-linecap:round;transition:stroke-dashoffset 0.5s ease;}
   .uptime-ring .ring-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:#eef1fa;}
-  .uptime-row{display:flex;align-items:center;gap:16px;margin-top:12px;}
+  .session-card:has(.uptime-row){display:flex;flex-direction:column;}
+  .uptime-row{display:flex;align-items:center;gap:16px;margin-top:12px;flex:1;}
 
   #overlay_presence_list{margin-top:10px;}
   .presence-row{
@@ -383,6 +384,24 @@
       <button id="turtle_pushCountdown">Push Countdown</button>
       <button id="turtle_pushSpawned">Push Turtle Spawned Now</button>
       <button class="secondary" id="turtle_resetManual">Reset to Idle</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Lord Announcement</h2>
+    <p class="hint">Reads the exact same detection zone as Turtle Announcement above (Lord's "Spawned" toast shows
+      in the same place) — no separate calibration needed. Only a spawned-now trigger exists, since Mobile Legends
+      doesn't show a pre-warning countdown for Lord the way it does for Turtle.</p>
+    <div class="team-form">
+      <label>Status</label>
+      <div id="lord_status" style="font-weight:800;color:#8b5cf6;">idle</div>
+      <label>Last OCR reading</label>
+      <div id="lord_lastText" style="font-size:12px;color:#9aa4c0;min-height:18px;">&mdash;</div>
+    </div>
+    <p class="hint">Manual override — works regardless of what OCR is doing.</p>
+    <div class="timer-row">
+      <button id="lord_pushSpawned">Push Lord Spawned Now</button>
+      <button class="secondary" id="lord_resetManual">Reset to Idle</button>
     </div>
   </div>
 </div>
@@ -680,6 +699,7 @@
       <button class="secondary" id="gfx_page_postmatch">Post Match</button>
       <button class="secondary" id="gfx_page_overlay">In-Game</button>
       <button class="secondary" id="gfx_page_turtle">Turtle</button>
+      <button class="secondary" id="gfx_page_lord">Lord</button>
     </div>
     <p class="hint">Click a box to select it, then nudge with arrow keys (hold Shift for 10px steps) for
       pixel-precise placement. Red guide lines appear while dragging when an edge or center lines up with
@@ -2036,6 +2056,23 @@ document.getElementById("turtle_resetManual").addEventListener("click", () => {
   }
 });
 
+/* ---------- lord announcement (debug/status readout) ---------- */
+function updateLordDebugDisplay(lt){
+  if(!lt) return;
+  document.getElementById("lord_status").textContent = lt.status;
+}
+
+document.getElementById("lord_pushSpawned").addEventListener("click", () => {
+  if(ws && ws.readyState === WebSocket.OPEN){
+    ws.send(JSON.stringify({type:"lord_manual_spawned"}));
+  }
+});
+document.getElementById("lord_resetManual").addEventListener("click", () => {
+  if(ws && ws.readyState === WebSocket.OPEN){
+    ws.send(JSON.stringify({type:"lord_manual_reset"}));
+  }
+});
+
 /* ---------- graphic fixing (drag/resize position editor) ----------
    Base geometry here deliberately mirrors the CSS in overlay.html /
    prematch.html / postmatch.html — this tab doesn't read those files, it
@@ -2092,6 +2129,12 @@ const GRAPHIC_PAGES = {
       "turtle-time": { left:1675, top:192, width:244, height:130, kind:"box", label:"Turtle Time graphic" },
       "turtle-spawned": { left:1622, top:303, width:298, height:352, kind:"box", label:"Turtle Spawned graphic" },
       "turtle-countdown": { left:1817, top:257, width:60, height:30, kind:"box", label:"Countdown number" },
+    },
+  },
+  lord: {
+    label: "Lord", background: null,
+    elements: {
+      "lord-spawned": { left:1622, top:303, width:298, height:352, kind:"box", label:"Lord Spawned graphic" },
     },
   },
 };
@@ -2500,6 +2543,7 @@ function connect(){
       statTick("ocr");
       renderIngameState();
       if(currentState.turtleTimer) updateTurtleDebugDisplay(currentState.turtleTimer);
+      if(currentState.lordTimer) updateLordDebugDisplay(currentState.lordTimer);
       if(!prematchHydrated && currentState.prematch){
         hydratePrematch(currentState.prematch);
         prematchHydrated = true;
@@ -2516,7 +2560,9 @@ function connect(){
       const img = document.getElementById(`crop-${msg.region}`);
       if(img) img.src = msg.image;
       if(msg.region === "turtle_announcement"){
-        document.getElementById("turtle_lastText").textContent = (msg.text && msg.text.trim()) ? msg.text : "(nothing read this frame)";
+        const text = (msg.text && msg.text.trim()) ? msg.text : "(nothing read this frame)";
+        document.getElementById("turtle_lastText").textContent = text;
+        document.getElementById("lord_lastText").textContent = text;
       }
     } else if(msg.type === "battle_report_result"){
       const took = stopExtractTimer("import_battleReport_status");

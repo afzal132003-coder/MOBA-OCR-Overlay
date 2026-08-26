@@ -195,6 +195,9 @@
   <div class="turtle-popup" id="turtle-spawned">
     <img src="assets/turtle_spawned.png" alt="">
   </div>
+  <div class="turtle-popup" id="lord-spawned">
+    <img src="assets/lord_spawned.png" alt="">
+  </div>
 </div>
 
 <script>
@@ -309,6 +312,19 @@ function updateTurtleDisplay(tt){
   lastTurtleStatus = tt.status;
 }
 
+// Lord is spawned-only (no countdown phase) so this is a simpler version
+// of updateTurtleDisplay above — one popup, one status transition.
+let lastLordStatus = "idle";
+function updateLordDisplay(lt){
+  const spawnedEl = document.getElementById("lord-spawned");
+  if(lt.status === "spawned"){
+    if(lastLordStatus !== "spawned") showTurtlePopup(spawnedEl);
+  } else {
+    if(lastLordStatus === "spawned") hideTurtlePopup(spawnedEl);
+  }
+  lastLordStatus = lt.status;
+}
+
 // Per-element position/scale nudges saved from the dashboard's Graphic
 // Fixing tab — purely additive on top of each element's base CSS
 // position/size, applied as a transform so it never disturbs the
@@ -343,12 +359,15 @@ function applyState(state){
   setValue("score-team2", state.seriesScore.team2);
 
   if(state.turtleTimer) updateTurtleDisplay(state.turtleTimer);
+  if(state.lordTimer) updateLordDisplay(state.lordTimer);
 
   applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.overlay,
     ["team1-logo", "team2-logo", "team1-name", "team2-name"]);
   applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.turtle,
     ["turtle-time", "turtle-spawned", "turtle-countdown"],
     { "turtle-countdown": "translate(-50%,-50%)" });
+  applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.lord,
+    ["lord-spawned"]);
 }
 
 connect();

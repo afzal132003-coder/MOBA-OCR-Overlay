@@ -89,6 +89,13 @@ TURTLE_SPAWNING_REGEX = re.compile(r"turt\w*.{0,20}?spawn\w*\D{0,6}(\d{1,3})", r
 TURTLE_SPAWNED_REGEX = re.compile(r"turt\w*.{0,15}?spawned", re.IGNORECASE | re.DOTALL)
 TURTLE_REGION_KEY = "turtle_announcement"
 TURTLE_SPAWNED_DISPLAY_SECONDS = 5
+# Lord shares the exact same announcement toast zone as turtle (that's
+# WHY the turtle regex above had to be narrowed to "turt*" in the first
+# place — "Lord Spawned" used to false-positive it). No countdown warning
+# exists for Lord in-game, only the spawned announcement, so this is a
+# simpler spawned-only detector than turtle's countdown+spawned pair.
+LORD_SPAWNED_REGEX = re.compile(r"lord\w*.{0,15}?spawned", re.IGNORECASE | re.DOTALL)
+LORD_SPAWNED_DISPLAY_SECONDS = 5
 # Guards against a garbage OCR read (e.g. misreading part of the HUD as a
 # number) turning into a wildly wrong countdown.
 TURTLE_MIN_COUNTDOWN = 1
@@ -140,6 +147,13 @@ def default_state():
             "spawnedUntil": None,
             "lastRawText": "",
         },
+        # Lord announcement (OCR-driven, spawned-only — see LORD_SPAWNED_REGEX
+        # comment). "idle" -> "spawned" (shown until spawnedUntil) -> "idle".
+        "lordTimer": {
+            "status": "idle",
+            "spawnedUntil": None,
+            "lastRawText": "",
+        },
         # Per-element position/scale nudges from the dashboard's Graphic
         # Fixing tab, e.g. graphicOverrides["prematch"]["logo-team1"] =
         # {"dx":0,"dy":0,"scale":1}. Purely additive on top of each page's
@@ -152,6 +166,7 @@ def default_state():
             "postmatch": {},
             "overlay": {},
             "turtle": {},
+            "lord": {},
         },
         # Prematch (manual, pick/ban draft). Each slot is {name, image} —
         # "image" is the exact filename in dashboard/assets/heroes/, resolved
@@ -215,6 +230,7 @@ def load_state():
             # across a process restart (the game has moved on) — always
             # come back up idle rather than resuming a stale timestamp.
             state["turtleTimer"] = default_state()["turtleTimer"]
+            state["lordTimer"] = default_state()["lordTimer"]
             return state
         except (json.JSONDecodeError, OSError):
             pass
@@ -475,6 +491,27 @@ def process_turtle_reading(text, now_ms):
     return changed
 
 
+def process_lord_reading(text, now_ms):
+    """Same idea as process_turtle_reading, but spawned-only (no countdown
+    phase) — reads the same shared announcement text each cycle. Returns
+    True if server_state changed."""
+    lt = server_state["lordTimer"]
+    changed = False
+
+    if lt["status"] == "spawned" and lt["spawnedUntil"] is not None and now_ms >= lt["spawnedUntil"]:
+        lt["status"] = "idle"
+        lt["spawnedUntil"] = None
+        changed = True
+
+    if lt["status"] == "idle" and text and LORD_SPAWNED_REGEX.search(text):
+        lt["status"] = "spawned"
+        lt["spawnedUntil"] = now_ms + LORD_SPAWNED_DISPLAY_SECONDS * 1000
+        lt["lastRawText"] = text
+        changed = True
+
+    return changed
+
+
 async def ocr_loop():
     interval = config.get("poll_interval_seconds", 0.35)
     regions = config["regions"]
@@ -525,6 +562,12 @@ async def ocr_loop():
                     changed = True
 
             if process_turtle_reading(turtle_raw_text, int(time.time() * 1000)):
+                changed = True
+
+            # Independent kill switch from turtle_enabled — lets Lord
+            # detection be paused on its own without also disabling turtle,
+            # even though they read the exact same crop/OCR pass.
+            if config.get("lord_enabled", True) and process_lord_reading(turtle_raw_text, int(time.time() * 1000)):
                 changed = True
 
             # Push crop previews every couple of cycles so the dashboard can
@@ -969,6 +1012,24 @@ async def handle_client(websocket, path=None):
                 tt["status"] = "idle"
                 tt["endsAt"] = None
                 tt["spawnedUntil"] = None
+                save_state()
+                await broadcast({
+                    "type": "state_sync", "data": server_state, "locked": list(locked_fields),
+                })
+            elif payload.get("type") == "lord_manual_spawned":
+                now_ms = int(time.time() * 1000)
+                lt = server_state["lordTimer"]
+                lt["status"] = "spawned"
+                lt["spawnedUntil"] = now_ms + LORD_SPAWNED_DISPLAY_SECONDS * 1000
+                lt["lastRawText"] = "(manual)"
+                save_state()
+                await broadcast({
+                    "type": "state_sync", "data": server_state, "locked": list(locked_fields),
+                })
+            elif payload.get("type") == "lord_manual_reset":
+                lt = server_state["lordTimer"]
+                lt["status"] = "idle"
+                lt["spawnedUntil"] = None
                 save_state()
                 await broadcast({
                     "type": "state_sync", "data": server_state, "locked": list(locked_fields),
