@@ -2,9 +2,9 @@
   "team1": {
     "name": "TEAM 1",
     "logo": "",
-    "kills": 0,
+    "kills": 7,
     "objectives": 0,
-    "gold": 0,
+    "gold": 4,
     "players": [
       "",
       "",
@@ -16,9 +16,9 @@
   "team2": {
     "name": "TEAM 2",
     "logo": "",
-    "kills": 0,
-    "objectives": 0,
-    "gold": 0,
+    "kills": 4,
+    "objectives": 4,
+    "gold": 4,
     "players": [
       "",
       "",
@@ -28,7 +28,7 @@
     ]
   },
   "seriesScore": {
-    "team1": 0,
+    "team1": 7,
     "team2": 0
   },
   "turtleTimer": {
