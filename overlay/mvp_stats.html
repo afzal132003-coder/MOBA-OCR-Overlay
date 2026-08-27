@@ -56,7 +56,28 @@
     object-fit:contain; opacity:0.28; filter:drop-shadow(0 0 30px rgba(0,0,0,0.4)); display:none; }
 
   .photo-wrap{ position:absolute; left:116px; top:52px; width:764px; height:1028px; overflow:hidden; }
-  .photo-wrap img{ width:100%; height:100%; object-fit:cover; object-position:50% 15%; display:none; }
+  /* contain, not cover -- character1.png/character2.png are wildly
+     different aspect ratios (one tall, one wide), and cover was cropping
+     the wide one badly to fill a tall box. Bottom-anchored so the
+     character "stands" on the bottom edge regardless of its own
+     proportions. Bottom mask fades it into the background instead of a
+     hard box edge; the float/sway reuses the same idle animation the
+     Prematch pick slots use, just without their extra scale(1.12) (no
+     need to overfill a contain box the way a cover crop does). */
+  .photo-wrap img{ width:100%; height:100%; object-fit:contain; object-position:50% 100%; display:none;
+    -webkit-mask-image:linear-gradient(to bottom, black 0%, black 78%, transparent 98%);
+    mask-image:linear-gradient(to bottom, black 0%, black 78%, transparent 98%);
+    transform-origin:center center; animation:mvpPhotoFloat 5s ease-in-out infinite; }
+  @keyframes mvpPhotoFloat{
+    0%,100%{ transform:translateY(3px) rotate(-0.5deg) skewY(-0.6deg); }
+    50%{ transform:translateY(-3px) rotate(0.5deg) skewY(0.6deg); }
+  }
+
+  /* The "MVP" watermark is also baked into mvp_blank.png behind the
+     photo (so it still shows where the photo's own transparency/fade
+     lets it through), but this repaints the exact same art on top so it
+     reads clearly in front of the character too, not just around it. */
+  .mvp-text-overlay{ position:absolute; left:179px; top:68px; width:209px; height:753px; pointer-events:none; }
 
   .player-name{ position:absolute; left:891px; top:110px; width:782px; height:70px;
     display:flex; align-items:center;
@@ -75,13 +96,13 @@
   #kill-participation{ left:1440px; top:515px; width:250px; height:72px; font-size:56px; }
 
   /* "KILL - DEATH - ASSIST" is one baked text run in the art (no per-word
-     bbox to measure), so instead of guessing word x-positions this
-     spreads the 3 numbers with space-between across the same span the
-     whole label occupies -- first number flush left (under KILL, the
-     first word), last flush right (under ASSIST, the last word), middle
-     one (+ both dashes) falls naturally in between (under DEATH). */
+     bbox to measure). space-between across the label's full bbox width
+     stretched this way too far apart for short values -- the label's
+     actual glyphs sit tighter than its bbox, so this is a compact
+     centered group instead (small gap, not edge-to-edge), matching how
+     close "0-0-5" sits under the label in the reference. */
   #kda{ position:absolute; left:1405px; top:672px; width:300px; height:71px;
-    display:flex; align-items:center; justify-content:space-between;
+    display:flex; align-items:center; justify-content:center; gap:14px;
     color:var(--white); font-weight:700; font-size:52px; }
   #kda .dash{ font-size:34px; opacity:0.7; }
 </style>
@@ -91,6 +112,7 @@
   <img class="bg-frame" src="assets/mvp_blank.png" alt="">
   <img class="team-logo-watermark" id="mvp-team-logo" src="" alt="">
   <div class="photo-wrap"><img id="mvp-photo" src="" alt=""></div>
+  <img class="mvp-text-overlay" src="assets/mvp_text.png" alt="">
   <div class="player-name" id="mvp-name"></div>
   <div class="stat-num" id="dmg-taken">0</div>
   <div class="stat-num" id="dmg-dealt">0</div>
