@@ -116,9 +116,11 @@ connected_pages = {}
 
 
 def default_player():
-    # No player headshot field — Post Match shows the hero the player
-    # picked in Prematch instead, not a player photo.
-    return {"damageDealt": 0, "damageTaken": 0}
+    # Still no per-player headshot field here — Post Match shows the hero
+    # the player picked in Prematch instead. The MVP Stats push graphic's
+    # photo is a one-off upload tied to that push (see default_state()'s
+    # "mvp" section), not stored per-roster-player like these stats are.
+    return {"damageDealt": 0, "damageTaken": 0, "kills": 0, "deaths": 0, "assists": 0}
 
 
 def empty_hero_slot():
@@ -153,6 +155,18 @@ def default_state():
             "status": "idle",
             "spawnedUntil": None,
             "lastRawText": "",
+        },
+        # Live match clock (manual start/pause/reset from the dashboard --
+        # no OCR reads a ticking clock reliably frame to frame, same
+        # reasoning as why the turtle countdown is timed locally off one
+        # OCR'd reading instead of re-reading every frame). Counts UP
+        # (elapsed match time), unlike the prematch draft timer which
+        # counts down. "elapsedMs" is the frozen value while paused/idle;
+        # while running the overlay ticks live off "startedAt" instead.
+        "matchClock": {
+            "status": "idle",
+            "startedAt": None,
+            "elapsedMs": 0,
         },
         # Per-element position/scale nudges from the dashboard's Graphic
         # Fixing tab, e.g. graphicOverrides["prematch"]["logo-team1"] =
@@ -225,6 +239,16 @@ def default_state():
             # since the operator needs to be able to override it. Defaults
             # match the old score>=score behavior (team1 wins a 0-0 tie).
             "result": {"team1": "victory", "team2": "defeat"},
+        },
+        # MVP Stats push graphic. Just a pointer (team + roster index) into
+        # postMatch.players for the stat numbers — those stay the single
+        # source of truth so entering them once on Post Match is enough.
+        # "photo" is the one thing unique to this push: an uploaded cutout
+        # image, not persisted per-roster-player anywhere else.
+        "mvp": {
+            "team": None,
+            "playerIndex": None,
+            "photo": "",
         },
     }
 
@@ -304,6 +328,10 @@ def swap_team_sides():
             pom["result"]["team1"], pom["result"]["team2"] = (
                 pom["result"]["team2"], pom["result"]["team1"],
             )
+
+    mvp = s.get("mvp")
+    if mvp and mvp.get("team") in ("team1", "team2"):
+        mvp["team"] = "team2" if mvp["team"] == "team1" else "team1"
 
     renamed = {_swap_locked_field_key(f) for f in locked_fields}
     locked_fields.clear()
@@ -971,6 +999,8 @@ async def handle_client(websocket, path=None):
                     server_state["postMatch"] = data["postMatch"]
                 if "graphicOverrides" in data:
                     server_state["graphicOverrides"] = data["graphicOverrides"]
+                if "mvp" in data:
+                    server_state["mvp"] = data["mvp"]
                 for field in payload.get("lock", []):
                     locked_fields.add(field)
                 for field in payload.get("unlock", []):
@@ -1039,6 +1069,33 @@ async def handle_client(websocket, path=None):
                 lt = server_state["lordTimer"]
                 lt["status"] = "idle"
                 lt["spawnedUntil"] = None
+                save_state()
+                await broadcast({
+                    "type": "state_sync", "data": server_state, "locked": list(locked_fields),
+                })
+            elif payload.get("type") == "matchclock_start":
+                now_ms = int(time.time() * 1000)
+                mc = server_state["matchClock"]
+                if mc["status"] != "running":
+                    mc["status"] = "running"
+                    mc["startedAt"] = now_ms - mc["elapsedMs"]  # resume from wherever it was paused
+                save_state()
+                await broadcast({
+                    "type": "state_sync", "data": server_state, "locked": list(locked_fields),
+                })
+            elif payload.get("type") == "matchclock_pause":
+                now_ms = int(time.time() * 1000)
+                mc = server_state["matchClock"]
+                if mc["status"] == "running":
+                    mc["elapsedMs"] = now_ms - mc["startedAt"]
+                    mc["status"] = "idle"
+                    mc["startedAt"] = None
+                save_state()
+                await broadcast({
+                    "type": "state_sync", "data": server_state, "locked": list(locked_fields),
+                })
+            elif payload.get("type") == "matchclock_reset":
+                server_state["matchClock"] = {"status": "idle", "startedAt": None, "elapsedMs": 0}
                 save_state()
                 await broadcast({
                     "type": "state_sync", "data": server_state, "locked": list(locked_fields),

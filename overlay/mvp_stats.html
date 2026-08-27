@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>MOBA MVP Stats Overlay</title>
+<style>
+  /*
+    Pixel positions read directly from assets/MVP.psd's layer bounding
+    boxes (psd-tools), not eyeballed off the flattened PNGs -- exact.
+    Static art (navy panel, gold divider, the big "MVP" watermark text,
+    and all 4 stat LABELS) is all baked into assets/mvp_blank.png; only
+    the photo, team logo, player name, and the 4 numbers are drawn here.
+  */
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Regular.ttf') format('truetype');
+    font-weight: 400; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Bold.ttf') format('truetype');
+    font-weight: 700; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');
+    font-weight: 800; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
+    font-weight: 900; font-style: normal;
+  }
+
+  :root{ --gold:#f0ca90; --white:#ffffff; }
+  html,body{ margin:0; padding:0; background:transparent; overflow:hidden;
+    width:1920px; height:1080px; font-family:'TT Supermolot Neue Trial', Arial, sans-serif; }
+
+  #stage{ position:relative; width:1920px; height:1080px; display:none; }
+  #stage.show{ display:block; }
+
+  .bg-frame{ position:absolute; top:0; left:0; width:1920px; height:1080px; pointer-events:none; }
+
+  /* Team logo watermark: sits behind the photo on purpose -- 40% of its
+     own width tucked under the photo, 60% extending past the photo's
+     right edge, per the requested "60% visible right of the character,
+     40% behind the character" split. Low opacity so it reads as a
+     background watermark rather than competing with the photo/stats. */
+  .team-logo-watermark{ position:absolute; top:340px; width:400px; height:400px;
+    left:664px; /* photoRight(880) - width(400)*0.4 */
+    object-fit:contain; opacity:0.28; filter:drop-shadow(0 0 30px rgba(0,0,0,0.4)); display:none; }
+
+  .photo-wrap{ position:absolute; left:116px; top:52px; width:764px; height:1028px; overflow:hidden; }
+  .photo-wrap img{ width:100%; height:100%; object-fit:cover; object-position:50% 0%; display:none; }
+
+  .player-name{ position:absolute; left:891px; top:110px; width:782px; height:70px;
+    display:flex; align-items:center;
+    color:var(--gold); font-weight:800; font-style:italic; font-size:52px;
+    letter-spacing:1px; text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  .stat-num{ position:absolute; display:flex; align-items:center;
+    color:var(--white); font-weight:700; }
+  #dmg-taken{ left:1139px; top:337px; width:294px; height:72px; font-size:56px; justify-content:flex-start; }
+  #dmg-dealt{ left:1517px; top:336px; width:189px; height:71px; font-size:56px; justify-content:flex-start; }
+  #kill-participation{ left:1523px; top:515px; width:182px; height:72px; font-size:56px; justify-content:flex-start; }
+  #kda{ left:1445px; top:672px; width:261px; height:71px; font-size:56px; justify-content:flex-start; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <img class="bg-frame" src="assets/mvp_blank.png" alt="">
+  <img class="team-logo-watermark" id="mvp-team-logo" src="" alt="">
+  <div class="photo-wrap"><img id="mvp-photo" src="" alt=""></div>
+  <div class="player-name" id="mvp-name"></div>
+  <div class="stat-num" id="dmg-taken">0</div>
+  <div class="stat-num" id="dmg-dealt">0</div>
+  <div class="stat-num" id="kill-participation">0%</div>
+  <div class="stat-num" id="kda">0-0-0</div>
+</div>
+
+<script>
+const _params = new URLSearchParams(location.search);
+if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
+if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=mvp_stats"
+  : "ws://localhost:8765?page=mvp_stats";
+let ws;
+
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync") applyState(msg.data);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+
+function setLogo(id, src){
+  const el = document.getElementById(id);
+  if(src){ el.src = src; el.style.display = "block"; }
+  else { el.style.display = "none"; }
+}
+
+function applyState(state){
+  const mvp = state.mvp;
+  const stage = document.getElementById("stage");
+  if(!mvp || !mvp.team || mvp.playerIndex == null){
+    stage.classList.remove("show");
+    return;
+  }
+  stage.classList.add("show");
+
+  const team = state[mvp.team];
+  const name = (team.players && team.players[mvp.playerIndex]) || "";
+  document.getElementById("mvp-name").textContent = name;
+
+  setLogo("mvp-team-logo", team.logo);
+  setLogo("mvp-photo", mvp.photo);
+
+  const p = (state.postMatch && state.postMatch.players[mvp.team][mvp.playerIndex]) || {};
+  const teamKills = (state.postMatch && state.postMatch.stats[mvp.team].kills) || 0;
+  const kp = teamKills > 0 ? Math.round(((p.kills || 0) + (p.assists || 0)) / teamKills * 100) : 0;
+
+  document.getElementById("dmg-taken").textContent = (p.damageTaken || 0).toLocaleString();
+  document.getElementById("dmg-dealt").textContent = (p.damageDealt || 0).toLocaleString();
+  document.getElementById("kill-participation").textContent = `${kp}%`;
+  document.getElementById("kda").textContent = `${p.kills || 0}-${p.deaths || 0}-${p.assists || 0}`;
+}
+
+connect();
+</script>
+</body>
+</html>

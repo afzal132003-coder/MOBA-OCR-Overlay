@@ -86,7 +86,7 @@
   .mini-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
   .mini-grid label{margin:0 0 4px;}
 
-  .player-row{display:grid;grid-template-columns:1fr 80px 80px 40px;gap:8px;align-items:end;margin-bottom:10px;}
+  .player-row{display:grid;grid-template-columns:1fr 80px 80px 150px 40px;gap:8px;align-items:end;margin-bottom:10px;}
   .player-row label{margin:0 0 4px;}
 
   .draft-slot{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
@@ -303,6 +303,18 @@
       vs Team 2 in one go: names, logos, players, live OCR stats, series score, prematch bans/picks, and
       post match data. Overlay, Prematch, and Post Match graphics all update automatically, no other changes needed.</p>
     <button class="danger" id="swapSides">Swap Team 1 &lt;-&gt; Team 2</button>
+  </div>
+
+  <div class="card">
+    <h2>Match Clock</h2>
+    <p class="hint">Counts up (elapsed match time), shown top-center on the In-Game overlay. Manual start/pause —
+      nothing reads a ticking clock off the screen automatically.</p>
+    <div class="timer-row">
+      <div class="timer-display" id="matchClock_display">00:00</div>
+      <button id="matchClock_start">Start / Resume</button>
+      <button class="secondary" id="matchClock_pause">Pause</button>
+      <button class="secondary" id="matchClock_reset">Reset</button>
+    </div>
   </div>
 
   <div class="card">
@@ -620,6 +632,26 @@
   </div>
 
   <button id="pom_push">Push Post Match to Overlay</button>
+
+  <div class="card">
+    <h2>Push MVP Stats</h2>
+    <p class="hint">Damage Dealt/Taken and K/D/A come straight from that player's row in the Players card above —
+      enter those there first. Kill Participation is computed live from (Kills + Assists) / Team Kills, using the
+      team kills total from the Team Stats card.</p>
+    <div class="row">
+      <div class="team-form">
+        <label>MVP Player</label>
+        <select id="mvp_player"></select>
+      </div>
+      <div class="team-form">
+        <label>Player Photo (cutout, transparent background)</label>
+        <input type="file" id="mvp_photoFile" accept="image/*">
+        <img class="logo-preview" id="mvp_photoPreview" style="width:80px;height:110px;border-radius:6px;object-fit:cover;">
+      </div>
+    </div>
+    <div id="mvp_preview" class="hint" style="margin-top:10px;"></div>
+    <button id="mvp_push">Push MVP Stats to Overlay</button>
+  </div>
 </div>
 
 <!-- ===================== IMPORT STATS ===================== -->
@@ -1769,6 +1801,14 @@ function buildPlayerRows(containerId, team){
         <input type="number" id="pom_${team}_${i}_taken" value="0">
       </div>
       <div>
+        <label>K / D / A</label>
+        <div style="display:flex;gap:4px;">
+          <input type="number" id="pom_${team}_${i}_kills" value="0" style="width:44px;" title="Kills">
+          <input type="number" id="pom_${team}_${i}_deaths" value="0" style="width:44px;" title="Deaths">
+          <input type="number" id="pom_${team}_${i}_assists" value="0" style="width:44px;" title="Assists">
+        </div>
+      </div>
+      <div>
         <label>&nbsp;</label>
         ${playerReorderButtonsHtml(team, i)}
       </div>
@@ -1785,6 +1825,9 @@ function gatherPostMatch(){
       players[team].push({
         damageDealt: Number(document.getElementById(`pom_${team}_${i}_dealt`).value || 0),
         damageTaken: Number(document.getElementById(`pom_${team}_${i}_taken`).value || 0),
+        kills: Number(document.getElementById(`pom_${team}_${i}_kills`).value || 0),
+        deaths: Number(document.getElementById(`pom_${team}_${i}_deaths`).value || 0),
+        assists: Number(document.getElementById(`pom_${team}_${i}_assists`).value || 0),
       });
     }
   });
@@ -1839,7 +1882,9 @@ function hydratePostMatch(pom){
     pom.players[team].forEach((p, i) => {
       document.getElementById(`pom_${team}_${i}_dealt`).value = p.damageDealt || 0;
       document.getElementById(`pom_${team}_${i}_taken`).value = p.damageTaken || 0;
-      if(p.photo) document.getElementById(`pom_${team}_${i}_photoPreview`).src = p.photo;
+      document.getElementById(`pom_${team}_${i}_kills`).value = p.kills || 0;
+      document.getElementById(`pom_${team}_${i}_deaths`).value = p.deaths || 0;
+      document.getElementById(`pom_${team}_${i}_assists`).value = p.assists || 0;
     });
   });
 }
@@ -1856,6 +1901,72 @@ document.getElementById("pom_t1_result").addEventListener("change", (e) => {
 });
 document.getElementById("pom_t2_result").addEventListener("change", (e) => {
   document.getElementById("pom_t1_result").value = e.target.value === "victory" ? "defeat" : "victory";
+});
+
+/* ---------- MVP stats push ---------- */
+function buildMvpPlayerDropdown(){
+  if(!currentState) return;
+  const select = document.getElementById("mvp_player");
+  const prevValue = select.value;
+  select.innerHTML = "";
+  ["team1", "team2"].forEach(team => {
+    const teamLabel = currentState[team].name || (team === "team1" ? "Team 1" : "Team 2");
+    currentState[team].players.forEach((name, i) => {
+      const opt = document.createElement("option");
+      opt.value = `${team}|${i}`;
+      opt.textContent = `${teamLabel} — ${name || `Player ${i + 1}`}`;
+      select.appendChild(opt);
+    });
+  });
+  if(prevValue && Array.from(select.options).some(o => o.value === prevValue)){
+    select.value = prevValue;
+  }
+}
+
+function mvpUpdatePreview(){
+  if(!currentState || !currentState.postMatch) return;
+  const [team, idxStr] = document.getElementById("mvp_player").value.split("|");
+  const idx = Number(idxStr);
+  const p = currentState.postMatch.players[team][idx] || {};
+  const teamKills = currentState.postMatch.stats[team].kills || 0;
+  const kp = teamKills > 0 ? Math.round(((p.kills || 0) + (p.assists || 0)) / teamKills * 100) : 0;
+  document.getElementById("mvp_preview").textContent =
+    `Dmg Dealt: ${p.damageDealt || 0}  |  Dmg Taken: ${p.damageTaken || 0}  |  ` +
+    `KDA: ${p.kills || 0}-${p.deaths || 0}-${p.assists || 0}  |  Kill Participation: ${kp}%`;
+}
+document.getElementById("mvp_player").addEventListener("change", mvpUpdatePreview);
+
+document.getElementById("mvp_photoFile").addEventListener("change", async (e) => {
+  if(e.target.files[0]){
+    const dataUrl = await readFileAsDataURL(e.target.files[0]);
+    document.getElementById("mvp_photoPreview").src = await autoCropTransparentPadding(dataUrl);
+  }
+});
+
+let mvpHydrated = false;
+function hydrateMvp(){
+  if(!currentState) return;
+  buildMvpPlayerDropdown();
+  if(!mvpHydrated){
+    const mvp = currentState.mvp || {};
+    if(mvp.team && mvp.playerIndex != null){
+      document.getElementById("mvp_player").value = `${mvp.team}|${mvp.playerIndex}`;
+    }
+    if(mvp.photo) document.getElementById("mvp_photoPreview").src = mvp.photo;
+    mvpHydrated = true;
+  }
+  mvpUpdatePreview();
+}
+
+document.getElementById("mvp_push").addEventListener("click", () => {
+  const [team, idxStr] = document.getElementById("mvp_player").value.split("|");
+  sendManualUpdate({
+    mvp: {
+      team,
+      playerIndex: Number(idxStr),
+      photo: document.getElementById("mvp_photoPreview").src.startsWith("data:") ? document.getElementById("mvp_photoPreview").src : "",
+    },
+  });
 });
 
 /* ---------- import stats (screenshot -> post match fields) ---------- */
@@ -2226,6 +2337,35 @@ document.getElementById("turtle_resetManual").addEventListener("click", () => {
   }
 });
 
+/* ---------- match clock ---------- */
+let matchClockTickHandle = null;
+function updateMatchClockDisplay(mc){
+  if(!mc) return;
+  const el = document.getElementById("matchClock_display");
+  if(matchClockTickHandle){ clearInterval(matchClockTickHandle); matchClockTickHandle = null; }
+  const format = (ms) => {
+    const totalSec = Math.max(0, Math.floor(ms / 1000));
+    const m = Math.floor(totalSec / 60), s = totalSec % 60;
+    return `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+  };
+  if(mc.status === "running" && mc.startedAt){
+    const tick = () => { el.textContent = format(Date.now() - mc.startedAt); };
+    tick();
+    matchClockTickHandle = setInterval(tick, 1000);
+  } else {
+    el.textContent = format(mc.elapsedMs || 0);
+  }
+}
+document.getElementById("matchClock_start").addEventListener("click", () => {
+  if(ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:"matchclock_start"}));
+});
+document.getElementById("matchClock_pause").addEventListener("click", () => {
+  if(ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:"matchclock_pause"}));
+});
+document.getElementById("matchClock_reset").addEventListener("click", () => {
+  if(ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:"matchclock_reset"}));
+});
+
 /* ---------- lord announcement (debug/status readout) ---------- */
 function updateLordDebugDisplay(lt){
   if(!lt) return;
@@ -2285,12 +2425,21 @@ const GRAPHIC_PAGES = {
     },
   },
   overlay: {
-    label: "In-Game", background: "../overlay/assets/POPUPS.png",
+    label: "In-Game", background: "../overlay/assets/overlay_blank.png",
     elements: {
       "team1-logo": { left:368, top:8, width:65, height:71, kind:"logo", team:"team1" },
       "team2-logo": { left:1485, top:8, width:65, height:71, kind:"logo", team:"team2" },
-      "team1-name": { left:510, top:62, width:199, height:25, kind:"name", team:"team1" },
-      "team2-name": { left:1218, top:62, width:191, height:25, kind:"name", team:"team2" },
+      "team1-name": { left:539, top:69, width:96, height:13, kind:"name", team:"team1" },
+      "team2-name": { left:1276, top:68, width:96, height:14, kind:"name", team:"team2" },
+      "score-team1": { left:826, top:19, width:17, height:33, kind:"box", label:"Score (Team 1)" },
+      "score-team2": { left:1073, top:19, width:20, height:33, kind:"box", label:"Score (Team 2)" },
+      "match-clock": { left:941, top:6, width:38, height:10, kind:"box", label:"Match Clock" },
+      "t1-gold": { left:514, top:9, width:60, height:43, kind:"box", label:"Team 1 Gold" },
+      "t1-tower": { left:578, top:10, width:40, height:42, kind:"box", label:"Team 1 Structures" },
+      "t1-kill": { left:634, top:8, width:40, height:44, kind:"box", label:"Team 1 Kills" },
+      "t2-gold": { left:1188, top:9, width:60, height:43, kind:"box", label:"Team 2 Gold" },
+      "t2-tower": { left:1252, top:10, width:40, height:42, kind:"box", label:"Team 2 Structures" },
+      "t2-kill": { left:1308, top:8, width:40, height:44, kind:"box", label:"Team 2 Kills" },
     },
   },
   turtle: {
@@ -2714,6 +2863,7 @@ function connect(){
       renderIngameState();
       if(currentState.turtleTimer) updateTurtleDebugDisplay(currentState.turtleTimer);
       if(currentState.lordTimer) updateLordDebugDisplay(currentState.lordTimer);
+      if(currentState.matchClock) updateMatchClockDisplay(currentState.matchClock);
       if(!prematchHydrated && currentState.prematch){
         hydratePrematch(currentState.prematch);
         prematchHydrated = true;
@@ -2726,6 +2876,7 @@ function connect(){
         hydratePostMatch(currentState.postMatch);
         postMatchHydrated = true;
       }
+      if(currentState.mvp) hydrateMvp();
     } else if(msg.type === "crop_preview"){
       const img = document.getElementById(`crop-${msg.region}`);
       if(img) img.src = msg.image;
