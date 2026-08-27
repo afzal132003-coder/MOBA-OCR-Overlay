@@ -26,7 +26,7 @@ REGION_ORDER = [
     "team1_kills", "team1_objectives", "team1_gold",
     "team2_gold", "team2_objectives", "team2_kills",
     "team1_series_score", "team2_series_score",
-    "turtle_announcement",
+    "turtle_announcement", "game_timer",
 ]
 
 LABELS = {
@@ -39,6 +39,7 @@ LABELS = {
     "team1_series_score": "TEAM 1 - SERIES SCORE (single number)",
     "team2_series_score": "TEAM 2 - SERIES SCORE (single number)",
     "turtle_announcement": "TURTLE ANNOUNCEMENT (the 'Turtle spawning in Ns' / 'Turtle Spawned' toast zone) - draw it generously, wider/taller than the text itself since the toast can shift slightly",
+    "game_timer": "GAME TIMER (the live MM:SS match clock on the in-game HUD) - draw tightly around just the digits",
 }
 
 # Post Match screen regions — same live screen-capture calibration as

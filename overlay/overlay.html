@@ -6,13 +6,9 @@
 <style>
   /*
     All positions below are absolute pixel coordinates on a 1920x1080
-    canvas, read directly from assets/POPUPS.psd's layer bounding boxes
-    (psd-tools), not eyeballed off a flattened image -- exact. Static art
-    (navy/gold bar shapes, corner crests, stat icons, the center "BGM
-    MASTERS" logo, and the decorative dash accent next to each team name)
-    is all baked into assets/overlay_blank.png; only the team logos,
-    names, stat values, score, and match clock are drawn here. Set the
-    OBS Browser Source to 1920x1080 so this lines up exactly.
+    canvas, measured directly off assets/POPUPS - demo.png against the
+    blank assets/POPUPS.png template. Set the OBS Browser Source to
+    1920x1080 so this lines up exactly.
   */
 
   @font-face {
@@ -44,7 +40,7 @@
   :root{
     --font-display: 'TT Supermolot Neue Trial', 'Arial Narrow', Arial, sans-serif;
     --value-color: #ffffff;
-    --gold-text: #f0ca90;
+    --name-color: #0b193e;
   }
 
   html, body{
@@ -71,56 +67,56 @@
   #team1-logo{ left:368px; top:8px; width:65px; height:71px; }
   #team2-logo{ left:1485px; top:8px; width:65px; height:71px; }
 
-  /* Centered via left=box-center + a JS-applied translateX(-50%) base
-     transform (see baseTransforms in applyState() below) rather than a
-     fixed width -- team names and stat values vary in length and this
-     keeps them centered on their PSD-measured slot either way. */
   .team-name{
-    position:absolute; top:69px; height:13px;
+    position:absolute; height:25px; top:62px;
     display:flex; align-items:center; justify-content:center;
-    color: var(--gold-text);
-    font-weight:800; font-size:14px; letter-spacing:0.5px;
+    color: var(--name-color);
+    font-weight:800; font-size:18px; letter-spacing:0.5px;
     text-transform:uppercase; white-space:nowrap;
     transition:background 0.2s;
   }
-  #team1-name{ left:587px; }
-  #team2-name{ left:1324px; }
+  #team1-name{ left:510px; width:199px; }
+  #team2-name{ left:1218px; width:191px; }
 
   .stat{
     position:absolute; display:flex; flex-direction:column;
-    align-items:center; justify-content:flex-start; gap:4px;
+    align-items:center; justify-content:flex-start; gap:6px;
   }
   .stat img{ display:block; }
   .stat .value{
-    color: var(--value-color); font-weight:700; font-size:12px;
+    color: var(--value-color); font-weight:700; font-size:15px;
     line-height:1; white-space:nowrap; border-radius:3px;
     transition:background 0.2s;
   }
 
   /* Team 1: gold -> structures -> kills (left to right) */
-  #t1-gold{  left:514px; top:9px;  width:60px; }
-  #t1-tower{ left:578px; top:10px; width:40px; }
-  #t1-kill{  left:634px; top:8px;  width:40px; }
+  #t1-gold{  left:509px; top:8px;  width:70px; }
+  #t1-tower{ left:578px; top:9px;  width:40px; }
+  #t1-kill{  left:633px; top:7px;  width:40px; }
 
   /* Team 2: gold -> structures -> kills (same reading order, mirrored side) */
-  #t2-gold{  left:1188px; top:9px;  width:60px; }
-  #t2-tower{ left:1252px; top:10px; width:40px; }
-  #t2-kill{  left:1308px; top:8px;  width:40px; }
+  #t2-gold{  left:1183px; top:8px; width:70px; }
+  #t2-tower{ left:1252px; top:9px; width:40px; }
+  #t2-kill{  left:1307px; top:7px; width:40px; }
 
   .score{
-    position:absolute; top:19px; height:33px;
+    position:absolute; top:15px; width:40px; height:40px;
     display:flex; align-items:center; justify-content:center;
-    color:#ffffff; font-weight:900; font-size:30px;
+    color:#ffffff; font-weight:900; font-size:40px;
     transition:background 0.2s;
   }
-  #score-team1{ left:834px; }
-  #score-team2{ left:1083px; }
+  #score-team1{ left:814px; }
+  #score-team2{ left:1063px; }
 
+  /* No baked slot for this on the old background art (unlike the PSD
+     rebuild this replaced) -- sits in the dark empty space above the
+     center shield logo. Nudge via Graphic Fixing if it's off. */
   .match-clock{
-    position:absolute; left:960px; top:6px; height:10px;
+    position:absolute; left:960px; top:4px; width:80px; height:14px;
     display:flex; align-items:center; justify-content:center;
-    color:#ffffff; font-weight:700; font-size:11px; letter-spacing:1px;
+    color:#ffffff; font-weight:700; font-size:13px; letter-spacing:1px;
     font-variant-numeric:tabular-nums;
+    transform:translateX(-50%);
   }
 
   .flash{ background:#f2c14e88 !important; }
@@ -166,7 +162,7 @@
 </head>
 <body>
 <div id="stage">
-  <img class="bg-frame" src="assets/overlay_blank.png" alt="">
+  <img class="bg-frame" src="assets/POPUPS.png" alt="">
 
   <img class="team-logo" id="team1-logo" alt="">
   <img class="team-logo" id="team2-logo" alt="">
@@ -342,9 +338,12 @@ function updateLordDisplay(lt){
   lastLordStatus = lt.status;
 }
 
-// Counts UP, unlike the turtle countdown -- while running, ticks locally
-// off the absolute "startedAt" timestamp so it stays correct even across
-// a page reload (matches how the turtle countdown survives reloads too).
+// Counts UP (elapsed match time). While OCR is calibrated and reading the
+// in-game clock, matchClock.elapsedMs gets overwritten every confirmed
+// read and status stays "idle" (a frozen display value refreshed often
+// enough not to need local ticking); the dashboard's manual Start/Pause
+// still works as a fallback when OCR isn't calibrated/visible, in which
+// case this ticks locally off "startedAt" same as the turtle countdown.
 let matchClockTickHandle = null;
 function updateMatchClock(mc){
   const el = document.getElementById("match-clock");
@@ -401,12 +400,8 @@ function applyState(state){
   if(state.matchClock) updateMatchClock(state.matchClock);
 
   applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.overlay,
-    ["team1-logo", "team2-logo", "team1-name", "team2-name",
-     "score-team1", "score-team2", "match-clock",
-     "t1-gold", "t1-tower", "t1-kill", "t2-gold", "t2-tower", "t2-kill"],
-    { "team1-name": "translateX(-50%)", "team2-name": "translateX(-50%)",
-      "score-team1": "translateX(-50%)", "score-team2": "translateX(-50%)",
-      "match-clock": "translateX(-50%)" });
+    ["team1-logo", "team2-logo", "team1-name", "team2-name", "match-clock"],
+    { "match-clock": "translateX(-50%)" });
   applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.turtle,
     ["turtle-time", "turtle-spawned", "turtle-countdown"],
     { "turtle-countdown": "translate(-50%,-50%)" });

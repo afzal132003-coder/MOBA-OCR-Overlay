@@ -61,12 +61,17 @@
     color:var(--gold); font-weight:800; font-style:italic; font-size:52px;
     letter-spacing:1px; text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
-  .stat-num{ position:absolute; display:flex; align-items:center;
+  /* Centered on the LABEL's own horizontal midpoint (read from the PSD),
+     not left-anchored to the demo value's bbox -- the demo text
+     ("123456"/"1234"/etc.) happened to start at a specific x that has
+     nothing to do with where a real value of different digit-length
+     should sit, which is what made these look off-center before. */
+  .stat-num{ position:absolute; display:flex; align-items:center; justify-content:center;
     color:var(--white); font-weight:700; }
-  #dmg-taken{ left:1139px; top:337px; width:294px; height:72px; font-size:56px; justify-content:flex-start; }
-  #dmg-dealt{ left:1517px; top:336px; width:189px; height:71px; font-size:56px; justify-content:flex-start; }
-  #kill-participation{ left:1523px; top:515px; width:182px; height:72px; font-size:56px; justify-content:flex-start; }
-  #kda{ left:1445px; top:672px; width:261px; height:71px; font-size:56px; justify-content:flex-start; }
+  #dmg-taken{ left:1172px; top:337px; width:300px; height:72px; font-size:56px; }
+  #dmg-dealt{ left:1459px; top:336px; width:250px; height:71px; font-size:56px; }
+  #kill-participation{ left:1440px; top:515px; width:250px; height:72px; font-size:56px; }
+  #kda{ left:1405px; top:672px; width:300px; height:71px; font-size:56px; }
 </style>
 </head>
 <body>

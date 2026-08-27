@@ -307,8 +307,21 @@
 
   <div class="card">
     <h2>Match Clock</h2>
-    <p class="hint">Counts up (elapsed match time), shown top-center on the In-Game overlay. Manual start/pause —
-      nothing reads a ticking clock off the screen automatically.</p>
+    <p class="hint">Counts up (elapsed match time), shown top-center on the In-Game overlay. Calibrate
+      <code>python calibrate.py game_timer</code> around the live MM:SS HUD clock and it reads automatically —
+      the crop + last OCR reading are shown live below so you can confirm it's catching the right thing. Manual
+      Start/Pause/Reset below still work as a fallback for before calibration or whenever the clock isn't
+      visible on screen.</p>
+    <div class="row">
+      <div class="crop-box" style="max-width:160px;">
+        <img id="crop-game_timer">
+        <div class="label">game timer</div>
+      </div>
+      <div class="team-form">
+        <label>Last OCR reading</label>
+        <div id="gameTimer_lastText" style="font-size:12px;color:#9aa4c0;min-height:18px;">&mdash;</div>
+      </div>
+    </div>
     <div class="timer-row">
       <div class="timer-display" id="matchClock_display">00:00</div>
       <button id="matchClock_start">Start / Resume</button>
@@ -2461,21 +2474,13 @@ const GRAPHIC_PAGES = {
     },
   },
   overlay: {
-    label: "In-Game", background: "../overlay/assets/overlay_blank.png",
+    label: "In-Game", background: "../overlay/assets/POPUPS.png",
     elements: {
       "team1-logo": { left:368, top:8, width:65, height:71, kind:"logo", team:"team1" },
       "team2-logo": { left:1485, top:8, width:65, height:71, kind:"logo", team:"team2" },
-      "team1-name": { left:539, top:69, width:96, height:13, kind:"name", team:"team1" },
-      "team2-name": { left:1276, top:68, width:96, height:14, kind:"name", team:"team2" },
-      "score-team1": { left:826, top:19, width:17, height:33, kind:"box", label:"Score (Team 1)" },
-      "score-team2": { left:1073, top:19, width:20, height:33, kind:"box", label:"Score (Team 2)" },
-      "match-clock": { left:941, top:6, width:38, height:10, kind:"box", label:"Match Clock" },
-      "t1-gold": { left:514, top:9, width:60, height:43, kind:"box", label:"Team 1 Gold" },
-      "t1-tower": { left:578, top:10, width:40, height:42, kind:"box", label:"Team 1 Structures" },
-      "t1-kill": { left:634, top:8, width:40, height:44, kind:"box", label:"Team 1 Kills" },
-      "t2-gold": { left:1188, top:9, width:60, height:43, kind:"box", label:"Team 2 Gold" },
-      "t2-tower": { left:1252, top:10, width:40, height:42, kind:"box", label:"Team 2 Structures" },
-      "t2-kill": { left:1308, top:8, width:40, height:44, kind:"box", label:"Team 2 Kills" },
+      "team1-name": { left:510, top:62, width:199, height:25, kind:"name", team:"team1" },
+      "team2-name": { left:1218, top:62, width:191, height:25, kind:"name", team:"team2" },
+      "match-clock": { left:920, top:4, width:80, height:14, kind:"box", label:"Match Clock (no baked slot on this background -- nudge into the empty space above the shield logo)" },
     },
   },
   turtle: {
@@ -2920,6 +2925,9 @@ function connect(){
         const text = (msg.text && msg.text.trim()) ? msg.text : "(nothing read this frame)";
         document.getElementById("turtle_lastText").textContent = text;
         document.getElementById("lord_lastText").textContent = text;
+      } else if(msg.region === "game_timer"){
+        document.getElementById("gameTimer_lastText").textContent =
+          (msg.text && msg.text.trim()) ? msg.text : "(nothing read this frame)";
       }
     } else if(msg.type === "battle_report_result"){
       const took = stopExtractTimer("import_battleReport_status");

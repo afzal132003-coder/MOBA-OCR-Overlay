@@ -71,6 +71,11 @@ FIELD_MAP = {
 
 NUMBER_REGEX = re.compile(r"\d+")
 GOLD_REGEX = re.compile(r"(\d+(?:\.\d+)?)\s*([kK])?")
+# Match clock, e.g. "12:34" -- MM:SS counting up over the course of the
+# game. Read continuously (unlike turtle's one-shot toast) since it's a
+# steady live HUD readout, same debounce path as kills/gold below.
+GAME_TIMER_REGEX = re.compile(r"(\d{1,2}):(\d{2})")
+GAME_TIMER_REGION_KEY = "game_timer"
 
 # The turtle announcement toast reads e.g. "Turtle spawning in 15s" while
 # counting down, then "Turtle Spawned" once it's up. This only needs to
@@ -156,13 +161,16 @@ def default_state():
             "spawnedUntil": None,
             "lastRawText": "",
         },
-        # Live match clock (manual start/pause/reset from the dashboard --
-        # no OCR reads a ticking clock reliably frame to frame, same
-        # reasoning as why the turtle countdown is timed locally off one
-        # OCR'd reading instead of re-reading every frame). Counts UP
-        # (elapsed match time), unlike the prematch draft timer which
-        # counts down. "elapsedMs" is the frozen value while paused/idle;
-        # while running the overlay ticks live off "startedAt" instead.
+        # Live match clock. Primary source is OCR (see
+        # process_game_timer_reading()) once the game_timer region is
+        # calibrated -- each confirmed "MM:SS" read directly overwrites
+        # "elapsedMs" and status stays "idle" (OCR reads often enough not
+        # to need local ticking between updates). Manual Start/Pause/Reset
+        # from the dashboard are the fallback for before calibration or
+        # whenever the clock isn't visible on screen; while running that
+        # way the overlay ticks locally off "startedAt" instead, same as
+        # the turtle countdown. Counts UP (elapsed match time), unlike the
+        # prematch draft timer which counts down.
         "matchClock": {
             "status": "idle",
             "startedAt": None,
@@ -344,6 +352,13 @@ locked_fields = set()
 last_confirmed = {key: None for key in REGION_ORDER}
 pending_value = {key: None for key in REGION_ORDER}
 pending_count = {key: 0 for key in REGION_ORDER}
+# Game timer lives outside REGION_ORDER's numeric HUD batch (own crop/OCR
+# call in ocr_loop(), same reason turtle_announcement does), but reuses
+# confirm_reading()'s generic debounce -- it just needs its own entry in
+# these three dicts since they're only pre-seeded from REGION_ORDER.
+last_confirmed[GAME_TIMER_REGION_KEY] = None
+pending_value[GAME_TIMER_REGION_KEY] = None
+pending_count[GAME_TIMER_REGION_KEY] = 0
 
 
 def preprocess(img_bgr, upscale=4):
@@ -367,11 +382,26 @@ TESS_CONFIG = (
     "-c tessedit_char_whitelist=0123456789.kK "
     "-c load_system_dawg=0 -c load_freq_dawg=0"
 )
+TESS_CONFIG_TIMER = (
+    "--oem 1 --psm 7 "
+    "-c tessedit_char_whitelist=0123456789: "
+    "-c load_system_dawg=0 -c load_freq_dawg=0"
+)
 
 
 def ocr_number(img_bgr):
     processed = preprocess(img_bgr)
     text = pytesseract.image_to_string(processed, config=TESS_CONFIG)
+    return text.strip()
+
+
+def ocr_timer(img_bgr):
+    """Same digit-tuned preprocess() pipeline as ocr_number() -- the game
+    clock is small plain digits on the HUD same as kills/gold, not the
+    glowy announcement text ocr_text() exists for -- just a colon added
+    to the whitelist."""
+    processed = preprocess(img_bgr)
+    text = pytesseract.image_to_string(processed, config=TESS_CONFIG_TIMER)
     return text.strip()
 
 
@@ -415,6 +445,18 @@ def parse_int(text):
     if not match:
         return None
     return int(match.group())
+
+
+def parse_game_timer(text):
+    """"MM:SS" -> elapsed milliseconds. None on anything that doesn't look
+    like a plausible clock reading (garbage OCR, or seconds >= 60)."""
+    match = GAME_TIMER_REGEX.search(text)
+    if not match:
+        return None
+    minutes, seconds = int(match.group(1)), int(match.group(2))
+    if seconds >= 60:
+        return None
+    return (minutes * 60 + seconds) * 1000
 
 
 def crop_to_bgr(sct, region):
@@ -547,6 +589,29 @@ def process_lord_reading(text, now_ms):
     return changed
 
 
+def process_game_timer_reading(text, now_ms):
+    """Unlike turtle/lord, this isn't a state machine -- a confirmed
+    "MM:SS" OCR reading directly sets the clock's frozen display value
+    each time it changes (2-frame debounce via confirm_reading, same as
+    kills/gold). Manual Start/Pause/Reset on the dashboard still work as
+    a fallback when this region isn't calibrated or the clock isn't on
+    screen (e.g. a draft/loading screen) -- see matchClock's own comment
+    in default_state(). Returns True if server_state changed."""
+    if text is None:
+        return False
+    parsed_ms = parse_game_timer(text)
+    confirmed = confirm_reading(GAME_TIMER_REGION_KEY, parsed_ms)
+    if confirmed is None:
+        return False
+    mc = server_state["matchClock"]
+    if mc["elapsedMs"] == confirmed:
+        return False
+    mc["elapsedMs"] = confirmed
+    mc["status"] = "idle"
+    mc["startedAt"] = None
+    return True
+
+
 async def ocr_loop():
     interval = config.get("poll_interval_seconds", 0.35)
     regions = config["regions"]
@@ -573,6 +638,11 @@ async def ocr_loop():
             if turtle_region and turtle_region.get("w", 0) > 0 and turtle_region.get("h", 0) > 0:
                 turtle_crop = crop_to_bgr(sct, turtle_region)
 
+            game_timer_region = regions.get(GAME_TIMER_REGION_KEY)
+            game_timer_crop = None
+            if game_timer_region and game_timer_region.get("w", 0) > 0 and game_timer_region.get("h", 0) > 0:
+                game_timer_crop = crop_to_bgr(sct, game_timer_region)
+
             # The slow part is the Tesseract subprocess call itself. Running
             # all regions through the thread pool at once means the total
             # wait per cycle is roughly one OCR call, not stacked up one by one.
@@ -581,14 +651,23 @@ async def ocr_loop():
                 loop.run_in_executor(ocr_executor, read_region, key, crops[key])
                 for key in keys
             ]
-            if turtle_crop is not None:
-                ocr_tasks.append(loop.run_in_executor(ocr_executor, ocr_text, turtle_crop))
+            # Optional one-off text regions, appended in a fixed order so
+            # the results can be pulled back out by name below rather than
+            # by fragile positional slicing.
+            text_region_names = []
+            for name, crop, ocr_fn in (
+                ("turtle", turtle_crop, ocr_text),
+                ("game_timer", game_timer_crop, ocr_timer),
+            ):
+                if crop is not None:
+                    ocr_tasks.append(loop.run_in_executor(ocr_executor, ocr_fn, crop))
+                    text_region_names.append(name)
             results = await asyncio.gather(*ocr_tasks)
 
-            if turtle_crop is not None:
-                numeric_results, turtle_raw_text = results[:-1], results[-1]
-            else:
-                numeric_results, turtle_raw_text = results, None
+            numeric_results = results[:len(keys)]
+            text_results = dict(zip(text_region_names, results[len(keys):]))
+            turtle_raw_text = text_results.get("turtle")
+            game_timer_raw_text = text_results.get("game_timer")
 
             changed = False
             for key, parsed in zip(keys, numeric_results):
@@ -605,6 +684,9 @@ async def ocr_loop():
             if config.get("lord_enabled", True) and process_lord_reading(turtle_raw_text, int(time.time() * 1000)):
                 changed = True
 
+            if process_game_timer_reading(game_timer_raw_text, int(time.time() * 1000)):
+                changed = True
+
             # Push crop previews every couple of cycles so the dashboard can
             # show exactly what OCR is looking at, without flooding the socket.
             if frame_counter % 2 == 0:
@@ -618,6 +700,13 @@ async def ocr_loop():
                         await broadcast({
                             "type": "crop_preview", "region": TURTLE_REGION_KEY,
                             "image": data_url, "text": turtle_raw_text or "",
+                        })
+                if game_timer_crop is not None:
+                    data_url = crop_to_data_url(game_timer_crop)
+                    if data_url:
+                        await broadcast({
+                            "type": "crop_preview", "region": GAME_TIMER_REGION_KEY,
+                            "image": data_url, "text": game_timer_raw_text or "",
                         })
 
             if changed:
