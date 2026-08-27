@@ -277,7 +277,6 @@
   <button class="category-btn" data-category="cs2">CS2</button>
   <button class="category-btn" data-category="dota2">Dota 2</button>
   <button class="category-btn" data-category="hok">HOK</button>
-  <button class="category-btn" data-category="freefire">FreeFire Max</button>
 </div>
 
 <div class="category-panel active" id="category-moba">
@@ -765,69 +764,6 @@
   </div>
 </div>
 
-<div class="category-panel" id="category-freefire">
-
-  <div class="card">
-    <h2>File &amp; OCR Management</h2>
-    <p class="hint">Free Fire's own game client writes these files directly to disk — no screenshots, no OCR
-      involved. Point each path at the folder the client saves into, then fetch. Match result is one file per
-      match; safezone files can pile up 8-12+ per match as the circle shifts, so fetching always grabs whichever
-      one has the newest timestamp for the current match.</p>
-
-    <div class="row">
-      <div class="team-form">
-        <label>Match Context</label>
-        <input type="text" id="ff_context" list="ff_contextList" placeholder="e.g. League Stage Day 1 - Game 1">
-        <datalist id="ff_contextList"></datalist>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="team-form">
-        <label>Match Result Folder</label>
-        <input type="text" id="ff_matchFolder" placeholder="C:\path\to\match-results">
-      </div>
-      <div class="team-form">
-        <label>Safezone Folder</label>
-        <input type="text" id="ff_safezoneFolder" placeholder="C:\path\to\safezone-logs">
-      </div>
-    </div>
-
-    <div class="row" style="gap:8px;">
-      <button id="ff_fetchMatch">Fetch Latest Match</button>
-      <button class="secondary" id="ff_fetchSafezone">Fetch Latest Safezone</button>
-    </div>
-    <div id="ff_matchStatus" class="hint"></div>
-    <div id="ff_safezoneStatus" class="hint"></div>
-  </div>
-
-  <div class="card" id="ff_reviewCard" style="display:none;">
-    <h2>Match Review <span id="ff_reviewMatchId" style="color:#6d7899;font-size:12px;font-weight:400;"></span></h2>
-    <p class="hint">Fetched from disk but not counted in standings yet — review the parse below before committing.</p>
-    <div id="ff_reviewTable" style="overflow-x:auto;"></div>
-    <button id="ff_commitMatch">Add This Match to Standings</button>
-  </div>
-
-  <div class="card">
-    <h2>Overall Standings</h2>
-    <p class="hint" id="ff_standingsEmpty">No matches committed yet.</p>
-    <div id="ff_standingsTable" style="overflow-x:auto;"></div>
-  </div>
-
-  <div class="card">
-    <h2>Graphics</h2>
-    <p class="hint">freefire_scoreboard.html (as an OBS Browser Source) shows whichever of these two views is
-      selected here. freefire_booyah.html always shows the latest committed match's winner on its own, no toggle
-      needed.</p>
-    <div class="row" style="gap:8px;">
-      <button class="secondary" id="ff_showMatchMode">Show Match Scoreboard</button>
-      <button class="secondary" id="ff_showOverallMode">Show Overall Standings</button>
-    </div>
-    <div class="hint" id="ff_modeStatus"></div>
-  </div>
-
-</div>
-
 <script>
 /* ---------- entry gate ---------- */
 document.getElementById("entry_gate_enter").addEventListener("click", () => {
@@ -1167,168 +1103,6 @@ function sendManualUpdate(data, lock, unlock){
   if(ws && ws.readyState === WebSocket.OPEN){
     ws.send(JSON.stringify({type:"manual_update", data, lock: lock||[], unlock: unlock||[]}));
   }
-}
-
-function escapeHtml(str){
-  return String(str == null ? "" : str)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-/* ---------- Free Fire Max ---------- */
-let freefireHydrated = false;
-let ffPendingMatch = null; // last freefire_fetch_match result, not yet committed
-
-function ffHydrate(ff){
-  document.getElementById("ff_matchFolder").value = ff.settings.matchResultFolder || "";
-  document.getElementById("ff_safezoneFolder").value = ff.settings.safezoneFolder || "";
-  document.getElementById("ff_context").value = ff.currentContext || "";
-  document.getElementById("ff_contextList").innerHTML =
-    (ff.knownContexts || []).map(c => `<option value="${escapeHtml(c)}">`).join("");
-}
-
-function ffSendSettings(){
-  if(!currentState || !currentState.freefire) return;
-  const ff = currentState.freefire;
-  ff.settings.matchResultFolder = document.getElementById("ff_matchFolder").value;
-  ff.settings.safezoneFolder = document.getElementById("ff_safezoneFolder").value;
-  ff.currentContext = document.getElementById("ff_context").value;
-  if(ff.currentContext && !ff.knownContexts.includes(ff.currentContext)){
-    ff.knownContexts.push(ff.currentContext);
-  }
-  sendManualUpdate({freefire: ff});
-}
-["ff_matchFolder", "ff_safezoneFolder", "ff_context"].forEach(id => {
-  document.getElementById(id).addEventListener("change", ffSendSettings);
-});
-
-document.getElementById("ff_fetchMatch").addEventListener("click", () => {
-  const folder = document.getElementById("ff_matchFolder").value;
-  document.getElementById("ff_matchStatus").textContent = "Fetching latest match result...";
-  ws.send(JSON.stringify({type: "freefire_fetch_match", folder}));
-});
-
-document.getElementById("ff_fetchSafezone").addEventListener("click", () => {
-  const folder = document.getElementById("ff_safezoneFolder").value;
-  const matchId = currentState && currentState.freefire ? currentState.freefire.currentMatchId : null;
-  if(!matchId){
-    document.getElementById("ff_safezoneStatus").textContent = "Fetch (and commit) a match first — safezone lookup needs its matchId.";
-    return;
-  }
-  document.getElementById("ff_safezoneStatus").textContent = "Fetching latest safezone file...";
-  ws.send(JSON.stringify({type: "freefire_fetch_safezone", folder, matchId}));
-});
-
-function ffHandleMatchResult(msg){
-  if(msg.error && (!msg.teams || !msg.teams.length)){
-    document.getElementById("ff_matchStatus").textContent = "Error: " + msg.error;
-    document.getElementById("ff_reviewCard").style.display = "none";
-    ffPendingMatch = null;
-    return;
-  }
-  ffPendingMatch = msg;
-  document.getElementById("ff_matchStatus").textContent =
-    `Loaded ${msg.fileName} — ${msg.teams.length} teams, matchId ${msg.matchId}. Review below, then commit.`;
-  document.getElementById("ff_reviewMatchId").textContent = `matchId ${msg.matchId} — ${msg.fileName}`;
-  const rows = msg.teams.map(t => {
-    const playerLine = t.players.map(p => `${escapeHtml(p.name)} (${p.uid}): ${p.kills}k`).join(", ");
-    return `
-      <tr style="border-top:1px solid #332b52;">
-        <td style="padding:6px;">${t.rank}</td>
-        <td style="padding:6px;font-weight:700;">${escapeHtml(t.teamName)}</td>
-        <td style="padding:6px;">${t.killScore}</td>
-        <td style="padding:6px;">${t.rankScore}</td>
-        <td style="padding:6px;font-weight:700;">${t.totalScore}</td>
-      </tr>
-      <tr style="border-top:none;">
-        <td></td>
-        <td colspan="4" style="padding:0 6px 8px;color:#6d7899;font-size:11px;">${playerLine}</td>
-      </tr>`;
-  }).join("");
-  document.getElementById("ff_reviewTable").innerHTML = `
-    <table style="width:100%;border-collapse:collapse;font-size:13px;">
-      <thead><tr style="text-align:left;color:#9aa4c0;">
-        <th style="padding:6px;">Rank</th><th style="padding:6px;">Team</th>
-        <th style="padding:6px;">Kill Pts</th><th style="padding:6px;">Rank Pts</th>
-        <th style="padding:6px;">Total Pts</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
-  document.getElementById("ff_reviewCard").style.display = "block";
-}
-
-function ffHandleSafezoneResult(msg){
-  const el = document.getElementById("ff_safezoneStatus");
-  if(msg.error){
-    el.textContent = "Error: " + msg.error;
-    return;
-  }
-  el.textContent = `Latest zone for match ${msg.matchId}: (${msg.x}, ${msg.y}) — ${msg.fileName}`;
-  if(currentState && currentState.freefire){
-    currentState.freefire.currentSafezone = {x: msg.x, y: msg.y, matchId: msg.matchId, timestamp: msg.timestamp};
-    sendManualUpdate({freefire: currentState.freefire});
-  }
-}
-
-document.getElementById("ff_commitMatch").addEventListener("click", () => {
-  if(!ffPendingMatch || !currentState || !currentState.freefire) return;
-  const ff = currentState.freefire;
-  const context = document.getElementById("ff_context").value;
-  const already = ff.matches.some(m => m.matchId === ffPendingMatch.matchId);
-  if(already){
-    document.getElementById("ff_matchStatus").textContent = `Match ${ffPendingMatch.matchId} is already in standings — skipped duplicate.`;
-    return;
-  }
-  ff.matches.push({
-    matchId: ffPendingMatch.matchId,
-    timestamp: ffPendingMatch.timestamp,
-    context,
-    teams: ffPendingMatch.teams,
-  });
-  ff.currentMatchId = ffPendingMatch.matchId;
-  if(context && !ff.knownContexts.includes(context)) ff.knownContexts.push(context);
-  sendManualUpdate({freefire: ff});
-  document.getElementById("ff_matchStatus").textContent = `Match ${ffPendingMatch.matchId} added to standings.`;
-  document.getElementById("ff_reviewCard").style.display = "none";
-  ffPendingMatch = null;
-});
-
-function ffSetScoreboardMode(mode){
-  if(!currentState || !currentState.freefire) return;
-  const ff = currentState.freefire;
-  ff.display = ff.display || {};
-  ff.display.scoreboardMode = mode;
-  sendManualUpdate({freefire: ff});
-  document.getElementById("ff_modeStatus").textContent =
-    `freefire_scoreboard.html is now showing: ${mode === "overall" ? "Overall Standings" : "Match Scoreboard"}.`;
-}
-document.getElementById("ff_showMatchMode").addEventListener("click", () => ffSetScoreboardMode("match"));
-document.getElementById("ff_showOverallMode").addEventListener("click", () => ffSetScoreboardMode("overall"));
-
-function ffRenderStandings(ff){
-  const standings = (ff && ff.standings) || [];
-  document.getElementById("ff_standingsEmpty").style.display = standings.length ? "none" : "block";
-  if(!standings.length){
-    document.getElementById("ff_standingsTable").innerHTML = "";
-    return;
-  }
-  const rows = standings.map((r, i) => `
-    <tr style="border-top:1px solid #332b52;">
-      <td style="padding:6px;">${i + 1}</td>
-      <td style="padding:6px;font-weight:700;">${escapeHtml(r.teamName)}</td>
-      <td style="padding:6px;">${r.matches}</td>
-      <td style="padding:6px;">${r.totalKills}</td>
-      <td style="padding:6px;font-weight:700;">${r.totalPoints}</td>
-      <td style="padding:6px;">${r.bestRank != null ? "#" + r.bestRank : "-"}</td>
-    </tr>`).join("");
-  document.getElementById("ff_standingsTable").innerHTML = `
-    <table style="width:100%;border-collapse:collapse;font-size:13px;">
-      <thead><tr style="text-align:left;color:#9aa4c0;">
-        <th style="padding:6px;">#</th><th style="padding:6px;">Team</th>
-        <th style="padding:6px;">Matches</th><th style="padding:6px;">Total Kills</th>
-        <th style="padding:6px;">Total Points</th><th style="padding:6px;">Best Placement</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
 }
 
 /* ---------- in-game live ops ---------- */
@@ -2796,13 +2570,6 @@ function connect(){
         hydratePostMatch(currentState.postMatch);
         postMatchHydrated = true;
       }
-      if(currentState.freefire){
-        if(!freefireHydrated){
-          ffHydrate(currentState.freefire);
-          freefireHydrated = true;
-        }
-        ffRenderStandings(currentState.freefire);
-      }
     } else if(msg.type === "crop_preview"){
       const img = document.getElementById(`crop-${msg.region}`);
       if(img) img.src = msg.image;
@@ -2830,10 +2597,6 @@ function connect(){
           `No roster names matched (${took}) — showing ${(msg.candidates||[]).length} raw number candidate(s) instead.`;
         renderGoldCandidates(msg.candidates || []);
       }
-    } else if(msg.type === "freefire_match_result"){
-      ffHandleMatchResult(msg);
-    } else if(msg.type === "freefire_safezone_result"){
-      ffHandleSafezoneResult(msg);
     }
   };
 }

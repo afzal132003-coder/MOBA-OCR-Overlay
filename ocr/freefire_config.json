@@ -1,0 +1,13 @@
+{
+  "monitor": 1,
+  "tesseract_path": "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
+  "poll_interval_seconds": 1.0,
+  "server_host": "localhost",
+  "server_port": 8765,
+  "relay": {
+    "enabled": true,
+    "url": "wss://moba-ocr-overlay-production.up.railway.app",
+    "token": "7NAmOd7tkqRC7IUcgdG3fHeWtmpQw82z"
+  },
+  "regions": {}
+}
