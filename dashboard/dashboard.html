@@ -31,14 +31,14 @@
   .coming-soon h2{color:#8b5cf6;text-transform:uppercase;letter-spacing:0.5px;margin-top:0;}
 
   .tabbar{display:flex;gap:8px;margin:16px 0 0;}
-  .tabbar button{
+  .tabbar button, .ff-tab-btn{
     background:#181430;color:#9aa4c0;border:1px solid #332b52;border-bottom:none;
     padding:10px 18px;border-radius:8px 8px 0 0;font-weight:700;cursor:pointer;
     font-size:12px;text-transform:uppercase;letter-spacing:0.5px;
   }
-  .tabbar button.active{background:#8b5cf6;color:#0c0a17;border-color:#8b5cf6;}
-  .tab-panel{display:none;background:#0c0a17;padding-top:4px;}
-  .tab-panel.active{display:block;}
+  .tabbar button.active, .ff-tab-btn.active{background:#8b5cf6;color:#0c0a17;border-color:#8b5cf6;}
+  .tab-panel, .ff-tab-panel{display:none;background:#0c0a17;padding-top:4px;}
+  .tab-panel.active, .ff-tab-panel.active{display:block;}
 
   .card{background:#181430;border:1px solid #241d3d;border-radius:14px;padding:18px 20px;margin-bottom:20px;
     box-shadow:0 4px 18px rgba(0,0,0,0.25);
@@ -277,6 +277,7 @@
   <button class="category-btn" data-category="cs2">CS2</button>
   <button class="category-btn" data-category="dota2">Dota 2</button>
   <button class="category-btn" data-category="hok">HOK</button>
+  <button class="category-btn" data-category="freefire">FreeFire Max</button>
 </div>
 
 <div class="category-panel active" id="category-moba">
@@ -764,6 +765,139 @@
   </div>
 </div>
 
+<div class="category-panel" id="category-freefire">
+
+  <div class="hint" style="margin-bottom:10px;">
+    Connects separately from the MOBA connection above, to <code>freefire_engine.py</code> (a different process
+    from <code>ocr_engine.py</code>) — start that instead of the MOBA engine on a Free Fire day.
+    Status: <span id="ffStatus" class="disconnected" style="font-weight:800;">DISCONNECTED</span>
+  </div>
+
+  <div class="ff-tabbar" style="display:flex;gap:8px;">
+    <button class="ff-tab-btn active" data-fftab="prematch">Pre-Match</button>
+    <button class="ff-tab-btn" data-fftab="liveops">Live In-Game Ops</button>
+    <button class="ff-tab-btn" data-fftab="postmatch">Post-Match</button>
+  </div>
+
+  <!-- ===================== PRE-MATCH ===================== -->
+  <div class="ff-tab-panel active" id="fftab-prematch">
+    <div class="card">
+      <h2>Roster Import</h2>
+      <p class="hint">Upload a CSV with one row per player: <code>team,ign,uid</code> (a header row is fine, it's
+        auto-detected). This is the roster every other Free Fire tab matches names/UIDs against.</p>
+      <div class="row" style="gap:16px;align-items:flex-end;">
+        <div class="team-form">
+          <label>CSV File</label>
+          <input type="file" id="ff_rosterFile" accept=".csv,text/csv">
+        </div>
+      </div>
+      <p class="hint">Or paste CSV text directly:</p>
+      <textarea id="ff_rosterPaste" rows="4" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:6px;border:1px solid #332b52;background:#0c0a17;color:#eef1fa;font-size:13px;font-family:monospace;" placeholder="team,ign,uid&#10;Team Tufan,SAIKYO.01,2281027273&#10;Team Tufan,TT_TUFAN,126560212"></textarea>
+      <button class="secondary" id="ff_rosterParse">Parse Roster</button>
+      <div id="ff_rosterStatus" class="hint"></div>
+      <div id="ff_rosterTable" style="overflow-x:auto;margin-top:10px;"></div>
+      <button id="ff_rosterSave" style="display:none;">Save Roster</button>
+    </div>
+  </div>
+
+  <!-- ===================== LIVE IN-GAME OPS ===================== -->
+  <div class="ff-tab-panel" id="fftab-liveops">
+    <div class="card">
+      <h2>OCR Crop Preview</h2>
+      <p class="hint">Raw OCR text only for now — no structured parsing yet (killfeed events and side-table rows
+        need real captured sample text before that logic can be written). First time only, calibrate both regions:</p>
+      <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+        cd ocr &amp;&amp; python calibrate_freefire.py
+      </div>
+      <p class="hint">Saves into <code>ocr/freefire_config.json</code> — separate from the MOBA engine's <code>config.json</code>, so calibrating here never touches the MOBA setup.</p>
+      <div class="two-col" style="margin-top:14px;">
+        <div class="col">
+          <h3>Killfeed / Knockout Feed</h3>
+          <img id="crop-freefire_killfeed" style="width:100%;border-radius:6px;border:1px solid #332b52;background:#0c0a17;min-height:60px;">
+          <div class="hint" id="ff_killfeedLastText" style="margin-top:6px;white-space:pre-wrap;">(nothing read yet)</div>
+        </div>
+        <div class="col">
+          <h3>12-Team Side Table</h3>
+          <img id="crop-freefire_sidetable" style="width:100%;border-radius:6px;border:1px solid #332b52;background:#0c0a17;min-height:60px;">
+          <div class="hint" id="ff_sidetableLastText" style="margin-top:6px;white-space:pre-wrap;">(nothing read yet)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Player Loadouts</h2>
+      <p class="hint">Manual entry for now — active character, 3 passives, pet, and equipment per player. Import
+        the roster on the Pre-Match tab first; this table is generated from it.</p>
+      <div id="ff_loadoutTable" style="overflow-x:auto;"></div>
+      <p class="hint" id="ff_loadoutEmpty">No roster imported yet — nothing to show loadouts for.</p>
+      <button id="ff_loadoutSave" style="display:none;">Save Loadouts</button>
+    </div>
+  </div>
+
+  <!-- ===================== POST-MATCH ===================== -->
+  <div class="ff-tab-panel" id="fftab-postmatch">
+    <div class="card">
+      <h2>File &amp; OCR Management</h2>
+      <p class="hint">Free Fire's own game client writes these files directly to disk — no screenshots, no OCR
+        involved. Point each path at the folder the client saves into, then fetch. Match result is one file per
+        match; safezone files can pile up 8-12+ per match as the circle shifts, so fetching always grabs whichever
+        one has the newest timestamp for the current match.</p>
+
+      <div class="row">
+        <div class="team-form">
+          <label>Match Context</label>
+          <input type="text" id="ff_context" list="ff_contextList" placeholder="e.g. League Stage Day 1 - Game 1">
+          <datalist id="ff_contextList"></datalist>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="team-form">
+          <label>Match Result Folder</label>
+          <input type="text" id="ff_matchFolder" placeholder="C:\path\to\match-results">
+        </div>
+        <div class="team-form">
+          <label>Safezone Folder</label>
+          <input type="text" id="ff_safezoneFolder" placeholder="C:\path\to\safezone-logs">
+        </div>
+      </div>
+
+      <div class="row" style="gap:8px;">
+        <button id="ff_fetchMatch">Fetch Latest Match</button>
+        <button class="secondary" id="ff_fetchSafezone">Fetch Latest Safezone</button>
+      </div>
+      <div id="ff_matchStatus" class="hint"></div>
+      <div id="ff_safezoneStatus" class="hint"></div>
+    </div>
+
+    <div class="card" id="ff_reviewCard" style="display:none;">
+      <h2>Match Review <span id="ff_reviewMatchId" style="color:#6d7899;font-size:12px;font-weight:400;"></span></h2>
+      <p class="hint">Fetched from disk but not counted in standings yet — review the parse below before committing.</p>
+      <div id="ff_reviewTable" style="overflow-x:auto;"></div>
+      <button id="ff_commitMatch">Add This Match to Standings</button>
+    </div>
+
+    <div class="card">
+      <h2>Overall Standings</h2>
+      <p class="hint" id="ff_standingsEmpty">No matches committed yet.</p>
+      <div id="ff_standingsTable" style="overflow-x:auto;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Graphics</h2>
+      <p class="hint">freefire_scoreboard.html (as an OBS Browser Source) shows whichever of these two views is
+        selected here. freefire_booyah.html always shows the latest committed match's winner on its own, no toggle
+        needed.</p>
+      <div class="row" style="gap:8px;">
+        <button class="secondary" id="ff_showMatchMode">Show Match Scoreboard</button>
+        <button class="secondary" id="ff_showOverallMode">Show Overall Standings</button>
+      </div>
+      <div class="hint" id="ff_modeStatus"></div>
+    </div>
+  </div>
+
+</div>
+
 <script>
 /* ---------- entry gate ---------- */
 document.getElementById("entry_gate_enter").addEventListener("click", () => {
@@ -944,6 +1078,15 @@ if (_relay && !_token) {
 const WS_URL = _relay
   ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token)
   : "ws://localhost:8765";
+// Free Fire tab's own connection -- same relay/token as the MOBA one above
+// (same underlying relay server), just a distinct socket + &page= tag so
+// it talks to whichever engine is actually listening (freefire_engine.py
+// on a Free Fire day) without the MOBA connection's state_sync messages
+// (a totally different shape -- no team1/team2/prematch/etc.) getting
+// mixed into this page's main `currentState`.
+const FF_WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_dashboard"
+  : "ws://localhost:8765?page=freefire_dashboard";
 
 function changeConnection(){
   const currentRelay = localStorage.getItem("moba_relay") || "";
@@ -1026,6 +1169,19 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
     btn.classList.add("active");
     document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
     if(btn.dataset.tab === "graphics") gfxLoadPage(gfxCurrentPage);
+  });
+});
+
+/* ---------- FreeFire sub-tabs (separate class names from .tab-btn/.tab-panel
+   above on purpose -- that handler is global across the whole document, so
+   sharing classes would have it fight over "active" state with the MOBA
+   tabs and collide on id="tab-prematch" etc.) ---------- */
+document.querySelectorAll(".ff-tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".ff-tab-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".ff-tab-panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("fftab-" + btn.dataset.fftab).classList.add("active");
   });
 });
 
@@ -2601,6 +2757,334 @@ function connect(){
   };
 }
 
+/* ---------- Free Fire Max (its own WebSocket -- see FF_WS_URL above --
+   since freefire_engine.py's state has a totally different, flat shape
+   from the MOBA server_state this page's main `ws`/`currentState` expect.
+   Everything below is namespaced with an "ff" prefix specifically so it
+   can't collide with the identically-purposed MOBA globals/functions
+   above (there's already a top-level `connect`/`currentState`/
+   `sendManualUpdate`, all MOBA-specific). ---------- */
+let ffWs;
+let ffState = null; // this IS the flat freefire state object -- freefire_engine.py's
+                     // server_state has no wrapper, unlike MOBA's data.freefire used to be
+let ffHydrated = false;
+let ffPendingMatch = null;
+let ffParsedRoster = null; // {teams:[{name, players:[{uid,ign}]}]} -- staged, not yet saved
+
+function ffEscapeHtml(str){
+  return String(str == null ? "" : str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function ffSendManualUpdate(freefireData){
+  if(ffWs && ffWs.readyState === WebSocket.OPEN){
+    ffWs.send(JSON.stringify({type:"manual_update", data:{freefire: freefireData}, lock:[], unlock:[]}));
+  }
+}
+
+function ffConnect(){
+  ffWs = new WebSocket(FF_WS_URL);
+  ffWs.onopen = () => {
+    document.getElementById("ffStatus").textContent = "CONNECTED";
+    document.getElementById("ffStatus").className = "connected";
+  };
+  ffWs.onclose = () => {
+    document.getElementById("ffStatus").textContent = "DISCONNECTED";
+    document.getElementById("ffStatus").className = "disconnected";
+    setTimeout(ffConnect, 2000);
+  };
+  ffWs.onerror = () => ffWs.close();
+  ffWs.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync"){
+      ffState = msg.data;
+      if(!ffHydrated){
+        ffHydrate(ffState);
+        ffHydrated = true;
+      }
+      ffRenderStandings(ffState);
+      ffRenderRoster(ffState);
+      ffRenderLoadouts(ffState);
+    } else if(msg.type === "crop_preview"){
+      const img = document.getElementById(`crop-${msg.region}`);
+      if(img) img.src = msg.image;
+      if(msg.region === "freefire_killfeed"){
+        document.getElementById("ff_killfeedLastText").textContent = (msg.text && msg.text.trim()) ? msg.text : "(nothing read this frame)";
+      } else if(msg.region === "freefire_sidetable"){
+        document.getElementById("ff_sidetableLastText").textContent = (msg.text && msg.text.trim()) ? msg.text : "(nothing read this frame)";
+      }
+    } else if(msg.type === "freefire_match_result"){
+      ffHandleMatchResult(msg);
+    } else if(msg.type === "freefire_safezone_result"){
+      ffHandleSafezoneResult(msg);
+    }
+  };
+}
+
+/* ---------- Pre-Match: roster CSV ---------- */
+function ffParseRosterCsv(text){
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length);
+  if(!lines.length) return { teams: [], rowCount: 0 };
+  const rows = lines.map(l => l.split(",").map(c => c.trim().replace(/^"(.*)"$/, "$1")));
+  let dataRows = rows;
+  const first = rows[0];
+  if(first.length >= 3 && !/^\d+$/.test(first[2])){
+    dataRows = rows.slice(1); // header row detected (3rd column isn't a bare UID)
+  }
+  const byTeam = new Map();
+  let rowCount = 0;
+  dataRows.forEach(cols => {
+    if(cols.length < 3 || !cols[0]) return;
+    const [team, ign, uid] = cols;
+    if(!byTeam.has(team)) byTeam.set(team, []);
+    byTeam.get(team).push({ uid, ign, loadout: { active: "", passives: ["", "", ""], pet: "", equipment: "" } });
+    rowCount++;
+  });
+  const teams = Array.from(byTeam.entries()).map(([name, players]) => ({ name, players }));
+  return { teams, rowCount };
+}
+
+function ffRenderRosterPreview(teams){
+  const container = document.getElementById("ff_rosterTable");
+  if(!teams.length){ container.innerHTML = ""; return; }
+  const rows = teams.map(t => `
+    <tr style="border-top:1px solid #332b52;">
+      <td style="padding:6px;font-weight:700;">${ffEscapeHtml(t.name)}</td>
+      <td style="padding:6px;color:#9aa4c0;">${t.players.map(p => `${ffEscapeHtml(p.ign)} (${ffEscapeHtml(p.uid)})`).join(", ")}</td>
+    </tr>`).join("");
+  container.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#9aa4c0;">
+      <th style="padding:6px;">Team</th><th style="padding:6px;">Players (IGN / UID)</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function ffParseRosterText(text){
+  const { teams, rowCount } = ffParseRosterCsv(text);
+  ffParsedRoster = { teams };
+  document.getElementById("ff_rosterStatus").textContent =
+    rowCount ? `Parsed ${rowCount} player(s) across ${teams.length} team(s). Review below, then save.` : "No rows parsed — check the CSV format (team,ign,uid).";
+  ffRenderRosterPreview(teams);
+  document.getElementById("ff_rosterSave").style.display = rowCount ? "inline-block" : "none";
+}
+
+document.getElementById("ff_rosterParse").addEventListener("click", () => {
+  ffParseRosterText(document.getElementById("ff_rosterPaste").value);
+});
+document.getElementById("ff_rosterFile").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    document.getElementById("ff_rosterPaste").value = reader.result;
+    ffParseRosterText(reader.result);
+  };
+  reader.readAsText(file);
+});
+document.getElementById("ff_rosterSave").addEventListener("click", () => {
+  if(!ffParsedRoster || !ffState) return;
+  ffState.roster = ffParsedRoster;
+  ffSendManualUpdate(ffState);
+  document.getElementById("ff_rosterStatus").textContent = "Roster saved.";
+});
+
+function ffRenderRoster(ff){
+  // Keeps the preview table in sync with whatever's actually saved, once
+  // no local unsaved parse is staged.
+  if(ffParsedRoster) return;
+  if(ff.roster && ff.roster.teams && ff.roster.teams.length) ffRenderRosterPreview(ff.roster.teams);
+}
+
+/* ---------- Live Ops: loadouts ---------- */
+function ffRenderLoadouts(ff){
+  const teams = (ff.roster && ff.roster.teams) || [];
+  const container = document.getElementById("ff_loadoutTable");
+  const emptyEl = document.getElementById("ff_loadoutEmpty");
+  if(!teams.length){
+    container.innerHTML = "";
+    emptyEl.style.display = "block";
+    document.getElementById("ff_loadoutSave").style.display = "none";
+    return;
+  }
+  emptyEl.style.display = "none";
+  document.getElementById("ff_loadoutSave").style.display = "inline-block";
+  const rows = [];
+  teams.forEach((t, ti) => {
+    t.players.forEach((p, pi) => {
+      const l = p.loadout || { active:"", passives:["","",""], pet:"", equipment:"" };
+      rows.push(`
+        <tr style="border-top:1px solid #332b52;">
+          <td style="padding:6px;font-weight:700;">${ffEscapeHtml(t.name)}</td>
+          <td style="padding:6px;">${ffEscapeHtml(p.ign)}</td>
+          <td style="padding:6px;"><input type="text" id="ff_lo_${ti}_${pi}_active" value="${ffEscapeHtml(l.active)}" placeholder="Active"></td>
+          <td style="padding:6px;"><input type="text" id="ff_lo_${ti}_${pi}_p0" value="${ffEscapeHtml(l.passives[0]||'')}" placeholder="Passive 1"></td>
+          <td style="padding:6px;"><input type="text" id="ff_lo_${ti}_${pi}_p1" value="${ffEscapeHtml(l.passives[1]||'')}" placeholder="Passive 2"></td>
+          <td style="padding:6px;"><input type="text" id="ff_lo_${ti}_${pi}_p2" value="${ffEscapeHtml(l.passives[2]||'')}" placeholder="Passive 3"></td>
+          <td style="padding:6px;"><input type="text" id="ff_lo_${ti}_${pi}_pet" value="${ffEscapeHtml(l.pet)}" placeholder="Pet"></td>
+          <td style="padding:6px;"><input type="text" id="ff_lo_${ti}_${pi}_equip" value="${ffEscapeHtml(l.equipment)}" placeholder="Equipment"></td>
+        </tr>`);
+    });
+  });
+  container.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#9aa4c0;">
+      <th style="padding:6px;">Team</th><th style="padding:6px;">Player</th>
+      <th style="padding:6px;">Active</th><th style="padding:6px;">Passive 1</th>
+      <th style="padding:6px;">Passive 2</th><th style="padding:6px;">Passive 3</th>
+      <th style="padding:6px;">Pet</th><th style="padding:6px;">Equipment</th>
+    </tr></thead><tbody>${rows.join("")}</tbody></table>`;
+}
+
+document.getElementById("ff_loadoutSave").addEventListener("click", () => {
+  if(!ffState || !ffState.roster) return;
+  ffState.roster.teams.forEach((t, ti) => {
+    t.players.forEach((p, pi) => {
+      const get = (suffix) => { const el = document.getElementById(`ff_lo_${ti}_${pi}_${suffix}`); return el ? el.value : ""; };
+      p.loadout = {
+        active: get("active"),
+        passives: [get("p0"), get("p1"), get("p2")],
+        pet: get("pet"),
+        equipment: get("equip"),
+      };
+    });
+  });
+  ffSendManualUpdate(ffState);
+});
+
+/* ---------- Post-Match: settings, fetch, review, commit, standings, graphics ---------- */
+function ffHydrate(ff){
+  document.getElementById("ff_matchFolder").value = ff.settings.matchResultFolder || "";
+  document.getElementById("ff_safezoneFolder").value = ff.settings.safezoneFolder || "";
+  document.getElementById("ff_context").value = ff.currentContext || "";
+  document.getElementById("ff_contextList").innerHTML =
+    (ff.knownContexts || []).map(c => `<option value="${ffEscapeHtml(c)}">`).join("");
+}
+
+function ffSendSettings(){
+  if(!ffState) return;
+  ffState.settings.matchResultFolder = document.getElementById("ff_matchFolder").value;
+  ffState.settings.safezoneFolder = document.getElementById("ff_safezoneFolder").value;
+  ffState.currentContext = document.getElementById("ff_context").value;
+  if(ffState.currentContext && !ffState.knownContexts.includes(ffState.currentContext)){
+    ffState.knownContexts.push(ffState.currentContext);
+  }
+  ffSendManualUpdate(ffState);
+}
+["ff_matchFolder", "ff_safezoneFolder", "ff_context"].forEach(id => {
+  document.getElementById(id).addEventListener("change", ffSendSettings);
+});
+
+document.getElementById("ff_fetchMatch").addEventListener("click", () => {
+  const folder = document.getElementById("ff_matchFolder").value;
+  document.getElementById("ff_matchStatus").textContent = "Fetching latest match result...";
+  ffWs.send(JSON.stringify({type: "freefire_fetch_match", folder}));
+});
+
+document.getElementById("ff_fetchSafezone").addEventListener("click", () => {
+  const folder = document.getElementById("ff_safezoneFolder").value;
+  const matchId = ffState ? ffState.currentMatchId : null;
+  if(!matchId){
+    document.getElementById("ff_safezoneStatus").textContent = "Fetch (and commit) a match first — safezone lookup needs its matchId.";
+    return;
+  }
+  document.getElementById("ff_safezoneStatus").textContent = "Fetching latest safezone file...";
+  ffWs.send(JSON.stringify({type: "freefire_fetch_safezone", folder, matchId}));
+});
+
+function ffHandleMatchResult(msg){
+  if(msg.error && (!msg.teams || !msg.teams.length)){
+    document.getElementById("ff_matchStatus").textContent = "Error: " + msg.error;
+    document.getElementById("ff_reviewCard").style.display = "none";
+    ffPendingMatch = null;
+    return;
+  }
+  ffPendingMatch = msg;
+  document.getElementById("ff_matchStatus").textContent =
+    `Loaded ${msg.fileName} — ${msg.teams.length} teams, matchId ${msg.matchId}. Review below, then commit.`;
+  document.getElementById("ff_reviewMatchId").textContent = `matchId ${msg.matchId} — ${msg.fileName}`;
+  const rows = msg.teams.map(t => {
+    const playerLine = t.players.map(p => `${ffEscapeHtml(p.name)} (${p.uid}): ${p.kills}k`).join(", ");
+    return `
+      <tr style="border-top:1px solid #332b52;">
+        <td style="padding:6px;">${t.rank}</td>
+        <td style="padding:6px;font-weight:700;">${ffEscapeHtml(t.teamName)}</td>
+        <td style="padding:6px;">${t.killScore}</td>
+        <td style="padding:6px;">${t.rankScore}</td>
+        <td style="padding:6px;font-weight:700;">${t.totalScore}</td>
+      </tr>
+      <tr style="border-top:none;">
+        <td></td>
+        <td colspan="4" style="padding:0 6px 8px;color:#6d7899;font-size:11px;">${playerLine}</td>
+      </tr>`;
+  }).join("");
+  document.getElementById("ff_reviewTable").innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#9aa4c0;">
+      <th style="padding:6px;">Rank</th><th style="padding:6px;">Team</th>
+      <th style="padding:6px;">Kill Pts</th><th style="padding:6px;">Rank Pts</th>
+      <th style="padding:6px;">Total Pts</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+  document.getElementById("ff_reviewCard").style.display = "block";
+}
+
+function ffHandleSafezoneResult(msg){
+  const el = document.getElementById("ff_safezoneStatus");
+  if(msg.error){ el.textContent = "Error: " + msg.error; return; }
+  el.textContent = `Latest zone for match ${msg.matchId}: (${msg.x}, ${msg.y}) — ${msg.fileName}`;
+  if(ffState){
+    ffState.currentSafezone = {x: msg.x, y: msg.y, matchId: msg.matchId, timestamp: msg.timestamp};
+    ffSendManualUpdate(ffState);
+  }
+}
+
+document.getElementById("ff_commitMatch").addEventListener("click", () => {
+  if(!ffPendingMatch || !ffState) return;
+  const context = document.getElementById("ff_context").value;
+  const already = ffState.matches.some(m => m.matchId === ffPendingMatch.matchId);
+  if(already){
+    document.getElementById("ff_matchStatus").textContent = `Match ${ffPendingMatch.matchId} is already in standings — skipped duplicate.`;
+    return;
+  }
+  ffState.matches.push({
+    matchId: ffPendingMatch.matchId, timestamp: ffPendingMatch.timestamp,
+    context, teams: ffPendingMatch.teams,
+  });
+  ffState.currentMatchId = ffPendingMatch.matchId;
+  if(context && !ffState.knownContexts.includes(context)) ffState.knownContexts.push(context);
+  ffSendManualUpdate(ffState);
+  document.getElementById("ff_matchStatus").textContent = `Match ${ffPendingMatch.matchId} added to standings.`;
+  document.getElementById("ff_reviewCard").style.display = "none";
+  ffPendingMatch = null;
+});
+
+function ffRenderStandings(ff){
+  const standings = ff.standings || [];
+  document.getElementById("ff_standingsEmpty").style.display = standings.length ? "none" : "block";
+  if(!standings.length){ document.getElementById("ff_standingsTable").innerHTML = ""; return; }
+  const rows = standings.map((r, i) => `
+    <tr style="border-top:1px solid #332b52;">
+      <td style="padding:6px;">${i + 1}</td>
+      <td style="padding:6px;font-weight:700;">${ffEscapeHtml(r.teamName)}</td>
+      <td style="padding:6px;">${r.matches}</td>
+      <td style="padding:6px;">${r.totalKills}</td>
+      <td style="padding:6px;font-weight:700;">${r.totalPoints}</td>
+      <td style="padding:6px;">${r.bestRank != null ? "#" + r.bestRank : "-"}</td>
+    </tr>`).join("");
+  document.getElementById("ff_standingsTable").innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#9aa4c0;">
+      <th style="padding:6px;">#</th><th style="padding:6px;">Team</th>
+      <th style="padding:6px;">Matches</th><th style="padding:6px;">Total Kills</th>
+      <th style="padding:6px;">Total Points</th><th style="padding:6px;">Best Placement</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function ffSetScoreboardMode(mode){
+  if(!ffState) return;
+  ffState.display = ffState.display || {};
+  ffState.display.scoreboardMode = mode;
+  ffSendManualUpdate(ffState);
+  document.getElementById("ff_modeStatus").textContent =
+    `freefire_scoreboard.html is now showing: ${mode === "overall" ? "Overall Standings" : "Match Scoreboard"}.`;
+}
+document.getElementById("ff_showMatchMode").addEventListener("click", () => ffSetScoreboardMode("match"));
+document.getElementById("ff_showOverallMode").addEventListener("click", () => ffSetScoreboardMode("overall"));
+
 buildStatGrid();
 buildCropGrid();
 buildPlayerNameInputs("team1PlayerInputs", "team1");
@@ -2615,6 +3099,7 @@ buildDraftSlots("pm_picks_team2", "team2", "picks");
 buildPlayerRows("pom_players_team1", "team1");
 buildPlayerRows("pom_players_team2", "team2");
 connect();
+ffConnect();
 </script>
 </body>
 </html>
