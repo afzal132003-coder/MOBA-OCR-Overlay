@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Free Fire Max Booyah Overlay</title>
+<style>
+  /* Same first-pass CSS-drawn approach as freefire_scoreboard.html -- no
+     baked background art exists for Free Fire yet. Always shows the rank-1
+     team of the most recently COMMITTED match (ff.matches, not a raw
+     unreviewed fetch) -- there's no separate mode toggle for this one,
+     it's a single-purpose "who just won" graphic. */
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Regular.ttf') format('truetype');
+    font-weight: 400; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Bold.ttf') format('truetype');
+    font-weight: 700; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');
+    font-weight: 800; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
+    font-weight: 900; font-style: normal;
+  }
+
+  :root{ --gold:#f0ca90; --purple:#8b5cf6; --bg1:#0c0a17; --bg2:#181430; --line:#332b52; --dim:#9aa4c0; }
+  html,body{ margin:0; padding:0; overflow:hidden; width:1920px; height:1080px;
+    font-family:'TT Supermolot Neue Trial', Arial, sans-serif;
+    background: radial-gradient(ellipse at 50% 40%, #2b2050 0%, var(--bg1) 62%); }
+
+  #stage{ position:relative; width:1920px; height:1080px; display:none; }
+  #stage.show{ display:block; }
+
+  .glow{ position:absolute; top:50%; left:50%; width:1200px; height:1200px;
+    transform:translate(-50%,-50%); border-radius:50%;
+    background:radial-gradient(circle, rgba(240,202,144,0.16) 0%, rgba(240,202,144,0) 60%);
+    animation: pulse 2.4s ease-in-out infinite; }
+  @keyframes pulse{ 0%,100%{ opacity:0.7; } 50%{ opacity:1; } }
+
+  .brand-tag{ position:absolute; top:66px; left:0; width:1920px; text-align:center;
+    color:var(--purple); font-weight:800; font-size:18px; letter-spacing:8px; text-transform:uppercase;
+    opacity:0; animation: fadeIn 0.5s ease forwards 0.1s; }
+
+  .booyah{ position:absolute; top:150px; left:0; width:1920px; text-align:center;
+    color:var(--gold); font-weight:900; font-size:150px; letter-spacing:6px; text-transform:uppercase;
+    text-shadow: 0 0 60px rgba(240,202,144,0.5);
+    opacity:0; transform:scale(0.85); animation: popIn 0.6s cubic-bezier(.2,.9,.3,1.3) forwards 0.2s; }
+
+  .winner{ position:absolute; top:340px; left:0; width:1920px; text-align:center;
+    color:#fff; font-weight:800; font-size:56px; letter-spacing:2px; text-transform:uppercase;
+    opacity:0; animation: fadeIn 0.5s ease forwards 0.5s; }
+
+  .subline{ position:absolute; top:414px; left:0; width:1920px; text-align:center;
+    color:var(--dim); font-weight:700; font-size:16px; letter-spacing:2px; text-transform:uppercase;
+    opacity:0; animation: fadeIn 0.5s ease forwards 0.6s; }
+
+  .stat-strip{ position:absolute; top:472px; left:50%; transform:translateX(-50%); display:flex; gap:14px;
+    opacity:0; animation: fadeIn 0.5s ease forwards 0.7s; }
+  .stat-chip{ background:rgba(24,20,48,0.72); border:1px solid var(--line); border-radius:10px;
+    padding:10px 22px; text-align:center; min-width:140px; }
+  .stat-chip .val{ color:var(--gold); font-weight:900; font-size:26px; }
+  .stat-chip .lbl{ color:var(--dim); font-weight:700; font-size:11px; letter-spacing:1.5px; text-transform:uppercase; margin-top:2px; }
+
+  .roster{ position:absolute; top:600px; left:50%; transform:translateX(-50%); display:flex; gap:18px; }
+  .player-card{ width:210px; background:rgba(24,20,48,0.72); border:1px solid var(--line); border-radius:12px;
+    padding:18px 14px; text-align:center; opacity:0; transform:translateY(14px);
+    animation: cardIn 0.4s ease forwards; }
+  .player-card:nth-child(1){ animation-delay:0.8s; }
+  .player-card:nth-child(2){ animation-delay:0.88s; }
+  .player-card:nth-child(3){ animation-delay:0.96s; }
+  .player-card:nth-child(4){ animation-delay:1.04s; }
+  .player-card .p-name{ color:#fff; font-weight:800; font-size:16px; text-transform:uppercase;
+    overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .player-card .p-kills{ color:var(--gold); font-weight:900; font-size:22px; margin-top:8px; }
+  .player-card .p-kills-lbl{ color:var(--dim); font-weight:700; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; }
+
+  @keyframes fadeIn{ to{ opacity:1; } }
+  @keyframes popIn{ to{ opacity:1; transform:scale(1); } }
+  @keyframes cardIn{ to{ opacity:1; transform:translateY(0); } }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="glow"></div>
+  <div class="brand-tag">TITANIUM AERO — FREE FIRE MAX</div>
+  <div class="booyah">BOOYAH!!</div>
+  <div class="winner" id="ff_winnerName">TEAM NAME</div>
+  <div class="subline" id="ff_subline"></div>
+  <div class="stat-strip">
+    <div class="stat-chip"><div class="val" id="ff_totalKills">0</div><div class="lbl">Kills</div></div>
+    <div class="stat-chip"><div class="val" id="ff_totalPts">0</div><div class="lbl">Points</div></div>
+  </div>
+  <div class="roster" id="ff_roster"></div>
+</div>
+
+<script>
+const _params = new URLSearchParams(location.search);
+if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
+if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_booyah"
+  : "ws://localhost:8765?page=freefire_booyah";
+let ws;
+
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync" && msg.data.freefire) applyFreefire(msg.data.freefire);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+
+let lastMatchId = null;
+
+function applyFreefire(ff){
+  const latest = ff.matches && ff.matches.length ? ff.matches[ff.matches.length - 1] : null;
+  const stage = document.getElementById("stage");
+  if(!latest){
+    stage.classList.remove("show");
+    lastMatchId = null;
+    return;
+  }
+  const winner = (latest.teams || []).find(t => t.rank === 1) || latest.teams[0];
+  if(!winner){
+    stage.classList.remove("show");
+    return;
+  }
+  if(latest.matchId === lastMatchId) return; // already showing this match -- don't replay the entrance animation
+  lastMatchId = latest.matchId;
+
+  document.getElementById("ff_winnerName").textContent = winner.teamName;
+  document.getElementById("ff_subline").textContent = latest.context || "";
+  document.getElementById("ff_totalKills").textContent = winner.killScore;
+  document.getElementById("ff_totalPts").textContent = winner.totalScore;
+  document.getElementById("ff_roster").innerHTML = (winner.players || []).map(p => `
+    <div class="player-card">
+      <div class="p-name">${escapeHtml(p.name)}</div>
+      <div class="p-kills">${p.kills}</div>
+      <div class="p-kills-lbl">Kills</div>
+    </div>`).join("");
+
+  stage.classList.remove("show");
+  void stage.offsetWidth;
+  stage.classList.add("show");
+}
+
+function escapeHtml(str){
+  return String(str == null ? "" : str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+connect();
+</script>
+</body>
+</html>

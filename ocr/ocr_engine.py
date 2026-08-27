@@ -101,6 +101,148 @@ LORD_SPAWNED_DISPLAY_SECONDS = 5
 TURTLE_MIN_COUNTDOWN = 1
 TURTLE_MAX_COUNTDOWN = 120
 
+# ---------------------------------------------------------------------------
+# FREE FIRE MAX -- post-match result & safezone log file parsing.
+#
+# Both file types are written directly by the game client, not screenshots,
+# so there's no OCR involved -- just reading and parsing plain text. Fields
+# are label-delimited ("TeamName:", "Rank:", ...) with variable-width space
+# padding depending on name length, so parsing anchors on the labels
+# themselves rather than fixed character columns.
+#
+# Example team block (one per squad, followed by exactly 4 player lines):
+#   TeamName: Team Tufan     Rank: 1     KillScore: 48     RankScore: 12     TotalScore: 60
+#   NAME: SAIKYO.01          ID: 2281027273     KILL: 7
+#
+# RankScore already matches Free Fire's own placement-points table
+# (1st=12, 2nd=9, 3rd=8, 4th=7, 5th=6, 6th=5, 7th=4, 8th=3, 9th=2, 10th=1,
+# 11th/12th=0) -- the game client bakes it into the file, so it's read
+# directly rather than recomputed.
+FREEFIRE_TEAM_LINE_REGEX = re.compile(
+    r"TeamName:\s*(?P<name>.*?)\s*Rank:\s*(?P<rank>\d+)\s*"
+    r"KillScore:\s*(?P<killscore>\d+)\s*RankScore:\s*(?P<rankscore>\d+)\s*"
+    r"TotalScore:\s*(?P<totalscore>\d+)\s*$"
+)
+FREEFIRE_PLAYER_LINE_REGEX = re.compile(
+    r"NAME:\s*(?P<name>.*?)\s*ID:\s*(?P<id>\d+)\s*KILL:\s*(?P<kill>\d+)\s*$"
+)
+# Filenames encode the matchId and a sortable "YYYY-MM-DD-HH-MM-SS" timestamp
+# (plain string comparison on the timestamp gives correct chronological
+# order since it's zero-padded). Safezone files: many (8-12+) can pile up
+# per match as the circle shifts, so the correct one to read at any point --
+# especially right as the game ends -- is whichever has the latest
+# timestamp for that matchId, per how the operator described the game
+# client's own output.
+FREEFIRE_MATCH_FILENAME_REGEX = re.compile(
+    r"^MatchId_(?P<match_id>\d+)_(?P<timestamp>\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2})\.log\.txt$",
+    re.IGNORECASE,
+)
+FREEFIRE_SAFEZONE_FILENAME_REGEX = re.compile(
+    r"^SafeZone_(?P<match_id>\d+)_(?P<timestamp>\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2})\.log\.txt$",
+    re.IGNORECASE,
+)
+FREEFIRE_SAFEZONE_COORD_REGEX = re.compile(r"(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)")
+
+
+def parse_freefire_match_result(text):
+    """Parse a MatchId_*.log.txt's contents into a list of team dicts
+    (rank-sorted), each with a "players" list. Unrecognized/blank lines
+    are skipped rather than raising -- a stray blank line shouldn't blow
+    up ingest of an otherwise-good file."""
+    teams = []
+    current = None
+    for raw_line in text.split("\n"):
+        line = raw_line.lstrip("\ufeff").strip()
+        if not line:
+            continue
+        team_match = FREEFIRE_TEAM_LINE_REGEX.match(line)
+        if team_match:
+            current = {
+                "teamName": team_match.group("name").strip(),
+                "rank": int(team_match.group("rank")),
+                "killScore": int(team_match.group("killscore")),
+                "rankScore": int(team_match.group("rankscore")),
+                "totalScore": int(team_match.group("totalscore")),
+                "players": [],
+            }
+            teams.append(current)
+            continue
+        player_match = FREEFIRE_PLAYER_LINE_REGEX.match(line)
+        if player_match and current is not None:
+            current["players"].append({
+                "name": player_match.group("name").strip(),
+                "uid": player_match.group("id"),
+                "kills": int(player_match.group("kill")),
+            })
+    teams.sort(key=lambda t: t["rank"])
+    return teams
+
+
+def parse_freefire_safezone(text):
+    """Extract the (x, y) coordinate pair from a SafeZone_*.log.txt's
+    contents. Returns None if no coordinate pair is found."""
+    text = text.lstrip("\ufeff")
+    m = FREEFIRE_SAFEZONE_COORD_REGEX.search(text)
+    if not m:
+        return None
+    return (float(m.group(1)), float(m.group(2)))
+
+
+def find_freefire_latest_match_file(folder):
+    """Latest (by filename timestamp) MatchId_*.log.txt in `folder`."""
+    folder_path = Path(folder) if folder else None
+    if not folder_path or not folder_path.is_dir():
+        return None
+    best = None
+    for f in folder_path.iterdir():
+        m = FREEFIRE_MATCH_FILENAME_REGEX.match(f.name)
+        if m and (best is None or m.group("timestamp") > best[0]):
+            best = (m.group("timestamp"), f, m)
+    return (best[1], best[2]) if best else (None, None)
+
+
+def find_freefire_latest_safezone_file(folder, match_id):
+    """Among SafeZone_<match_id>_*.log.txt files in `folder`, the one with
+    the latest timestamp -- the correct read once the game has ended,
+    since only the newest reflects the final zone."""
+    folder_path = Path(folder) if folder else None
+    if not folder_path or not folder_path.is_dir():
+        return None
+    best = None
+    for f in folder_path.iterdir():
+        m = FREEFIRE_SAFEZONE_FILENAME_REGEX.match(f.name)
+        if not m or m.group("match_id") != str(match_id):
+            continue
+        if best is None or m.group("timestamp") > best[0]:
+            best = (m.group("timestamp"), f, m)
+    return (best[1], best[2]) if best else (None, None)
+
+
+def compute_freefire_standings(matches):
+    """Aggregate committed match results into a per-team standings table,
+    sorted by total points (then total kills) descending -- matches the
+    tie-break order Free Fire tournaments use for the placement table."""
+    agg = {}
+    for match in matches:
+        for team in match.get("teams", []):
+            name = (team.get("teamName") or "").strip()
+            if not name:
+                continue
+            row = agg.setdefault(name, {
+                "teamName": name, "matches": 0, "totalKills": 0,
+                "totalPoints": 0, "bestRank": None,
+            })
+            row["matches"] += 1
+            row["totalKills"] += team.get("killScore", 0)
+            row["totalPoints"] += team.get("totalScore", 0)
+            rank = team.get("rank")
+            if rank is not None and (row["bestRank"] is None or rank < row["bestRank"]):
+                row["bestRank"] = rank
+    standings = list(agg.values())
+    standings.sort(key=lambda r: (-r["totalPoints"], -r["totalKills"]))
+    return standings
+
+
 # Tesseract calls are blocking subprocess launches; running the regions
 # through a thread pool instead of one-after-another is what actually cuts
 # the per-cycle latency down, since they overlap instead of stacking up.
@@ -225,6 +367,26 @@ def default_state():
             # since the operator needs to be able to override it. Defaults
             # match the old score>=score behavior (team1 wins a 0-0 tie).
             "result": {"team1": "victory", "team2": "defeat"},
+        },
+        # Free Fire Max broadcast suite (file-driven, not OCR -- the game
+        # client writes MatchId_*/SafeZone_* .log.txt files directly).
+        # "matches" holds operator-reviewed/committed match results only
+        # (a fetch does NOT auto-commit — see freefire_fetch_match below);
+        # "standings" is a server-computed aggregate over "matches",
+        # recomputed on every manual_update that touches this section.
+        "freefire": {
+            "settings": {"matchResultFolder": "", "safezoneFolder": ""},
+            "currentMatchId": None,
+            "currentContext": "",
+            "knownContexts": [],
+            "currentSafezone": None,
+            "matches": [],
+            "standings": [],
+            # Which view freefire_scoreboard.html shows -- "match" (latest
+            # committed match's own results) or "overall" (cumulative
+            # standings). freefire_booyah.html has no mode: it always shows
+            # the latest committed match's rank-1 team.
+            "display": {"scoreboardMode": "match"},
         },
     }
 
@@ -971,6 +1133,11 @@ async def handle_client(websocket, path=None):
                     server_state["postMatch"] = data["postMatch"]
                 if "graphicOverrides" in data:
                     server_state["graphicOverrides"] = data["graphicOverrides"]
+                if "freefire" in data:
+                    server_state["freefire"] = data["freefire"]
+                    server_state["freefire"]["standings"] = compute_freefire_standings(
+                        server_state["freefire"].get("matches", [])
+                    )
                 for field in payload.get("lock", []):
                     locked_fields.add(field)
                 for field in payload.get("unlock", []):
@@ -1107,6 +1274,67 @@ async def handle_client(websocket, path=None):
                 except Exception as e:
                     await websocket.send(json.dumps({
                         "type": "gold_extract_result", "candidates": [], "error": str(e),
+                    }))
+            elif payload.get("type") == "freefire_fetch_match":
+                # Read-only lookup -- does NOT touch server_state. The
+                # dashboard reviews the parsed result and commits it via a
+                # normal manual_update (data.freefire.matches) only once
+                # the operator confirms it, same review-before-broadcast
+                # pattern as the battle report / gold capture above.
+                folder = payload.get("folder") or server_state.get("freefire", {}).get("settings", {}).get("matchResultFolder", "")
+                try:
+                    file_path, name_match = find_freefire_latest_match_file(folder)
+                    if not file_path:
+                        await websocket.send(json.dumps({
+                            "type": "freefire_match_result", "teams": [], "matchId": None,
+                            "error": f"No MatchId_*.log.txt found in '{folder}'.",
+                        }))
+                    else:
+                        text = file_path.read_text(encoding="utf-8-sig")
+                        teams = parse_freefire_match_result(text)
+                        await websocket.send(json.dumps({
+                            "type": "freefire_match_result",
+                            "matchId": name_match.group("match_id"),
+                            "timestamp": name_match.group("timestamp"),
+                            "fileName": file_path.name,
+                            "teams": teams,
+                            "error": None if teams else "File found but no team blocks could be parsed from it.",
+                        }))
+                except Exception as e:
+                    await websocket.send(json.dumps({
+                        "type": "freefire_match_result", "teams": [], "matchId": None, "error": str(e),
+                    }))
+            elif payload.get("type") == "freefire_fetch_safezone":
+                folder = payload.get("folder") or server_state.get("freefire", {}).get("settings", {}).get("safezoneFolder", "")
+                match_id = payload.get("matchId") or server_state.get("freefire", {}).get("currentMatchId")
+                try:
+                    if not match_id:
+                        await websocket.send(json.dumps({
+                            "type": "freefire_safezone_result",
+                            "error": "No matchId yet -- fetch a match result first.",
+                        }))
+                    else:
+                        file_path, name_match = find_freefire_latest_safezone_file(folder, match_id)
+                        if not file_path:
+                            await websocket.send(json.dumps({
+                                "type": "freefire_safezone_result",
+                                "error": f"No SafeZone_{match_id}_*.log.txt found in '{folder}'.",
+                            }))
+                        else:
+                            text = file_path.read_text(encoding="utf-8-sig")
+                            coord = parse_freefire_safezone(text)
+                            await websocket.send(json.dumps({
+                                "type": "freefire_safezone_result",
+                                "matchId": match_id,
+                                "x": coord[0] if coord else None,
+                                "y": coord[1] if coord else None,
+                                "timestamp": name_match.group("timestamp"),
+                                "fileName": file_path.name,
+                                "error": None if coord else "File found but coordinates couldn't be parsed.",
+                            }))
+                except Exception as e:
+                    await websocket.send(json.dumps({
+                        "type": "freefire_safezone_result", "error": str(e),
                     }))
     finally:
         connected_clients.discard(websocket)

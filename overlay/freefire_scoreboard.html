@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Free Fire Max Scoreboard Overlay</title>
+<style>
+  /*
+    First-pass CSS-drawn design (no baked background art exists yet for
+    Free Fire, unlike the MOBA postmatch/prematch graphics which sit on top
+    of an artist-provided PNG template) -- reuses the same font and the
+    gold/dark palette already established across the rest of the broadcast
+    package so it reads as part of the same production. Swap for real
+    artwork later by following the postmatch.html pattern (a .bg-frame
+    image + repositioned text) once reference art exists.
+
+    Shows either the latest committed match's own results ("match" mode)
+    or the cumulative event standings ("overall" mode) -- toggled from the
+    dashboard via freefire.display.scoreboardMode, not by anything local.
+  */
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Regular.ttf') format('truetype');
+    font-weight: 400; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Bold.ttf') format('truetype');
+    font-weight: 700; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');
+    font-weight: 800; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
+    font-weight: 900; font-style: normal;
+  }
+
+  :root{ --gold:#f0ca90; --purple:#8b5cf6; --bg1:#0c0a17; --bg2:#181430; --line:#332b52; --dim:#9aa4c0; }
+  html,body{ margin:0; padding:0; overflow:hidden; width:1920px; height:1080px;
+    font-family:'TT Supermolot Neue Trial', Arial, sans-serif;
+    background: radial-gradient(ellipse at 50% -10%, #241d3d 0%, var(--bg1) 55%); }
+
+  #stage{ position:relative; width:1920px; height:1080px; opacity:0;
+    transform:translateY(16px); animation: enter 0.6s ease forwards; }
+  @keyframes enter{ to{ opacity:1; transform:translateY(0);} }
+
+  .brand-tag{ position:absolute; top:52px; left:0; width:1920px; text-align:center;
+    color:var(--purple); font-weight:800; font-size:16px; letter-spacing:6px; text-transform:uppercase; }
+  .title{ position:absolute; top:82px; left:0; width:1920px; text-align:center;
+    color:var(--gold); font-weight:900; font-size:56px; letter-spacing:3px; text-transform:uppercase; }
+  .context{ position:absolute; top:158px; left:0; width:1920px; text-align:center;
+    color:var(--dim); font-weight:700; font-size:18px; letter-spacing:2px; text-transform:uppercase; }
+
+  .board{ position:absolute; top:230px; left:50%; transform:translateX(-50%);
+    width:1360px; border:1px solid var(--line); border-radius:16px;
+    background:rgba(24,20,48,0.72); overflow:hidden; }
+
+  .board-head{ display:flex; align-items:center; padding:16px 32px;
+    border-bottom:1px solid var(--line); color:var(--dim); font-weight:800;
+    font-size:14px; letter-spacing:1.5px; text-transform:uppercase; }
+  .col-rank{ width:90px; }
+  .col-team{ flex:1; }
+  .col-num{ width:190px; text-align:right; }
+
+  .rows{ display:flex; flex-direction:column; }
+  .row{ display:flex; align-items:center; padding:11px 32px;
+    border-bottom:1px solid rgba(51,43,82,0.5); opacity:0; transform:translateX(-12px);
+    animation: rowIn 0.4s ease forwards; }
+  .row:nth-child(1){ animation-delay:0.05s; }
+  .row:nth-child(2){ animation-delay:0.10s; }
+  .row:nth-child(3){ animation-delay:0.15s; }
+  .row:nth-child(4){ animation-delay:0.20s; }
+  .row:nth-child(5){ animation-delay:0.25s; }
+  .row:nth-child(6){ animation-delay:0.30s; }
+  .row:nth-child(7){ animation-delay:0.35s; }
+  .row:nth-child(8){ animation-delay:0.40s; }
+  .row:nth-child(9){ animation-delay:0.45s; }
+  .row:nth-child(10){ animation-delay:0.50s; }
+  .row:nth-child(11){ animation-delay:0.55s; }
+  .row:nth-child(12){ animation-delay:0.60s; }
+  @keyframes rowIn{ to{ opacity:1; transform:translateX(0); } }
+  .row.rank1{ background:linear-gradient(90deg, rgba(240,202,144,0.16), rgba(240,202,144,0) 70%); }
+
+  .rank-badge{ width:90px; display:flex; }
+  .rank-badge span{ width:38px; height:38px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-weight:900; font-size:16px; color:var(--white,#fff); border:2px solid var(--line); background:#241d3d; }
+  .row.rank1 .rank-badge span{ border-color:var(--gold); color:var(--gold); }
+  .row.rank2 .rank-badge span{ border-color:#c9cede; color:#c9cede; }
+  .row.rank3 .rank-badge span{ border-color:#c98a4a; color:#c98a4a; }
+
+  .team-name{ flex:1; color:#fff; font-weight:800; font-size:19px; text-transform:uppercase; letter-spacing:0.4px;
+    overflow:hidden; white-space:nowrap; text-overflow:ellipsis; padding-right:16px; }
+
+  .num{ width:190px; text-align:right; color:#fff; font-weight:700; font-size:17px; }
+  .num.total{ color:var(--gold); font-weight:900; font-size:20px; }
+
+  .empty{ padding:60px 32px; text-align:center; color:var(--dim); font-size:16px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="brand-tag">TITANIUM AERO</div>
+  <div class="title" id="ff_title">FREE FIRE MAX</div>
+  <div class="context" id="ff_ctx"></div>
+
+  <div class="board">
+    <div class="board-head" id="ff_colHead">
+      <div class="col-rank">#</div>
+      <div class="col-team">Team</div>
+      <div class="col-num">Kills</div>
+      <div class="col-num">Points</div>
+    </div>
+    <div class="rows" id="ff_rows"></div>
+    <div class="empty" id="ff_empty" style="display:none;">No match data yet.</div>
+  </div>
+</div>
+
+<script>
+const _params = new URLSearchParams(location.search);
+if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
+if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_scoreboard"
+  : "ws://localhost:8765?page=freefire_scoreboard";
+let ws;
+
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync" && msg.data.freefire) applyFreefire(msg.data.freefire);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+
+let lastRenderKey = "";
+
+function applyFreefire(ff){
+  const mode = (ff.display && ff.display.scoreboardMode) || "match";
+  const latest = ff.matches && ff.matches.length ? ff.matches[ff.matches.length - 1] : null;
+
+  document.getElementById("ff_title").textContent =
+    mode === "overall" ? "OVERALL STANDINGS" : "MATCH RESULTS";
+  document.getElementById("ff_ctx").textContent =
+    mode === "overall" ? (ff.currentContext || "") : (latest ? (latest.context || "") : "");
+
+  const colHead = document.getElementById("ff_colHead");
+  const rowsEl = document.getElementById("ff_rows");
+  const emptyEl = document.getElementById("ff_empty");
+
+  let rows;
+  if(mode === "overall"){
+    colHead.innerHTML = `<div class="col-rank">#</div><div class="col-team">Team</div>
+      <div class="col-num">Matches</div><div class="col-num">Points</div>`;
+    rows = (ff.standings || []).map((r, i) => ({
+      rank: i + 1, name: r.teamName, left: r.matches, total: r.totalPoints,
+    }));
+  } else {
+    colHead.innerHTML = `<div class="col-rank">#</div><div class="col-team">Team</div>
+      <div class="col-num">Kills</div><div class="col-num">Points</div>`;
+    rows = latest ? latest.teams.map(t => ({
+      rank: t.rank, name: t.teamName, left: t.killScore, total: t.totalScore,
+    })) : [];
+  }
+
+  const renderKey = mode + "|" + JSON.stringify(rows);
+  if(renderKey === lastRenderKey) return;
+  lastRenderKey = renderKey;
+
+  if(!rows.length){
+    rowsEl.innerHTML = "";
+    emptyEl.style.display = "block";
+    return;
+  }
+  emptyEl.style.display = "none";
+  rowsEl.innerHTML = rows.map(r => `
+    <div class="row rank${r.rank <= 3 ? r.rank : ''}">
+      <div class="rank-badge"><span>${r.rank}</span></div>
+      <div class="team-name">${escapeHtml(r.name)}</div>
+      <div class="num">${r.left}</div>
+      <div class="num total">${r.total}</div>
+    </div>`).join("");
+}
+
+function escapeHtml(str){
+  return String(str == null ? "" : str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+connect();
+</script>
+</body>
+</html>
