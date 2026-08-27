@@ -56,7 +56,11 @@
       "line2": "DAY 1 MATCH 1"
     },
     "phase": "PICKING",
-    "activeTeam": null,
+    "activeTeam": "team2",
+    "highlight": {
+      "team": "team2",
+      "type": "ban"
+    },
     "timerEndsAt": null,
     "timerDuration": 30,
     "timerRemainingMs": 30000,
@@ -147,12 +151,12 @@
           "image": "600px-Jawhead_infobox.jpg"
         },
         {
-          "name": "",
-          "image": ""
+          "name": "Gloo",
+          "image": "Gloo_Infobox.jpg"
         },
         {
-          "name": "",
-          "image": ""
+          "name": "Floryn",
+          "image": "Floryn_infobox.jpg"
         }
       ]
     }
