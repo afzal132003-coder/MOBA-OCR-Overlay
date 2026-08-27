@@ -857,6 +857,23 @@
     </div>
 
     <div class="card">
+      <h2>Loadout Capture (Num5)</h2>
+      <p class="hint">Calibrate the player HUD card first: <code>cd ocr &amp;&amp; python calibrate_freefire.py freefire_loadout</code>.
+        While armed, pressing Num5 anywhere (even with the game window focused — needs the engine run as
+        Administrator on Windows) screenshots that region into whichever player is next below, then advances.
+        Import the roster on the Pre-Match tab first.</p>
+      <div class="row" style="gap:8px;align-items:center;">
+        <button id="ff_loadoutArm">Arm Capture</button>
+        <button class="secondary" id="ff_loadoutDisarm">Disarm</button>
+        <button class="secondary" id="ff_loadoutSkip">Skip (no capture)</button>
+        <button class="secondary" id="ff_loadoutResetPointer">Reset to Start</button>
+      </div>
+      <div class="hint" id="ff_loadoutCaptureStatus" style="margin-top:10px;font-size:14px;"></div>
+      <div id="ff_loadoutCaptureGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-top:12px;"></div>
+      <p class="hint" id="ff_loadoutCaptureEmpty">No roster imported yet.</p>
+    </div>
+
+    <div class="card">
       <h2>Player Loadouts</h2>
       <p class="hint">Manual entry for now — active character, 3 passives, pet, and equipment per player. Import
         the roster on the Pre-Match tab first; this table is generated from it.</p>
@@ -2955,6 +2972,7 @@ function ffConnect(){
       ffRenderStandings(ffState);
       ffRenderRoster(ffState);
       ffRenderLoadouts(ffState);
+      ffRenderLoadoutCapture(ffState);
     } else if(msg.type === "crop_preview"){
       const img = document.getElementById(`crop-${msg.region}`);
       if(img) img.src = msg.image;
@@ -2987,7 +3005,7 @@ function ffParseRosterCsv(text){
     if(cols.length < 3 || !cols[0]) return;
     const [team, ign, uid] = cols;
     if(!byTeam.has(team)) byTeam.set(team, []);
-    byTeam.get(team).push({ uid, ign, loadout: { active: "", passives: ["", "", ""], pet: "", equipment: "" } });
+    byTeam.get(team).push({ uid, ign, loadout: { active: "", passives: ["", "", ""], pet: "", equipment: "" }, loadoutScreenshot: "" });
     rowCount++;
   });
   const teams = Array.from(byTeam.entries()).map(([name, players]) => ({ name, players }));
@@ -3097,6 +3115,75 @@ document.getElementById("ff_loadoutSave").addEventListener("click", () => {
     });
   });
   ffSendManualUpdate(ffState);
+});
+
+/* ---------- Live Ops: Num5 loadout capture ---------- */
+function ffFlattenRosterPlayers(roster){
+  const flat = [];
+  ((roster && roster.teams) || []).forEach((t, ti) => {
+    (t.players || []).forEach((p, pi) => flat.push({ ti, pi, team: t, player: p }));
+  });
+  return flat;
+}
+
+function ffRenderLoadoutCapture(ff){
+  const flat = ffFlattenRosterPlayers(ff.roster);
+  const grid = document.getElementById("ff_loadoutCaptureGrid");
+  const emptyEl = document.getElementById("ff_loadoutCaptureEmpty");
+  const statusEl = document.getElementById("ff_loadoutCaptureStatus");
+  const lc = ff.loadoutCapture || { active: false, pointer: 0 };
+
+  if(!flat.length){
+    grid.innerHTML = "";
+    emptyEl.style.display = "block";
+    statusEl.textContent = "";
+    return;
+  }
+  emptyEl.style.display = "none";
+
+  if(lc.pointer >= flat.length){
+    statusEl.innerHTML = `<strong style="color:#4ade80;">${lc.active ? "ARMED" : "Disarmed"}</strong> — all ${flat.length} players captured.`;
+  } else {
+    const next = flat[lc.pointer];
+    const teamLabel = next.team.name || `Team ${next.ti + 1}`;
+    statusEl.innerHTML = `<strong style="color:${lc.active ? "#4ade80" : "#f5a4a4"};">${lc.active ? "ARMED" : "Disarmed"}</strong> — ` +
+      `next Num5 capture (${lc.pointer + 1}/${flat.length}): <strong>${ffEscapeHtml(teamLabel)} — ${ffEscapeHtml(next.player.ign || `Player ${next.pi + 1}`)}</strong>`;
+  }
+
+  grid.innerHTML = flat.map((entry, i) => {
+    const isNext = i === lc.pointer;
+    const captured = !!entry.player.loadoutScreenshot;
+    const teamLabel = entry.team.name || `Team ${entry.ti + 1}`;
+    const thumb = captured
+      ? `<img src="${entry.player.loadoutScreenshot}" style="width:100%;height:70px;object-fit:cover;border-radius:4px;">`
+      : `<div style="width:100%;height:70px;border-radius:4px;background:#0c0a17;display:flex;align-items:center;justify-content:center;color:#6d7899;font-size:11px;">not captured</div>`;
+    return `
+      <div class="ff-loadout-cell" data-index="${i}" style="cursor:pointer;padding:6px;border-radius:8px;border:2px solid ${isNext ? "#8b5cf6" : "#332b52"};background:#181430;">
+        ${thumb}
+        <div style="font-size:10px;color:#6d7899;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${ffEscapeHtml(teamLabel)}</div>
+        <div style="font-size:11px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${ffEscapeHtml(entry.player.ign || `P${entry.pi + 1}`)}</div>
+      </div>`;
+  }).join("");
+
+  grid.querySelectorAll(".ff-loadout-cell").forEach(cell => {
+    cell.addEventListener("click", () => {
+      const index = Number(cell.dataset.index);
+      ffWs.send(JSON.stringify({ type: "loadout_capture_set_pointer", pointer: index }));
+    });
+  });
+}
+
+document.getElementById("ff_loadoutArm").addEventListener("click", () => {
+  ffWs.send(JSON.stringify({ type: "loadout_capture_arm" }));
+});
+document.getElementById("ff_loadoutDisarm").addEventListener("click", () => {
+  ffWs.send(JSON.stringify({ type: "loadout_capture_disarm" }));
+});
+document.getElementById("ff_loadoutSkip").addEventListener("click", () => {
+  ffWs.send(JSON.stringify({ type: "loadout_capture_skip" }));
+});
+document.getElementById("ff_loadoutResetPointer").addEventListener("click", () => {
+  ffWs.send(JSON.stringify({ type: "loadout_capture_set_pointer", pointer: 0 }));
 });
 
 /* ---------- Post-Match: settings, fetch, review, commit, standings, graphics ---------- */

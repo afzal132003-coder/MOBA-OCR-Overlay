@@ -23,11 +23,12 @@ import numpy as np
 
 CONFIG_PATH = Path(__file__).parent / "freefire_config.json"
 
-REGION_ORDER = ["freefire_killfeed", "freefire_sidetable"]
+REGION_ORDER = ["freefire_killfeed", "freefire_sidetable", "freefire_loadout"]
 
 LABELS = {
     "freefire_killfeed": "KILLFEED / KNOCKOUT FEED (the scrolling elimination/knockdown log) - raw text only for now, draw around the whole feed area",
     "freefire_sidetable": "12-TEAM SIDE TABLE (alive status / kills per team) - raw text only for now, draw around the whole table",
+    "freefire_loadout": "LOADOUT CAPTURE (the player HUD card - IGN, weapon, active/passive/pet/equipment icons) - draw tightly around just that card, this gets screenshotted on every Num5 press",
 }
 
 

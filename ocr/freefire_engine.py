@@ -11,9 +11,15 @@ port (8765) as ocr_engine.py since the two are meant to be run one at a
 time, never both, so overlay/dashboard pages don't need different URLs
 depending on which engine is up.
 
-Run dashboard/freefire_dashboard.html in a browser and overlay/
-freefire_scoreboard.html + overlay/freefire_booyah.html in OBS as
-Browser Sources, same as the MOBA setup.
+Open dashboard/dashboard.html's FreeFire Max tab in a browser (it talks
+to this engine over its own WebSocket connection, separate from the MOBA
+one) and overlay/freefire_scoreboard.html + overlay/freefire_booyah.html
+in OBS as Browser Sources.
+
+Loadout capture (Num5) needs a global keyboard hook, which on Windows
+generally requires this process to be running as Administrator to see
+key presses while a game window has focus -- if Num5 isn't registering,
+that's the first thing to check.
 """
 
 import asyncio
@@ -31,6 +37,7 @@ import numpy as np
 import mss
 import pytesseract
 import websockets
+import keyboard
 
 CONFIG_PATH = Path(__file__).parent / "freefire_config.json"
 STATE_PATH = Path(__file__).parent / "freefire_state.json"
@@ -65,6 +72,12 @@ if config.get("tesseract_path"):
 # against them (same reasoning as the MOBA turtle toast originally).
 FREEFIRE_KILLFEED_REGION_KEY = "freefire_killfeed"
 FREEFIRE_SIDETABLE_REGION_KEY = "freefire_sidetable"
+# Player HUD card (IGN, weapon, active/passive/pet/equipment icons) --
+# screenshotted whole on every Num5 press, no OCR/icon-classification
+# attempted here. That needs an icon reference library this doesn't have;
+# for now the raw crop is just stored for visual reference/manual review.
+FREEFIRE_LOADOUT_REGION_KEY = "freefire_loadout"
+NUM5_HOTKEY = "num 5"
 
 MAX_OCR_DIMENSION = 1920
 
@@ -88,14 +101,22 @@ def default_state():
         # the latest committed match's rank-1 team.
         "display": {"scoreboardMode": "match"},
         # Pre-match roster, uploaded once per event as a CSV (team, ign,
-        # uid per row). Each player's "loadout" starts empty and is filled
-        # in manually for now (active/passive x3/pet/equipment) --
-        # automatic icon-recognition needs an icon reference library this
-        # doesn't have yet, so this is direct operator entry.
+        # uid per row). Each player's "loadout" is manual-entry text
+        # fields (active/passive x3/pet/equipment); "loadoutScreenshot" is
+        # the Num5-captured HUD card image -- see loadoutCapture below.
         "roster": {"teams": []},
         # Raw OCR text only, refreshed every capture cycle once the
         # freefire_killfeed/freefire_sidetable regions are calibrated.
         "liveOps": {"killfeedLastText": "", "sidetableLastText": ""},
+        # Sequential Num5 loadout capture. "pointer" indexes into the
+        # flattened roster (team-then-player order, see
+        # flatten_roster_players()) -- each Num5 press while "active" is
+        # true screenshots the calibrated freefire_loadout region into
+        # whichever player is currently at that index, then advances it.
+        # Deliberately NOT auto-armed on engine start -- the operator only
+        # wants this live during the loadout-reveal window, not any time
+        # they happen to bump the Num5 key.
+        "loadoutCapture": {"active": False, "pointer": 0},
     }
 
 
@@ -352,6 +373,64 @@ async def broadcast_presence():
     await broadcast({"type": "presence", "pages": presence_counts()})
 
 
+# ---------------------------------------------------------------------------
+# Num5 loadout capture. keyboard.add_hotkey() runs its callback on a
+# background thread the `keyboard` library manages itself -- NOT the
+# asyncio event loop this whole engine otherwise runs on -- so the
+# callback can only do the synchronous screen-grab part directly; touching
+# server_state or broadcasting has to hop back onto the event loop via
+# asyncio.run_coroutine_threadsafe(), the standard way to call async code
+# from a foreign thread. main_loop is captured once in main() at startup
+# for exactly that handoff.
+# ---------------------------------------------------------------------------
+
+main_loop = None
+
+
+def flatten_roster_players(roster):
+    """[(team_index, player_index), ...] in team-then-player order --
+    the exact sequence the operator walks through with 48 Num5 presses,
+    so the dashboard's capture grid and this pointer stay in lockstep."""
+    result = []
+    for ti, team in enumerate(roster.get("teams", [])):
+        for pi in range(len(team.get("players", []))):
+            result.append((ti, pi))
+    return result
+
+
+def on_num5_pressed():
+    lc = server_state.get("loadoutCapture", {})
+    if not lc.get("active"):
+        return
+    region = config.get("regions", {}).get(FREEFIRE_LOADOUT_REGION_KEY)
+    if not region or region.get("w", 0) <= 0 or region.get("h", 0) <= 0:
+        return
+    flat = flatten_roster_players(server_state.get("roster", {}))
+    pointer = lc.get("pointer", 0)
+    if pointer >= len(flat):
+        return
+    with mss.mss() as sct:
+        crop = crop_to_bgr(sct, region)
+    data_url = crop_to_data_url(crop, scale=1)
+    if not data_url or main_loop is None:
+        return
+    team_index, player_index = flat[pointer]
+    asyncio.run_coroutine_threadsafe(
+        apply_loadout_capture(team_index, player_index, data_url), main_loop
+    )
+
+
+async def apply_loadout_capture(team_index, player_index, data_url):
+    try:
+        player = server_state["roster"]["teams"][team_index]["players"][player_index]
+    except (IndexError, KeyError):
+        return  # roster changed under us (re-imported mid-capture) -- drop this one
+    player["loadoutScreenshot"] = data_url
+    server_state["loadoutCapture"]["pointer"] += 1
+    save_state()
+    await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
+
 async def handle_client(websocket, path=None):
     connected_clients.add(websocket)
     try:
@@ -446,6 +525,31 @@ async def handle_client(websocket, path=None):
                     await websocket.send(json.dumps({
                         "type": "freefire_safezone_result", "error": str(e),
                     }))
+            elif payload.get("type") == "loadout_capture_arm":
+                server_state["loadoutCapture"]["active"] = True
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "loadout_capture_disarm":
+                server_state["loadoutCapture"]["active"] = False
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "loadout_capture_skip":
+                # Advance without capturing -- e.g. a player never actually
+                # showed on screen for their turn.
+                flat = flatten_roster_players(server_state.get("roster", {}))
+                if server_state["loadoutCapture"]["pointer"] < len(flat):
+                    server_state["loadoutCapture"]["pointer"] += 1
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "loadout_capture_set_pointer":
+                try:
+                    pointer = int(payload.get("pointer", 0))
+                except (TypeError, ValueError):
+                    pointer = 0
+                flat = flatten_roster_players(server_state.get("roster", {}))
+                server_state["loadoutCapture"]["pointer"] = max(0, min(pointer, len(flat)))
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
     finally:
         connected_clients.discard(websocket)
         connected_pages.pop(websocket, None)
@@ -550,12 +654,21 @@ async def relay_client_loop():
 
 
 async def main():
+    global main_loop
+    main_loop = asyncio.get_running_loop()
+    try:
+        keyboard.add_hotkey(NUM5_HOTKEY, on_num5_pressed)
+        print(f"Loadout capture armed on '{NUM5_HOTKEY}' (only fires while loadoutCapture.active is true)")
+    except Exception as e:
+        print(f"Couldn't register the {NUM5_HOTKEY} hotkey ({e}) -- loadout capture won't work.")
+        print("On Windows this usually means the process needs to run as Administrator.")
+
     host = config.get("server_host", "localhost")
     port = config.get("server_port", 8765)
     async with websockets.serve(handle_client, host, port):
         print(f"Free Fire OCR engine running at ws://{host}:{port}")
-        print("Open overlay/freefire_scoreboard.html and overlay/freefire_booyah.html in OBS")
-        print("as Browser Sources, and dashboard/freefire_dashboard.html in a normal browser tab.")
+        print("Open dashboard.html's FreeFire Max tab in a browser, and")
+        print("overlay/freefire_scoreboard.html + overlay/freefire_booyah.html in OBS as Browser Sources.")
         await asyncio.gather(ocr_loop(), relay_client_loop())
 
 
