@@ -58,8 +58,8 @@
     "phase": "PICKING",
     "activeTeam": "team2",
     "highlight": {
-      "team": "team2",
-      "type": "ban"
+      "team": "team1",
+      "type": "pick1"
     },
     "timerEndsAt": null,
     "timerDuration": 30,
@@ -125,12 +125,12 @@
           "image": "600px-Diggie_infobox.png"
         },
         {
-          "name": "",
-          "image": ""
+          "name": "Freya",
+          "image": "600px-Freya_infobox.jpg"
         },
         {
-          "name": "",
-          "image": ""
+          "name": "Chou",
+          "image": "600px-Chou_Infobox.jpg"
         },
         {
           "name": "",

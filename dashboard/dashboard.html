@@ -1468,7 +1468,7 @@ function gatherPrematch(){
     },
     phase: document.getElementById("pm_phase").value,
     activeTeam: existing.activeTeam != null ? existing.activeTeam : null,
-    highlight: existing.highlight || { team: null, type: null },
+    highlight: existing.highlight || { team: null, type: null, indices: [] },
     timerEndsAt: existing.timerEndsAt != null ? existing.timerEndsAt : null,
     timerDuration: durationSec,
     timerRemainingMs: existing.timerRemainingMs != null ? existing.timerRemainingMs : durationSec * 1000,
@@ -1561,18 +1561,27 @@ document.getElementById("pm_resetTimer").addEventListener("click", () => {
 document.getElementById("pm_activeNone").addEventListener("click", () => {
   const data = gatherPrematch();
   data.activeTeam = null;
-  data.highlight = { team: null, type: null };
+  data.highlight = { team: null, type: null, indices: [] };
   sendManualUpdate({ prematch: data });
 });
 
 // Highlights whichever team is currently on the clock (activeTeam) — does
 // nothing if no side is selected there yet, since there'd be no team to
-// highlight for.
-[["pm_highlightPick1", "pick1"], ["pm_highlightPick2", "pick2"], ["pm_highlightBan", "ban"]].forEach(([id, type]) => {
+// highlight for. The target box(es) are picked ONCE, right now, off the
+// current bans/picks — not recomputed later — so once that specific box
+// gets filled the glow just stops instead of jumping to whatever else is
+// empty at the time. Click the button again for the next one.
+[["pm_highlightPick1", "pick1", 1], ["pm_highlightPick2", "pick2", 2], ["pm_highlightBan", "ban", 1]].forEach(([id, type, wantCount]) => {
   document.getElementById(id).addEventListener("click", () => {
     const data = gatherPrematch();
     if(!data.activeTeam) return;
-    data.highlight = { team: data.activeTeam, type };
+    const team = data.activeTeam;
+    const source = type === "ban" ? data.bans[team] : data.picks[team];
+    const indices = [];
+    for(let i = 0; i < source.length && indices.length < wantCount; i++){
+      if(!source[i] || !source[i].image) indices.push(i);
+    }
+    data.highlight = { team, type, indices };
     sendManualUpdate({ prematch: data });
   });
 });
