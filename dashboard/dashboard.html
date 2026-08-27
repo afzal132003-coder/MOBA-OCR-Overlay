@@ -650,12 +650,15 @@
     <h2>Push MVP Stats</h2>
     <p class="hint">Damage Dealt/Taken and K/D/A come straight from that player's row in the Players card above —
       enter those there first. Kill Participation is computed live from (Kills + Assists) / Team Kills, using the
-      team kills total from the Team Stats card. Portrait shown is whichever hero that player picked in
-      Prematch — same as Post Match, there's no separate player photo.</p>
+      team kills total from the Team Stats card.</p>
     <div class="row">
       <div class="team-form">
         <label>MVP Player</label>
         <select id="mvp_player"></select>
+      </div>
+      <div class="team-form">
+        <label>Character Portrait</label>
+        <select id="mvp_character"></select>
       </div>
     </div>
     <div id="mvp_preview" class="hint" style="margin-top:10px;"></div>
@@ -1986,6 +1989,25 @@ function buildMvpPlayerDropdown(){
   }
 }
 
+// Small fixed library of transparent character renders in overlay/assets/
+// -- append here as more get added (e.g. ["Character 3", "character3.png"]).
+const MVP_CHARACTER_LIST = [
+  ["Character 1", "character1.png"],
+  ["Character 2", "character2.png"],
+];
+function buildMvpCharacterDropdown(){
+  const select = document.getElementById("mvp_character");
+  if(select.options.length) return; // static list, only needs building once
+  const noneOpt = document.createElement("option");
+  noneOpt.value = ""; noneOpt.textContent = "(none)";
+  select.appendChild(noneOpt);
+  MVP_CHARACTER_LIST.forEach(([label, file]) => {
+    const opt = document.createElement("option");
+    opt.value = file; opt.textContent = label;
+    select.appendChild(opt);
+  });
+}
+
 function mvpUpdatePreview(){
   if(!currentState || !currentState.postMatch) return;
   const [team, idxStr] = document.getElementById("mvp_player").value.split("|");
@@ -2003,11 +2025,13 @@ let mvpHydrated = false;
 function hydrateMvp(){
   if(!currentState) return;
   buildMvpPlayerDropdown();
+  buildMvpCharacterDropdown();
   if(!mvpHydrated){
     const mvp = currentState.mvp || {};
     if(mvp.team && mvp.playerIndex != null){
       document.getElementById("mvp_player").value = `${mvp.team}|${mvp.playerIndex}`;
     }
+    if(mvp.characterImage) document.getElementById("mvp_character").value = mvp.characterImage;
     mvpHydrated = true;
   }
   mvpUpdatePreview();
@@ -2015,7 +2039,13 @@ function hydrateMvp(){
 
 document.getElementById("mvp_push").addEventListener("click", () => {
   const [team, idxStr] = document.getElementById("mvp_player").value.split("|");
-  sendManualUpdate({ mvp: { team, playerIndex: Number(idxStr) } });
+  sendManualUpdate({
+    mvp: {
+      team,
+      playerIndex: Number(idxStr),
+      characterImage: document.getElementById("mvp_character").value,
+    },
+  });
 });
 
 /* ---------- import stats (screenshot -> post match fields) ---------- */

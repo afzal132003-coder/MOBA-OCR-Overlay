@@ -9,10 +9,12 @@
     boxes (psd-tools), not eyeballed off the flattened PNGs -- exact.
     Static art (navy panel, gold divider, the big "MVP" watermark text,
     and all 4 stat LABELS) is all baked into assets/mvp_blank.png; only
-    the hero portrait, team logo, player name, and the 4 numbers are
-    drawn here. "Photo" is the hero the player picked in Prematch (same
-    dashboard/assets/heroes/ art postmatch.html uses), not an uploaded
-    headshot -- there's no per-player photo library for this system.
+    the character portrait, team logo, player name, and the 4 numbers are
+    drawn here. "Photo" is a transparent character render picked from a
+    small fixed library in assets/ (character1.png, character2.png, ...
+    -- see mvp.characterImage), not the Prematch hero pick -- those wiki
+    infobox images aren't transparent cutouts and looked wrong layered
+    over the MVP watermark text.
   */
   @font-face {
     font-family: 'TT Supermolot Neue Trial';
@@ -71,7 +73,17 @@
   #dmg-taken{ left:1172px; top:337px; width:300px; height:72px; font-size:56px; }
   #dmg-dealt{ left:1459px; top:336px; width:250px; height:71px; font-size:56px; }
   #kill-participation{ left:1440px; top:515px; width:250px; height:72px; font-size:56px; }
-  #kda{ left:1405px; top:672px; width:300px; height:71px; font-size:56px; }
+
+  /* "KILL - DEATH - ASSIST" is one baked text run in the art (no per-word
+     bbox to measure), so instead of guessing word x-positions this
+     spreads the 3 numbers with space-between across the same span the
+     whole label occupies -- first number flush left (under KILL, the
+     first word), last flush right (under ASSIST, the last word), middle
+     one (+ both dashes) falls naturally in between (under DEATH). */
+  #kda{ position:absolute; left:1405px; top:672px; width:300px; height:71px;
+    display:flex; align-items:center; justify-content:space-between;
+    color:var(--white); font-weight:700; font-size:52px; }
+  #kda .dash{ font-size:34px; opacity:0.7; }
 </style>
 </head>
 <body>
@@ -83,7 +95,9 @@
   <div class="stat-num" id="dmg-taken">0</div>
   <div class="stat-num" id="dmg-dealt">0</div>
   <div class="stat-num" id="kill-participation">0%</div>
-  <div class="stat-num" id="kda">0-0-0</div>
+  <div id="kda">
+    <span id="kda-k">0</span><span class="dash">-</span><span id="kda-d">0</span><span class="dash">-</span><span id="kda-a">0</span>
+  </div>
 </div>
 
 <script>
@@ -127,11 +141,11 @@ function applyState(state){
   document.getElementById("mvp-name").textContent = name;
 
   setLogo("mvp-team-logo", team.logo);
-  // Hero portrait the player picked in Prematch, not an uploaded photo --
-  // same "show the hero, not a headshot" convention postmatch.html uses.
-  const pick = state.prematch && state.prematch.picks &&
-    state.prematch.picks[mvp.team] && state.prematch.picks[mvp.team][mvp.playerIndex];
-  setLogo("mvp-photo", pick && pick.image ? `../dashboard/assets/heroes/${encodeURIComponent(pick.image)}` : "");
+  // Transparent character render picked from the dashboard's fixed
+  // library (assets/character1.png, character2.png, ...) -- not derived
+  // from the Prematch hero pick, since those wiki infobox images aren't
+  // transparent cutouts and looked wrong layered over the MVP watermark.
+  setLogo("mvp-photo", mvp.characterImage ? `assets/${encodeURIComponent(mvp.characterImage)}` : "");
 
   const p = (state.postMatch && state.postMatch.players[mvp.team][mvp.playerIndex]) || {};
   const teamKills = (state.postMatch && state.postMatch.stats[mvp.team].kills) || 0;
@@ -140,7 +154,9 @@ function applyState(state){
   document.getElementById("dmg-taken").textContent = (p.damageTaken || 0).toLocaleString();
   document.getElementById("dmg-dealt").textContent = (p.damageDealt || 0).toLocaleString();
   document.getElementById("kill-participation").textContent = `${kp}%`;
-  document.getElementById("kda").textContent = `${p.kills || 0}-${p.deaths || 0}-${p.assists || 0}`;
+  document.getElementById("kda-k").textContent = p.kills || 0;
+  document.getElementById("kda-d").textContent = p.deaths || 0;
+  document.getElementById("kda-a").textContent = p.assists || 0;
 }
 
 connect();

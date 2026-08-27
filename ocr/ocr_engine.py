@@ -248,13 +248,16 @@ def default_state():
             # match the old score>=score behavior (team1 wins a 0-0 tie).
             "result": {"team1": "victory", "team2": "defeat"},
         },
-        # MVP Stats push graphic. Just a pointer (team + roster index) --
-        # the stat numbers come from postMatch.players and the portrait
-        # comes from prematch.picks (the hero that player picked), so
-        # both stay single-sourced instead of duplicated here.
+        # MVP Stats push graphic. Team + roster index for the stat numbers
+        # (single-sourced from postMatch.players); "characterImage" is a
+        # filename picked from a small fixed library of transparent
+        # character renders in overlay/assets/ (character1.png,
+        # character2.png, ...) -- not derived from the Prematch hero pick,
+        # since those wiki infobox images aren't transparent cutouts.
         "mvp": {
             "team": None,
             "playerIndex": None,
+            "characterImage": "",
         },
     }
 
