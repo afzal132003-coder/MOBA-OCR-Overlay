@@ -240,15 +240,13 @@ def default_state():
             # match the old score>=score behavior (team1 wins a 0-0 tie).
             "result": {"team1": "victory", "team2": "defeat"},
         },
-        # MVP Stats push graphic. Just a pointer (team + roster index) into
-        # postMatch.players for the stat numbers — those stay the single
-        # source of truth so entering them once on Post Match is enough.
-        # "photo" is the one thing unique to this push: an uploaded cutout
-        # image, not persisted per-roster-player anywhere else.
+        # MVP Stats push graphic. Just a pointer (team + roster index) --
+        # the stat numbers come from postMatch.players and the portrait
+        # comes from prematch.picks (the hero that player picked), so
+        # both stay single-sourced instead of duplicated here.
         "mvp": {
             "team": None,
             "playerIndex": None,
-            "photo": "",
         },
     }
 

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Free Fire Team Eliminated Popup</title>
+<style>
+  /* Same first-pass CSS-drawn approach as freefire_headshot_hunter.html --
+     manually triggered, auto-hides after a few seconds. Team photo is
+     whatever gets uploaded at trigger time (no persistent per-team group
+     photo library exists yet), shown full-bleed behind a dark gradient
+     so the "ELIMINATED" text stays legible over any photo. */
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');
+    font-weight: 800; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
+    font-weight: 900; font-style: normal;
+  }
+
+  :root{ --orange:#ff7a1a; --dark:#141110; --dim:#c9b9ac; }
+  html,body{ margin:0; padding:0; background:transparent; overflow:hidden;
+    width:1920px; height:1080px; font-family:'TT Supermolot Neue Trial', Arial, sans-serif; }
+
+  .popup{ position:absolute; left:50%; bottom:60px; transform:translateX(-50%);
+    width:520px; display:none; pointer-events:none; }
+  .popup.show{ display:block; }
+
+  @keyframes flyIn{ 0%{ transform:translateX(-50%) translateY(60px); opacity:0; } 100%{ transform:translateX(-50%) translateY(0); opacity:1; } }
+  @keyframes flyOut{ 0%{ transform:translateX(-50%) translateY(0); opacity:1; } 100%{ transform:translateX(-50%) translateY(60px); opacity:0; } }
+  .popup.anim-enter{ animation: flyIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+  .popup.anim-exit{ animation: flyOut 0.4s cubic-bezier(0.55, 0, 0.85, 0.35) both; }
+
+  .card{ position:relative; height:200px; border-radius:12px; overflow:hidden;
+    background:var(--dark); box-shadow:0 12px 34px rgba(0,0,0,0.55); }
+  .card img.team-photo{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:none; }
+  .card .scrim{ position:absolute; inset:0;
+    background:linear-gradient(180deg, rgba(20,17,16,0.15) 0%, rgba(20,17,16,0.92) 78%); }
+
+  .rank-badge{ position:absolute; top:14px; left:14px;
+    background:var(--orange); color:#1a1210; font-weight:900; font-size:16px;
+    padding:4px 12px; border-radius:5px; letter-spacing:0.5px; }
+
+  .team-name{ position:absolute; left:16px; bottom:56px; right:16px;
+    color:#fff; font-weight:800; font-size:22px; letter-spacing:0.5px; text-transform:uppercase;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  .eliminated-bar{ position:absolute; left:0; right:0; bottom:0;
+    background:var(--orange); padding:8px 16px;
+    color:#1a1210; font-weight:900; font-size:20px; letter-spacing:2px; text-align:center; }
+</style>
+</head>
+<body>
+<div class="popup" id="popup">
+  <div class="card">
+    <img class="team-photo" id="te-photo" alt="">
+    <div class="scrim"></div>
+    <div class="rank-badge" id="te-rank">#--</div>
+    <div class="team-name" id="te-name"></div>
+    <div class="eliminated-bar">ELIMINATED</div>
+  </div>
+</div>
+
+<script>
+const _params = new URLSearchParams(location.search);
+if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
+if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_team_eliminated"
+  : "ws://localhost:8765?page=freefire_team_eliminated";
+let ws;
+
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync" && msg.data.teamEliminated) applyState(msg.data.teamEliminated);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+
+function showPopup(el){
+  el.classList.remove("anim-exit");
+  el.classList.add("show");
+  el.classList.remove("anim-enter");
+  void el.offsetWidth;
+  el.classList.add("anim-enter");
+}
+function hidePopup(el){
+  if(!el.classList.contains("show")) return;
+  el.classList.remove("anim-enter");
+  void el.offsetWidth;
+  el.classList.add("anim-exit");
+  el.addEventListener("animationend", () => {
+    el.classList.remove("show", "anim-exit");
+  }, { once: true });
+}
+
+let lastStatus = "idle";
+let hideTimeout = null;
+
+function applyState(te){
+  const el = document.getElementById("popup");
+  document.getElementById("te-rank").textContent = te.rank != null ? `#${te.rank}` : "#--";
+  document.getElementById("te-name").textContent = te.teamName || "";
+  const photoEl = document.getElementById("te-photo");
+  if(te.photo){ photoEl.src = te.photo; photoEl.style.display = "block"; }
+  else { photoEl.style.display = "none"; }
+
+  if(hideTimeout){ clearTimeout(hideTimeout); hideTimeout = null; }
+
+  if(te.status === "shown"){
+    if(lastStatus !== "shown") showPopup(el);
+    if(te.shownUntil){
+      const remaining = te.shownUntil - Date.now();
+      if(remaining > 0) hideTimeout = setTimeout(() => hidePopup(el), remaining);
+      else hidePopup(el);
+    }
+  } else {
+    if(lastStatus === "shown") hidePopup(el);
+  }
+  lastStatus = te.status;
+}
+
+connect();
+</script>
+</body>
+</html>

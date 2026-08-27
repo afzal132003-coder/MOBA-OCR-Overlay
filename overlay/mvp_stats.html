@@ -9,7 +9,10 @@
     boxes (psd-tools), not eyeballed off the flattened PNGs -- exact.
     Static art (navy panel, gold divider, the big "MVP" watermark text,
     and all 4 stat LABELS) is all baked into assets/mvp_blank.png; only
-    the photo, team logo, player name, and the 4 numbers are drawn here.
+    the hero portrait, team logo, player name, and the 4 numbers are
+    drawn here. "Photo" is the hero the player picked in Prematch (same
+    dashboard/assets/heroes/ art postmatch.html uses), not an uploaded
+    headshot -- there's no per-player photo library for this system.
   */
   @font-face {
     font-family: 'TT Supermolot Neue Trial';
@@ -51,7 +54,7 @@
     object-fit:contain; opacity:0.28; filter:drop-shadow(0 0 30px rgba(0,0,0,0.4)); display:none; }
 
   .photo-wrap{ position:absolute; left:116px; top:52px; width:764px; height:1028px; overflow:hidden; }
-  .photo-wrap img{ width:100%; height:100%; object-fit:cover; object-position:50% 0%; display:none; }
+  .photo-wrap img{ width:100%; height:100%; object-fit:cover; object-position:50% 15%; display:none; }
 
   .player-name{ position:absolute; left:891px; top:110px; width:782px; height:70px;
     display:flex; align-items:center;
@@ -119,7 +122,11 @@ function applyState(state){
   document.getElementById("mvp-name").textContent = name;
 
   setLogo("mvp-team-logo", team.logo);
-  setLogo("mvp-photo", mvp.photo);
+  // Hero portrait the player picked in Prematch, not an uploaded photo --
+  // same "show the hero, not a headshot" convention postmatch.html uses.
+  const pick = state.prematch && state.prematch.picks &&
+    state.prematch.picks[mvp.team] && state.prematch.picks[mvp.team][mvp.playerIndex];
+  setLogo("mvp-photo", pick && pick.image ? `../dashboard/assets/heroes/${encodeURIComponent(pick.image)}` : "");
 
   const p = (state.postMatch && state.postMatch.players[mvp.team][mvp.playerIndex]) || {};
   const teamKills = (state.postMatch && state.postMatch.stats[mvp.team].kills) || 0;

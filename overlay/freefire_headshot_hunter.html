@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Free Fire Headshot Hunter Popup</title>
+<style>
+  /* First-pass CSS-drawn design (no PSD for this one yet) -- orange/black
+     matches the palette in the operator's own reference screenshots of
+     this exact popup style, not the navy/gold MOBA house look, since
+     that's clearly the established Free Fire broadcast identity here.
+     Manually triggered (see freefire_engine.py's headshotHunter comment
+     for why) -- shows for a few seconds then auto-hides, same UX as the
+     MOBA turtle/lord popups. */
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Bold.ttf') format('truetype');
+    font-weight: 700; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
+    font-weight: 900; font-style: normal;
+  }
+
+  :root{ --orange:#ff7a1a; --dark:#141110; --dim:#a89a8f; }
+  html,body{ margin:0; padding:0; background:transparent; overflow:hidden;
+    width:1920px; height:1080px; font-family:'TT Supermolot Neue Trial', Arial, sans-serif; }
+
+  .popup{ position:absolute; left:40px; top:400px; width:300px;
+    display:none; pointer-events:none; }
+  .popup.show{ display:block; }
+
+  @keyframes flyIn{ 0%{ transform:translateX(-180px); opacity:0; } 100%{ transform:translateX(0); opacity:1; } }
+  @keyframes flyOut{ 0%{ transform:translateX(0); opacity:1; } 100%{ transform:translateX(-180px); opacity:0; } }
+  .popup.anim-enter{ animation: flyIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+  .popup.anim-exit{ animation: flyOut 0.4s cubic-bezier(0.55, 0, 0.85, 0.35) both; }
+
+  .card{ background:var(--dark); border-radius:10px; overflow:hidden;
+    box-shadow:0 10px 30px rgba(0,0,0,0.5); }
+  .header{ background:var(--orange); padding:10px 16px; display:flex; align-items:center; gap:8px; }
+  .header .skull{ font-size:18px; line-height:1; }
+  .header .label{ color:#1a1210; font-weight:900; font-size:14px; letter-spacing:1px; text-transform:uppercase; }
+
+  .body{ padding:16px; display:flex; align-items:center; gap:14px; }
+  .count-block{ flex:1; }
+  .count{ color:#fff; font-weight:900; font-size:56px; line-height:1; }
+  .count-label{ color:var(--dim); font-weight:700; font-size:12px; letter-spacing:1.5px; text-transform:uppercase; margin-top:2px; }
+
+  .photo{ width:64px; height:64px; border-radius:50%; object-fit:cover;
+    border:3px solid var(--orange); display:none; flex-shrink:0; }
+
+  .name-row{ background:#0c0a09; padding:8px 16px; }
+  .name{ color:#fff; font-weight:700; font-size:15px; letter-spacing:0.5px; text-transform:uppercase; }
+</style>
+</head>
+<body>
+<div class="popup" id="popup">
+  <div class="card">
+    <div class="header"><span class="skull">☠</span><span class="label">Headshot Hunter</span></div>
+    <div class="body">
+      <div class="count-block">
+        <div class="count" id="hh-count">0</div>
+        <div class="count-label">Headshots</div>
+      </div>
+      <img class="photo" id="hh-photo" alt="">
+    </div>
+    <div class="name-row"><span class="name" id="hh-name"></span></div>
+  </div>
+</div>
+
+<script>
+const _params = new URLSearchParams(location.search);
+if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
+if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_headshot_hunter"
+  : "ws://localhost:8765?page=freefire_headshot_hunter";
+let ws;
+
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync" && msg.data.headshotHunter) applyState(msg.data.headshotHunter);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+
+function showPopup(el){
+  el.classList.remove("anim-exit");
+  el.classList.add("show");
+  el.classList.remove("anim-enter");
+  void el.offsetWidth;
+  el.classList.add("anim-enter");
+}
+function hidePopup(el){
+  if(!el.classList.contains("show")) return;
+  el.classList.remove("anim-enter");
+  void el.offsetWidth;
+  el.classList.add("anim-exit");
+  el.addEventListener("animationend", () => {
+    el.classList.remove("show", "anim-exit");
+  }, { once: true });
+}
+
+let lastStatus = "idle";
+let hideTimeout = null;
+
+function applyState(hh){
+  const el = document.getElementById("popup");
+  document.getElementById("hh-count").textContent = hh.headshots || 0;
+  document.getElementById("hh-name").textContent = hh.playerName || "";
+  const photoEl = document.getElementById("hh-photo");
+  if(hh.photo){ photoEl.src = hh.photo; photoEl.style.display = "block"; }
+  else { photoEl.style.display = "none"; }
+
+  if(hideTimeout){ clearTimeout(hideTimeout); hideTimeout = null; }
+
+  if(hh.status === "shown"){
+    if(lastStatus !== "shown") showPopup(el);
+    if(hh.shownUntil){
+      const remaining = hh.shownUntil - Date.now();
+      if(remaining > 0) hideTimeout = setTimeout(() => hidePopup(el), remaining);
+      else hidePopup(el);
+    }
+  } else {
+    if(lastStatus === "shown") hidePopup(el);
+  }
+  lastStatus = hh.status;
+}
+
+connect();
+</script>
+</body>
+</html>

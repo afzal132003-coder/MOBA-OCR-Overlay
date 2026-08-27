@@ -79,6 +79,9 @@ FREEFIRE_SIDETABLE_REGION_KEY = "freefire_sidetable"
 FREEFIRE_LOADOUT_REGION_KEY = "freefire_loadout"
 NUM5_HOTKEY = "num 5"
 
+HEADSHOT_HUNTER_DISPLAY_SECONDS = 6
+TEAM_ELIMINATED_DISPLAY_SECONDS = 6
+
 MAX_OCR_DIMENSION = 1920
 
 connected_clients = set()
@@ -117,6 +120,19 @@ def default_state():
         # wants this live during the loadout-reveal window, not any time
         # they happen to bump the Num5 key.
         "loadoutCapture": {"active": False, "pointer": 0},
+        # Manually-triggered side popups -- nothing in the game feed
+        # reliably signals "this player just hit N headshots" or "this
+        # team was just eliminated" for auto-detection (same reasoning as
+        # MOBA's turtle/lord manual override), so these are operator-shown,
+        # auto-hiding after a few seconds like the turtle/lord popups do.
+        "headshotHunter": {
+            "status": "idle", "shownUntil": None,
+            "playerName": "", "headshots": 0, "photo": "",
+        },
+        "teamEliminated": {
+            "status": "idle", "shownUntil": None,
+            "teamName": "", "rank": None, "photo": "",
+        },
     }
 
 
@@ -548,6 +564,42 @@ async def handle_client(websocket, path=None):
                     pointer = 0
                 flat = flatten_roster_players(server_state.get("roster", {}))
                 server_state["loadoutCapture"]["pointer"] = max(0, min(pointer, len(flat)))
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "headshot_hunter_show":
+                now_ms = int(time.time() * 1000)
+                hh = server_state["headshotHunter"]
+                hh["status"] = "shown"
+                hh["shownUntil"] = now_ms + HEADSHOT_HUNTER_DISPLAY_SECONDS * 1000
+                hh["playerName"] = payload.get("playerName", "")
+                try:
+                    hh["headshots"] = int(payload.get("headshots", 0))
+                except (TypeError, ValueError):
+                    hh["headshots"] = 0
+                hh["photo"] = payload.get("photo", "")
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "headshot_hunter_hide":
+                server_state["headshotHunter"]["status"] = "idle"
+                server_state["headshotHunter"]["shownUntil"] = None
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "team_eliminated_show":
+                now_ms = int(time.time() * 1000)
+                te = server_state["teamEliminated"]
+                te["status"] = "shown"
+                te["shownUntil"] = now_ms + TEAM_ELIMINATED_DISPLAY_SECONDS * 1000
+                te["teamName"] = payload.get("teamName", "")
+                try:
+                    te["rank"] = int(payload.get("rank")) if payload.get("rank") not in (None, "") else None
+                except (TypeError, ValueError):
+                    te["rank"] = None
+                te["photo"] = payload.get("photo", "")
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "team_eliminated_hide":
+                server_state["teamEliminated"]["status"] = "idle"
+                server_state["teamEliminated"]["shownUntil"] = None
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
     finally:

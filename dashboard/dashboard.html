@@ -637,16 +637,12 @@
     <h2>Push MVP Stats</h2>
     <p class="hint">Damage Dealt/Taken and K/D/A come straight from that player's row in the Players card above —
       enter those there first. Kill Participation is computed live from (Kills + Assists) / Team Kills, using the
-      team kills total from the Team Stats card.</p>
+      team kills total from the Team Stats card. Portrait shown is whichever hero that player picked in
+      Prematch — same as Post Match, there's no separate player photo.</p>
     <div class="row">
       <div class="team-form">
         <label>MVP Player</label>
         <select id="mvp_player"></select>
-      </div>
-      <div class="team-form">
-        <label>Player Photo (cutout, transparent background)</label>
-        <input type="file" id="mvp_photoFile" accept="image/*">
-        <img class="logo-preview" id="mvp_photoPreview" style="width:80px;height:110px;border-radius:6px;object-fit:cover;">
       </div>
     </div>
     <div id="mvp_preview" class="hint" style="margin-top:10px;"></div>
@@ -834,6 +830,43 @@
 
   <!-- ===================== LIVE IN-GAME OPS ===================== -->
   <div class="ff-tab-panel" id="fftab-liveops">
+    <div class="card">
+      <h2>Popup Triggers</h2>
+      <p class="hint">Nothing in the game feed reliably signals a headshot milestone or a team elimination on its
+        own yet, so these are manual — pick the player/team, optionally drop in a photo, and hit Show. Both
+        auto-hide after a few seconds, or hide them yourself.</p>
+      <div class="two-col">
+        <div class="col">
+          <h3>Headshot Hunter</h3>
+          <label>Player</label>
+          <select id="hh_player"></select>
+          <label>Headshots</label>
+          <input type="number" id="hh_count" value="0">
+          <label>Photo</label>
+          <input type="file" id="hh_photoFile" accept="image/*">
+          <img class="logo-preview" id="hh_photoPreview" style="width:64px;height:64px;">
+          <div class="row" style="gap:8px;margin-top:10px;">
+            <button id="hh_show">Show</button>
+            <button class="secondary" id="hh_hide">Hide</button>
+          </div>
+        </div>
+        <div class="col">
+          <h3>Team Eliminated</h3>
+          <label>Team</label>
+          <select id="te_team"></select>
+          <label>Placement Rank</label>
+          <input type="number" id="te_rank" value="">
+          <label>Team Photo</label>
+          <input type="file" id="te_photoFile" accept="image/*">
+          <img class="logo-preview" id="te_photoPreview" style="width:64px;height:64px;">
+          <div class="row" style="gap:8px;margin-top:10px;">
+            <button id="te_show">Show</button>
+            <button class="secondary" id="te_hide">Hide</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="card">
       <h2>OCR Crop Preview</h2>
       <p class="hint">Raw OCR text only for now — no structured parsing yet (killfeed events and side-table rows
@@ -1953,13 +1986,6 @@ function mvpUpdatePreview(){
 }
 document.getElementById("mvp_player").addEventListener("change", mvpUpdatePreview);
 
-document.getElementById("mvp_photoFile").addEventListener("change", async (e) => {
-  if(e.target.files[0]){
-    const dataUrl = await readFileAsDataURL(e.target.files[0]);
-    document.getElementById("mvp_photoPreview").src = await autoCropTransparentPadding(dataUrl);
-  }
-});
-
 let mvpHydrated = false;
 function hydrateMvp(){
   if(!currentState) return;
@@ -1969,7 +1995,6 @@ function hydrateMvp(){
     if(mvp.team && mvp.playerIndex != null){
       document.getElementById("mvp_player").value = `${mvp.team}|${mvp.playerIndex}`;
     }
-    if(mvp.photo) document.getElementById("mvp_photoPreview").src = mvp.photo;
     mvpHydrated = true;
   }
   mvpUpdatePreview();
@@ -1977,13 +2002,7 @@ function hydrateMvp(){
 
 document.getElementById("mvp_push").addEventListener("click", () => {
   const [team, idxStr] = document.getElementById("mvp_player").value.split("|");
-  sendManualUpdate({
-    mvp: {
-      team,
-      playerIndex: Number(idxStr),
-      photo: document.getElementById("mvp_photoPreview").src.startsWith("data:") ? document.getElementById("mvp_photoPreview").src : "",
-    },
-  });
+  sendManualUpdate({ mvp: { team, playerIndex: Number(idxStr) } });
 });
 
 /* ---------- import stats (screenshot -> post match fields) ---------- */
@@ -2973,6 +2992,7 @@ function ffConnect(){
       ffRenderRoster(ffState);
       ffRenderLoadouts(ffState);
       ffRenderLoadoutCapture(ffState);
+      ffBuildPopupDropdowns(ffState);
     } else if(msg.type === "crop_preview"){
       const img = document.getElementById(`crop-${msg.region}`);
       if(img) img.src = msg.image;
@@ -3078,7 +3098,8 @@ function ffRenderLoadouts(ff){
   const rows = [];
   teams.forEach((t, ti) => {
     t.players.forEach((p, pi) => {
-      const l = p.loadout || { active:"", passives:["","",""], pet:"", equipment:"" };
+      const lRaw = p.loadout || {};
+      const l = { active: lRaw.active || "", passives: lRaw.passives || ["", "", ""], pet: lRaw.pet || "", equipment: lRaw.equipment || "" };
       rows.push(`
         <tr style="border-top:1px solid #332b52;">
           <td style="padding:6px;font-weight:700;">${ffEscapeHtml(t.name)}</td>
@@ -3184,6 +3205,67 @@ document.getElementById("ff_loadoutSkip").addEventListener("click", () => {
 });
 document.getElementById("ff_loadoutResetPointer").addEventListener("click", () => {
   ffWs.send(JSON.stringify({ type: "loadout_capture_set_pointer", pointer: 0 }));
+});
+
+/* ---------- Live Ops: popup triggers ---------- */
+function ffBuildPopupDropdowns(ff){
+  const flat = ffFlattenRosterPlayers(ff.roster);
+  const playerSelect = document.getElementById("hh_player");
+  const prevPlayer = playerSelect.value;
+  playerSelect.innerHTML = flat.map((entry, i) => {
+    const teamLabel = entry.team.name || `Team ${entry.ti + 1}`;
+    return `<option value="${i}">${ffEscapeHtml(teamLabel)} — ${ffEscapeHtml(entry.player.ign || `P${entry.pi + 1}`)}</option>`;
+  }).join("");
+  if(prevPlayer && Array.from(playerSelect.options).some(o => o.value === prevPlayer)) playerSelect.value = prevPlayer;
+
+  const teams = (ff.roster && ff.roster.teams) || [];
+  const teamSelect = document.getElementById("te_team");
+  const prevTeam = teamSelect.value;
+  teamSelect.innerHTML = teams.map((t, ti) => `<option value="${ti}">${ffEscapeHtml(t.name || `Team ${ti + 1}`)}</option>`).join("");
+  if(prevTeam && Array.from(teamSelect.options).some(o => o.value === prevTeam)) teamSelect.value = prevTeam;
+}
+
+document.getElementById("hh_photoFile").addEventListener("change", async (e) => {
+  if(e.target.files[0]){
+    const dataUrl = await readFileAsDataURL(e.target.files[0]);
+    document.getElementById("hh_photoPreview").src = await autoCropTransparentPadding(dataUrl);
+  }
+});
+document.getElementById("hh_show").addEventListener("click", () => {
+  const flat = ffFlattenRosterPlayers(ffState && ffState.roster);
+  const entry = flat[Number(document.getElementById("hh_player").value)];
+  const photoSrc = document.getElementById("hh_photoPreview").src;
+  ffWs.send(JSON.stringify({
+    type: "headshot_hunter_show",
+    playerName: entry ? entry.player.ign : "",
+    headshots: Number(document.getElementById("hh_count").value || 0),
+    photo: photoSrc.startsWith("data:") ? photoSrc : "",
+  }));
+});
+document.getElementById("hh_hide").addEventListener("click", () => {
+  ffWs.send(JSON.stringify({ type: "headshot_hunter_hide" }));
+});
+
+document.getElementById("te_photoFile").addEventListener("change", async (e) => {
+  if(e.target.files[0]){
+    const dataUrl = await readFileAsDataURL(e.target.files[0]);
+    document.getElementById("te_photoPreview").src = await autoCropTransparentPadding(dataUrl);
+  }
+});
+document.getElementById("te_show").addEventListener("click", () => {
+  const teams = (ffState && ffState.roster && ffState.roster.teams) || [];
+  const team = teams[Number(document.getElementById("te_team").value)];
+  const photoSrc = document.getElementById("te_photoPreview").src;
+  const rankVal = document.getElementById("te_rank").value;
+  ffWs.send(JSON.stringify({
+    type: "team_eliminated_show",
+    teamName: team ? team.name : "",
+    rank: rankVal === "" ? null : Number(rankVal),
+    photo: photoSrc.startsWith("data:") ? photoSrc : "",
+  }));
+});
+document.getElementById("te_hide").addEventListener("click", () => {
+  ffWs.send(JSON.stringify({ type: "team_eliminated_hide" }));
 });
 
 /* ---------- Post-Match: settings, fetch, review, commit, standings, graphics ---------- */
