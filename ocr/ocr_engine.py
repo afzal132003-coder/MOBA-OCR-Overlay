@@ -781,6 +781,23 @@ def read_region(key, img_bgr):
     return parse_int(text), text
 
 
+# Trusted on the very first OCR read with zero confirmation used to mean a
+# single misread digit ("15" -> "45", "12" -> "2") directly set the local
+# countdown's end time -- explains popups firing noticeably early OR late,
+# in either direction, since the error goes whichever way the misread
+# digit happened to point. Requiring the SAME seconds value to read twice
+# in a row before trusting it (not routed through the generic
+# confirm_reading()/reading_window machinery -- that's tuned for
+# persistent, slowly-changing HUD numbers with a 5-sample window; a
+# countdown that changes every second needs to react fast, so this is
+# deliberately just "twice in a row", adding at most one poll cycle of
+# latency, not five) catches a one-off garbled frame without meaningfully
+# delaying detection -- the real in-game countdown only ticks once a
+# second, far slower than the poll rate, so two genuine consecutive reads
+# still arrive well within that same second.
+turtle_countdown_pending = {"value": None, "count": 0}
+
+
 def process_turtle_reading(text, now_ms):
     """Advances the turtle status state machine. Runs every cycle regardless
     of whether there's a fresh OCR reading this frame, since the countdown
@@ -814,11 +831,24 @@ def process_turtle_reading(text, now_ms):
         else:
             seconds = parse_turtle_countdown(text)
             if seconds is not None:
-                tt["status"] = "countdown"
-                tt["countdownSeconds"] = seconds
-                tt["endsAt"] = now_ms + seconds * 1000
-                tt["lastRawText"] = text
-                changed = True
+                if turtle_countdown_pending["value"] == seconds:
+                    turtle_countdown_pending["count"] += 1
+                else:
+                    turtle_countdown_pending["value"] = seconds
+                    turtle_countdown_pending["count"] = 1
+                if turtle_countdown_pending["count"] >= 2:
+                    tt["status"] = "countdown"
+                    tt["countdownSeconds"] = seconds
+                    tt["endsAt"] = now_ms + seconds * 1000
+                    tt["lastRawText"] = text
+                    changed = True
+            else:
+                turtle_countdown_pending["value"] = None
+                turtle_countdown_pending["count"] = 0
+
+    if tt["status"] != "idle":
+        turtle_countdown_pending["value"] = None
+        turtle_countdown_pending["count"] = 0
 
     return changed
 

@@ -328,6 +328,9 @@
 <span id="status" class="disconnected">DISCONNECTED</span>
 <span id="connectionMode" class="hint" style="margin-left:8px;"></span>
 <p class="hint">Connects to the local OCR server at ws://localhost:8765. Start ocr_engine.py first.</p>
+<div id="sendWarning" style="display:none;position:fixed;top:12px;left:50%;transform:translateX(-50%);
+  z-index:9999;background:#c0453f;color:#fff;font-weight:700;font-size:13px;padding:10px 18px;
+  border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.4);"></div>
 
 <div class="tabbar">
   <button class="tab-btn active" data-tab="ingame">In-Game Live Ops</button>
@@ -1461,9 +1464,27 @@ function populateHeroDatalist(){
   datalist.innerHTML = HERO_LIST.map(([name]) => `<option value="${name}">`).join("");
 }
 
+// sendManualUpdate (and the raw ws.send calls elsewhere) used to silently
+// no-op when the socket wasn't open -- during any connection hiccup
+// (relay reconnect cycling, brief network drop) a click on Push/Start/
+// Apply/anything looked and felt completely normal but never actually
+// reached the engine. This is the one thing basically every button routes
+// through, so it's the highest-leverage place to surface that failure
+// loudly instead of leaving the operator wondering if the button itself
+// is broken.
+let sendWarningFadeHandle = null;
+function showSendWarning(text){
+  const el = document.getElementById("sendWarning");
+  clearTimeout(sendWarningFadeHandle);
+  el.textContent = text;
+  el.style.display = "block";
+  sendWarningFadeHandle = setTimeout(() => { el.style.display = "none"; }, 4000);
+}
 function sendManualUpdate(data, lock, unlock){
   if(ws && ws.readyState === WebSocket.OPEN){
     ws.send(JSON.stringify({type:"manual_update", data, lock: lock||[], unlock: unlock||[]}));
+  } else {
+    showSendWarning("⚠ Not connected -- that action was NOT sent. Check your connection and try again.");
   }
 }
 
