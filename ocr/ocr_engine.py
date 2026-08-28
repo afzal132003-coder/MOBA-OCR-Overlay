@@ -205,6 +205,8 @@ def default_state():
             "overlay": {},
             "turtle": {},
             "lord": {},
+            "mvp": {},
+            "teamstats": {},
         },
         # Prematch (manual, pick/ban draft). Each slot is {name, image} —
         # "image" is the exact filename in dashboard/assets/heroes/, resolved

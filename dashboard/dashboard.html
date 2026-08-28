@@ -795,6 +795,8 @@
       <button class="secondary" id="gfx_page_overlay">In-Game</button>
       <button class="secondary" id="gfx_page_turtle">Turtle</button>
       <button class="secondary" id="gfx_page_lord">Lord</button>
+      <button class="secondary" id="gfx_page_mvp">MVP Stats</button>
+      <button class="secondary" id="gfx_page_teamstats">Team Stats</button>
     </div>
     <p class="hint">Click a box to select it, then nudge with arrow keys (hold Shift for 10px steps) for
       pixel-precise placement. Red guide lines appear while dragging when an edge or center lines up with
@@ -2665,6 +2667,35 @@ const GRAPHIC_PAGES = {
     label: "Lord", background: null,
     elements: {
       "lord-spawned": { left:1622, top:303, width:298, height:352, kind:"box", label:"Lord Spawned graphic" },
+    },
+  },
+  mvp: {
+    label: "MVP Stats", background: "../overlay/assets/mvp_blank.png",
+    elements: {
+      "mvp-photo-wrap": { left:116, top:52, width:764, height:1028, kind:"box", label:"Character Portrait" },
+      "mvp-team-logo": { left:664, top:340, width:400, height:400, kind:"box", label:"Team Logo Watermark" },
+      "mvp-name": { left:891, top:110, width:782, height:70, kind:"box", label:"Player Name" },
+      "dmg-taken": { left:1172, top:337, width:300, height:72, kind:"box", label:"Damage Taken" },
+      "dmg-dealt": { left:1459, top:336, width:250, height:71, kind:"box", label:"Damage Dealt" },
+      "kill-participation": { left:1440, top:515, width:250, height:72, kind:"box", label:"Kill Participation" },
+      "kda": { left:1405, top:672, width:300, height:71, kind:"box", label:"K/D/A" },
+    },
+  },
+  teamstats: {
+    label: "Team Stats", background: "../overlay/assets/teamstats_overlay.png",
+    elements: {
+      "t1-char-wrap": { left:0, top:854, width:225, height:180, kind:"box", label:"Team 1 Character" },
+      "t1-logo": { left:8, top:862, width:36, height:36, kind:"box", label:"Team 1 Logo" },
+      "t1-ign": { left:14, top:1044, width:195, height:30, kind:"box", label:"Team 1 IGN" },
+      "t1-kills": { left:266, top:885, width:60, height:19, kind:"box", label:"Team 1 Kills" },
+      "t1-deaths": { left:266, top:960, width:60, height:19, kind:"box", label:"Team 1 Deaths" },
+      "t1-assists": { left:266, top:1039, width:60, height:19, kind:"box", label:"Team 1 Assists" },
+      "t2-char-wrap": { left:1695, top:854, width:225, height:180, kind:"box", label:"Team 2 Character" },
+      "t2-logo": { left:1876, top:862, width:36, height:36, kind:"box", label:"Team 2 Logo" },
+      "t2-ign": { left:1711, top:1044, width:195, height:30, kind:"box", label:"Team 2 IGN" },
+      "t2-kills": { left:1632, top:885, width:60, height:19, kind:"box", label:"Team 2 Kills" },
+      "t2-deaths": { left:1632, top:960, width:60, height:19, kind:"box", label:"Team 2 Deaths" },
+      "t2-assists": { left:1632, top:1039, width:60, height:19, kind:"box", label:"Team 2 Assists" },
     },
   },
 };

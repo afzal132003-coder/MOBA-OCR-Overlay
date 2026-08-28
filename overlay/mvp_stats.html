@@ -111,7 +111,7 @@
 <div id="stage">
   <img class="bg-frame" src="assets/mvp_blank.png" alt="">
   <img class="team-logo-watermark" id="mvp-team-logo" src="" alt="">
-  <div class="photo-wrap"><img id="mvp-photo" src="" alt=""></div>
+  <div class="photo-wrap" id="mvp-photo-wrap"><img id="mvp-photo" src="" alt=""></div>
   <img class="mvp-text-overlay" src="assets/mvp_text.png" alt="">
   <div class="player-name" id="mvp-name"></div>
   <div class="stat-num" id="dmg-taken">0</div>
@@ -149,6 +149,24 @@ function setLogo(id, src){
   else { el.style.display = "none"; }
 }
 
+// Same dx/dy/scale nudge mechanism as overlay.html/prematch.html/
+// postmatch.html's Graphic Fixing tab. Targets "mvp-photo-wrap", NOT the
+// "mvp-photo" img directly -- that img already has its own CSS
+// @keyframes animation (the idle sway) constantly writing to its
+// transform, which would silently fight/overwrite any dx/dy/scale set
+// here via inline style. The wrapper has no animation of its own, so
+// nudging it moves/scales the whole photo (sway included) cleanly.
+function applyGraphicOverrides(overrides, elementIds){
+  (elementIds || []).forEach(id => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    const o = (overrides && overrides[id]) || {};
+    const dx = o.dx || 0, dy = o.dy || 0, scale = o.scale || 1;
+    el.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+    el.style.transformOrigin = "top left";
+  });
+}
+
 function applyState(state){
   const mvp = state.mvp;
   const stage = document.getElementById("stage");
@@ -179,6 +197,9 @@ function applyState(state){
   document.getElementById("kda-k").textContent = p.kills || 0;
   document.getElementById("kda-d").textContent = p.deaths || 0;
   document.getElementById("kda-a").textContent = p.assists || 0;
+
+  applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.mvp,
+    ["mvp-photo-wrap", "mvp-team-logo", "mvp-name", "dmg-taken", "dmg-dealt", "kill-participation", "kda"]);
 }
 
 connect();

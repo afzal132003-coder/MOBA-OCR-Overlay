@@ -90,7 +90,7 @@
   <img class="bg-frame" src="assets/teamstats_overlay.png" alt="">
 
   <div class="box" id="box-team1">
-    <div class="char-wrap"><img id="t1-char" src="" alt=""></div>
+    <div class="char-wrap" id="t1-char-wrap"><img id="t1-char" src="" alt=""></div>
     <img class="team-logo" id="t1-logo" src="" alt="">
     <div class="ign" id="t1-ign"></div>
     <div class="kda-val kval kills" id="t1-kills">0</div>
@@ -99,7 +99,7 @@
   </div>
 
   <div class="box" id="box-team2">
-    <div class="char-wrap"><img id="t2-char" src="" alt=""></div>
+    <div class="char-wrap" id="t2-char-wrap"><img id="t2-char" src="" alt=""></div>
     <img class="team-logo" id="t2-logo" src="" alt="">
     <div class="ign" id="t2-ign"></div>
     <div class="kda-val kval kills" id="t2-kills">0</div>
@@ -135,6 +135,22 @@ function setImg(id, src){
   else { el.style.display = "none"; }
 }
 
+// Same dx/dy/scale nudge mechanism as the other overlay pages' Graphic
+// Fixing tab. Targets "t{1,2}-char-wrap", NOT the "t{1,2}-char" img
+// directly -- that img has its own CSS @keyframes idle-sway animation
+// constantly writing to transform, which would fight any dx/dy/scale set
+// here via inline style (same reasoning as mvp_stats.html's version).
+function applyGraphicOverrides(overrides, elementIds){
+  (elementIds || []).forEach(id => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    const o = (overrides && overrides[id]) || {};
+    const dx = o.dx || 0, dy = o.dy || 0, scale = o.scale || 1;
+    el.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+    el.style.transformOrigin = "top left";
+  });
+}
+
 function applyTeamBox(team, state){
   const sel = state.teamStatsOverlay && state.teamStatsOverlay[team];
   const box = document.getElementById(`box-${team}`);
@@ -165,6 +181,10 @@ function applyTeamBox(team, state){
 function applyState(state){
   applyTeamBox("team1", state);
   applyTeamBox("team2", state);
+  applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.teamstats, [
+    "t1-char-wrap", "t1-logo", "t1-ign", "t1-kills", "t1-deaths", "t1-assists",
+    "t2-char-wrap", "t2-logo", "t2-ign", "t2-kills", "t2-deaths", "t2-assists",
+  ]);
 }
 
 connect();
