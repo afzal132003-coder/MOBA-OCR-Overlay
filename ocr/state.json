@@ -6,11 +6,11 @@
     "objectives": 1,
     "gold": 4,
     "players": [
-      "T1 Player 1",
-      "T1 Player 2",
-      "T1 Player 3",
-      "T1 Player 4",
-      "T1 Player 5"
+      "\u9ed2k\u00ff\u016ba\u00ee",
+      "Real kumar",
+      "Jojo",
+      "Terrible Tiii.",
+      "Zui."
     ]
   },
   "team2": {
@@ -33,15 +33,15 @@
   },
   "turtleTimer": {
     "status": "idle",
-    "countdownSeconds": 15,
+    "countdownSeconds": 0,
     "endsAt": null,
     "spawnedUntil": null,
-    "lastRawText": "(manual)"
+    "lastRawText": ""
   },
   "lordTimer": {
     "status": "idle",
     "spawnedUntil": null,
-    "lastRawText": "(manual)"
+    "lastRawText": ""
   },
   "matchClock": {
     "status": "running",
@@ -195,12 +195,12 @@
     "bans": {
       "team1": [
         {
-          "name": "Cyclops",
-          "image": "600px-Cyclops_infobox.jpg"
+          "name": "",
+          "image": ""
         },
         {
-          "name": "Eudora",
-          "image": "600px-Eudora_infobox.jpg"
+          "name": "",
+          "image": ""
         },
         {
           "name": "",
@@ -217,8 +217,8 @@
       ],
       "team2": [
         {
-          "name": "Eudora",
-          "image": "600px-Eudora_infobox.jpg"
+          "name": "",
+          "image": ""
         },
         {
           "name": "",
@@ -241,20 +241,20 @@
     "picks": {
       "team1": [
         {
-          "name": "Freya",
-          "image": "600px-Freya_infobox.jpg"
+          "name": "",
+          "image": ""
         },
         {
-          "name": "Gord",
-          "image": "600px-Gord_infobox.jpg"
+          "name": "",
+          "image": ""
         },
         {
-          "name": "Granger",
-          "image": "Granger_Infobox_V2.png"
+          "name": "",
+          "image": ""
         },
         {
-          "name": "Gatotkaca",
-          "image": "600px-Gatotkaca_Infobox.jpg"
+          "name": "",
+          "image": ""
         },
         {
           "name": "",
@@ -263,16 +263,16 @@
       ],
       "team2": [
         {
-          "name": "Baxia",
-          "image": "600px-Baxia_Infobox.jpg"
+          "name": "",
+          "image": ""
         },
         {
-          "name": "Harith",
-          "image": "600px-Harith_infobox.jpg"
+          "name": "",
+          "image": ""
         },
         {
-          "name": "Martis",
-          "image": "600px-Martis_infobox.jpg"
+          "name": "",
+          "image": ""
         },
         {
           "name": "",
@@ -397,7 +397,7 @@
   "livePlayers": {
     "team1": [
       {
-        "kills": 0,
+        "kills": 12,
         "deaths": 0,
         "assists": 0
       },
@@ -424,8 +424,8 @@
     ],
     "team2": [
       {
-        "kills": 0,
-        "deaths": 0,
+        "kills": 15,
+        "deaths": 3,
         "assists": 0
       },
       {

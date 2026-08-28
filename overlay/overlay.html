@@ -131,9 +131,26 @@
      OWN .team-logo/etc. classes, which are unrelated elements (the top
      HUD bar's logos) at different positions/sizes. */
   .ts-box{ position:absolute; top:854px; width:225px; height:226px; display:none; }
-  .ts-box.show{ display:block; }
   #ts-box-team1{ left:0px; }
   #ts-box-team2{ left:1695px; }
+
+  /* Broadcast-style entrance/exit, same treatment (and same reasoning) as
+     the turtle popup's flyIn/flyOut, just mirrored per side -- team1 slides
+     in from further off the left edge, team2 from further off the right,
+     matching which screen edge each box is already anchored to. Animating
+     .ts-box itself (not each child individually) means the character
+     portrait, IGN nameplate, and K/D/A numbers all ride along as one rigid
+     group -- nothing pops in/out separately from the rest. */
+  @keyframes tsFlyInLeft{ 0%{ transform:translateX(-160px); opacity:0; } 100%{ transform:translateX(0); opacity:1; } }
+  @keyframes tsFlyOutLeft{ 0%{ transform:translateX(0); opacity:1; } 100%{ transform:translateX(-160px); opacity:0; } }
+  @keyframes tsFlyInRight{ 0%{ transform:translateX(160px); opacity:0; } 100%{ transform:translateX(0); opacity:1; } }
+  @keyframes tsFlyOutRight{ 0%{ transform:translateX(0); opacity:1; } 100%{ transform:translateX(160px); opacity:0; } }
+  .ts-box.ts-anim-enter{ animation-duration:0.55s; animation-timing-function:cubic-bezier(0.34, 1.56, 0.64, 1); animation-fill-mode:both; }
+  .ts-box.ts-anim-exit{ animation-duration:0.4s; animation-timing-function:cubic-bezier(0.55, 0, 0.85, 0.35); animation-fill-mode:both; }
+  #ts-box-team1.ts-anim-enter{ animation-name:tsFlyInLeft; }
+  #ts-box-team1.ts-anim-exit{ animation-name:tsFlyOutLeft; }
+  #ts-box-team2.ts-anim-enter{ animation-name:tsFlyInRight; }
+  #ts-box-team2.ts-anim-exit{ animation-name:tsFlyOutRight; }
 
   .ts-char-wrap{ position:absolute; top:0; left:0; width:225px; height:180px; overflow:hidden; }
   /* cover, not contain -- this box is small and near-square (unlike the
@@ -147,9 +164,15 @@
     -webkit-mask-image:linear-gradient(to bottom, black 0%, black 92%, transparent 100%);
     mask-image:linear-gradient(to bottom, black 0%, black 92%, transparent 100%);
     transform-origin:center center; animation:teamstatsFloat 5s ease-in-out infinite; }
+  /* scale(1.12) overfill -- cover already fills the box exactly at rest,
+     but the rotate/skewY in this sway pulls the image's corners in from
+     one side each frame; without extra overfill margin that briefly
+     exposes the wrapper's empty background at the opposite corner. Same
+     fix the original pick-slot float animation used for its cover-fit
+     portraits. */
   @keyframes teamstatsFloat{
-    0%,100%{ transform:translateY(2px) rotate(-0.5deg) skewY(-0.6deg); }
-    50%{ transform:translateY(-2px) rotate(0.5deg) skewY(0.6deg); }
+    0%,100%{ transform:scale(1.12) translateY(2px) rotate(-0.5deg) skewY(-0.6deg); }
+    50%{ transform:scale(1.12) translateY(-2px) rotate(0.5deg) skewY(0.6deg); }
   }
 
   .ts-team-logo{ position:absolute; top:8px; width:36px; height:36px; object-fit:contain; display:none; }
@@ -434,6 +457,30 @@ function updateMatchClock(mc){
   }
 }
 
+// Same fly-in/fly-out pattern as showTurtlePopup/hideTurtlePopup above --
+// animating .ts-box itself (not display alone) so the entrance/exit is a
+// smooth slide instead of an abrupt cut, with the character/IGN/K-D-A
+// children riding along as one rigid group since they're all descendants
+// of the animated box, not animated independently.
+function showTeamStatsBox(el){
+  el.classList.remove("ts-anim-exit");
+  el.style.display = "block";
+  el.classList.remove("ts-anim-enter");
+  void el.offsetWidth;
+  el.classList.add("ts-anim-enter");
+}
+function hideTeamStatsBox(el){
+  if(el.style.display === "none") return; // already hidden, nothing to animate
+  el.classList.remove("ts-anim-enter");
+  void el.offsetWidth;
+  el.classList.add("ts-anim-exit");
+  el.addEventListener("animationend", () => {
+    el.style.display = "none";
+    el.classList.remove("ts-anim-exit");
+  }, { once: true });
+}
+let lastTsoShown = { team1: false, team2: false };
+
 // Team Stats Overlay (bottom corner boxes) -- operator picks one player
 // per side from the dashboard (teamStatsOverlay state); everything else
 // is resolved from that single index, same single-sourced pattern as
@@ -445,10 +492,12 @@ function applyTeamStatsBox(team, state){
   const box = document.getElementById(`ts-box-${team}`);
   const idx = sel ? sel.playerIndex : null;
   if(idx == null){
-    box.classList.remove("show");
+    if(lastTsoShown[team]) hideTeamStatsBox(box);
+    lastTsoShown[team] = false;
     return;
   }
-  box.classList.add("show");
+  if(!lastTsoShown[team]) showTeamStatsBox(box);
+  lastTsoShown[team] = true;
 
   const ign = (state[team].players && state[team].players[idx]) || "";
   document.getElementById(`${prefix}-ign`).textContent = ign;
