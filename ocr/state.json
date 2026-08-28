@@ -2,9 +2,9 @@
   "team1": {
     "name": "",
     "logo": "",
-    "kills": 0,
-    "objectives": 0,
-    "gold": 61200,
+    "kills": 79,
+    "objectives": 4,
+    "gold": 9545947,
     "players": [
       "",
       "",
@@ -28,7 +28,7 @@
     ]
   },
   "seriesScore": {
-    "team1": 4,
+    "team1": 854,
     "team2": 7
   },
   "turtleTimer": {
@@ -292,10 +292,6 @@
     "date": "",
     "team1Score": 0,
     "team2Score": 0,
-    "result": {
-      "team1": "victory",
-      "team2": "defeat"
-    },
     "stats": {
       "team1": {
         "gold": 0,
@@ -385,6 +381,10 @@
           "assists": 0
         }
       ]
+    },
+    "result": {
+      "team1": "victory",
+      "team2": "defeat"
     }
   },
   "mvp": {
