@@ -334,7 +334,7 @@
   <div class="card">
     <h2>Match Clock</h2>
     <p class="hint">Counts up (elapsed match time), shown top-center on the In-Game overlay. Calibrate
-      <code>python calibrate.py game_timer</code> around the live MM:SS HUD clock and it reads automatically —
+      <code>python calibrate_hud.py game_timer</code> around the live MM:SS HUD clock and it reads automatically —
       the crop + last OCR reading are shown live below so you can confirm it's catching the right thing. Manual
       Start/Pause/Reset below still work as a fallback for before calibration or whenever the clock isn't
       visible on screen.</p>
@@ -444,7 +444,7 @@
 
   <div class="card">
     <h2>Turtle &amp; Lord Announcement</h2>
-    <p class="hint">Calibrate with <code>python calibrate.py turtle_announcement</code> — draw the box around the
+    <p class="hint">Calibrate with <code>python calibrate_hud.py turtle_announcement</code> — draw the box around the
       "Turtle spawning in Ns" / "Turtle Spawned" / "Lord Spawned" toast zone, generously (wider/taller than the
       text). Both objectives are read from this same zone, so one calibration covers both. The crop and the exact
       text OCR is reading are shown live below so you can confirm it's catching the right thing before trusting it
@@ -739,7 +739,7 @@
       needed. First time only: calibrate the 20 regions once with the command below (like you did for the HUD),
       it's reused after that.</p>
     <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-      cd ocr &amp;&amp; python calibrate.py postgame_dealt_team1_0 postgame_taken_team1_0 postgame_dealt_team1_1 postgame_taken_team1_1 postgame_dealt_team1_2 postgame_taken_team1_2 postgame_dealt_team1_3 postgame_taken_team1_3 postgame_dealt_team1_4 postgame_taken_team1_4 postgame_dealt_team2_0 postgame_taken_team2_0 postgame_dealt_team2_1 postgame_taken_team2_1 postgame_dealt_team2_2 postgame_taken_team2_2 postgame_dealt_team2_3 postgame_taken_team2_3 postgame_dealt_team2_4 postgame_taken_team2_4
+      cd ocr &amp;&amp; python calibrate_postmatch.py postgame_dealt_team1_0 postgame_taken_team1_0 postgame_dealt_team1_1 postgame_taken_team1_1 postgame_dealt_team1_2 postgame_taken_team1_2 postgame_dealt_team1_3 postgame_taken_team1_3 postgame_dealt_team1_4 postgame_taken_team1_4 postgame_dealt_team2_0 postgame_taken_team2_0 postgame_dealt_team2_1 postgame_taken_team2_1 postgame_dealt_team2_2 postgame_taken_team2_2 postgame_dealt_team2_3 postgame_taken_team2_3 postgame_dealt_team2_4 postgame_taken_team2_4
     </div>
     <button id="import_battleReport_capture">Capture From Screen Now</button>
     <div id="import_battleReport_status" class="hint"></div>
@@ -763,7 +763,7 @@
       Gold is read per player straight off the screen and summed per team automatically. First time only:
       calibrate the 10 regions once with the command below.</p>
     <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-      cd ocr &amp;&amp; python calibrate.py postgame_gold_team1_0 postgame_gold_team1_1 postgame_gold_team1_2 postgame_gold_team1_3 postgame_gold_team1_4 postgame_gold_team2_0 postgame_gold_team2_1 postgame_gold_team2_2 postgame_gold_team2_3 postgame_gold_team2_4
+      cd ocr &amp;&amp; python calibrate_postmatch.py postgame_gold_team1_0 postgame_gold_team1_1 postgame_gold_team1_2 postgame_gold_team1_3 postgame_gold_team1_4 postgame_gold_team2_0 postgame_gold_team2_1 postgame_gold_team2_2 postgame_gold_team2_3 postgame_gold_team2_4
     </div>
     <button id="import_gold_capture">Capture From Screen Now</button>
     <div id="import_gold_status" class="hint"></div>
@@ -953,7 +953,7 @@
       <p class="hint">Raw OCR text only for now — no structured parsing yet (killfeed events and side-table rows
         need real captured sample text before that logic can be written). First time only, calibrate both regions:</p>
       <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-        cd ocr &amp;&amp; python calibrate_freefire.py
+        cd ocr/freefire &amp;&amp; python calibrate.py
       </div>
       <p class="hint">Saves into <code>ocr/freefire_config.json</code> — separate from the MOBA engine's <code>config.json</code>, so calibrating here never touches the MOBA setup.</p>
       <div class="two-col" style="margin-top:14px;">
@@ -972,7 +972,7 @@
 
     <div class="card">
       <h2>Loadout Capture (Num5)</h2>
-      <p class="hint">Calibrate the player HUD card first: <code>cd ocr &amp;&amp; python calibrate_freefire.py freefire_loadout</code>.
+      <p class="hint">Calibrate the player HUD card first: <code>cd ocr/freefire &amp;&amp; python calibrate.py freefire_loadout</code>.
         While armed, pressing Num5 anywhere (even with the game window focused — needs the engine run as
         Administrator on Windows) screenshots that region into whichever player is next below, then advances.
         Import the roster on the Pre-Match tab first.</p>

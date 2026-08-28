@@ -5,7 +5,9 @@ Captures small screen regions defined in config.json, reads the numbers
 with Tesseract OCR, and relays live state to any connected browser
 (overlay.html / dashboard.html) over a local WebSocket server.
 
-Run calibrate.py first to set up the crop regions in config.json.
+Run calibrate_hud.py first to set up the live in-game HUD's crop regions
+in config.json (calibrate_postmatch.py and calibrate_teamstats.py cover
+the post-match screens and per-player live K/D/A separately).
 """
 
 import asyncio
@@ -14,6 +16,7 @@ import difflib
 import json
 import re
 import time
+from collections import Counter, deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
@@ -71,7 +74,7 @@ FIELD_MAP = {
 
 # Per-player live K/D/A for the Team Stats Overlay spotlight graphic --
 # deliberately its OWN calibration pass (calibrate_teamstats.py, not
-# calibrate.py) since it's 30 regions the operator calibrates separately
+# calibrate_hud.py) since it's 30 regions the operator calibrates separately
 # and later, not part of the always-on main HUD. Key format "t1p3_kills"
 # = team1, player 3 (1-indexed to match how players are labeled
 # everywhere in the dashboard), kills -- parsed by
@@ -401,18 +404,23 @@ def swap_team_sides():
 server_state = load_state()
 locked_fields = set()
 
-# OCR debounce: require the same raw reading N times in a row before trusting it,
-# since a single misread frame is common with live video noise/compression.
+# OCR debounce: a rolling window of the last N raw readings per key, trusted
+# once a genuine majority (not just a strict back-to-back streak) agrees.
+# The old version required the SAME value N times in a ROW -- fragile
+# against any live-video HUD with a glow/shimmer/gradient text style (gold
+# counters especially), where a single noisy frame resets the streak back
+# to zero and a value can end up never reconfirming even though most
+# individual frames actually read it correctly. A window tolerates the
+# occasional bad frame mixed in among mostly-good ones.
+DEBOUNCE_WINDOW = max(2, config.get("debounce_frames", 5))
 last_confirmed = {key: None for key in REGION_ORDER}
-pending_value = {key: None for key in REGION_ORDER}
-pending_count = {key: 0 for key in REGION_ORDER}
+reading_window = {key: deque(maxlen=DEBOUNCE_WINDOW) for key in REGION_ORDER}
 # Game timer lives outside REGION_ORDER's numeric HUD batch (own crop/OCR
 # call in ocr_loop(), same reason turtle_announcement does), but reuses
 # confirm_reading()'s generic debounce -- it just needs its own entry in
-# these three dicts since they're only pre-seeded from REGION_ORDER.
+# these dicts since they're only pre-seeded from REGION_ORDER.
 last_confirmed[GAME_TIMER_REGION_KEY] = None
-pending_value[GAME_TIMER_REGION_KEY] = None
-pending_count[GAME_TIMER_REGION_KEY] = 0
+reading_window[GAME_TIMER_REGION_KEY] = deque(maxlen=DEBOUNCE_WINDOW)
 # Same deal for the 30 per-player stat keys -- these DO get captured
 # through the main numeric batch in ocr_loop() (unlike game_timer/turtle,
 # no special text-OCR pipeline needed, just confirm_reading() same as
@@ -420,8 +428,7 @@ pending_count[GAME_TIMER_REGION_KEY] = 0
 # crop/OCR call.
 for _key in PLAYER_STAT_KEYS:
     last_confirmed[_key] = None
-    pending_value[_key] = None
-    pending_count[_key] = 0
+    reading_window[_key] = deque(maxlen=DEBOUNCE_WINDOW)
 
 
 def preprocess(img_bgr, upscale=4):
@@ -559,17 +566,26 @@ async def broadcast_presence():
 
 
 def confirm_reading(key, raw_value):
+    """None readings (nothing OCR'd this frame) don't enter the window at
+    all -- they're not evidence of any particular value, just a miss, so
+    they shouldn't dilute the vote. Only once the window is full does the
+    majority value (if any single value holds more than half the window)
+    get trusted -- a plurality isn't enough, since e.g. 2 different bad
+    reads plus 1 good one in a window of 5 shouldn't let the good read win
+    by default; it needs an actual majority of the samples agreeing."""
     if raw_value is None:
         return None
-    if pending_value[key] == raw_value:
-        pending_count[key] += 1
-    else:
-        pending_value[key] = raw_value
-        pending_count[key] = 1
-    if pending_count[key] >= config.get("debounce_frames", 2) and last_confirmed[key] != raw_value:
-        last_confirmed[key] = raw_value
-        return raw_value
-    return None
+    window = reading_window[key]
+    window.append(raw_value)
+    if len(window) < window.maxlen:
+        return None
+    value, count = Counter(window).most_common(1)[0]
+    if count * 2 <= len(window):
+        return None
+    if last_confirmed[key] == value:
+        return None
+    last_confirmed[key] = value
+    return value
 
 
 def apply_ocr_value(key, value):
@@ -671,13 +687,22 @@ def process_lord_reading(text, now_ms):
 
 
 def process_game_timer_reading(text, now_ms):
-    """Unlike turtle/lord, this isn't a state machine -- a confirmed
-    "MM:SS" OCR reading directly sets the clock's frozen display value
-    each time it changes (2-frame debounce via confirm_reading, same as
-    kills/gold). Manual Start/Pause/Reset on the dashboard still work as
-    a fallback when this region isn't calibrated or the clock isn't on
-    screen (e.g. a draft/loading screen) -- see matchClock's own comment
-    in default_state(). Returns True if server_state changed."""
+    """A confirmed "MM:SS" OCR reading resyncs the clock to a locally
+    ticking stopwatch (status "running", startedAt backdated so
+    now - startedAt == confirmed) instead of freezing a static display
+    value -- the old version set status "idle" with a frozen elapsedMs on
+    every confirm, so the on-screen number only ever moved once per
+    debounce window and visibly jumped in multi-second steps (5:02 -> 5:20)
+    rather than counting up smoothly. Reusing "running" here means the
+    client's existing per-second setInterval tick (same code path the
+    manual Start button already drives) takes over between OCR confirms,
+    and each new confirm just re-anchors it. Ignores a reconfirmation that
+    lands within a second of where the local tick already predicts, so a
+    clock that's tracking correctly doesn't broadcast (and visually hitch)
+    every single debounce window for no reason. Manual Start/Pause/Reset on
+    the dashboard still work as a fallback when this region isn't
+    calibrated or the clock isn't on screen (e.g. a draft/loading screen).
+    Returns True if server_state changed."""
     if text is None:
         return False
     parsed_ms = parse_game_timer(text)
@@ -685,11 +710,12 @@ def process_game_timer_reading(text, now_ms):
     if confirmed is None:
         return False
     mc = server_state["matchClock"]
-    if mc["elapsedMs"] == confirmed:
+    new_started_at = now_ms - confirmed
+    if mc["status"] == "running" and mc["startedAt"] is not None and abs(mc["startedAt"] - new_started_at) < 1000:
         return False
+    mc["status"] = "running"
+    mc["startedAt"] = new_started_at
     mc["elapsedMs"] = confirmed
-    mc["status"] = "idle"
-    mc["startedAt"] = None
     return True
 
 
@@ -1062,8 +1088,8 @@ def parse_calibrated_number(text):
 
 
 # Post Match live screen regions — calibrated the exact same way as the
-# in-game kills/gold HUD (calibrate.py, cv2.selectROI against the actual
-# screen), just pointed at the post-game "Overall" (gold) and "Data"
+# in-game kills/gold HUD (calibrate_postmatch.py, cv2.selectROI against the
+# actual screen), just pointed at the post-game "Overall" (gold) and "Data"
 # (Hero Damage / Damage Taken) screens instead. This is what makes
 # extraction fast: a handful of tiny screen crops through the proven
 # digit-only OCR pipeline, not a full-page OCR pass over an uploaded image.
@@ -1300,7 +1326,7 @@ async def handle_client(websocket, path=None):
                     else:
                         await websocket.send(json.dumps({
                             "type": "gold_extract_result", "rows": [], "candidates": [],
-                            "error": "Gold regions aren't calibrated yet — run calibrate.py with the postgame_gold_* keys first.",
+                            "error": "Gold regions aren't calibrated yet — run calibrate_postmatch.py with the postgame_gold_* keys first.",
                         }))
                 except Exception as e:
                     await websocket.send(json.dumps({
@@ -1315,7 +1341,7 @@ async def handle_client(websocket, path=None):
                     else:
                         await websocket.send(json.dumps({
                             "type": "battle_report_result", "rows": [],
-                            "error": "Battle report regions aren't calibrated yet — run calibrate.py with the postgame_dealt_*/postgame_taken_* keys first.",
+                            "error": "Battle report regions aren't calibrated yet — run calibrate_postmatch.py with the postgame_dealt_*/postgame_taken_* keys first.",
                         }))
                 except Exception as e:
                     await websocket.send(json.dumps({

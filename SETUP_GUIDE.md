@@ -6,7 +6,7 @@ MOBA-OCR-Overlay/
   overlay/overlay.html      <- Broadcast graphic (add as OBS Browser Source)
   dashboard/dashboard.html  <- Control panel (open in a normal browser tab)
   ocr/ocr_engine.py         <- Captures screen, runs OCR, runs the local server
-  ocr/calibrate.py          <- One-time tool to mark where the numbers are on screen
+  ocr/calibrate_hud.py      <- One-time tool to mark where the numbers are on screen
   ocr/config.json           <- All settings + crop coordinates live here
 ```
 
@@ -68,8 +68,8 @@ This replaces manually figuring out pixel coordinates.
 
 1. Get your game's spectator HUD on screen and pause on a frame where all
    the numbers are visible (kills, objectives, gold, series score).
-2. In the `ocr` folder, double-click **`calibrate.bat`** (or run
-   `python calibrate.py`).
+2. In the `ocr` folder, double-click **`calibrate_hud.bat`** (or run
+   `python calibrate_hud.py`).
 3. A screenshot window pops up, one per stat, in this order:
    Team 1 Kills → Team 1 Objectives → Team 1 Gold → Team 2 Gold →
    Team 2 Objectives → Team 2 Kills → Series Score.
@@ -77,7 +77,7 @@ This replaces manually figuring out pixel coordinates.
    **ENTER** or **SPACE** to confirm and move to the next. Press **C** to
    skip a stat you don't have.
 5. When it finishes, your coordinates are saved into `config.json`
-   automatically. Re-run `calibrate.bat` any time the game window moves,
+   automatically. Re-run `calibrate_hud.bat` any time the game window moves,
    resizes, or you swap capture sources.
 
 Tip: crop boxes should be tight around the digits only (no icons, no extra
@@ -217,7 +217,7 @@ folder, reinstall two things, then recalibrate.
    - Run `python -c "import mss; print(mss.mss().monitors)"` in the `ocr`
      folder to see the new PC's monitor list, and update `"monitor"` in
      `config.json` if it has a different layout than this one.
-   - Re-run `calibrate.bat` to redraw all the crop boxes against the new
+   - Re-run `calibrate_hud.bat` to redraw all the crop boxes against the new
      PC's actual screen — the saved coordinates from this PC almost
      certainly won't line up on different hardware.
 
@@ -245,7 +245,7 @@ folder, reinstall two things, then recalibrate.
   `tesseract_path` value in `ocr/config.json` to point at your actual
   `tesseract.exe`.
 - **Numbers don't update** — check the crop preview in the dashboard; if
-  it's blank or misaligned, re-run `calibrate.bat`.
+  it's blank or misaligned, re-run `calibrate_hud.bat`.
 - **Gold shows wrong for values like "11.7k"** — the engine already parses
   a `k` suffix as ×1000; if it's still off, make the crop box tighter so
   only the digits and the `k` are inside it (no `$` sign or icon).

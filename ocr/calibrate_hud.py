@@ -1,15 +1,19 @@
 """
-Interactive calibration tool.
+Interactive calibration tool for the live in-game HUD (kills, objectives,
+gold, series score, turtle/lord announcement zone, match timer).
 
-Takes one screenshot of your chosen monitor, then lets you drag a box
-around each stat on screen (kills, objectives, gold, each team's series
-score). Saves the pixel coordinates into config.json for ocr_engine.py
-to use.
+Was "calibrate.py" -- renamed once calibrate_postmatch.py and
+calibrate_teamstats.py existed too, so the name says which screen it's for
+instead of being the unlabeled default. Post-match (Overall/Data screen)
+regions moved out to calibrate_postmatch.py; per-player live K/D/A regions
+are calibrate_teamstats.py. All three still write into the same
+config.json ocr_engine.py reads -- only the calibration entry point is
+split, not the underlying config.
 
 Run this again any time your game window moves or resizes. To
 recalibrate only specific regions (leaving the others untouched), pass
 their keys as arguments, e.g.:
-    python calibrate.py team1_series_score team2_series_score
+    python calibrate_hud.py team1_series_score team2_series_score
 """
 
 import json
@@ -41,35 +45,6 @@ LABELS = {
     "turtle_announcement": "TURTLE ANNOUNCEMENT (the 'Turtle spawning in Ns' / 'Turtle Spawned' toast zone) - draw it generously, wider/taller than the text itself since the toast can shift slightly",
     "game_timer": "GAME TIMER (the live MM:SS match clock on the in-game HUD) - draw tightly around just the digits",
 }
-
-# Post Match screen regions — same live screen-capture calibration as
-# everything above, just pointed at the post-game "Overall" (gold) and
-# "Data" (Hero Damage / Damage Taken) screens instead of the in-game HUD.
-# Have that screen actually on screen (paused/still showing) when you run
-# this. Reading these live off the screen at capture time is what makes
-# extraction fast — the same reason the in-game kills/gold regions are
-# fast, instead of running OCR over a whole uploaded screenshot image.
-POSTGAME_GOLD_KEYS = [
-    f"postgame_gold_{team}_{i}" for team in ("team1", "team2") for i in range(5)
-]
-POSTGAME_BATTLE_KEYS = [
-    f"postgame_{field}_{team}_{i}"
-    for team in ("team1", "team2") for i in range(5) for field in ("dealt", "taken")
-]
-REGION_ORDER += POSTGAME_GOLD_KEYS + POSTGAME_BATTLE_KEYS
-
-for _team in ("team1", "team2"):
-    _team_label = "TEAM 1" if _team == "team1" else "TEAM 2"
-    for _i in range(5):
-        LABELS[f"postgame_gold_{_team}_{_i}"] = (
-            f"POST MATCH (Overall screen) - {_team_label} PLAYER {_i+1} - GOLD"
-        )
-        LABELS[f"postgame_dealt_{_team}_{_i}"] = (
-            f"POST MATCH (Data screen) - {_team_label} PLAYER {_i+1} - HERO DAMAGE"
-        )
-        LABELS[f"postgame_taken_{_team}_{_i}"] = (
-            f"POST MATCH (Data screen) - {_team_label} PLAYER {_i+1} - DAMAGE TAKEN"
-        )
 
 
 def load_config():

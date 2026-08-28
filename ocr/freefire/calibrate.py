@@ -1,16 +1,18 @@
 """
 Interactive calibration tool for freefire_engine.py.
 
-Separate from calibrate.py (which only ever touches config.json, the MOBA
-engine's config) on purpose -- freefire_engine.py reads its own
-freefire_config.json, so calibrating into the wrong file would silently do
-nothing. Takes one screenshot of your chosen monitor, then lets you drag a
-box around the killfeed and the 12-team side table. Saves pixel
-coordinates into freefire_config.json for freefire_engine.py to use.
+Lives in its own ocr/freefire/ folder, separate from the MOBA calibration
+scripts (calibrate_hud.py / calibrate_postmatch.py / calibrate_teamstats.py)
+one level up -- a different game with its own config.json equivalent
+(freefire_config.json, still in ocr/ alongside freefire_engine.py, not
+moved here), so calibrating into the wrong file would silently do nothing.
+Takes one screenshot of your chosen monitor, then lets you drag a box
+around the killfeed and the 12-team side table. Saves pixel coordinates
+into freefire_config.json for freefire_engine.py to use.
 
 Run again any time your game window moves or resizes. To recalibrate only
 one region, pass its key as an argument, e.g.:
-    python calibrate_freefire.py freefire_sidetable
+    python calibrate.py freefire_sidetable
 """
 
 import json
@@ -21,7 +23,7 @@ import cv2
 import mss
 import numpy as np
 
-CONFIG_PATH = Path(__file__).parent / "freefire_config.json"
+CONFIG_PATH = Path(__file__).parent.parent / "freefire_config.json"
 
 REGION_ORDER = ["freefire_killfeed", "freefire_sidetable", "freefire_loadout"]
 
