@@ -285,7 +285,8 @@ def default_state():
             "team2": [{"kills": 0, "deaths": 0, "assists": 0} for _ in range(5)],
         },
         # Which player each side of the Team Stats Overlay spotlights --
-        # operator-picked from the dashboard, drives teamstats_overlay.html.
+        # operator-picked from the dashboard, drives the corner boxes on
+        # overlay.html (merged in, not a separate page).
         # Pulls character portrait from prematch.picks, IGN from
         # team1/team2.players, and stats from livePlayers above, all by
         # this one index -- nothing duplicated here.

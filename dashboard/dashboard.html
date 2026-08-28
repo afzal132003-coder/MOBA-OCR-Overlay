@@ -397,8 +397,9 @@
 
   <div class="card">
     <h2>Team Stats Overlay</h2>
-    <p class="hint">Spotlights one player per side on teamstats_overlay.html — character pick, IGN, team logo, and
-      live K/D/A. Needs both a roster pick and (once calibrated) live K/D/A data; see the section below.</p>
+    <p class="hint">Spotlights one player per side in the corner boxes on the main overlay.html (same OBS source as
+      the in-game HUD) — character pick, IGN, team logo, and live K/D/A. Needs both a roster pick and (once
+      calibrated) live K/D/A data; see the section below.</p>
     <div class="two-col">
       <div class="col">
         <h3>Team 1</h3>
@@ -2684,18 +2685,18 @@ const GRAPHIC_PAGES = {
   teamstats: {
     label: "Team Stats", background: "../overlay/assets/teamstats_overlay.png",
     elements: {
-      "t1-char-wrap": { left:0, top:854, width:225, height:180, kind:"box", label:"Team 1 Character" },
-      "t1-logo": { left:8, top:862, width:36, height:36, kind:"box", label:"Team 1 Logo" },
-      "t1-ign": { left:14, top:1044, width:195, height:30, kind:"box", label:"Team 1 IGN" },
-      "t1-kills": { left:266, top:885, width:60, height:19, kind:"box", label:"Team 1 Kills" },
-      "t1-deaths": { left:266, top:960, width:60, height:19, kind:"box", label:"Team 1 Deaths" },
-      "t1-assists": { left:266, top:1039, width:60, height:19, kind:"box", label:"Team 1 Assists" },
-      "t2-char-wrap": { left:1695, top:854, width:225, height:180, kind:"box", label:"Team 2 Character" },
-      "t2-logo": { left:1876, top:862, width:36, height:36, kind:"box", label:"Team 2 Logo" },
-      "t2-ign": { left:1711, top:1044, width:195, height:30, kind:"box", label:"Team 2 IGN" },
-      "t2-kills": { left:1632, top:885, width:60, height:19, kind:"box", label:"Team 2 Kills" },
-      "t2-deaths": { left:1632, top:960, width:60, height:19, kind:"box", label:"Team 2 Deaths" },
-      "t2-assists": { left:1632, top:1039, width:60, height:19, kind:"box", label:"Team 2 Assists" },
+      "ts-t1-char-wrap": { left:0, top:854, width:225, height:180, kind:"box", label:"Team 1 Character" },
+      "ts-t1-logo": { left:8, top:862, width:36, height:36, kind:"box", label:"Team 1 Logo" },
+      "ts-t1-ign": { left:14, top:1044, width:195, height:30, kind:"box", label:"Team 1 IGN" },
+      "ts-t1-kills": { left:266, top:885, width:60, height:19, kind:"box", label:"Team 1 Kills" },
+      "ts-t1-deaths": { left:266, top:960, width:60, height:19, kind:"box", label:"Team 1 Deaths" },
+      "ts-t1-assists": { left:266, top:1039, width:60, height:19, kind:"box", label:"Team 1 Assists" },
+      "ts-t2-char-wrap": { left:1695, top:854, width:225, height:180, kind:"box", label:"Team 2 Character" },
+      "ts-t2-logo": { left:1876, top:862, width:36, height:36, kind:"box", label:"Team 2 Logo" },
+      "ts-t2-ign": { left:1711, top:1044, width:195, height:30, kind:"box", label:"Team 2 IGN" },
+      "ts-t2-kills": { left:1632, top:885, width:60, height:19, kind:"box", label:"Team 2 Kills" },
+      "ts-t2-deaths": { left:1632, top:960, width:60, height:19, kind:"box", label:"Team 2 Deaths" },
+      "ts-t2-assists": { left:1632, top:1039, width:60, height:19, kind:"box", label:"Team 2 Assists" },
     },
   },
 };

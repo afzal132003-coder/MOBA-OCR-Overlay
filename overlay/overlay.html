@@ -121,6 +121,53 @@
 
   .flash{ background:#f2c14e88 !important; }
 
+  /* ---- Team Stats Overlay (bottom corners) ----
+     Merged in from what was a separate teamstats_overlay.html page, so
+     both graphics come through this one OBS Browser Source alongside the
+     turtle/lord popups and the main HUD. Two mirrored corner boxes;
+     positions measured off assets/teamstats_overlay.png directly (see
+     that file's own git history for the pixel-scan method) -- "ts-"
+     prefixed throughout specifically to avoid colliding with this page's
+     OWN .team-logo/etc. classes, which are unrelated elements (the top
+     HUD bar's logos) at different positions/sizes. */
+  .ts-box{ position:absolute; top:854px; width:225px; height:226px; display:none; }
+  .ts-box.show{ display:block; }
+  #ts-box-team1{ left:0px; }
+  #ts-box-team2{ left:1695px; }
+
+  .ts-char-wrap{ position:absolute; top:0; left:0; width:225px; height:180px; overflow:hidden; }
+  .ts-char-wrap img{ width:100%; height:100%; object-fit:contain; object-position:50% 100%; display:none;
+    -webkit-mask-image:linear-gradient(to bottom, black 0%, black 78%, transparent 98%);
+    mask-image:linear-gradient(to bottom, black 0%, black 78%, transparent 98%);
+    transform-origin:center center; animation:teamstatsFloat 5s ease-in-out infinite; }
+  @keyframes teamstatsFloat{
+    0%,100%{ transform:translateY(2px) rotate(-0.5deg) skewY(-0.6deg); }
+    50%{ transform:translateY(-2px) rotate(0.5deg) skewY(0.6deg); }
+  }
+
+  .ts-team-logo{ position:absolute; top:8px; width:36px; height:36px; object-fit:contain; display:none; }
+  #ts-box-team1 .ts-team-logo{ left:8px; }
+  #ts-box-team2 .ts-team-logo{ right:8px; }
+
+  .ts-ign{ position:absolute; top:190px; width:195px; height:30px;
+    display:flex; align-items:center;
+    color:var(--name-color); font-weight:800; font-size:19px; letter-spacing:0.3px;
+    text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #ts-box-team1 .ts-ign{ left:14px; justify-content:flex-start; }
+  #ts-box-team2 .ts-ign{ left:16px; justify-content:flex-end; }
+
+  /* Relative to .ts-box's own left (0 for team1, 1695 for team2) --
+     team2's ends up negative since its KDA column (canvas x=1591) sits
+     to the left of its box's origin (the character rect, at x=1695).
+     That's correct/intentional, not a typo. */
+  .ts-kda-val{ position:absolute; width:60px; height:19px;
+    display:flex; align-items:center; color:#ffffff; font-weight:700; font-size:20px; }
+  #ts-box-team1 .ts-kval{ left:266px; }
+  #ts-box-team2 .ts-kval{ left:-63px; }
+  .ts-kda-val.ts-kills{ top:31px; }
+  .ts-kda-val.ts-deaths{ top:106px; }
+  .ts-kda-val.ts-assists{ top:185px; }
+
   /* ---- turtle announcement ----
      Both graphics are full 1920x1080 transparent PNGs with the actual
      banner already drawn at its final position (top-right) — same pattern
@@ -210,6 +257,24 @@
   </div>
   <div class="turtle-popup" id="lord-spawned">
     <img src="assets/lord_spawned.png" alt="">
+  </div>
+
+  <img class="bg-frame" src="assets/teamstats_overlay.png" alt="">
+  <div class="ts-box" id="ts-box-team1">
+    <div class="ts-char-wrap" id="ts-t1-char-wrap"><img id="ts-t1-char" src="" alt=""></div>
+    <img class="ts-team-logo" id="ts-t1-logo" src="" alt="">
+    <div class="ts-ign" id="ts-t1-ign"></div>
+    <div class="ts-kda-val ts-kval ts-kills" id="ts-t1-kills">0</div>
+    <div class="ts-kda-val ts-kval ts-deaths" id="ts-t1-deaths">0</div>
+    <div class="ts-kda-val ts-kval ts-assists" id="ts-t1-assists">0</div>
+  </div>
+  <div class="ts-box" id="ts-box-team2">
+    <div class="ts-char-wrap" id="ts-t2-char-wrap"><img id="ts-t2-char" src="" alt=""></div>
+    <img class="ts-team-logo" id="ts-t2-logo" src="" alt="">
+    <div class="ts-ign" id="ts-t2-ign"></div>
+    <div class="ts-kda-val ts-kval ts-kills" id="ts-t2-kills">0</div>
+    <div class="ts-kda-val ts-kval ts-deaths" id="ts-t2-deaths">0</div>
+    <div class="ts-kda-val ts-kval ts-assists" id="ts-t2-assists">0</div>
   </div>
 </div>
 
@@ -362,6 +427,37 @@ function updateMatchClock(mc){
   }
 }
 
+// Team Stats Overlay (bottom corner boxes) -- operator picks one player
+// per side from the dashboard (teamStatsOverlay state); everything else
+// is resolved from that single index, same single-sourced pattern as
+// mvp_stats.html (character from prematch.picks, IGN from
+// team1/team2.players, K/D/A from livePlayers).
+function applyTeamStatsBox(team, state){
+  const sel = state.teamStatsOverlay && state.teamStatsOverlay[team];
+  const prefix = team === "team1" ? "ts-t1" : "ts-t2";
+  const box = document.getElementById(`ts-box-${team}`);
+  const idx = sel ? sel.playerIndex : null;
+  if(idx == null){
+    box.classList.remove("show");
+    return;
+  }
+  box.classList.add("show");
+
+  const ign = (state[team].players && state[team].players[idx]) || "";
+  document.getElementById(`${prefix}-ign`).textContent = ign;
+
+  setLogo(`${prefix}-logo`, state[team].logo);
+
+  const pick = state.prematch && state.prematch.picks &&
+    state.prematch.picks[team] && state.prematch.picks[team][idx];
+  setLogo(`${prefix}-char`, pick && pick.image ? `../dashboard/assets/heroes/${encodeURIComponent(pick.image)}` : "");
+
+  const stats = (state.livePlayers && state.livePlayers[team] && state.livePlayers[team][idx]) || {};
+  document.getElementById(`${prefix}-kills`).textContent = stats.kills || 0;
+  document.getElementById(`${prefix}-deaths`).textContent = stats.deaths || 0;
+  document.getElementById(`${prefix}-assists`).textContent = stats.assists || 0;
+}
+
 // Per-element position/scale nudges saved from the dashboard's Graphic
 // Fixing tab — purely additive on top of each element's base CSS
 // position/size, applied as a transform so it never disturbs the
@@ -399,6 +495,9 @@ function applyState(state){
   if(state.lordTimer) updateLordDisplay(state.lordTimer);
   if(state.matchClock) updateMatchClock(state.matchClock);
 
+  applyTeamStatsBox("team1", state);
+  applyTeamStatsBox("team2", state);
+
   applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.overlay,
     ["team1-logo", "team2-logo", "team1-name", "team2-name", "match-clock"],
     { "match-clock": "translateX(-50%)" });
@@ -407,6 +506,10 @@ function applyState(state){
     { "turtle-countdown": "translate(-50%,-50%)" });
   applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.lord,
     ["lord-spawned"]);
+  applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.teamstats, [
+    "ts-t1-char-wrap", "ts-t1-logo", "ts-t1-ign", "ts-t1-kills", "ts-t1-deaths", "ts-t1-assists",
+    "ts-t2-char-wrap", "ts-t2-logo", "ts-t2-ign", "ts-t2-kills", "ts-t2-deaths", "ts-t2-assists",
+  ]);
 }
 
 connect();
