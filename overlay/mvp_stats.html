@@ -189,7 +189,10 @@ function applyState(state){
 
   const p = (state.postMatch && state.postMatch.players[mvp.team][mvp.playerIndex]) || {};
   const teamKills = (state.postMatch && state.postMatch.stats[mvp.team].kills) || 0;
-  const kp = teamKills > 0 ? Math.round(((p.kills || 0) + (p.assists || 0)) / teamKills * 100) : 0;
+  // Player's own kills over the team's total kills -- explicitly NOT the
+  // (kills+assists)/teamKills "kill participation" formula some MOBAs use;
+  // kills-only, per the requested definition.
+  const kp = teamKills > 0 ? Math.round((p.kills || 0) / teamKills * 100) : 0;
 
   document.getElementById("dmg-taken").textContent = (p.damageTaken || 0).toLocaleString();
   document.getElementById("dmg-dealt").textContent = (p.damageDealt || 0).toLocaleString();

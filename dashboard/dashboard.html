@@ -769,6 +769,22 @@
   </div>
 
   <div class="card">
+    <h2>K/D/A</h2>
+    <p class="hint">Have the game's post-match K/D/A screen up on your monitor, then hit Capture — same fast
+      per-region OCR as everything else here, no image upload needed. One box per player covers the whole reading
+      (e.g. "18 0 2" — this screen uses a gap between the numbers, not the "/" the live in-game HUD uses). Whichever
+      player you select for the MVP graphic pulls their K/D/A from here. First time only: calibrate the 10 regions
+      once with the command below.</p>
+    <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+      cd ocr &amp;&amp; python calibrate_postmatch_kda.py
+    </div>
+    <button id="import_kda_capture">Capture From Screen Now</button>
+    <div id="import_kda_status" class="hint"></div>
+    <div id="import_kda_table" style="margin-top:14px;overflow-x:auto;"></div>
+    <button class="secondary" id="import_kda_apply" style="display:none;">Apply to Post Match Players</button>
+  </div>
+
+  <div class="card">
     <h2>Gold</h2>
     <p class="hint">Have the game's post-match "Overall" screen up (per-player gold next to KDA), then hit Capture.
       Gold is read per player straight off the screen and summed per team automatically. First time only:
@@ -2487,6 +2503,93 @@ document.getElementById("import_battleReport_apply").addEventListener("click", (
     "Applied — go to the Post Match tab and click 'Push Post Match to Overlay' to send it live.";
 });
 
+document.getElementById("import_kda_capture").addEventListener("click", () => {
+  const statusEl = document.getElementById("import_kda_status");
+  if(!(ws && ws.readyState === WebSocket.OPEN)){
+    statusEl.textContent = "Not connected to the OCR server.";
+    return;
+  }
+  startExtractTimer("import_kda_status", "Capturing");
+  ws.send(JSON.stringify({type:"capture_postmatch_kda"}));
+});
+
+function buildImportKdaTable(rows){
+  const container = document.getElementById("import_kda_table");
+  container.innerHTML = "";
+  const byTeamIdx = {};
+  rows.forEach(r => { byTeamIdx[`${r.team}_${r.playerIndex}`] = r; });
+
+  const table = document.createElement("table");
+  table.style.cssText = "width:100%;border-collapse:collapse;font-size:13px;";
+  table.innerHTML = `
+    <thead><tr style="text-align:left;color:#9aa4c0;">
+      <th style="padding:6px;">Player</th>
+      <th style="padding:6px;">Kills</th>
+      <th style="padding:6px;">Deaths</th>
+      <th style="padding:6px;">Assists</th>
+      <th style="padding:6px;">Reorder</th>
+    </tr></thead>
+    <tbody></tbody>
+  `;
+  const tbody = table.querySelector("tbody");
+
+  ["team1","team2"].forEach(team => {
+    const players = (currentState && currentState[team].players) || ["","","","",""];
+    for(let i=0;i<5;i++){
+      const rosterName = players[i] || `(unnamed player ${i+1})`;
+      const found = byTeamIdx[`${team}_${i}`];
+      const tr = document.createElement("tr");
+      tr.style.borderTop = "1px solid #332b52";
+      tr.innerHTML = `
+        <td style="padding:6px;font-weight:700;">${rosterName}
+          <span style="color:#6d7899;font-size:11px;">(${team === "team1" ? "T1" : "T2"} #${i+1})</span></td>
+        <td style="padding:6px;"><input type="number" id="import_kda_${team}_${i}_kills" style="width:60px;" value="${found && found.kills != null ? found.kills : ""}"></td>
+        <td style="padding:6px;"><input type="number" id="import_kda_${team}_${i}_deaths" style="width:60px;" value="${found && found.deaths != null ? found.deaths : ""}"></td>
+        <td style="padding:6px;"><input type="number" id="import_kda_${team}_${i}_assists" style="width:60px;" value="${found && found.assists != null ? found.assists : ""}"></td>
+        <td style="padding:6px;">
+          <div class="reorder-btns">
+            <button type="button" class="reorder-btn" data-dir="up" data-team="${team}" data-i="${i}" title="Swap with row above" ${i===0?"disabled":""}>&#9650;</button>
+            <button type="button" class="reorder-btn" data-dir="down" data-team="${team}" data-i="${i}" title="Swap with row below" ${i===4?"disabled":""}>&#9660;</button>
+          </div>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    }
+  });
+
+  container.appendChild(table);
+  container.querySelectorAll(".reorder-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const team = btn.dataset.team;
+      const i = Number(btn.dataset.i);
+      const j = btn.dataset.dir === "up" ? i - 1 : i + 1;
+      if(j < 0 || j > 4) return;
+      ["kills","deaths","assists"].forEach(field => {
+        const a = document.getElementById(`import_kda_${team}_${i}_${field}`);
+        const b = document.getElementById(`import_kda_${team}_${j}_${field}`);
+        const tmp = a.value; a.value = b.value; b.value = tmp;
+      });
+    });
+  });
+  document.getElementById("import_kda_apply").style.display = "inline-block";
+}
+
+document.getElementById("import_kda_apply").addEventListener("click", () => {
+  ["team1","team2"].forEach(team => {
+    for(let i=0;i<5;i++){
+      const killsSrc = document.getElementById(`import_kda_${team}_${i}_kills`);
+      const deathsSrc = document.getElementById(`import_kda_${team}_${i}_deaths`);
+      const assistsSrc = document.getElementById(`import_kda_${team}_${i}_assists`);
+      if(!killsSrc) continue;
+      if(killsSrc.value !== "") document.getElementById(`pom_${team}_${i}_kills`).value = killsSrc.value;
+      if(deathsSrc.value !== "") document.getElementById(`pom_${team}_${i}_deaths`).value = deathsSrc.value;
+      if(assistsSrc.value !== "") document.getElementById(`pom_${team}_${i}_assists`).value = assistsSrc.value;
+    }
+  });
+  document.getElementById("import_kda_status").textContent =
+    "Applied — go to the Post Match tab and click 'Push Post Match to Overlay' to send it live.";
+});
+
 function recalcGoldTotals(){
   ["team1","team2"].forEach(team => {
     let total = 0;
@@ -3282,6 +3385,12 @@ function connect(){
         ? ("Error: " + msg.error)
         : `Found ${msg.rows.length} of 10 players in ${took} — review before applying.`;
       buildImportBattleReportTable(msg.rows || []);
+    } else if(msg.type === "postmatch_kda_result"){
+      const took = stopExtractTimer("import_kda_status");
+      document.getElementById("import_kda_status").textContent = msg.error
+        ? ("Error: " + msg.error)
+        : `Found ${msg.rows.length} of 10 players in ${took} — review before applying.`;
+      buildImportKdaTable(msg.rows || []);
     } else if(msg.type === "gold_extract_result"){
       const took = stopExtractTimer("import_gold_status");
       if(msg.error){

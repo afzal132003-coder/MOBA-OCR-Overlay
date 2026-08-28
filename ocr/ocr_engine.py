@@ -550,6 +550,20 @@ def parse_kda(text):
     return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
 
 
+def parse_kda_spaced(text):
+    """Post-match screen's K/D/A readout has no slash between the three
+    numbers, just a gap (e.g. "18 0 2") -- pulls out the first three digit
+    runs regardless of what's between them (space or stray OCR noise),
+    rather than matching an exact separator character like parse_kda()
+    does. None if fewer than three numbers were found."""
+    if text is None:
+        return None
+    numbers = re.findall(r"\d+", text)
+    if len(numbers) < 3:
+        return None
+    return tuple(int(n) for n in numbers[:3])
+
+
 def parse_game_timer(text):
     """"MM:SS" -> elapsed milliseconds. None on anything that doesn't look
     like a plausible clock reading (garbage OCR, or seconds >= 60)."""
@@ -1129,10 +1143,10 @@ def parse_calibrated_number(text):
 
 
 # Post Match live screen regions — calibrated the exact same way as the
-# in-game kills/gold HUD (calibrate_postmatch_gold.py / calibrate_postmatch_hero.py,
-# cv2.selectROI against the actual screen), just pointed at the post-game
-# "Overall" (gold) and "Data"
-# (Hero Damage / Damage Taken) screens instead. This is what makes
+# in-game kills/gold HUD (calibrate_postmatch_gold.py / calibrate_postmatch_hero.py
+# / calibrate_postmatch_kda.py, cv2.selectROI against the actual screen),
+# just pointed at the post-game "Overall" (gold), "Data" (Hero Damage /
+# Damage Taken), and K/D/A screens instead. This is what makes
 # extraction fast: a handful of tiny screen crops through the proven
 # digit-only OCR pipeline, not a full-page OCR pass over an uploaded image.
 POSTGAME_GOLD_KEYS = [
@@ -1141,6 +1155,14 @@ POSTGAME_GOLD_KEYS = [
 POSTGAME_BATTLE_KEYS = [
     f"postgame_{field}_{team}_{i}"
     for team in ("team1", "team2") for i in range(5) for field in ("dealt", "taken")
+]
+# One combined box per player around their whole "K D A" reading on the
+# post-match screen -- SPACE-separated here, unlike the in-game live HUD's
+# "18/0/2" slash-separated version (calibrate_teamstats.py), so it needs
+# its own parser (parse_kda_spaced below) even though the region-count
+# shape (10, one per player) matches.
+POSTGAME_KDA_KEYS = [
+    f"postgame_kda_{team}_{i}" for team in ("team1", "team2") for i in range(5)
 ]
 
 
@@ -1194,6 +1216,44 @@ def build_battle_report_rows_from_capture(values):
                 "team": team, "playerIndex": i,
                 "heroDamage": values.get(f"postgame_dealt_{team}_{i}"),
                 "damageTaken": values.get(f"postgame_taken_{team}_{i}"),
+                "calibrated": True,
+            })
+    return rows
+
+
+async def capture_postgame_kda_regions():
+    """Same one-shot live screen grab as capture_postgame_regions(), but
+    each of the 10 regions holds a combined "K D A" reading (three numbers)
+    instead of a single one, so it needs its own capture path rather than
+    reusing the generic per-region single-value one."""
+    loop = asyncio.get_running_loop()
+    regions = config.get("regions", {})
+    with mss.mss() as sct:
+        crops = {
+            key: crop_to_bgr(sct, regions[key])
+            for key in POSTGAME_KDA_KEYS
+            if regions.get(key, {}).get("w", 0) > 0 and regions.get(key, {}).get("h", 0) > 0
+        }
+    result_keys = list(crops.keys())
+    texts = await asyncio.gather(*[
+        loop.run_in_executor(ocr_executor, ocr_number, crops[key]) for key in result_keys
+    ])
+    values = {key: parse_kda_spaced(text) for key, text in zip(result_keys, texts)}
+    for key in POSTGAME_KDA_KEYS:
+        values.setdefault(key, None)
+    return values
+
+
+def build_postgame_kda_rows_from_capture(values):
+    rows = []
+    for team in ("team1", "team2"):
+        for i in range(5):
+            kda = values.get(f"postgame_kda_{team}_{i}")
+            rows.append({
+                "team": team, "playerIndex": i,
+                "kills": kda[0] if kda else None,
+                "deaths": kda[1] if kda else None,
+                "assists": kda[2] if kda else None,
                 "calibrated": True,
             })
     return rows
@@ -1417,6 +1477,21 @@ async def handle_client(websocket, path=None):
                 except Exception as e:
                     await websocket.send(json.dumps({
                         "type": "battle_report_result", "rows": [], "error": str(e),
+                    }))
+            elif payload.get("type") == "capture_postmatch_kda":
+                try:
+                    if postgame_regions_configured(POSTGAME_KDA_KEYS):
+                        values = await capture_postgame_kda_regions()
+                        rows = build_postgame_kda_rows_from_capture(values)
+                        await websocket.send(json.dumps({"type": "postmatch_kda_result", "rows": rows}))
+                    else:
+                        await websocket.send(json.dumps({
+                            "type": "postmatch_kda_result", "rows": [],
+                            "error": "K/D/A regions aren't calibrated yet — run calibrate_postmatch_kda.py first.",
+                        }))
+                except Exception as e:
+                    await websocket.send(json.dumps({
+                        "type": "postmatch_kda_result", "rows": [], "error": str(e),
                     }))
             elif payload.get("type") == "extract_battle_report":
                 # Fallback path — an uploaded screenshot, fuzzy name-matched.
