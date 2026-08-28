@@ -2,8 +2,9 @@
 Interactive calibration tool for freefire_engine.py.
 
 Lives in its own ocr/freefire/ folder, separate from the MOBA calibration
-scripts (calibrate_hud.py / calibrate_postmatch.py / calibrate_teamstats.py)
-one level up -- a different game with its own config.json equivalent
+scripts (calibrate_hud.py / calibrate_postmatch_gold.py /
+calibrate_postmatch_hero.py / calibrate_teamstats.py) one level up -- a
+different game with its own config.json equivalent
 (freefire_config.json, still in ocr/ alongside freefire_engine.py, not
 moved here), so calibrating into the wrong file would silently do nothing.
 Takes one screenshot of your chosen monitor, then lets you drag a box

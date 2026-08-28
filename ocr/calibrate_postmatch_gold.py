@@ -1,17 +1,22 @@
 """
-Interactive calibration tool for the Team Stats Overlay's live per-player
-K/D/A (10 regions: 2 teams x 5 players -- ONE box per player around the
-whole "K/D/A" readout, e.g. "18/0/2", not three separate boxes).
+Interactive calibration tool for the post-match "Overall" screen's
+per-player gold (10 regions: 2 teams x 5 players).
 
-Separate from calibrate_hud.py (the main HUD's kills/gold/objectives/score)
-on purpose -- this is a bigger, slower calibration pass the operator does
-once, on their own time, after the primary live overlay is already up and
-running. Writes into the SAME config.json ocr_engine.py already reads
-(regions live alongside the main HUD's), just via a different entry point
-so the two calibration passes stay independent chores.
+Separate from calibrate_postmatch_hero.py -- Gold lives on a different
+post-match screen ("Overall") than Hero Damage / Damage Taken ("Data"), so
+splitting them into their own calibration passes means you only ever have
+to have ONE of those two screens up at a time, not flip back and forth
+mid-calibration. Writes into the SAME config.json ocr_engine.py already
+reads -- only the calibration entry point is separate, not the underlying
+config.
 
-Run any time your game window moves/resizes, or to redo a subset:
-    python calibrate_teamstats.py t1p1_kda t1p2_kda
+Have the post-match "Overall" screen (per-player gold next to KDA) up on
+screen when you run this -- these are read live off the screen the same
+fast way the in-game kills/gold regions are, not from an uploaded
+screenshot.
+
+Run again any time your game window moves/resizes, or to redo a subset:
+    python calibrate_postmatch_gold.py postgame_gold_team1_0
 """
 
 import json
@@ -24,15 +29,17 @@ import numpy as np
 
 CONFIG_PATH = Path(__file__).parent / "config.json"
 
-REGION_ORDER = [f"t{team}p{p}_kda" for team in (1, 2) for p in range(1, 6)]
+REGION_ORDER = [
+    f"postgame_gold_{team}_{i}" for team in ("team1", "team2") for i in range(5)
+]
 
-LABELS = {
-    f"t{team}p{p}_kda": (
-        f"TEAM {team} - PLAYER {p} - K/D/A "
-        "(one box around the whole reading, e.g. \"18/0/2\")"
-    )
-    for team in (1, 2) for p in range(1, 6)
-}
+LABELS = {}
+for _team in ("team1", "team2"):
+    _team_label = "TEAM 1" if _team == "team1" else "TEAM 2"
+    for _i in range(5):
+        LABELS[f"postgame_gold_{_team}_{_i}"] = (
+            f"POST MATCH (Overall screen) - {_team_label} PLAYER {_i+1} - GOLD"
+        )
 
 
 def load_config():
@@ -71,9 +78,8 @@ def main():
 
     print(f"\nUsing monitor index {monitor_index}: {monitor}")
     print(f"Calibrating {len(keys_to_calibrate)} region(s).")
-    print("A screenshot window will open for each player, one at a time.")
-    print("Drag a box tightly around the whole K/D/A reading (e.g. \"18/0/2\"),")
-    print("then press ENTER or SPACE to confirm.")
+    print("A screenshot window will open for each stat, one at a time.")
+    print("Drag a box tightly around just the NUMBER, then press ENTER or SPACE to confirm.")
     print("Press 'c' to skip a region (keeps its previous value, if any).\n")
 
     regions = cfg.get("regions", {})

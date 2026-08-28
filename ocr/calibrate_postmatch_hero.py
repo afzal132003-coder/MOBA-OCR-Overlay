@@ -1,21 +1,21 @@
 """
-Interactive calibration tool for the post-match screens (30 regions: the
-"Overall" screen's per-player gold, and the "Data" screen's per-player Hero
-Damage / Damage Taken).
+Interactive calibration tool for the post-match "Data" screen's per-player
+Hero Damage / Damage Taken (20 regions: 2 teams x 5 players x 2 fields).
 
-Was folded into calibrate.py (now calibrate_hud.py) originally; split out
-into its own entry point since it's a completely different pair of screens
-(post-game, not the live in-game HUD) that the operator calibrates once and
-separately, typically right after their first real post-match. Writes into
-the SAME config.json ocr_engine.py already reads -- only the calibration
-entry point is separate, not the underlying config.
+Separate from calibrate_postmatch_gold.py -- Hero Damage / Damage Taken
+lives on a different post-match screen ("Data") than Gold ("Overall"), so
+splitting them into their own calibration passes means you only ever have
+to have ONE of those two screens up at a time, not flip back and forth
+mid-calibration. Writes into the SAME config.json ocr_engine.py already
+reads -- only the calibration entry point is separate, not the underlying
+config.
 
-Have the relevant post-match screen (paused/still showing) on screen when
-you run this -- these are read live off the screen the same fast way the
-in-game kills/gold regions are, not from an uploaded screenshot.
+Have the post-match "Data" screen up on screen when you run this -- these
+are read live off the screen the same fast way the in-game kills/gold
+regions are, not from an uploaded screenshot.
 
 Run again any time your game window moves/resizes, or to redo a subset:
-    python calibrate_postmatch.py postgame_gold_team1_0
+    python calibrate_postmatch_hero.py postgame_dealt_team1_0
 """
 
 import json
@@ -28,22 +28,15 @@ import numpy as np
 
 CONFIG_PATH = Path(__file__).parent / "config.json"
 
-POSTGAME_GOLD_KEYS = [
-    f"postgame_gold_{team}_{i}" for team in ("team1", "team2") for i in range(5)
-]
-POSTGAME_BATTLE_KEYS = [
+REGION_ORDER = [
     f"postgame_{field}_{team}_{i}"
     for team in ("team1", "team2") for i in range(5) for field in ("dealt", "taken")
 ]
-REGION_ORDER = POSTGAME_GOLD_KEYS + POSTGAME_BATTLE_KEYS
 
 LABELS = {}
 for _team in ("team1", "team2"):
     _team_label = "TEAM 1" if _team == "team1" else "TEAM 2"
     for _i in range(5):
-        LABELS[f"postgame_gold_{_team}_{_i}"] = (
-            f"POST MATCH (Overall screen) - {_team_label} PLAYER {_i+1} - GOLD"
-        )
         LABELS[f"postgame_dealt_{_team}_{_i}"] = (
             f"POST MATCH (Data screen) - {_team_label} PLAYER {_i+1} - HERO DAMAGE"
         )

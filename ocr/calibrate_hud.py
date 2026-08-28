@@ -2,13 +2,13 @@
 Interactive calibration tool for the live in-game HUD (kills, objectives,
 gold, series score, turtle/lord announcement zone, match timer).
 
-Was "calibrate.py" -- renamed once calibrate_postmatch.py and
-calibrate_teamstats.py existed too, so the name says which screen it's for
-instead of being the unlabeled default. Post-match (Overall/Data screen)
-regions moved out to calibrate_postmatch.py; per-player live K/D/A regions
-are calibrate_teamstats.py. All three still write into the same
-config.json ocr_engine.py reads -- only the calibration entry point is
-split, not the underlying config.
+Was "calibrate.py" -- renamed once calibrate_postmatch_gold.py,
+calibrate_postmatch_hero.py, and calibrate_teamstats.py existed too, so the
+name says which screen it's for instead of being the unlabeled default.
+Post-match (Overall/Data screen) regions moved out to those two scripts;
+per-player live K/D/A regions are calibrate_teamstats.py. All four still
+write into the same config.json ocr_engine.py reads -- only the
+calibration entry point is split, not the underlying config.
 
 Run this again any time your game window moves or resizes. To
 recalibrate only specific regions (leaving the others untouched), pass

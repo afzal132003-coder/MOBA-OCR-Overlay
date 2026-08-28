@@ -87,17 +87,19 @@
   .stat-card .stat-crop img{width:100%;height:50px;object-fit:contain;}
   .stat-card .stat-crop .crop-caption{font-size:9px;color:#6d7899;text-transform:uppercase;margin-top:4px;text-align:center;}
 
-  /* Player K/D/A Live Stats -- 10 compact rows (5 players x 2 teams),
-     each with 3 small K/D/A cells, deliberately much smaller than the
-     main stat-card since there are so many more of them. */
+  /* Player K/D/A Live Stats -- 10 compact rows (5 players x 2 teams), each
+     with one shared crop (one combined "K/D/A" region per player now, not
+     three separate ones) plus 3 small value/override cells, deliberately
+     much smaller than the main stat-card since there are so many more of
+     them. */
   .pstat-row{display:flex; align-items:center; gap:8px; margin-bottom:8px;
     background:#0c0a17; border:1px solid #332b52; border-radius:6px; padding:6px 8px;}
   .pstat-row .pstat-name{flex:1; font-size:12px; font-weight:700; color:#eef1fa; min-width:0;
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .pstat-kda-crop{width:56px; height:22px; object-fit:contain; background:#000; border-radius:3px; border:1px solid #241d3d; flex-shrink:0;}
   .pstat-cell{display:flex; align-items:center; gap:4px;}
   .pstat-cell .pstat-label{font-size:10px; color:#6d7899; text-transform:uppercase;}
   .pstat-cell .pstat-value{font-size:15px; font-weight:800; color:#8b5cf6; width:22px; text-align:center;}
-  .pstat-cell img{width:40px; height:22px; object-fit:contain; background:#000; border-radius:3px; border:1px solid #241d3d;}
   .pstat-cell .pstat-override-toggle{display:flex; align-items:center; cursor:pointer;}
   .pstat-cell .pstat-override-toggle input{width:12px; height:12px; margin:0; cursor:pointer;}
   .pstat-cell .pstat-override-input{width:32px; font-size:11px; padding:2px 3px;
@@ -354,6 +356,15 @@
       <button class="secondary" id="matchClock_pause">Pause</button>
       <button class="secondary" id="matchClock_reset">Reset</button>
     </div>
+    <div class="override-row">
+      <label style="margin:0;display:inline-block;">
+        <input type="checkbox" id="matchClock_lock"> Override
+      </label>
+    </div>
+    <div class="override-row">
+      <input type="text" id="matchClock_input" placeholder="MM:SS" disabled style="width:80px;">
+      <button data-key="game_timer" id="matchClock_apply">Apply</button>
+    </div>
   </div>
 
   <div class="card">
@@ -423,10 +434,10 @@
 
   <div class="card">
     <h2>Player K/D/A Live Stats</h2>
-    <p class="hint">30 regions (2 teams × 5 players × K/D/A) feeding the Team Stats Overlay above — its own
-      calibration pass, separate from the main HUD, for whenever you have time. Check the box next to any value to
-      override it manually (protects it from being overwritten by the next OCR read); uncheck to hand it back to
-      OCR:</p>
+    <p class="hint">10 regions (2 teams × 5 players) feeding the Team Stats Overlay above — one box per player around
+      their whole "K/D/A" reading (e.g. "18/0/2"), not three separate boxes. Its own calibration pass, separate from
+      the main HUD, for whenever you have time. Check the box next to any value to override it manually (locks that
+      player's whole K/D/A reading, since OCR reads all three together); uncheck to hand it back to OCR:</p>
     <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
       cd ocr &amp;&amp; python calibrate_teamstats.py
     </div>
@@ -739,7 +750,7 @@
       needed. First time only: calibrate the 20 regions once with the command below (like you did for the HUD),
       it's reused after that.</p>
     <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-      cd ocr &amp;&amp; python calibrate_postmatch.py postgame_dealt_team1_0 postgame_taken_team1_0 postgame_dealt_team1_1 postgame_taken_team1_1 postgame_dealt_team1_2 postgame_taken_team1_2 postgame_dealt_team1_3 postgame_taken_team1_3 postgame_dealt_team1_4 postgame_taken_team1_4 postgame_dealt_team2_0 postgame_taken_team2_0 postgame_dealt_team2_1 postgame_taken_team2_1 postgame_dealt_team2_2 postgame_taken_team2_2 postgame_dealt_team2_3 postgame_taken_team2_3 postgame_dealt_team2_4 postgame_taken_team2_4
+      cd ocr &amp;&amp; python calibrate_postmatch_hero.py
     </div>
     <button id="import_battleReport_capture">Capture From Screen Now</button>
     <div id="import_battleReport_status" class="hint"></div>
@@ -763,7 +774,7 @@
       Gold is read per player straight off the screen and summed per team automatically. First time only:
       calibrate the 10 regions once with the command below.</p>
     <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-      cd ocr &amp;&amp; python calibrate_postmatch.py postgame_gold_team1_0 postgame_gold_team1_1 postgame_gold_team1_2 postgame_gold_team1_3 postgame_gold_team1_4 postgame_gold_team2_0 postgame_gold_team2_1 postgame_gold_team2_2 postgame_gold_team2_3 postgame_gold_team2_4
+      cd ocr &amp;&amp; python calibrate_postmatch_gold.py
     </div>
     <button id="import_gold_capture">Capture From Screen Now</button>
     <div id="import_gold_status" class="hint"></div>
@@ -1478,7 +1489,9 @@ function buildStatGrid(){
   });
 }
 
-/* ---------- Player K/D/A Live Stats (30-region calibrate_teamstats.py feed) ---------- */
+/* ---------- Player K/D/A Live Stats (10-region calibrate_teamstats.py feed --
+   one combined "K/D/A" box per player, e.g. "18/0/2", not three separate
+   ones) ---------- */
 function buildPlayerStatRows(){
   ["team1", "team2"].forEach(team => {
     const container = document.getElementById(`pstat_${team}`);
@@ -1486,22 +1499,23 @@ function buildPlayerStatRows(){
     const teamNum = team === "team1" ? 1 : 2;
     for(let i = 0; i < 5; i++){
       const playerNum = i + 1;
+      const kdaKey = `t${teamNum}p${playerNum}_kda`;
       const row = document.createElement("div");
       row.className = "pstat-row";
       row.innerHTML = `
         <div class="pstat-name" id="pstat_${team}_${i}_name">Player ${playerNum}</div>
+        <img class="pstat-kda-crop" id="crop-${kdaKey}" alt="">
         ${["kills","deaths","assists"].map(stat => {
-          const key = `t${teamNum}p${playerNum}_${stat}`;
+          const cellKey = `${kdaKey}_${stat}`;
           const letter = stat[0].toUpperCase();
           return `
             <div class="pstat-cell">
               <span class="pstat-label">${letter}</span>
-              <span class="pstat-value" id="pstat_${key}_val">0</span>
-              <img id="crop-${key}" alt="">
-              <label class="pstat-override-toggle" title="Override this value">
-                <input type="checkbox" id="pstat_lock_${key}" data-key="${key}" data-team="${team}" data-idx="${i}" data-stat="${stat}">
+              <span class="pstat-value" id="pstat_${cellKey}_val">0</span>
+              <label class="pstat-override-toggle" title="Override this player's whole K/D/A reading">
+                <input type="checkbox" id="pstat_lock_${cellKey}" data-lockkey="${kdaKey}" data-team="${team}" data-idx="${i}" data-stat="${stat}" data-cellkey="${cellKey}">
               </label>
-              <input type="number" id="pstat_input_${key}" data-key="${key}" data-team="${team}" data-idx="${i}" data-stat="${stat}"
+              <input type="number" id="pstat_input_${cellKey}" data-lockkey="${kdaKey}" data-team="${team}" data-idx="${i}" data-stat="${stat}" data-cellkey="${cellKey}"
                 class="pstat-override-input" disabled>
             </div>`;
         }).join("")}
@@ -1512,34 +1526,38 @@ function buildPlayerStatRows(){
   wirePlayerStatOverrides();
 }
 
-// Checkbox arms/disarms the number input and locks/unlocks the field
-// server-side (same lock/unlock pattern buildStatGrid uses for the main
-// HUD stats); the input applies on Enter or blur, mirroring its Apply
-// button but inline since 30 separate buttons would be too much clutter
-// for cells this small.
+// Checking any one of a player's three K/D/A checkboxes locks the whole
+// combined region ("t1p3_kda") since OCR reads/confirms kills+deaths+
+// assists together from one crop now -- there's no way to protect just
+// "deaths" while letting OCR keep updating "kills" from the same source
+// read. The three checkboxes/inputs stay visually in sync since they all
+// resync from the same lockedFields.has(kdaKey) truth every state_sync
+// (see updatePlayerStatValues). Apply still patches just the one stat
+// field it belongs to via the existing per-field "playerStat" message.
 function wirePlayerStatOverrides(){
   document.querySelectorAll(".pstat-override-toggle input[type=checkbox]").forEach(cb => {
     cb.addEventListener("change", (e) => {
-      const key = e.target.dataset.key;
-      const input = document.getElementById(`pstat_input_${key}`);
+      const cellKey = e.target.dataset.cellkey;
+      const lockKey = e.target.dataset.lockkey;
+      const input = document.getElementById(`pstat_input_${cellKey}`);
       input.disabled = !e.target.checked;
       if(e.target.checked){
-        input.value = document.getElementById(`pstat_${key}_val`).textContent;
+        input.value = document.getElementById(`pstat_${cellKey}_val`).textContent;
         input.focus();
         input.select();
       } else {
-        sendManualUpdate({}, [], [key]);
+        sendManualUpdate({}, [], [lockKey]);
       }
     });
   });
   document.querySelectorAll(".pstat-override-input").forEach(inp => {
     const apply = () => {
-      const key = inp.dataset.key;
-      const cb = document.getElementById(`pstat_lock_${key}`);
+      const lockKey = inp.dataset.lockkey;
+      const cb = document.getElementById(`pstat_lock_${inp.dataset.cellkey}`);
       if(!cb.checked) return;
       sendManualUpdate({
         playerStat: { team: inp.dataset.team, playerIndex: Number(inp.dataset.idx), stat: inp.dataset.stat, value: Number(inp.value || 0) },
-      }, [key], []);
+      }, [lockKey], []);
     };
     inp.addEventListener("change", apply);
     inp.addEventListener("keydown", (e) => { if(e.key === "Enter") apply(); });
@@ -1562,19 +1580,22 @@ function updatePlayerStatValues(){
     const teamNum = team === "team1" ? 1 : 2;
     (currentState.livePlayers[team] || []).forEach((stats, i) => {
       const playerNum = i + 1;
+      const kdaKey = `t${teamNum}p${playerNum}_kda`;
+      // All three cells share one lock (the combined K/D/A region), but
+      // each still shows/edits its own field -- see wirePlayerStatOverrides.
+      const isLocked = lockedFields.has(kdaKey);
       ["kills", "deaths", "assists"].forEach(stat => {
-        const key = `t${teamNum}p${playerNum}_${stat}`;
+        const cellKey = `${kdaKey}_${stat}`;
         const value = (stats && stats[stat]) || 0;
-        const el = document.getElementById(`pstat_${key}_val`);
+        const el = document.getElementById(`pstat_${cellKey}_val`);
         if(el) el.textContent = value;
         // Same resync-from-server-truth pattern as STAT_FIELDS above --
         // lockedFields is the authority on checked state (not local click
         // history), so a page refresh or a lock set from another tab shows
         // up correctly here too.
-        const cb = document.getElementById(`pstat_lock_${key}`);
-        const input = document.getElementById(`pstat_input_${key}`);
+        const cb = document.getElementById(`pstat_lock_${cellKey}`);
+        const input = document.getElementById(`pstat_input_${cellKey}`);
         if(cb && input){
-          const isLocked = lockedFields.has(key);
           cb.checked = isLocked;
           input.disabled = !isLocked;
           if(document.activeElement !== input) input.value = value;
@@ -2638,21 +2659,34 @@ document.getElementById("turtle_resetManual").addEventListener("click", () => {
 
 /* ---------- match clock ---------- */
 let matchClockTickHandle = null;
+function formatMatchClock(ms){
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(totalSec / 60), s = totalSec % 60;
+  return `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+}
 function updateMatchClockDisplay(mc){
   if(!mc) return;
   const el = document.getElementById("matchClock_display");
   if(matchClockTickHandle){ clearInterval(matchClockTickHandle); matchClockTickHandle = null; }
-  const format = (ms) => {
-    const totalSec = Math.max(0, Math.floor(ms / 1000));
-    const m = Math.floor(totalSec / 60), s = totalSec % 60;
-    return `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
-  };
+  let liveMs = mc.elapsedMs || 0;
   if(mc.status === "running" && mc.startedAt){
-    const tick = () => { el.textContent = format(Date.now() - mc.startedAt); };
+    const tick = () => { liveMs = Date.now() - mc.startedAt; el.textContent = formatMatchClock(liveMs); };
     tick();
     matchClockTickHandle = setInterval(tick, 1000);
   } else {
-    el.textContent = format(mc.elapsedMs || 0);
+    el.textContent = formatMatchClock(liveMs);
+  }
+
+  // Same resync-from-server-truth pattern as the other Override
+  // checkboxes -- lockedFields (populated from every state_sync's
+  // "locked" list) is the authority, not local click history.
+  const isLocked = lockedFields.has("game_timer");
+  const lockCheckbox = document.getElementById("matchClock_lock");
+  const input = document.getElementById("matchClock_input");
+  lockCheckbox.checked = isLocked;
+  input.disabled = !isLocked;
+  if(document.activeElement !== input){
+    input.value = formatMatchClock(liveMs);
   }
 }
 document.getElementById("matchClock_start").addEventListener("click", () => {
@@ -2663,6 +2697,37 @@ document.getElementById("matchClock_pause").addEventListener("click", () => {
 });
 document.getElementById("matchClock_reset").addEventListener("click", () => {
   if(ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:"matchclock_reset"}));
+});
+
+// Override: correcting the clock here resyncs it to a locally-ticking
+// stopwatch server-side (same smooth-resync mechanism OCR confirms use)
+// instead of freezing it, and locks "game_timer" so the next OCR read
+// doesn't immediately fight the correction.
+function parseMatchClockInput(text){
+  const match = /^(\d{1,3}):(\d{1,2})$/.exec((text || "").trim());
+  if(!match) return null;
+  const m = Number(match[1]), s = Number(match[2]);
+  if(s >= 60) return null;
+  return (m * 60 + s) * 1000;
+}
+document.getElementById("matchClock_lock").addEventListener("change", (e) => {
+  const input = document.getElementById("matchClock_input");
+  input.disabled = !e.target.checked;
+  if(!e.target.checked && ws && ws.readyState === WebSocket.OPEN){
+    ws.send(JSON.stringify({type:"matchclock_set", unlock:["game_timer"]}));
+  } else if(e.target.checked){
+    input.focus();
+    input.select();
+  }
+});
+document.getElementById("matchClock_apply").addEventListener("click", () => {
+  const cb = document.getElementById("matchClock_lock");
+  if(!cb.checked) return;
+  const elapsedMs = parseMatchClockInput(document.getElementById("matchClock_input").value);
+  if(elapsedMs == null) return;
+  if(ws && ws.readyState === WebSocket.OPEN){
+    ws.send(JSON.stringify({type:"matchclock_set", elapsedMs, lock:["game_timer"]}));
+  }
 });
 
 /* ---------- lord announcement (debug/status readout) ---------- */

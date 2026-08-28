@@ -6,8 +6,9 @@ with Tesseract OCR, and relays live state to any connected browser
 (overlay.html / dashboard.html) over a local WebSocket server.
 
 Run calibrate_hud.py first to set up the live in-game HUD's crop regions
-in config.json (calibrate_postmatch.py and calibrate_teamstats.py cover
-the post-match screens and per-player live K/D/A separately).
+in config.json (calibrate_postmatch_gold.py, calibrate_postmatch_hero.py,
+and calibrate_teamstats.py cover the post-match screens and per-player
+live K/D/A separately).
 """
 
 import asyncio
@@ -74,20 +75,25 @@ FIELD_MAP = {
 
 # Per-player live K/D/A for the Team Stats Overlay spotlight graphic --
 # deliberately its OWN calibration pass (calibrate_teamstats.py, not
-# calibrate_hud.py) since it's 30 regions the operator calibrates separately
-# and later, not part of the always-on main HUD. Key format "t1p3_kills"
-# = team1, player 3 (1-indexed to match how players are labeled
-# everywhere in the dashboard), kills -- parsed by
-# apply_player_stat_value() below rather than FIELD_MAP, since a flat
-# (team,field) tuple doesn't have room for the player index.
-PLAYER_STAT_KEYS = [
-    f"t{team}p{p}_{stat}"
-    for team in (1, 2) for p in range(1, 6) for stat in ("kills", "deaths", "assists")
-]
-PLAYER_STAT_KEYS_SET = set(PLAYER_STAT_KEYS)
+# calibrate_hud.py) since it's 10 regions the operator calibrates separately
+# and later, not part of the always-on main HUD. One combined box per
+# player around the whole "K/D/A" readout (e.g. "18/0/2"), not three
+# separate boxes -- matches how the HUD actually displays it and halves
+# the calibration effort (10 clicks instead of 30). Key format "t1p3_kda"
+# = team1, player 3 (1-indexed to match how players are labeled everywhere
+# in the dashboard) -- parsed by apply_player_kda_value() below rather
+# than FIELD_MAP, since a flat (team,field) tuple doesn't have room for
+# the player index, and one OCR read here has to fan out into three
+# separate livePlayers fields at once.
+PLAYER_KDA_KEYS = [f"t{team}p{p}_kda" for team in (1, 2) for p in range(1, 6)]
+PLAYER_KDA_KEYS_SET = set(PLAYER_KDA_KEYS)
 
 NUMBER_REGEX = re.compile(r"\d+")
 GOLD_REGEX = re.compile(r"(\d+(?:\.\d+)?)\s*([kK])?")
+# "18/0/2" -- kills/deaths/assists as shown together on the live HUD.
+# Tolerant of stray spaces around the slashes, which Tesseract sometimes
+# inserts even with a tight whitelist.
+KDA_REGEX = re.compile(r"(\d+)\s*/\s*(\d+)\s*/\s*(\d+)")
 # Match clock, e.g. "12:34" -- MM:SS counting up over the course of the
 # game. Read continuously (unlike turtle's one-shot toast) since it's a
 # steady live HUD readout, same debounce path as kills/gold below.
@@ -126,10 +132,10 @@ TURTLE_MAX_COUNTDOWN = 120
 # Tesseract calls are blocking subprocess launches; running the regions
 # through a thread pool instead of one-after-another is what actually cuts
 # the per-cycle latency down, since they overlap instead of stacking up.
-# Sized for REGION_ORDER + all 30 PLAYER_STAT_KEYS (only actually used once
+# Sized for REGION_ORDER + all 10 PLAYER_KDA_KEYS (only actually used once
 # calibrate_teamstats.py has set them up -- zero-cost otherwise, they're
 # just skipped) + turtle + game_timer.
-ocr_executor = ThreadPoolExecutor(max_workers=len(REGION_ORDER) + len(PLAYER_STAT_KEYS) + 2)
+ocr_executor = ThreadPoolExecutor(max_workers=len(REGION_ORDER) + len(PLAYER_KDA_KEYS) + 2)
 
 connected_clients = set()
 # websocket -> the "page" query param it connected with (overlay.html,
@@ -280,8 +286,8 @@ def default_state():
             "playerIndex": None,
             "characterImage": "",
         },
-        # Live per-player K/D/A, OCR-fed once calibrate_teamstats.py's 30
-        # regions are set up (see PLAYER_STAT_KEYS) -- idle (all zero)
+        # Live per-player K/D/A, OCR-fed once calibrate_teamstats.py's 10
+        # regions are set up (see PLAYER_KDA_KEYS) -- idle (all zero)
         # until then, same as any other uncalibrated region.
         "livePlayers": {
             "team1": [{"kills": 0, "deaths": 0, "assists": 0} for _ in range(5)],
@@ -421,12 +427,14 @@ reading_window = {key: deque(maxlen=DEBOUNCE_WINDOW) for key in REGION_ORDER}
 # these dicts since they're only pre-seeded from REGION_ORDER.
 last_confirmed[GAME_TIMER_REGION_KEY] = None
 reading_window[GAME_TIMER_REGION_KEY] = deque(maxlen=DEBOUNCE_WINDOW)
-# Same deal for the 30 per-player stat keys -- these DO get captured
+# Same deal for the 10 per-player K/D/A keys -- these DO get captured
 # through the main numeric batch in ocr_loop() (unlike game_timer/turtle,
-# no special text-OCR pipeline needed, just confirm_reading() same as
-# kills/gold), so they just need debounce-dict entries, not their own
-# crop/OCR call.
-for _key in PLAYER_STAT_KEYS:
+# no special one-off crop/OCR call needed, just a different read_region()
+# branch), so they just need debounce-dict entries here. confirm_reading()
+# works unchanged on these even though the "value" is a (kills,deaths,
+# assists) tuple instead of a single int -- Counter/dict lookups don't care,
+# tuples are hashable same as ints.
+for _key in PLAYER_KDA_KEYS:
     last_confirmed[_key] = None
     reading_window[_key] = deque(maxlen=DEBOUNCE_WINDOW)
 
@@ -457,6 +465,11 @@ TESS_CONFIG_TIMER = (
     "-c tessedit_char_whitelist=0123456789: "
     "-c load_system_dawg=0 -c load_freq_dawg=0"
 )
+TESS_CONFIG_KDA = (
+    "--oem 1 --psm 7 "
+    "-c tessedit_char_whitelist=0123456789/ "
+    "-c load_system_dawg=0 -c load_freq_dawg=0"
+)
 
 
 def ocr_number(img_bgr):
@@ -472,6 +485,15 @@ def ocr_timer(img_bgr):
     to the whitelist."""
     processed = preprocess(img_bgr)
     text = pytesseract.image_to_string(processed, config=TESS_CONFIG_TIMER)
+    return text.strip()
+
+
+def ocr_kda(img_bgr):
+    """Same digit-tuned preprocess() pipeline as ocr_number()/ocr_timer()
+    -- the per-player "K/D/A" readout is small plain HUD digits same as
+    kills/gold, just with a "/" added to the whitelist instead of ":"."""
+    processed = preprocess(img_bgr)
+    text = pytesseract.image_to_string(processed, config=TESS_CONFIG_KDA)
     return text.strip()
 
 
@@ -515,6 +537,17 @@ def parse_int(text):
     if not match:
         return None
     return int(match.group())
+
+
+def parse_kda(text):
+    """"18/0/2" -> (18, 0, 2). None on anything that doesn't look like a
+    plausible K/D/A reading (garbage OCR, missing a segment)."""
+    if text is None:
+        return None
+    match = KDA_REGEX.search(text)
+    if not match:
+        return None
+    return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
 
 
 def parse_game_timer(text):
@@ -598,25 +631,31 @@ def apply_ocr_value(key, value):
     return True
 
 
-def apply_player_stat_value(key, value):
-    """"t1p3_kills" -> livePlayers.team1[2].kills, etc. -- see
-    PLAYER_STAT_KEYS' comment for why this isn't in FIELD_MAP. The key
-    itself (e.g. "t1p3_kills") doubles as its own locked_fields entry --
+def apply_player_kda_value(key, value):
+    """"t1p3_kda" -> livePlayers.team1[2] = {kills,deaths,assists}, all
+    three fields from the one combined OCR read at once -- see
+    PLAYER_KDA_KEYS' comment for why this isn't in FIELD_MAP. The key
+    itself (e.g. "t1p3_kda") doubles as its own locked_fields entry --
     unlike apply_ocr_value's "team.field" strings, there's no separate
-    namespacing needed since PLAYER_STAT_KEYS is already unique per stat."""
+    namespacing needed since PLAYER_KDA_KEYS is already unique per player.
+    A manual per-stat override (dashboard's "playerStat" message) can still
+    patch just one of the three fields directly -- this function only
+    handles the combined OCR path."""
     if key in locked_fields:
         return False
     team = f"team{key[1]}"
-    player_num_str, stat = key[3:].split("_", 1)
-    player_idx = int(player_num_str) - 1
+    player_idx = int(key[3:].split("_", 1)[0]) - 1
+    kills, deaths, assists = value
     row = server_state["livePlayers"][team][player_idx]
-    if row[stat] == value:
+    if row["kills"] == kills and row["deaths"] == deaths and row["assists"] == assists:
         return False
-    row[stat] = value
+    row["kills"], row["deaths"], row["assists"] = kills, deaths, assists
     return True
 
 
 def read_region(key, img_bgr):
+    if key in PLAYER_KDA_KEYS_SET:
+        return parse_kda(ocr_kda(img_bgr))
     text = ocr_number(img_bgr)
     if key.endswith("_gold"):
         return parse_gold(text)
@@ -709,6 +748,8 @@ def process_game_timer_reading(text, now_ms):
     confirmed = confirm_reading(GAME_TIMER_REGION_KEY, parsed_ms)
     if confirmed is None:
         return False
+    if GAME_TIMER_REGION_KEY in locked_fields:
+        return False
     mc = server_state["matchClock"]
     new_started_at = now_ms - confirmed
     if mc["status"] == "running" and mc["startedAt"] is not None and abs(mc["startedAt"] - new_started_at) < 1000:
@@ -730,12 +771,12 @@ async def ocr_loop():
             # Screen grabs are cheap (a few ms) and mss isn't thread-safe, so
             # these stay sequential in the main thread.
             crops = {}
-            # PLAYER_STAT_KEYS rides along in the same flat dict/batch as
+            # PLAYER_KDA_KEYS rides along in the same flat dict/batch as
             # REGION_ORDER -- read_region() and confirm_reading() are both
             # already generic per-key, so as long as the region isn't
             # calibrated (the common case until calibrate_teamstats.py has
-            # been run) this loop just skips all 30 of them for free.
-            for key in REGION_ORDER + PLAYER_STAT_KEYS:
+            # been run) this loop just skips all 10 of them for free.
+            for key in REGION_ORDER + PLAYER_KDA_KEYS:
                 region = regions.get(key)
                 if not region or region.get("w", 0) <= 0 or region.get("h", 0) <= 0:
                     continue
@@ -786,7 +827,7 @@ async def ocr_loop():
                 confirmed = confirm_reading(key, parsed)
                 if confirmed is None:
                     continue
-                apply_fn = apply_player_stat_value if key in PLAYER_STAT_KEYS_SET else apply_ocr_value
+                apply_fn = apply_player_kda_value if key in PLAYER_KDA_KEYS_SET else apply_ocr_value
                 if apply_fn(key, confirmed):
                     changed = True
 
@@ -1088,8 +1129,9 @@ def parse_calibrated_number(text):
 
 
 # Post Match live screen regions — calibrated the exact same way as the
-# in-game kills/gold HUD (calibrate_postmatch.py, cv2.selectROI against the
-# actual screen), just pointed at the post-game "Overall" (gold) and "Data"
+# in-game kills/gold HUD (calibrate_postmatch_gold.py / calibrate_postmatch_hero.py,
+# cv2.selectROI against the actual screen), just pointed at the post-game
+# "Overall" (gold) and "Data"
 # (Hero Damage / Damage Taken) screens instead. This is what makes
 # extraction fast: a handful of tiny screen crops through the proven
 # digit-only OCR pipeline, not a full-page OCR pass over an uploaded image.
@@ -1313,6 +1355,35 @@ async def handle_client(websocket, path=None):
                 await broadcast({
                     "type": "state_sync", "data": server_state, "locked": list(locked_fields),
                 })
+            elif payload.get("type") == "matchclock_set":
+                # Manual correction -- same backdated-startedAt resync
+                # process_game_timer_reading() uses, so a manual fix also
+                # keeps ticking smoothly forward from the corrected instant
+                # instead of freezing. Also doubles as the Override
+                # lock/unlock endpoint (same lock/unlock arrays every other
+                # manual_update path uses) -- locking "game_timer" here stops
+                # process_game_timer_reading() from fighting the correction
+                # on its next confirmed OCR read.
+                now_ms = int(time.time() * 1000)
+                elapsed_ms = payload.get("elapsedMs")
+                if elapsed_ms is not None:
+                    try:
+                        elapsed_ms = int(elapsed_ms)
+                    except (TypeError, ValueError):
+                        elapsed_ms = None
+                if elapsed_ms is not None:
+                    mc = server_state["matchClock"]
+                    mc["status"] = "running"
+                    mc["startedAt"] = now_ms - elapsed_ms
+                    mc["elapsedMs"] = elapsed_ms
+                for field in payload.get("lock", []):
+                    locked_fields.add(field)
+                for field in payload.get("unlock", []):
+                    locked_fields.discard(field)
+                save_state()
+                await broadcast({
+                    "type": "state_sync", "data": server_state, "locked": list(locked_fields),
+                })
             elif payload.get("type") == "capture_postmatch_gold":
                 # Fast path — have the post-game "Overall" screen up on the
                 # monitor right now; this grabs the calibrated regions live,
@@ -1326,7 +1397,7 @@ async def handle_client(websocket, path=None):
                     else:
                         await websocket.send(json.dumps({
                             "type": "gold_extract_result", "rows": [], "candidates": [],
-                            "error": "Gold regions aren't calibrated yet — run calibrate_postmatch.py with the postgame_gold_* keys first.",
+                            "error": "Gold regions aren't calibrated yet — run calibrate_postmatch_gold.py first.",
                         }))
                 except Exception as e:
                     await websocket.send(json.dumps({
@@ -1341,7 +1412,7 @@ async def handle_client(websocket, path=None):
                     else:
                         await websocket.send(json.dumps({
                             "type": "battle_report_result", "rows": [],
-                            "error": "Battle report regions aren't calibrated yet — run calibrate_postmatch.py with the postgame_dealt_*/postgame_taken_* keys first.",
+                            "error": "Battle report regions aren't calibrated yet — run calibrate_postmatch_hero.py first.",
                         }))
                 except Exception as e:
                     await websocket.send(json.dumps({
