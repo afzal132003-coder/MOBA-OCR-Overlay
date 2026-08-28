@@ -117,7 +117,19 @@
   .photo-wrap{ position:absolute; top:0; width:180px; height:100px; overflow:hidden; }
   #col-team1 .photo-wrap{ left:0; }
   #col-team2 .photo-wrap{ right:0; }
-  .photo-wrap img.hero-photo{ width:100%; height:100%; object-fit:cover; object-position:50% 15%; display:none; }
+  /* Same idle sway as the Prematch pick slots (pickFloat) -- scale(1.12)
+     overfill so the rotate/skewY never exposes empty background at the
+     wrap's edges, same reasoning as everywhere else this animation is
+     used. Not synced to any Graphic Fixing override on this element, so
+     no wrapper indirection needed here (unlike mvp-photo-wrap/ts-char-wrap
+     elsewhere) -- if hero-photo ever gets added to graphicOverrides.postmatch
+     later, move this animation onto a non-animated wrapper first. */
+  .photo-wrap img.hero-photo{ width:100%; height:100%; object-fit:cover; object-position:50% 15%; display:none;
+    transform-origin:center center; animation:pickFloat 5s ease-in-out infinite; }
+  @keyframes pickFloat{
+    0%,100%{ transform:scale(1.12) translateY(2px) rotate(-0.5deg) skewY(-0.6deg); }
+    50%{ transform:scale(1.12) translateY(-2px) rotate(0.5deg) skewY(0.6deg); }
+  }
   .photo-caption{ position:absolute; left:0; right:0; bottom:0; background:rgba(0,0,0,0.65);
     padding:3px 6px; box-sizing:border-box; display:none; }
   .photo-caption .pname{ color:#fff; font-weight:800; font-size:11px; text-transform:uppercase;

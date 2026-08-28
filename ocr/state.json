@@ -33,15 +33,15 @@
   },
   "turtleTimer": {
     "status": "idle",
-    "countdownSeconds": 0,
+    "countdownSeconds": 15,
     "endsAt": null,
     "spawnedUntil": null,
-    "lastRawText": ""
+    "lastRawText": "(manual)"
   },
   "lordTimer": {
     "status": "idle",
     "spawnedUntil": null,
-    "lastRawText": ""
+    "lastRawText": "(manual)"
   },
   "matchClock": {
     "status": "running",
@@ -397,7 +397,7 @@
   "livePlayers": {
     "team1": [
       {
-        "kills": 12,
+        "kills": 0,
         "deaths": 0,
         "assists": 0
       },
@@ -452,10 +452,10 @@
   },
   "teamStatsOverlay": {
     "team1": {
-      "playerIndex": null
+      "playerIndex": 1
     },
     "team2": {
-      "playerIndex": null
+      "playerIndex": 3
     }
   },
   "freefire": {
