@@ -98,6 +98,11 @@
   .pstat-cell .pstat-label{font-size:10px; color:#6d7899; text-transform:uppercase;}
   .pstat-cell .pstat-value{font-size:15px; font-weight:800; color:#8b5cf6; width:22px; text-align:center;}
   .pstat-cell img{width:40px; height:22px; object-fit:contain; background:#000; border-radius:3px; border:1px solid #241d3d;}
+  .pstat-cell .pstat-override-toggle{display:flex; align-items:center; cursor:pointer;}
+  .pstat-cell .pstat-override-toggle input{width:12px; height:12px; margin:0; cursor:pointer;}
+  .pstat-cell .pstat-override-input{width:32px; font-size:11px; padding:2px 3px;
+    background:#161129; border:1px solid #332b52; border-radius:3px; color:#eef1fa;}
+  .pstat-cell .pstat-override-input:disabled{opacity:0.35;}
 
   .crop-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;}
   .crop-box{background:#0c0a17;border:1px solid #332b52;border-radius:8px;padding:8px;text-align:center;}
@@ -410,13 +415,18 @@
         <select id="tso_team2_player"></select>
       </div>
     </div>
-    <button id="tso_push">Push Team Stats Overlay</button>
+    <div style="display:flex; gap:8px;">
+      <button id="tso_push">Push Team Stats Overlay</button>
+      <button id="tso_reset" class="secondary">Reset to Idle</button>
+    </div>
   </div>
 
   <div class="card">
     <h2>Player K/D/A Live Stats</h2>
     <p class="hint">30 regions (2 teams × 5 players × K/D/A) feeding the Team Stats Overlay above — its own
-      calibration pass, separate from the main HUD, for whenever you have time:</p>
+      calibration pass, separate from the main HUD, for whenever you have time. Check the box next to any value to
+      override it manually (protects it from being overwritten by the next OCR read); uncheck to hand it back to
+      OCR:</p>
     <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
       cd ocr &amp;&amp; python calibrate_teamstats.py
     </div>
@@ -1488,11 +1498,51 @@ function buildPlayerStatRows(){
               <span class="pstat-label">${letter}</span>
               <span class="pstat-value" id="pstat_${key}_val">0</span>
               <img id="crop-${key}" alt="">
+              <label class="pstat-override-toggle" title="Override this value">
+                <input type="checkbox" id="pstat_lock_${key}" data-key="${key}" data-team="${team}" data-idx="${i}" data-stat="${stat}">
+              </label>
+              <input type="number" id="pstat_input_${key}" data-key="${key}" data-team="${team}" data-idx="${i}" data-stat="${stat}"
+                class="pstat-override-input" disabled>
             </div>`;
         }).join("")}
       `;
       container.appendChild(row);
     }
+  });
+  wirePlayerStatOverrides();
+}
+
+// Checkbox arms/disarms the number input and locks/unlocks the field
+// server-side (same lock/unlock pattern buildStatGrid uses for the main
+// HUD stats); the input applies on Enter or blur, mirroring its Apply
+// button but inline since 30 separate buttons would be too much clutter
+// for cells this small.
+function wirePlayerStatOverrides(){
+  document.querySelectorAll(".pstat-override-toggle input[type=checkbox]").forEach(cb => {
+    cb.addEventListener("change", (e) => {
+      const key = e.target.dataset.key;
+      const input = document.getElementById(`pstat_input_${key}`);
+      input.disabled = !e.target.checked;
+      if(e.target.checked){
+        input.value = document.getElementById(`pstat_${key}_val`).textContent;
+        input.focus();
+        input.select();
+      } else {
+        sendManualUpdate({}, [], [key]);
+      }
+    });
+  });
+  document.querySelectorAll(".pstat-override-input").forEach(inp => {
+    const apply = () => {
+      const key = inp.dataset.key;
+      const cb = document.getElementById(`pstat_lock_${key}`);
+      if(!cb.checked) return;
+      sendManualUpdate({
+        playerStat: { team: inp.dataset.team, playerIndex: Number(inp.dataset.idx), stat: inp.dataset.stat, value: Number(inp.value || 0) },
+      }, [key], []);
+    };
+    inp.addEventListener("change", apply);
+    inp.addEventListener("keydown", (e) => { if(e.key === "Enter") apply(); });
   });
 }
 
@@ -1513,8 +1563,22 @@ function updatePlayerStatValues(){
     (currentState.livePlayers[team] || []).forEach((stats, i) => {
       const playerNum = i + 1;
       ["kills", "deaths", "assists"].forEach(stat => {
-        const el = document.getElementById(`pstat_t${teamNum}p${playerNum}_${stat}_val`);
-        if(el) el.textContent = (stats && stats[stat]) || 0;
+        const key = `t${teamNum}p${playerNum}_${stat}`;
+        const value = (stats && stats[stat]) || 0;
+        const el = document.getElementById(`pstat_${key}_val`);
+        if(el) el.textContent = value;
+        // Same resync-from-server-truth pattern as STAT_FIELDS above --
+        // lockedFields is the authority on checked state (not local click
+        // history), so a page refresh or a lock set from another tab shows
+        // up correctly here too.
+        const cb = document.getElementById(`pstat_lock_${key}`);
+        const input = document.getElementById(`pstat_input_${key}`);
+        if(cb && input){
+          const isLocked = lockedFields.has(key);
+          cb.checked = isLocked;
+          input.disabled = !isLocked;
+          if(document.activeElement !== input) input.value = value;
+        }
       });
     });
   });
@@ -1544,6 +1608,19 @@ document.getElementById("tso_push").addEventListener("click", () => {
     teamStatsOverlay: {
       team1: { playerIndex: Number(document.getElementById("tso_team1_player").value) },
       team2: { playerIndex: Number(document.getElementById("tso_team2_player").value) },
+    },
+  });
+});
+
+// Takes down both corner boxes without touching anything else on
+// overlay.html -- teamStatsOverlay is its own state key, read only by
+// applyTeamStatsBox()'s show/hide check, so this can't affect the HUD
+// bar, turtle/lord popups, or match clock.
+document.getElementById("tso_reset").addEventListener("click", () => {
+  sendManualUpdate({
+    teamStatsOverlay: {
+      team1: { playerIndex: null },
+      team2: { playerIndex: null },
     },
   });
 });

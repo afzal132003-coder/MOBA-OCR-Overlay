@@ -20,11 +20,11 @@
     "objectives": 2,
     "gold": 7,
     "players": [
-      "T2 Player 1",
-      "T2 Player 2",
-      "T2 Player 3",
-      "T2 Player 4",
-      "T2 Player 5"
+      "Jazzz",
+      "Hideonbush",
+      "Peekaboo predator",
+      "Silver",
+      "Qtrr"
     ]
   },
   "seriesScore": {
@@ -33,19 +33,19 @@
   },
   "turtleTimer": {
     "status": "idle",
-    "countdownSeconds": 0,
+    "countdownSeconds": 15,
     "endsAt": null,
     "spawnedUntil": null,
-    "lastRawText": ""
+    "lastRawText": "(manual)"
   },
   "lordTimer": {
     "status": "idle",
     "spawnedUntil": null,
-    "lastRawText": ""
+    "lastRawText": "(manual)"
   },
   "matchClock": {
     "status": "running",
-    "startedAt": 1787864084850,
+    "startedAt": 1787920214494,
     "elapsedMs": 0
   },
   "graphicOverrides": {
@@ -452,10 +452,10 @@
   },
   "teamStatsOverlay": {
     "team1": {
-      "playerIndex": null
+      "playerIndex": 0
     },
     "team2": {
-      "playerIndex": null
+      "playerIndex": 0
     }
   },
   "freefire": {

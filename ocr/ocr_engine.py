@@ -325,7 +325,11 @@ def save_state():
 
 
 def _swap_locked_field_key(key):
-    """team1.kills <-> team2.kills, seriesScore.team1 <-> seriesScore.team2, etc."""
+    """team1.kills <-> team2.kills, seriesScore.team1 <-> seriesScore.team2,
+    t1p3_kills <-> t2p3_kills, etc. -- swap_team_sides() moves the actual
+    livePlayers data between team1[]/team2[], so a lock on "t1p3_kills" has
+    to follow it to "t2p3_kills" or the override protection ends up
+    guarding the wrong (now-swapped) slot."""
     if key.startswith("team1."):
         return "team2." + key[len("team1."):]
     if key.startswith("team2."):
@@ -334,6 +338,10 @@ def _swap_locked_field_key(key):
         return key[: -len(".team1")] + ".team2"
     if key.endswith(".team2"):
         return key[: -len(".team2")] + ".team1"
+    if key.startswith("t1p"):
+        return "t2p" + key[len("t1p"):]
+    if key.startswith("t2p"):
+        return "t1p" + key[len("t2p"):]
     return key
 
 
@@ -576,7 +584,12 @@ def apply_ocr_value(key, value):
 
 def apply_player_stat_value(key, value):
     """"t1p3_kills" -> livePlayers.team1[2].kills, etc. -- see
-    PLAYER_STAT_KEYS' comment for why this isn't in FIELD_MAP."""
+    PLAYER_STAT_KEYS' comment for why this isn't in FIELD_MAP. The key
+    itself (e.g. "t1p3_kills") doubles as its own locked_fields entry --
+    unlike apply_ocr_value's "team.field" strings, there's no separate
+    namespacing needed since PLAYER_STAT_KEYS is already unique per stat."""
+    if key in locked_fields:
+        return False
     team = f"team{key[1]}"
     player_num_str, stat = key[3:].split("_", 1)
     player_idx = int(player_num_str) - 1
@@ -1166,6 +1179,15 @@ async def handle_client(websocket, path=None):
                     server_state["mvp"] = data["mvp"]
                 if "teamStatsOverlay" in data:
                     server_state["teamStatsOverlay"] = data["teamStatsOverlay"]
+                # Single-value override for one of the 30 K/D/A regions --
+                # {team, playerIndex, stat, value}, paired with a
+                # "t{n}p{n}_{stat}" lock key (same string apply_player_stat_value
+                # checks against locked_fields) so a live OCR read doesn't
+                # immediately clobber it back.
+                if "playerStat" in data:
+                    ps = data["playerStat"]
+                    team, idx, stat = ps["team"], int(ps["playerIndex"]), ps["stat"]
+                    server_state["livePlayers"][team][idx][stat] = int(ps["value"])
                 for field in payload.get("lock", []):
                     locked_fields.add(field)
                 for field in payload.get("unlock", []):

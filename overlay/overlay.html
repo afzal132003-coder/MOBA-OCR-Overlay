@@ -136,9 +136,16 @@
   #ts-box-team2{ left:1695px; }
 
   .ts-char-wrap{ position:absolute; top:0; left:0; width:225px; height:180px; overflow:hidden; }
-  .ts-char-wrap img{ width:100%; height:100%; object-fit:contain; object-position:50% 100%; display:none;
-    -webkit-mask-image:linear-gradient(to bottom, black 0%, black 78%, transparent 98%);
-    mask-image:linear-gradient(to bottom, black 0%, black 78%, transparent 98%);
+  /* cover, not contain -- this box is small and near-square (unlike the
+     MVP graphic's tall portrait panel), so a contain-fit left big empty
+     margins around the hero art instead of filling the rect. cover +
+     object-position biased toward the top crops in on the face/upper body
+     instead of letterboxing. Only a thin bottom fade now (into the gold
+     nameplate), not the deep one MVP uses, since cover already fills the
+     box edge-to-edge. */
+  .ts-char-wrap img{ width:100%; height:100%; object-fit:cover; object-position:50% 12%; display:none;
+    -webkit-mask-image:linear-gradient(to bottom, black 0%, black 92%, transparent 100%);
+    mask-image:linear-gradient(to bottom, black 0%, black 92%, transparent 100%);
     transform-origin:center center; animation:teamstatsFloat 5s ease-in-out infinite; }
   @keyframes teamstatsFloat{
     0%,100%{ transform:translateY(2px) rotate(-0.5deg) skewY(-0.6deg); }
@@ -150,11 +157,11 @@
   #ts-box-team2 .ts-team-logo{ right:8px; }
 
   .ts-ign{ position:absolute; top:190px; width:195px; height:30px;
-    display:flex; align-items:center;
+    display:flex; align-items:center; justify-content:center;
     color:var(--name-color); font-weight:800; font-size:19px; letter-spacing:0.3px;
     text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  #ts-box-team1 .ts-ign{ left:14px; justify-content:flex-start; }
-  #ts-box-team2 .ts-ign{ left:16px; justify-content:flex-end; }
+  #ts-box-team1 .ts-ign{ left:14px; }
+  #ts-box-team2 .ts-ign{ left:16px; }
 
   /* Relative to .ts-box's own left (0 for team1, 1695 for team2) --
      team2's ends up negative since its KDA column (canvas x=1591) sits
