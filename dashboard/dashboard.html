@@ -2586,6 +2586,7 @@ function buildImportKdaTable(rows){
   table.innerHTML = `
     <thead><tr style="text-align:left;color:#9aa4c0;">
       <th style="padding:6px;">Player</th>
+      <th style="padding:6px;">OCR read (raw)</th>
       <th style="padding:6px;">Kills</th>
       <th style="padding:6px;">Deaths</th>
       <th style="padding:6px;">Assists</th>
@@ -2602,9 +2603,16 @@ function buildImportKdaTable(rows){
       const found = byTeamIdx[`${team}_${i}`];
       const tr = document.createElement("tr");
       tr.style.borderTop = "1px solid #332b52";
+      // Raw OCR text -- the whole reason "no data" was undiagnosable
+      // before: a blank Kills/Deaths/Assists cell only ever told you
+      // parsing failed, never WHAT Tesseract actually read that failed to
+      // parse (glued digits, a missing gap, garbage). Same debug-text fix
+      // the live Player K/D/A Live Stats panel already got.
+      const ocrText = (found && found.ocrText) ? found.ocrText : "(blank)";
       tr.innerHTML = `
         <td style="padding:6px;font-weight:700;">${rosterName}
           <span style="color:#6d7899;font-size:11px;">(${team === "team1" ? "T1" : "T2"} #${i+1})</span></td>
+        <td style="padding:6px;color:#6d7899;font-size:11px;">${ocrText}</td>
         <td style="padding:6px;"><input type="number" id="import_kda_${team}_${i}_kills" style="width:60px;" value="${found && found.kills != null ? found.kills : ""}"></td>
         <td style="padding:6px;"><input type="number" id="import_kda_${team}_${i}_deaths" style="width:60px;" value="${found && found.deaths != null ? found.deaths : ""}"></td>
         <td style="padding:6px;"><input type="number" id="import_kda_${team}_${i}_assists" style="width:60px;" value="${found && found.assists != null ? found.assists : ""}"></td>

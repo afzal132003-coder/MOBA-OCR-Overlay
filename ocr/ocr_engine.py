@@ -1289,7 +1289,11 @@ async def capture_postgame_kda_regions():
     """Same one-shot live screen grab as capture_postgame_regions(), but
     each of the 10 regions holds a combined "K D A" reading (three numbers)
     instead of a single one, so it needs its own capture path rather than
-    reusing the generic per-region single-value one."""
+    reusing the generic per-region single-value one. Returns
+    (values, raw_texts) -- raw_texts survives all the way out to the
+    dashboard now (see build_postgame_kda_rows_from_capture) so a capture
+    that comes back blank is debuggable instead of a black box, same fix
+    the live Player K/D/A Live Stats panel already got."""
     loop = asyncio.get_running_loop()
     regions = config.get("regions", {})
     with mss.mss() as sct:
@@ -1302,22 +1306,26 @@ async def capture_postgame_kda_regions():
     texts = await asyncio.gather(*[
         loop.run_in_executor(ocr_executor, ocr_kda_spaced, crops[key]) for key in result_keys
     ])
-    values = {key: parse_kda_spaced(text) for key, text in zip(result_keys, texts)}
+    raw_texts = dict(zip(result_keys, texts))
+    values = {key: parse_kda_spaced(text) for key, text in raw_texts.items()}
     for key in POSTGAME_KDA_KEYS:
         values.setdefault(key, None)
-    return values
+        raw_texts.setdefault(key, "")
+    return values, raw_texts
 
 
-def build_postgame_kda_rows_from_capture(values):
+def build_postgame_kda_rows_from_capture(values, raw_texts):
     rows = []
     for team in ("team1", "team2"):
         for i in range(5):
-            kda = values.get(f"postgame_kda_{team}_{i}")
+            key = f"postgame_kda_{team}_{i}"
+            kda = values.get(key)
             rows.append({
                 "team": team, "playerIndex": i,
                 "kills": kda[0] if kda else None,
                 "deaths": kda[1] if kda else None,
                 "assists": kda[2] if kda else None,
+                "ocrText": raw_texts.get(key, ""),
                 "calibrated": True,
             })
     return rows
@@ -1545,8 +1553,8 @@ async def handle_client(websocket, path=None):
             elif payload.get("type") == "capture_postmatch_kda":
                 try:
                     if postgame_regions_configured(POSTGAME_KDA_KEYS):
-                        values = await capture_postgame_kda_regions()
-                        rows = build_postgame_kda_rows_from_capture(values)
+                        values, raw_texts = await capture_postgame_kda_regions()
+                        rows = build_postgame_kda_rows_from_capture(values, raw_texts)
                         await websocket.send(json.dumps({"type": "postmatch_kda_result", "rows": rows}))
                     else:
                         await websocket.send(json.dumps({
