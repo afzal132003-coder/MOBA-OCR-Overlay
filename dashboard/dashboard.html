@@ -70,13 +70,34 @@
     background:#0c0a17;color:#eef1fa;font-size:14px;
   }
 
-  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;}
-  .stat-card{background:#0c0a17;border:1px solid #332b52;border-radius:8px;padding:12px;}
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;}
+  .stat-card{background:#0c0a17;border:1px solid #332b52;border-radius:8px;padding:12px;
+    display:flex; gap:12px; align-items:stretch;}
+  .stat-card .stat-main{flex:1;min-width:0;}
   .stat-card .label{font-size:12px;color:#9aa4c0;text-transform:uppercase;}
   .stat-card .live-value{font-size:26px;font-weight:800;color:#8b5cf6;margin:6px 0;}
   .stat-card .override-row{display:flex;align-items:center;gap:8px;margin-top:8px;}
   .stat-card input[type=number]{width:80px;display:inline-block;}
   .stat-card.locked{border-color:#f2c14e;}
+  /* QC crop preview lives right next to its own stat's controls now,
+     instead of a separate section the operator had to scroll to and
+     visually match up by eye against this card. */
+  .stat-card .stat-crop{width:110px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    background:#000;border:1px solid #241d3d;border-radius:6px;padding:4px;}
+  .stat-card .stat-crop img{width:100%;height:50px;object-fit:contain;}
+  .stat-card .stat-crop .crop-caption{font-size:9px;color:#6d7899;text-transform:uppercase;margin-top:4px;text-align:center;}
+
+  /* Player K/D/A Live Stats -- 10 compact rows (5 players x 2 teams),
+     each with 3 small K/D/A cells, deliberately much smaller than the
+     main stat-card since there are so many more of them. */
+  .pstat-row{display:flex; align-items:center; gap:8px; margin-bottom:8px;
+    background:#0c0a17; border:1px solid #332b52; border-radius:6px; padding:6px 8px;}
+  .pstat-row .pstat-name{flex:1; font-size:12px; font-weight:700; color:#eef1fa; min-width:0;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .pstat-cell{display:flex; align-items:center; gap:4px;}
+  .pstat-cell .pstat-label{font-size:10px; color:#6d7899; text-transform:uppercase;}
+  .pstat-cell .pstat-value{font-size:15px; font-weight:800; color:#8b5cf6; width:22px; text-align:center;}
+  .pstat-cell img{width:40px; height:22px; object-fit:contain; background:#000; border-radius:3px; border:1px solid #241d3d;}
 
   .crop-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;}
   .crop-box{background:#0c0a17;border:1px solid #332b52;border-radius:8px;padding:8px;text-align:center;}
@@ -366,7 +387,8 @@
 
   <div class="card">
     <h2>Live Stats &amp; Manual Override</h2>
-    <p class="hint">Check "Override" to freeze a stat from OCR updates and set it by hand. Uncheck to hand control back to OCR.</p>
+    <p class="hint">Check "Override" to freeze a stat from OCR updates and set it by hand. Uncheck to hand control back to OCR.
+      Each card's small black box is that region's live OCR crop — quick visual QC without hunting for a separate section.</p>
     <div class="stat-grid" id="statGrid"></div>
     <div>
       <button class="secondary" id="resetAll">Reset All Stats to 0 (new game)</button>
@@ -374,9 +396,39 @@
   </div>
 
   <div class="card">
-    <h2>OCR Crop Preview</h2>
-    <p class="hint">Live snapshots of exactly what the OCR engine is reading for each region. Use this to verify calibration.</p>
-    <div class="crop-grid" id="cropGrid"></div>
+    <h2>Team Stats Overlay</h2>
+    <p class="hint">Spotlights one player per side on teamstats_overlay.html — character pick, IGN, team logo, and
+      live K/D/A. Needs both a roster pick and (once calibrated) live K/D/A data; see the section below.</p>
+    <div class="two-col">
+      <div class="col">
+        <h3>Team 1</h3>
+        <select id="tso_team1_player"></select>
+      </div>
+      <div class="col">
+        <h3>Team 2</h3>
+        <select id="tso_team2_player"></select>
+      </div>
+    </div>
+    <button id="tso_push">Push Team Stats Overlay</button>
+  </div>
+
+  <div class="card">
+    <h2>Player K/D/A Live Stats</h2>
+    <p class="hint">30 regions (2 teams × 5 players × K/D/A) feeding the Team Stats Overlay above — its own
+      calibration pass, separate from the main HUD, for whenever you have time:</p>
+    <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+      cd ocr &amp;&amp; python calibrate_teamstats.py
+    </div>
+    <div class="two-col" style="margin-top:14px;">
+      <div class="col">
+        <h3>Team 1</h3>
+        <div id="pstat_team1"></div>
+      </div>
+      <div class="col">
+        <h3>Team 2</h3>
+        <div id="pstat_team2"></div>
+      </div>
+    </div>
   </div>
 
   <div class="card">
@@ -1363,21 +1415,28 @@ function sendManualUpdate(data, lock, unlock){
 function buildStatGrid(){
   const grid = document.getElementById("statGrid");
   grid.innerHTML = "";
-  STAT_FIELDS.forEach(f => {
+  STAT_FIELDS.forEach((f, i) => {
+    const cropKey = CROP_REGIONS[i];
     const card = document.createElement("div");
     card.className = "stat-card";
     card.id = "card-" + f.key;
     card.innerHTML = `
-      <div class="label">${f.label}</div>
-      <div class="live-value" id="live-${f.key}">0</div>
-      <div class="override-row">
-        <label style="margin:0;display:inline-block;">
-          <input type="checkbox" id="lock-${f.key}"> Override
-        </label>
+      <div class="stat-main">
+        <div class="label">${f.label}</div>
+        <div class="live-value" id="live-${f.key}">0</div>
+        <div class="override-row">
+          <label style="margin:0;display:inline-block;">
+            <input type="checkbox" id="lock-${f.key}"> Override
+          </label>
+        </div>
+        <div class="override-row">
+          <input type="number" id="input-${f.key}" disabled>
+          <button data-key="${f.key}" class="apply-btn">Apply</button>
+        </div>
       </div>
-      <div class="override-row">
-        <input type="number" id="input-${f.key}" disabled>
-        <button data-key="${f.key}" class="apply-btn">Apply</button>
+      <div class="stat-crop">
+        <img id="crop-${cropKey}">
+        <div class="crop-caption">live OCR</div>
       </div>
     `;
     grid.appendChild(card);
@@ -1406,15 +1465,96 @@ function buildStatGrid(){
   });
 }
 
-function buildCropGrid(){
-  const grid = document.getElementById("cropGrid");
-  grid.innerHTML = "";
-  CROP_REGIONS.forEach(key => {
-    const box = document.createElement("div");
-    box.className = "crop-box";
-    box.innerHTML = `<img id="crop-${key}"><div class="label">${key.replace(/_/g," ")}</div>`;
-    grid.appendChild(box);
+/* ---------- Player K/D/A Live Stats (30-region calibrate_teamstats.py feed) ---------- */
+function buildPlayerStatRows(){
+  ["team1", "team2"].forEach(team => {
+    const container = document.getElementById(`pstat_${team}`);
+    container.innerHTML = "";
+    const teamNum = team === "team1" ? 1 : 2;
+    for(let i = 0; i < 5; i++){
+      const playerNum = i + 1;
+      const row = document.createElement("div");
+      row.className = "pstat-row";
+      row.innerHTML = `
+        <div class="pstat-name" id="pstat_${team}_${i}_name">Player ${playerNum}</div>
+        ${["kills","deaths","assists"].map(stat => {
+          const key = `t${teamNum}p${playerNum}_${stat}`;
+          const letter = stat[0].toUpperCase();
+          return `
+            <div class="pstat-cell">
+              <span class="pstat-label">${letter}</span>
+              <span class="pstat-value" id="pstat_${key}_val">0</span>
+              <img id="crop-${key}" alt="">
+            </div>`;
+        }).join("")}
+      `;
+      container.appendChild(row);
+    }
   });
+}
+
+function updatePlayerStatNames(){
+  if(!currentState) return;
+  ["team1", "team2"].forEach(team => {
+    (currentState[team].players || []).forEach((name, i) => {
+      const el = document.getElementById(`pstat_${team}_${i}_name`);
+      if(el) el.textContent = name || `Player ${i + 1}`;
+    });
+  });
+}
+
+function updatePlayerStatValues(){
+  if(!currentState || !currentState.livePlayers) return;
+  ["team1", "team2"].forEach(team => {
+    const teamNum = team === "team1" ? 1 : 2;
+    (currentState.livePlayers[team] || []).forEach((stats, i) => {
+      const playerNum = i + 1;
+      ["kills", "deaths", "assists"].forEach(stat => {
+        const el = document.getElementById(`pstat_t${teamNum}p${playerNum}_${stat}_val`);
+        if(el) el.textContent = (stats && stats[stat]) || 0;
+      });
+    });
+  });
+}
+
+/* ---------- Team Stats Overlay trigger ---------- */
+function buildTsoDropdowns(){
+  if(!currentState) return;
+  ["team1", "team2"].forEach(team => {
+    const select = document.getElementById(`tso_${team}_player`);
+    const prevValue = select.value;
+    select.innerHTML = "";
+    (currentState[team].players || []).forEach((name, i) => {
+      const opt = document.createElement("option");
+      opt.value = i;
+      opt.textContent = name || `Player ${i + 1}`;
+      select.appendChild(opt);
+    });
+    if(prevValue !== "" && Array.from(select.options).some(o => o.value === prevValue)){
+      select.value = prevValue;
+    }
+  });
+}
+
+document.getElementById("tso_push").addEventListener("click", () => {
+  sendManualUpdate({
+    teamStatsOverlay: {
+      team1: { playerIndex: Number(document.getElementById("tso_team1_player").value) },
+      team2: { playerIndex: Number(document.getElementById("tso_team2_player").value) },
+    },
+  });
+});
+
+let tsoHydrated = false;
+function hydrateTso(){
+  if(!currentState) return;
+  buildTsoDropdowns();
+  if(!tsoHydrated && currentState.teamStatsOverlay){
+    const tso = currentState.teamStatsOverlay;
+    if(tso.team1 && tso.team1.playerIndex != null) document.getElementById("tso_team1_player").value = tso.team1.playerIndex;
+    if(tso.team2 && tso.team2.playerIndex != null) document.getElementById("tso_team2_player").value = tso.team2.playerIndex;
+    tsoHydrated = true;
+  }
 }
 
 // Shared by all three tabs (In-Game, Prematch, Post Match) — they're all
@@ -2948,6 +3088,9 @@ function connect(){
         postMatchHydrated = true;
       }
       if(currentState.mvp) hydrateMvp();
+      updatePlayerStatNames();
+      updatePlayerStatValues();
+      hydrateTso();
     } else if(msg.type === "crop_preview"){
       const img = document.getElementById(`crop-${msg.region}`);
       if(img) img.src = msg.image;
@@ -3444,7 +3587,7 @@ document.getElementById("ff_showMatchMode").addEventListener("click", () => ffSe
 document.getElementById("ff_showOverallMode").addEventListener("click", () => ffSetScoreboardMode("overall"));
 
 buildStatGrid();
-buildCropGrid();
+buildPlayerStatRows();
 buildPlayerNameInputs("team1PlayerInputs", "team1");
 buildPlayerNameInputs("team2PlayerInputs", "team2");
 buildPlayerOrderList("pm_playerOrder_team1", "team1");

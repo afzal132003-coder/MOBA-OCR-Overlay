@@ -69,6 +69,20 @@ FIELD_MAP = {
     "team2_series_score": ("seriesScore", "team2"),
 }
 
+# Per-player live K/D/A for the Team Stats Overlay spotlight graphic --
+# deliberately its OWN calibration pass (calibrate_teamstats.py, not
+# calibrate.py) since it's 30 regions the operator calibrates separately
+# and later, not part of the always-on main HUD. Key format "t1p3_kills"
+# = team1, player 3 (1-indexed to match how players are labeled
+# everywhere in the dashboard), kills -- parsed by
+# apply_player_stat_value() below rather than FIELD_MAP, since a flat
+# (team,field) tuple doesn't have room for the player index.
+PLAYER_STAT_KEYS = [
+    f"t{team}p{p}_{stat}"
+    for team in (1, 2) for p in range(1, 6) for stat in ("kills", "deaths", "assists")
+]
+PLAYER_STAT_KEYS_SET = set(PLAYER_STAT_KEYS)
+
 NUMBER_REGEX = re.compile(r"\d+")
 GOLD_REGEX = re.compile(r"(\d+(?:\.\d+)?)\s*([kK])?")
 # Match clock, e.g. "12:34" -- MM:SS counting up over the course of the
@@ -109,8 +123,10 @@ TURTLE_MAX_COUNTDOWN = 120
 # Tesseract calls are blocking subprocess launches; running the regions
 # through a thread pool instead of one-after-another is what actually cuts
 # the per-cycle latency down, since they overlap instead of stacking up.
-# +1 worker for the turtle announcement region alongside the numeric ones.
-ocr_executor = ThreadPoolExecutor(max_workers=len(REGION_ORDER) + 1)
+# Sized for REGION_ORDER + all 30 PLAYER_STAT_KEYS (only actually used once
+# calibrate_teamstats.py has set them up -- zero-cost otherwise, they're
+# just skipped) + turtle + game_timer.
+ocr_executor = ThreadPoolExecutor(max_workers=len(REGION_ORDER) + len(PLAYER_STAT_KEYS) + 2)
 
 connected_clients = set()
 # websocket -> the "page" query param it connected with (overlay.html,
@@ -259,6 +275,22 @@ def default_state():
             "playerIndex": None,
             "characterImage": "",
         },
+        # Live per-player K/D/A, OCR-fed once calibrate_teamstats.py's 30
+        # regions are set up (see PLAYER_STAT_KEYS) -- idle (all zero)
+        # until then, same as any other uncalibrated region.
+        "livePlayers": {
+            "team1": [{"kills": 0, "deaths": 0, "assists": 0} for _ in range(5)],
+            "team2": [{"kills": 0, "deaths": 0, "assists": 0} for _ in range(5)],
+        },
+        # Which player each side of the Team Stats Overlay spotlights --
+        # operator-picked from the dashboard, drives teamstats_overlay.html.
+        # Pulls character portrait from prematch.picks, IGN from
+        # team1/team2.players, and stats from livePlayers above, all by
+        # this one index -- nothing duplicated here.
+        "teamStatsOverlay": {
+            "team1": {"playerIndex": None},
+            "team2": {"playerIndex": None},
+        },
     }
 
 
@@ -342,6 +374,14 @@ def swap_team_sides():
     if mvp and mvp.get("team") in ("team1", "team2"):
         mvp["team"] = "team2" if mvp["team"] == "team1" else "team1"
 
+    lp = s.get("livePlayers")
+    if lp:
+        lp["team1"], lp["team2"] = lp["team2"], lp["team1"]
+
+    tso = s.get("teamStatsOverlay")
+    if tso:
+        tso["team1"], tso["team2"] = tso["team2"], tso["team1"]
+
     renamed = {_swap_locked_field_key(f) for f in locked_fields}
     locked_fields.clear()
     locked_fields.update(renamed)
@@ -362,6 +402,15 @@ pending_count = {key: 0 for key in REGION_ORDER}
 last_confirmed[GAME_TIMER_REGION_KEY] = None
 pending_value[GAME_TIMER_REGION_KEY] = None
 pending_count[GAME_TIMER_REGION_KEY] = 0
+# Same deal for the 30 per-player stat keys -- these DO get captured
+# through the main numeric batch in ocr_loop() (unlike game_timer/turtle,
+# no special text-OCR pipeline needed, just confirm_reading() same as
+# kills/gold), so they just need debounce-dict entries, not their own
+# crop/OCR call.
+for _key in PLAYER_STAT_KEYS:
+    last_confirmed[_key] = None
+    pending_value[_key] = None
+    pending_count[_key] = 0
 
 
 def preprocess(img_bgr, upscale=4):
@@ -522,6 +571,19 @@ def apply_ocr_value(key, value):
     return True
 
 
+def apply_player_stat_value(key, value):
+    """"t1p3_kills" -> livePlayers.team1[2].kills, etc. -- see
+    PLAYER_STAT_KEYS' comment for why this isn't in FIELD_MAP."""
+    team = f"team{key[1]}"
+    player_num_str, stat = key[3:].split("_", 1)
+    player_idx = int(player_num_str) - 1
+    row = server_state["livePlayers"][team][player_idx]
+    if row[stat] == value:
+        return False
+    row[stat] = value
+    return True
+
+
 def read_region(key, img_bgr):
     text = ocr_number(img_bgr)
     if key.endswith("_gold"):
@@ -626,7 +688,12 @@ async def ocr_loop():
             # Screen grabs are cheap (a few ms) and mss isn't thread-safe, so
             # these stay sequential in the main thread.
             crops = {}
-            for key in REGION_ORDER:
+            # PLAYER_STAT_KEYS rides along in the same flat dict/batch as
+            # REGION_ORDER -- read_region() and confirm_reading() are both
+            # already generic per-key, so as long as the region isn't
+            # calibrated (the common case until calibrate_teamstats.py has
+            # been run) this loop just skips all 30 of them for free.
+            for key in REGION_ORDER + PLAYER_STAT_KEYS:
                 region = regions.get(key)
                 if not region or region.get("w", 0) <= 0 or region.get("h", 0) <= 0:
                     continue
@@ -675,7 +742,10 @@ async def ocr_loop():
             changed = False
             for key, parsed in zip(keys, numeric_results):
                 confirmed = confirm_reading(key, parsed)
-                if confirmed is not None and apply_ocr_value(key, confirmed):
+                if confirmed is None:
+                    continue
+                apply_fn = apply_player_stat_value if key in PLAYER_STAT_KEYS_SET else apply_ocr_value
+                if apply_fn(key, confirmed):
                     changed = True
 
             if process_turtle_reading(turtle_raw_text, int(time.time() * 1000)):
@@ -1091,6 +1161,8 @@ async def handle_client(websocket, path=None):
                     server_state["graphicOverrides"] = data["graphicOverrides"]
                 if "mvp" in data:
                     server_state["mvp"] = data["mvp"]
+                if "teamStatsOverlay" in data:
+                    server_state["teamStatsOverlay"] = data["teamStatsOverlay"]
                 for field in payload.get("lock", []):
                     locked_fields.add(field)
                 for field in payload.get("unlock", []):

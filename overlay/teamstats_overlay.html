@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>MOBA Team Stats Overlay</title>
+<style>
+  /*
+    Positions measured directly off assets/teamstats_overlay.png (pixel
+    scanning for the navy/gold color bands, not eyeballed). Two mirrored
+    corner boxes: character portrait + gold IGN nameplate on the outer
+    edge, K/D/A stat column just inside it. The right box's art is a true
+    mirror of the left (nameplate angles the other way), but the K/D/A
+    column is a straight rightward translation of the left one's layout
+    (+1366px) since letters still need to read normally left-to-right.
+
+    Operator picks one player per team from the dashboard (teamStatsOverlay
+    state); everything else -- IGN, team logo, K/D/A -- is resolved from
+    that single index, same single-sourced pattern as mvp_stats.html.
+  */
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Bold.ttf') format('truetype');
+    font-weight: 700; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');
+    font-weight: 800; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
+    font-weight: 900; font-style: normal;
+  }
+
+  :root{ --gold:#f0ca90; --navy-text:#0b193e; }
+  html,body{ margin:0; padding:0; background:transparent; overflow:hidden;
+    width:1920px; height:1080px; font-family:'TT Supermolot Neue Trial', Arial, sans-serif; }
+
+  #stage{ position:relative; width:1920px; height:1080px; }
+  .bg-frame{ position:absolute; top:0; left:0; width:1920px; height:1080px; pointer-events:none; }
+
+  .box{ position:absolute; top:854px; width:225px; height:226px; display:none; }
+  .box.show{ display:block; }
+  #box-team1{ left:0px; }
+  #box-team2{ left:1695px; }
+
+  /* contain + bottom-anchor + bottom fade + idle sway -- same treatment
+     as mvp_stats.html's portrait, for the same reasons (renders don't
+     share an aspect ratio, so cover crops badly; a hard box edge looks
+     worse than fading into the scene). */
+  .char-wrap{ position:absolute; top:0; left:0; width:225px; height:180px; overflow:hidden; }
+  .char-wrap img{ width:100%; height:100%; object-fit:contain; object-position:50% 100%; display:none;
+    -webkit-mask-image:linear-gradient(to bottom, black 0%, black 78%, transparent 98%);
+    mask-image:linear-gradient(to bottom, black 0%, black 78%, transparent 98%);
+    transform-origin:center center; animation:teamstatsFloat 5s ease-in-out infinite; }
+  @keyframes teamstatsFloat{
+    0%,100%{ transform:translateY(2px) rotate(-0.5deg) skewY(-0.6deg); }
+    50%{ transform:translateY(-2px) rotate(0.5deg) skewY(0.6deg); }
+  }
+
+  .team-logo{ position:absolute; top:8px; width:36px; height:36px; object-fit:contain; display:none; }
+  #box-team1 .team-logo{ left:8px; }
+  #box-team2 .team-logo{ right:8px; }
+
+  .ign{ position:absolute; top:190px; width:195px; height:30px;
+    display:flex; align-items:center;
+    color:var(--navy-text); font-weight:800; font-size:19px; letter-spacing:0.3px;
+    text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #box-team1 .ign{ left:14px; justify-content:flex-start; }
+  #box-team2 .ign{ left:16px; justify-content:flex-end; }
+
+  /* Positions are relative to .box's own top-left (0,854 for team1's box,
+     1695,854 for team2's -- .box's own left IS the offset parent origin
+     for these), NOT raw canvas coordinates -- team2's ends up negative
+     since its KDA column (measured at canvas x=1591) sits to the LEFT of
+     its box's origin (the character rect, at canvas x=1695). That's
+     correct/intentional, not a typo. */
+  .kda-val{ position:absolute; width:60px; height:19px;
+    display:flex; align-items:center; color:#ffffff; font-weight:700; font-size:20px; }
+  #box-team1 .kval{ left:266px; }
+  #box-team2 .kval{ left:-63px; }
+  .kda-val.kills{ top:31px; }
+  .kda-val.deaths{ top:106px; }
+  .kda-val.assists{ top:185px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <img class="bg-frame" src="assets/teamstats_overlay.png" alt="">
+
+  <div class="box" id="box-team1">
+    <div class="char-wrap"><img id="t1-char" src="" alt=""></div>
+    <img class="team-logo" id="t1-logo" src="" alt="">
+    <div class="ign" id="t1-ign"></div>
+    <div class="kda-val kval kills" id="t1-kills">0</div>
+    <div class="kda-val kval deaths" id="t1-deaths">0</div>
+    <div class="kda-val kval assists" id="t1-assists">0</div>
+  </div>
+
+  <div class="box" id="box-team2">
+    <div class="char-wrap"><img id="t2-char" src="" alt=""></div>
+    <img class="team-logo" id="t2-logo" src="" alt="">
+    <div class="ign" id="t2-ign"></div>
+    <div class="kda-val kval kills" id="t2-kills">0</div>
+    <div class="kda-val kval deaths" id="t2-deaths">0</div>
+    <div class="kda-val kval assists" id="t2-assists">0</div>
+  </div>
+</div>
+
+<script>
+const _params = new URLSearchParams(location.search);
+if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
+if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=teamstats_overlay"
+  : "ws://localhost:8765?page=teamstats_overlay";
+let ws;
+
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync") applyState(msg.data);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+
+function setImg(id, src){
+  const el = document.getElementById(id);
+  if(src){ el.src = src; el.style.display = "block"; }
+  else { el.style.display = "none"; }
+}
+
+function applyTeamBox(team, state){
+  const sel = state.teamStatsOverlay && state.teamStatsOverlay[team];
+  const box = document.getElementById(`box-${team}`);
+  const idx = sel ? sel.playerIndex : null;
+  if(idx == null){
+    box.classList.remove("show");
+    return;
+  }
+  box.classList.add("show");
+
+  const ign = (state[team].players && state[team].players[idx]) || "";
+  document.getElementById(`${team === "team1" ? "t1" : "t2"}-ign`).textContent = ign;
+
+  setImg(`${team === "team1" ? "t1" : "t2"}-logo`, state[team].logo);
+
+  const pick = state.prematch && state.prematch.picks &&
+    state.prematch.picks[team] && state.prematch.picks[team][idx];
+  setImg(`${team === "team1" ? "t1" : "t2"}-char`,
+    pick && pick.image ? `../dashboard/assets/heroes/${encodeURIComponent(pick.image)}` : "");
+
+  const stats = (state.livePlayers && state.livePlayers[team] && state.livePlayers[team][idx]) || {};
+  const prefix = team === "team1" ? "t1" : "t2";
+  document.getElementById(`${prefix}-kills`).textContent = stats.kills || 0;
+  document.getElementById(`${prefix}-deaths`).textContent = stats.deaths || 0;
+  document.getElementById(`${prefix}-assists`).textContent = stats.assists || 0;
+}
+
+function applyState(state){
+  applyTeamBox("team1", state);
+  applyTeamBox("team2", state);
+}
+
+connect();
+</script>
+</body>
+</html>
