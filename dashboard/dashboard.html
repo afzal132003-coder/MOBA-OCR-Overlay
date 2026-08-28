@@ -2570,16 +2570,27 @@ document.getElementById("import_gold_capture").addEventListener("click", () => {
 // The existing Reorder arrows swap the NUMBER values between adjacent
 // rows; this is a second, independent way to fix a screen-order-vs-
 // roster-order mismatch -- instead of moving the numbers, relabel which
-// roster player this row's numbers belong to. Defaults to the same
-// position-matched name as before (nothing changes if you never touch
-// it), but any row can be pointed at any of that team's 5 players. Apply
-// always writes using whatever the dropdown currently says, not the row's
-// original position -- so this fully replaces position-based writing.
+// roster player this row's numbers belong to. Apply always writes using
+// whatever the dropdown currently says, not the row's original position.
+//
+// The team+row -> target-player mapping is kept in ONE shared object, not
+// per-table, and every table's dropdown reads its default straight from
+// it (not always "same as row position") -- the same on-screen order
+// mismatch is almost always identical across Battle Report/K-D-A/Gold
+// (same underlying in-game leaderboard, just different stat columns), so
+// fixing it in one section keeps the other two in sync automatically,
+// including a section that hasn't even been captured/built yet -- e.g.
+// fix it in Battle Report first, then capture K/D/A later and it already
+// reflects the fix instead of defaulting back to position-matched.
+let importWhoMapping = { team1: [0,1,2,3,4], team2: [0,1,2,3,4] };
+const IMPORT_WHO_PREFIXES = ["import_br", "import_kda", "import_gr"];
+
 function buildWhoSelectHtml(idPrefix, team, i, players){
+  const selectedIdx = importWhoMapping[team][i];
   const options = players.map((name, pi) =>
-    `<option value="${pi}" ${pi === i ? "selected" : ""}>${name || `Player ${pi + 1}`}</option>`
+    `<option value="${pi}" ${pi === selectedIdx ? "selected" : ""}>${name || `Player ${pi + 1}`}</option>`
   ).join("");
-  return `<select id="${idPrefix}_${team}_${i}_who" class="import-who-select" data-prefix="${idPrefix}" data-team="${team}" style="width:150px;">${options}</select>`;
+  return `<select id="${idPrefix}_${team}_${i}_who" class="import-who-select" data-prefix="${idPrefix}" data-team="${team}" data-row="${i}" style="width:150px;">${options}</select>`;
 }
 
 // Two rows both pointed at the same player would silently overwrite each
@@ -2591,11 +2602,31 @@ function highlightDuplicateWho(idPrefix, team){
   selects.forEach(s => { s.style.borderColor = counts[s.value] > 1 ? "#c0453f" : ""; });
 }
 
+// Pushes one dropdown's new value into the other two tables' matching
+// team+row select (if that table has been built yet -- silently skipped
+// if not, since importWhoMapping above already covers the not-built-yet
+// case for whenever it does get built).
+function syncWhoAcrossImportTables(sourcePrefix, team, row, value){
+  IMPORT_WHO_PREFIXES.forEach(prefix => {
+    if(prefix === sourcePrefix) return;
+    const sel = document.getElementById(`${prefix}_${team}_${row}_who`);
+    if(sel && sel.value !== value){
+      sel.value = value;
+      highlightDuplicateWho(prefix, team);
+    }
+  });
+}
+
 function wireWhoSelects(idPrefix){
   ["team1", "team2"].forEach(team => {
     highlightDuplicateWho(idPrefix, team);
     document.querySelectorAll(`.import-who-select[data-prefix="${idPrefix}"][data-team="${team}"]`).forEach(sel => {
-      sel.addEventListener("change", () => highlightDuplicateWho(idPrefix, team));
+      sel.addEventListener("change", () => {
+        const row = Number(sel.dataset.row);
+        importWhoMapping[team][row] = Number(sel.value);
+        highlightDuplicateWho(idPrefix, team);
+        syncWhoAcrossImportTables(idPrefix, team, row, sel.value);
+      });
     });
   });
 }
