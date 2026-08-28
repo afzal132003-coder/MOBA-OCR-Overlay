@@ -1,7 +1,7 @@
 {
   "monitor": 1,
   "tesseract_path": "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
-  "poll_interval_seconds": 0.01,
+  "poll_interval_seconds": 0.15,
   "debounce_frames": 5,
   "server_host": "localhost",
   "server_port": 8765,
