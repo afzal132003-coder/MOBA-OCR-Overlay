@@ -443,8 +443,14 @@ def preprocess(img_bgr, upscale=4):
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     # Calibrated boxes are often cropped right against the digits; a small
     # replicated border stops antialiased edge pixels from being read as
-    # part of the digit (a common cause of misreads like 1 -> 7 or 0 -> 8).
-    gray = cv2.copyMakeBorder(gray, 6, 6, 6, 6, cv2.BORDER_REPLICATE)
+    # part of the digit (a common cause of misreads like 1 -> 7 or 0 -> 8,
+    # and -- seen live on the K/D/A regions -- a lone "1"'s serif/flag
+    # getting split off into what Tesseract reads as its own leading "2",
+    # producing "21" instead of "1"). Bumped from 6px to 10px after that;
+    # still cheap (this happens before the 4x upscale) but gives a tight
+    # crop's edge pixels more room to blend into the border instead of
+    # getting classified as a separate stroke.
+    gray = cv2.copyMakeBorder(gray, 10, 10, 10, 10, cv2.BORDER_REPLICATE)
     gray = cv2.resize(gray, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
     # Median blur (not Gaussian) removes video-compression speckle without
     # smearing digit edges, which matters a lot at this small a source size.
@@ -1552,7 +1558,12 @@ async def relay_client_loop():
     connect_url = f"{url}{separator}token={token}"
     while True:
         try:
-            async with websockets.connect(connect_url) as relay_ws:
+            # Same max_size bump as the relay server itself needs (see
+            # ocr/relay/server.py) -- the default 1 MiB limit was rejecting
+            # state_sync the moment a team logo was uploaded, closing with
+            # code 1009 and retrying forever without ever actually staying
+            # connected.
+            async with websockets.connect(connect_url, max_size=16 * 1024 * 1024) as relay_ws:
                 print(f"Connected to cloud relay at {url}")
                 await handle_client(relay_ws)
         except Exception as e:
@@ -1563,7 +1574,10 @@ async def relay_client_loop():
 async def main():
     host = config.get("server_host", "localhost")
     port = config.get("server_port", 8765)
-    async with websockets.serve(handle_client, host, port):
+    # Same max_size bump as above, for local (non-relay) connections --
+    # dashboard.html/overlay.html connecting directly to localhost hit the
+    # exact same default 1 MiB ceiling once a logo's in state_sync.
+    async with websockets.serve(handle_client, host, port, max_size=16 * 1024 * 1024):
         print(f"OCR relay server running at ws://{host}:{port}")
         print("Open overlay/overlay.html in OBS as a Browser Source, and")
         print("dashboard/dashboard.html in a normal browser tab.")

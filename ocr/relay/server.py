@@ -138,7 +138,13 @@ async def main():
             "-- every connection attempt will be rejected. Set them as "
             "environment variables on your hosting platform."
         )
-    async with websockets.serve(handler, "0.0.0.0", PORT):
+    # Default max_size (1 MiB) is too small once state_sync carries an
+    # embedded base64 team logo or two -- the relay was closing every
+    # connection with code 1009 ("message too big") the moment a real
+    # state_sync tried to pass through, which broke the connection in an
+    # endless connect/reject/retry loop. 16 MiB comfortably covers a couple
+    # of uploaded logo images plus everything else in server_state.
+    async with websockets.serve(handler, "0.0.0.0", PORT, max_size=16 * 1024 * 1024):
         print(f"Relay listening on 0.0.0.0:{PORT}")
         await asyncio.Future()  # run forever
 
