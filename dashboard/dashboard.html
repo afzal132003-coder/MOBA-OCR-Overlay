@@ -416,7 +416,10 @@
         <div id="team2PlayerInputs"></div>
       </div>
     </div>
-    <button id="saveTeamInfo">Save Team Info</button>
+    <div style="display:flex; gap:8px;">
+      <button id="saveTeamInfo">Save Team Info</button>
+      <button id="clearTeamInfo" class="secondary">Clear</button>
+    </div>
   </div>
 
   <div class="card">
@@ -614,6 +617,7 @@
         <div id="pm_bans_team2"></div>
       </div>
     </div>
+    <button id="pm_clearBans" class="secondary">Clear Bans</button>
   </div>
 
   <div class="card">
@@ -628,6 +632,7 @@
         <div id="pm_picks_team2"></div>
       </div>
     </div>
+    <button id="pm_clearPicks" class="secondary">Clear Picks</button>
   </div>
 </div>
 
@@ -721,6 +726,7 @@
         </div>
       </div>
     </div>
+    <button id="pom_clearTeamStats" class="secondary">Clear</button>
   </div>
 
   <div class="card">
@@ -735,6 +741,7 @@
         <div id="pom_players_team2"></div>
       </div>
     </div>
+    <button id="pom_clearPlayers" class="secondary">Clear</button>
   </div>
 
   <button id="pom_push">Push Post Match to Overlay</button>
@@ -1926,6 +1933,26 @@ document.getElementById("saveTeamInfo").addEventListener("click", () => {
   sendManualUpdate(data, [], []);
 });
 
+document.getElementById("clearTeamInfo").addEventListener("click", () => {
+  if(!confirm("Clear Team Setup (names, logos, players) for both teams? This pushes the cleared state live immediately.")) return;
+  document.getElementById("team1Name").value = "";
+  document.getElementById("team2Name").value = "";
+  document.getElementById("team1LogoPreview").src = "";
+  document.getElementById("team2LogoPreview").src = "";
+  document.getElementById("team1Logo").value = "";
+  document.getElementById("team2Logo").value = "";
+  ["team1","team2"].forEach(team => {
+    for(let i=0;i<5;i++){
+      const input = document.getElementById(`${team}Player${i}`);
+      if(input) input.value = "";
+    }
+  });
+  sendManualUpdate({
+    team1: { name: "", logo: "", players: ["","","","",""] },
+    team2: { name: "", logo: "", players: ["","","","",""] },
+  }, [], []);
+});
+
 document.getElementById("swapSides").addEventListener("click", () => {
   if(!confirm("Swap Team 1 and Team 2? This interchanges names, logos, players, live stats, series score, prematch bans/picks, and post match data between the two sides.")) return;
   if(ws && ws.readyState === WebSocket.OPEN){
@@ -2100,6 +2127,21 @@ function hydratePrematch(pm){
 document.getElementById("pm_saveContext").addEventListener("click", sendPrematch);
 
 document.getElementById("pm_saveSeries").addEventListener("click", sendPrematch);
+
+function clearPrematchSlots(kind, label){
+  if(!confirm(`Clear all ${label} for both teams?`)) return;
+  ["team1","team2"].forEach(team => {
+    for(let i=0;i<5;i++){
+      const input = document.getElementById(`${kind}_${team}_${i}_name`);
+      if(input) input.value = "";
+      const img = document.getElementById(`${kind}_${team}_${i}_img`);
+      if(img) img.style.display = "none";
+    }
+  });
+  sendPrematch();
+}
+document.getElementById("pm_clearBans").addEventListener("click", () => clearPrematchSlots("bans", "Bans"));
+document.getElementById("pm_clearPicks").addEventListener("click", () => clearPrematchSlots("picks", "Picks"));
 
 // Start/Resume always counts down from whatever timerRemainingMs currently
 // holds (the full duration if never paused, or the frozen remainder if
@@ -2288,6 +2330,30 @@ function hydratePostMatch(pom){
 }
 
 document.getElementById("pom_push").addEventListener("click", () => {
+  sendManualUpdate({ postMatch: gatherPostMatch() });
+});
+
+document.getElementById("pom_clearTeamStats").addEventListener("click", () => {
+  if(!confirm("Clear Team Score & Aggregate Stats for both teams? This pushes the cleared state live immediately.")) return;
+  ["t1","t2"].forEach(t => {
+    document.getElementById(`pom_${t}_score`).value = 0;
+    ["gold","structures","kills","turtles"].forEach(field => {
+      document.getElementById(`pom_${t}_${field}`).value = 0;
+    });
+  });
+  sendManualUpdate({ postMatch: gatherPostMatch() });
+});
+
+document.getElementById("pom_clearPlayers").addEventListener("click", () => {
+  if(!confirm("Clear all Players' Damage/K/D/A for both teams? This pushes the cleared state live immediately.")) return;
+  ["team1","team2"].forEach(team => {
+    for(let i=0;i<5;i++){
+      ["dealt","taken","kills","deaths","assists"].forEach(field => {
+        const input = document.getElementById(`pom_${team}_${i}_${field}`);
+        if(input) input.value = 0;
+      });
+    }
+  });
   sendManualUpdate({ postMatch: gatherPostMatch() });
 });
 
@@ -2500,6 +2566,40 @@ document.getElementById("import_gold_capture").addEventListener("click", () => {
   ws.send(JSON.stringify({type:"capture_postmatch_gold"}));
 });
 
+// Shared by all three Import Stats tables (Battle Report, K/D/A, Gold).
+// The existing Reorder arrows swap the NUMBER values between adjacent
+// rows; this is a second, independent way to fix a screen-order-vs-
+// roster-order mismatch -- instead of moving the numbers, relabel which
+// roster player this row's numbers belong to. Defaults to the same
+// position-matched name as before (nothing changes if you never touch
+// it), but any row can be pointed at any of that team's 5 players. Apply
+// always writes using whatever the dropdown currently says, not the row's
+// original position -- so this fully replaces position-based writing.
+function buildWhoSelectHtml(idPrefix, team, i, players){
+  const options = players.map((name, pi) =>
+    `<option value="${pi}" ${pi === i ? "selected" : ""}>${name || `Player ${pi + 1}`}</option>`
+  ).join("");
+  return `<select id="${idPrefix}_${team}_${i}_who" class="import-who-select" data-prefix="${idPrefix}" data-team="${team}" style="width:150px;">${options}</select>`;
+}
+
+// Two rows both pointed at the same player would silently overwrite each
+// other at Apply time -- highlight that instead of letting it happen quietly.
+function highlightDuplicateWho(idPrefix, team){
+  const selects = Array.from(document.querySelectorAll(`.import-who-select[data-prefix="${idPrefix}"][data-team="${team}"]`));
+  const counts = {};
+  selects.forEach(s => { counts[s.value] = (counts[s.value] || 0) + 1; });
+  selects.forEach(s => { s.style.borderColor = counts[s.value] > 1 ? "#c0453f" : ""; });
+}
+
+function wireWhoSelects(idPrefix){
+  ["team1", "team2"].forEach(team => {
+    highlightDuplicateWho(idPrefix, team);
+    document.querySelectorAll(`.import-who-select[data-prefix="${idPrefix}"][data-team="${team}"]`).forEach(sel => {
+      sel.addEventListener("change", () => highlightDuplicateWho(idPrefix, team));
+    });
+  });
+}
+
 function buildImportBattleReportTable(extractedRows){
   const container = document.getElementById("import_battleReport_table");
   container.innerHTML = "";
@@ -2542,7 +2642,7 @@ function buildImportBattleReportTable(extractedRows){
           </div>
         </td>` : "";
       tr.innerHTML = `
-        <td style="padding:6px;font-weight:700;">${rosterName}
+        <td style="padding:6px;font-weight:700;">${buildWhoSelectHtml("import_br", team, i, players)}
           <span style="color:#6d7899;font-size:11px;">(${team === "team1" ? "T1" : "T2"} #${i+1})</span></td>
         ${refCell}
         <td style="padding:6px;"><input type="number" id="import_br_${team}_${i}_dealt" style="width:90px;" value="${found && found.heroDamage != null ? found.heroDamage : ""}"></td>
@@ -2569,6 +2669,7 @@ function buildImportBattleReportTable(extractedRows){
       });
     });
   }
+  wireWhoSelects("import_br");
   document.getElementById("import_battleReport_apply").style.display = "inline-block";
 }
 
@@ -2577,9 +2678,11 @@ document.getElementById("import_battleReport_apply").addEventListener("click", (
     for(let i=0;i<5;i++){
       const dealtSrc = document.getElementById(`import_br_${team}_${i}_dealt`);
       const takenSrc = document.getElementById(`import_br_${team}_${i}_taken`);
+      const whoSel = document.getElementById(`import_br_${team}_${i}_who`);
       if(!dealtSrc) continue;
-      if(dealtSrc.value !== "") document.getElementById(`pom_${team}_${i}_dealt`).value = dealtSrc.value;
-      if(takenSrc.value !== "") document.getElementById(`pom_${team}_${i}_taken`).value = takenSrc.value;
+      const targetIdx = whoSel ? whoSel.value : i;
+      if(dealtSrc.value !== "") document.getElementById(`pom_${team}_${targetIdx}_dealt`).value = dealtSrc.value;
+      if(takenSrc.value !== "") document.getElementById(`pom_${team}_${targetIdx}_taken`).value = takenSrc.value;
     }
   });
   document.getElementById("import_battleReport_status").textContent =
@@ -2631,7 +2734,7 @@ function buildImportKdaTable(rows){
       // the live Player K/D/A Live Stats panel already got.
       const ocrText = (found && found.ocrText) ? found.ocrText : "(blank)";
       tr.innerHTML = `
-        <td style="padding:6px;font-weight:700;">${rosterName}
+        <td style="padding:6px;font-weight:700;">${buildWhoSelectHtml("import_kda", team, i, players)}
           <span style="color:#6d7899;font-size:11px;">(${team === "team1" ? "T1" : "T2"} #${i+1})</span></td>
         <td style="padding:6px;color:#6d7899;font-size:11px;">${ocrText}</td>
         <td style="padding:6px;"><input type="number" id="import_kda_${team}_${i}_kills" style="width:60px;" value="${found && found.kills != null ? found.kills : ""}"></td>
@@ -2662,6 +2765,7 @@ function buildImportKdaTable(rows){
       });
     });
   });
+  wireWhoSelects("import_kda");
   document.getElementById("import_kda_apply").style.display = "inline-block";
 }
 
@@ -2671,10 +2775,12 @@ document.getElementById("import_kda_apply").addEventListener("click", () => {
       const killsSrc = document.getElementById(`import_kda_${team}_${i}_kills`);
       const deathsSrc = document.getElementById(`import_kda_${team}_${i}_deaths`);
       const assistsSrc = document.getElementById(`import_kda_${team}_${i}_assists`);
+      const whoSel = document.getElementById(`import_kda_${team}_${i}_who`);
       if(!killsSrc) continue;
-      if(killsSrc.value !== "") document.getElementById(`pom_${team}_${i}_kills`).value = killsSrc.value;
-      if(deathsSrc.value !== "") document.getElementById(`pom_${team}_${i}_deaths`).value = deathsSrc.value;
-      if(assistsSrc.value !== "") document.getElementById(`pom_${team}_${i}_assists`).value = assistsSrc.value;
+      const targetIdx = whoSel ? whoSel.value : i;
+      if(killsSrc.value !== "") document.getElementById(`pom_${team}_${targetIdx}_kills`).value = killsSrc.value;
+      if(deathsSrc.value !== "") document.getElementById(`pom_${team}_${targetIdx}_deaths`).value = deathsSrc.value;
+      if(assistsSrc.value !== "") document.getElementById(`pom_${team}_${targetIdx}_assists`).value = assistsSrc.value;
     }
   });
   document.getElementById("import_kda_status").textContent =
@@ -2735,7 +2841,7 @@ function buildImportGoldTable(rows){
           </div>
         </td>` : "";
       tr.innerHTML = `
-        <td style="padding:6px;font-weight:700;">${rosterName}
+        <td style="padding:6px;font-weight:700;">${buildWhoSelectHtml("import_gr", team, i, players)}
           <span style="color:#6d7899;font-size:11px;">(${team === "team1" ? "T1" : "T2"} #${i+1})</span></td>
         ${refCell}
         <td style="padding:6px;"><input type="number" id="import_gr_${team}_${i}_gold" style="width:90px;" value="${found && found.gold != null ? found.gold : ""}"></td>
@@ -2761,6 +2867,7 @@ function buildImportGoldTable(rows){
     });
   }
   container.querySelectorAll("input").forEach(el => el.addEventListener("input", recalcGoldTotals));
+  wireWhoSelects("import_gr");
   recalcGoldTotals();
 }
 
