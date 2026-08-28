@@ -13,6 +13,7 @@
   #status.connected{background:#1b5e3a;color:#a4f5c4;}
   #status.disconnected{background:#5e1b1b;color:#f5a4a4;}
   .hint{font-size:12px;color:#6d7899;margin-top:-4px;}
+  #tso_status{transition:opacity 0.6s ease; margin-top:8px;}
 
   .brand-title{font-size:26px;font-weight:800;letter-spacing:0.5px;margin:0 0 2px;color:#8b5cf6;}
   .brand-title span{color:#eef1fa;font-weight:600;}
@@ -60,10 +61,17 @@
   button{
     background:#8b5cf6;color:#0c0a17;border:none;padding:9px 16px;border-radius:6px;
     font-weight:700;cursor:pointer;font-size:13px;margin-top:12px;
+    transition:opacity 0.15s ease, transform 0.1s ease;
   }
   button.secondary{background:#332b52;color:#eef1fa;}
   button.danger{background:#c0453f;color:#fff;}
   button:hover{opacity:0.9;}
+  /* Fire-and-forget buttons (push/apply/save) had zero click feedback --
+     no hover transition, no pressed state, nothing -- so clicking one felt
+     unresponsive even when it worked, especially for buttons like Push
+     Team Stats Overlay whose actual effect only shows up on the OBS
+     overlay, not anywhere in the dashboard itself. */
+  button:active{transform:scale(0.96); opacity:0.85;}
 
   select{
     width:100%;box-sizing:border-box;padding:8px 10px;border-radius:6px;border:1px solid #332b52;
@@ -437,6 +445,7 @@
       <button id="tso_push">Push Team Stats Overlay</button>
       <button id="tso_reset" class="secondary">Reset to Idle</button>
     </div>
+    <div id="tso_status" class="hint"></div>
   </div>
 
   <div class="card">
@@ -1663,13 +1672,34 @@ function buildTsoDropdowns(){
   });
 }
 
+// The button itself had no click feedback and its actual effect only
+// shows up on the OBS overlay, not anywhere in the dashboard -- so from
+// the operator's seat, clicking it looked/felt like nothing happened even
+// when it worked correctly. This gives an explicit, visible confirmation
+// right under the buttons, same idea as the Import Stats cards' status
+// lines, and fades it out after a few seconds so it doesn't clutter the
+// card once acknowledged.
+let tsoStatusFadeHandle = null;
+function showTsoStatus(text){
+  const el = document.getElementById("tso_status");
+  clearTimeout(tsoStatusFadeHandle);
+  el.style.opacity = "1";
+  el.textContent = text;
+  tsoStatusFadeHandle = setTimeout(() => { el.style.opacity = "0.4"; }, 3000);
+}
+
 document.getElementById("tso_push").addEventListener("click", () => {
+  const t1Select = document.getElementById("tso_team1_player");
+  const t2Select = document.getElementById("tso_team2_player");
   sendManualUpdate({
     teamStatsOverlay: {
-      team1: { playerIndex: Number(document.getElementById("tso_team1_player").value) },
-      team2: { playerIndex: Number(document.getElementById("tso_team2_player").value) },
+      team1: { playerIndex: Number(t1Select.value) },
+      team2: { playerIndex: Number(t2Select.value) },
     },
   });
+  const t1Label = t1Select.options[t1Select.selectedIndex] ? t1Select.options[t1Select.selectedIndex].textContent : "?";
+  const t2Label = t2Select.options[t2Select.selectedIndex] ? t2Select.options[t2Select.selectedIndex].textContent : "?";
+  showTsoStatus(`Pushed — Team 1: ${t1Label}, Team 2: ${t2Label}`);
 });
 
 // Takes down both corner boxes without touching anything else on
@@ -1683,6 +1713,7 @@ document.getElementById("tso_reset").addEventListener("click", () => {
       team2: { playerIndex: null },
     },
   });
+  showTsoStatus("Reset to idle — both corner boxes taken down.");
 });
 
 let tsoHydrated = false;
