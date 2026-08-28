@@ -476,16 +476,16 @@ TESS_CONFIG_KDA = (
     "-c tessedit_char_whitelist=0123456789/ "
     "-c load_system_dawg=0 -c load_freq_dawg=0"
 )
-# No "/" (or any separator) in this whitelist on purpose -- see
-# ocr_kda_spaced()'s docstring for why this one reads word-level data
-# instead of a single concatenated string. psm 7 ("single line") and psm 6
-# both glue visually-separated numbers into one blob regardless of gap
-# size or whitelist -- tested directly, confirmed on real renders, not
-# assumed. psm 11 ("sparse text, no particular order") is what actually
-# keeps them apart, same mode _image_to_data() already uses elsewhere in
-# this file for exactly this kind of multi-word detection.
+# Read as ONE whole-line pass (psm 7), same as TESS_CONFIG -- reading all
+# three numbers together in context turned out far more reliable per-digit
+# than isolating each number into its own tiny crop first and OCR'ing that
+# separately (confirmed directly: an isolated single "0" crop came back
+# empty across every psm mode tried, even though the exact same glyph read
+# correctly as part of a full line). See ocr_kda_spaced()'s docstring for
+# why the WORD-level grouping still needs to be done ourselves even though
+# the CHARACTER-level recognition itself is reliable this way.
 TESS_CONFIG_KDA_WORDS = (
-    "--oem 1 --psm 11 "
+    "--oem 1 --psm 7 "
     "-c tessedit_char_whitelist=0123456789 "
     "-c load_system_dawg=0 -c load_freq_dawg=0"
 )
@@ -520,28 +520,58 @@ def ocr_kda_spaced(img_bgr):
     """Post-match K/D/A regions have no slash between the three numbers,
     just a gap (e.g. "18 0 2") -- unlike ocr_kda() above, there's no
     distinctive separator GLYPH to whitelist that would force Tesseract to
-    keep the numbers apart. Whitelisting a literal space character to
-    preserve the gap in image_to_string()'s single concatenated output
-    turned out unreliable (numbers ending up glued together with no space
-    at all, e.g. "18 0 2" -> "1802", which then fails to parse as three
-    separate numbers). image_to_data() sidesteps that entirely: word
-    segmentation happens at the layout level from actual gaps in the
-    image, independent of the character whitelist, so it reliably returns
-    each number as its own entry regardless of whether a space character
-    is allowed in the output at all. Re-joined with spaces so this can
-    still feed the same parse_kda_spaced(text) regex-based parser as
-    everything else, rather than needing its own return shape."""
-    processed = preprocess(img_bgr)
-    data = pytesseract.image_to_data(
-        processed, config=TESS_CONFIG_KDA_WORDS, output_type=pytesseract.Output.DICT,
-    )
-    words = [
-        (data["left"][i], data["text"][i].strip())
-        for i in range(len(data["text"]))
-        if data["text"][i].strip()
-    ]
-    words.sort(key=lambda w: w[0])
-    return " ".join(text for _, text in words)
+    keep the numbers apart.
+
+    Three approaches tried before this one, in order, each replacing the
+    last after being confirmed (not just suspected) broken:
+    1. image_to_string() with a plain digit whitelist -- glued everything
+       into one string ("18 0 2" -> "1802"), no gap survived at all.
+    2. image_to_data() word-level segmentation (even at psm 11 "sparse
+       text") -- Tesseract's own layout analysis glued every number in a
+       row into one blob on real game captures, despite working on
+       synthetic test renders. Not trustworthy for finding the gaps.
+    3. Splitting into individual crops via connected-component analysis,
+       then OCR'ing each one separately -- the SPLITTING worked great, but
+       reading each isolated single-digit crop on its own turned out
+       unreliable (an isolated "0" came back empty across every psm mode
+       tried, despite being a clean, well-formed glyph -- Tesseract wants
+       more context than a lone detached character gives it).
+
+    This is the fix: split the finding-the-gaps job and the reading-the-
+    digits job apart, and give each to whichever tool is actually reliable
+    at it. image_to_boxes() reads the WHOLE crop in one line-level pass
+    (all three numbers together, the context Tesseract needs to read
+    reliably -- confirmed: it read "0" correctly here every time) AND
+    returns each individual character's own x-position. The numbers get
+    regrouped afterward from those positions, same gap-based logic as the
+    connected-component version (a gap wider than a digit's own width
+    marks a boundary between numbers) -- just applied to Tesseract's own
+    already-correct character reads instead of to raw pixel blobs."""
+    processed = preprocess(img_bgr)  # black text on white background
+    raw = pytesseract.image_to_boxes(processed, config=TESS_CONFIG_KDA_WORDS)
+    chars = []
+    for line in raw.strip().splitlines():
+        parts = line.split()
+        if len(parts) != 6:
+            continue
+        ch, x1, _, x2, _, _ = parts
+        chars.append((int(x1), int(x2), ch))
+    if not chars:
+        return ""
+    chars.sort(key=lambda c: c[0])
+
+    median_w = sorted(c[1] - c[0] for c in chars)[len(chars) // 2]
+    gap_threshold = median_w * 1.3
+
+    groups = [[chars[0]]]
+    for c in chars[1:]:
+        prev_right = groups[-1][-1][1]
+        if c[0] - prev_right > gap_threshold:
+            groups.append([c])
+        else:
+            groups[-1].append(c)
+
+    return " ".join("".join(ch for _, _, ch in group) for group in groups)
 
 
 def ocr_text(img_bgr):
@@ -632,8 +662,28 @@ def crop_to_bgr(sct, region):
     return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
 
+# Crop previews only need to be legible in a small dashboard thumbnail --
+# a fixed 3x scale makes sense for a tiny ~130x45 number crop (otherwise
+# too small to read), but blindly applying it to every calibrated region
+# regardless of size is how turtle_announcement (deliberately calibrated
+# generously per its own calibration hint -- "draw it wider/taller than
+# the text, the toast can shift slightly") ended up broadcasting a
+# ~2286x1329 image, several MB as base64, on nearly every cycle: large
+# enough on its own to blow past even a generously raised relay max_size.
+# Capping the OUTPUT dimension instead of the input multiplier means small
+# crops still get magnified for visibility while large ones don't get
+# blown up further -- they're already big enough to see without help.
+CROP_PREVIEW_MAX_DIMENSION = 500
+
+
 def crop_to_data_url(img_bgr, scale=3):
-    big = cv2.resize(img_bgr, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
+    h, w = img_bgr.shape[:2]
+    longest = max(h, w)
+    # No floor of 1.0 here on purpose -- a region already bigger than the
+    # cap at its native size (like turtle_announcement) needs to actually
+    # shrink, not just skip the extra 3x multiply.
+    effective_scale = min(scale, CROP_PREVIEW_MAX_DIMENSION / longest)
+    big = cv2.resize(img_bgr, None, fx=effective_scale, fy=effective_scale, interpolation=cv2.INTER_AREA if effective_scale < 1 else cv2.INTER_NEAREST)
     ok, buf = cv2.imencode(".png", big)
     if not ok:
         return None
