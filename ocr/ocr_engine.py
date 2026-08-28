@@ -476,6 +476,19 @@ TESS_CONFIG_KDA = (
     "-c tessedit_char_whitelist=0123456789/ "
     "-c load_system_dawg=0 -c load_freq_dawg=0"
 )
+# No "/" (or any separator) in this whitelist on purpose -- see
+# ocr_kda_spaced()'s docstring for why this one reads word-level data
+# instead of a single concatenated string. psm 7 ("single line") and psm 6
+# both glue visually-separated numbers into one blob regardless of gap
+# size or whitelist -- tested directly, confirmed on real renders, not
+# assumed. psm 11 ("sparse text, no particular order") is what actually
+# keeps them apart, same mode _image_to_data() already uses elsewhere in
+# this file for exactly this kind of multi-word detection.
+TESS_CONFIG_KDA_WORDS = (
+    "--oem 1 --psm 11 "
+    "-c tessedit_char_whitelist=0123456789 "
+    "-c load_system_dawg=0 -c load_freq_dawg=0"
+)
 
 
 def ocr_number(img_bgr):
@@ -501,6 +514,34 @@ def ocr_kda(img_bgr):
     processed = preprocess(img_bgr)
     text = pytesseract.image_to_string(processed, config=TESS_CONFIG_KDA)
     return text.strip()
+
+
+def ocr_kda_spaced(img_bgr):
+    """Post-match K/D/A regions have no slash between the three numbers,
+    just a gap (e.g. "18 0 2") -- unlike ocr_kda() above, there's no
+    distinctive separator GLYPH to whitelist that would force Tesseract to
+    keep the numbers apart. Whitelisting a literal space character to
+    preserve the gap in image_to_string()'s single concatenated output
+    turned out unreliable (numbers ending up glued together with no space
+    at all, e.g. "18 0 2" -> "1802", which then fails to parse as three
+    separate numbers). image_to_data() sidesteps that entirely: word
+    segmentation happens at the layout level from actual gaps in the
+    image, independent of the character whitelist, so it reliably returns
+    each number as its own entry regardless of whether a space character
+    is allowed in the output at all. Re-joined with spaces so this can
+    still feed the same parse_kda_spaced(text) regex-based parser as
+    everything else, rather than needing its own return shape."""
+    processed = preprocess(img_bgr)
+    data = pytesseract.image_to_data(
+        processed, config=TESS_CONFIG_KDA_WORDS, output_type=pytesseract.Output.DICT,
+    )
+    words = [
+        (data["left"][i], data["text"][i].strip())
+        for i in range(len(data["text"]))
+        if data["text"][i].strip()
+    ]
+    words.sort(key=lambda w: w[0])
+    return " ".join(text for _, text in words)
 
 
 def ocr_text(img_bgr):
@@ -1259,7 +1300,7 @@ async def capture_postgame_kda_regions():
         }
     result_keys = list(crops.keys())
     texts = await asyncio.gather(*[
-        loop.run_in_executor(ocr_executor, ocr_number, crops[key]) for key in result_keys
+        loop.run_in_executor(ocr_executor, ocr_kda_spaced, crops[key]) for key in result_keys
     ])
     values = {key: parse_kda_spaced(text) for key, text in zip(result_keys, texts)}
     for key in POSTGAME_KDA_KEYS:

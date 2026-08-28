@@ -1632,13 +1632,26 @@ function updatePlayerStatValues(){
 }
 
 /* ---------- Team Stats Overlay trigger ---------- */
+// hydrateTso() (and so this) runs on every single state_sync -- with OCR
+// polling this fast, that's many times a second during live play.
+// Unconditionally clearing + rebuilding the <select> options every single
+// time was destroying/recreating the dropdown's DOM mid-interaction, which
+// is almost certainly why clicks/selections sometimes didn't register --
+// an open dropdown or an in-flight click landing exactly when the options
+// got torn out from under it. Only touch the DOM when the roster actually
+// changed (name edits, initial load), not on every unrelated stat tick.
+let tsoLastRosterSig = { team1: null, team2: null };
 function buildTsoDropdowns(){
   if(!currentState) return;
   ["team1", "team2"].forEach(team => {
+    const players = currentState[team].players || [];
+    const sig = JSON.stringify(players);
+    if(sig === tsoLastRosterSig[team]) return;
+    tsoLastRosterSig[team] = sig;
     const select = document.getElementById(`tso_${team}_player`);
     const prevValue = select.value;
     select.innerHTML = "";
-    (currentState[team].players || []).forEach((name, i) => {
+    players.forEach((name, i) => {
       const opt = document.createElement("option");
       opt.value = i;
       opt.textContent = name || `Player ${i + 1}`;
@@ -2237,8 +2250,16 @@ document.getElementById("pom_t2_result").addEventListener("change", (e) => {
 });
 
 /* ---------- MVP stats push ---------- */
+// Same fix as buildTsoDropdowns() -- hydrateMvp() runs on every state_sync
+// (many times a second with fast OCR polling), and unconditionally
+// rebuilding this <select>'s options every time was tearing out its DOM
+// mid-interaction, causing selections/clicks to sometimes not register.
+let mvpLastRosterSig = null;
 function buildMvpPlayerDropdown(){
   if(!currentState) return;
+  const sig = JSON.stringify([currentState.team1.name, currentState.team1.players, currentState.team2.name, currentState.team2.players]);
+  if(sig === mvpLastRosterSig) return;
+  mvpLastRosterSig = sig;
   const select = document.getElementById("mvp_player");
   const prevValue = select.value;
   select.innerHTML = "";

@@ -496,6 +496,7 @@ function hideTeamStatsBox(el){
   }, { once: true });
 }
 let lastTsoShown = { team1: false, team2: false };
+let lastTsoIdx = { team1: null, team2: null };
 
 // Team Stats Overlay (bottom corner boxes) -- operator picks one player
 // per side from the dashboard (teamStatsOverlay state); everything else
@@ -510,10 +511,16 @@ function applyTeamStatsBox(team, state){
   if(idx == null){
     if(lastTsoShown[team]) hideTeamStatsBox(box);
     lastTsoShown[team] = false;
+    lastTsoIdx[team] = null;
     return;
   }
-  if(!lastTsoShown[team]) showTeamStatsBox(box);
+  // Re-plays the fly-in on every push, not just the first one -- switching
+  // straight from player A to player B (without going through idle first)
+  // used to just snap the new data in with no animation at all, which read
+  // as an abrupt/half-broken swap rather than an intentional one.
+  if(!lastTsoShown[team] || lastTsoIdx[team] !== idx) showTeamStatsBox(box);
   lastTsoShown[team] = true;
+  lastTsoIdx[team] = idx;
 
   const ign = (state[team].players && state[team].players[idx]) || "";
   document.getElementById(`${prefix}-ign`).textContent = ign;
