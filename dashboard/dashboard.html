@@ -96,7 +96,14 @@
     background:#0c0a17; border:1px solid #332b52; border-radius:6px; padding:6px 8px;}
   .pstat-row .pstat-name{flex:1; font-size:12px; font-weight:700; color:#eef1fa; min-width:0;
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-  .pstat-kda-crop{width:56px; height:22px; object-fit:contain; background:#000; border-radius:3px; border:1px solid #241d3d; flex-shrink:0;}
+  .pstat-kda-crop-wrap{display:flex; flex-direction:column; align-items:center; gap:2px; flex-shrink:0;}
+  .pstat-kda-crop{width:56px; height:22px; object-fit:contain; background:#000; border-radius:3px; border:1px solid #241d3d;}
+  /* Raw OCR text, not the parsed number -- lets you see "OCR read garbage
+     that failed to parse" vs "OCR read fine but something downstream is
+     wrong" instead of a stuck value being a total black box. Same idea as
+     the Turtle/Game Timer cards' "last OCR reading" line. */
+  .pstat-kda-lasttext{font-size:9px; color:#6d7899; max-width:56px; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; text-align:center;}
   .pstat-cell{display:flex; align-items:center; gap:4px;}
   .pstat-cell .pstat-label{font-size:10px; color:#6d7899; text-transform:uppercase;}
   .pstat-cell .pstat-value{font-size:15px; font-weight:800; color:#8b5cf6; width:22px; text-align:center;}
@@ -1520,7 +1527,10 @@ function buildPlayerStatRows(){
       row.className = "pstat-row";
       row.innerHTML = `
         <div class="pstat-name" id="pstat_${team}_${i}_name">Player ${playerNum}</div>
-        <img class="pstat-kda-crop" id="crop-${kdaKey}" alt="">
+        <div class="pstat-kda-crop-wrap">
+          <img class="pstat-kda-crop" id="crop-${kdaKey}" alt="">
+          <div class="pstat-kda-lasttext" id="pstat_${kdaKey}_lasttext" title="Raw OCR text this region read last frame">&mdash;</div>
+        </div>
         ${["kills","deaths","assists"].map(stat => {
           const cellKey = `${kdaKey}_${stat}`;
           const letter = stat[0].toUpperCase();
@@ -3378,6 +3388,9 @@ function connect(){
       } else if(msg.region === "game_timer"){
         document.getElementById("gameTimer_lastText").textContent =
           (msg.text && msg.text.trim()) ? msg.text : "(nothing read this frame)";
+      } else if(msg.region.endsWith("_kda")){
+        const lastTextEl = document.getElementById(`pstat_${msg.region}_lasttext`);
+        if(lastTextEl) lastTextEl.textContent = (msg.text && msg.text.trim()) ? msg.text : "(blank)";
       }
     } else if(msg.type === "battle_report_result"){
       const took = stopExtractTimer("import_battleReport_status");

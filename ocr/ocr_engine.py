@@ -674,12 +674,20 @@ def apply_player_kda_value(key, value):
 
 
 def read_region(key, img_bgr):
+    """Returns (parsed_value, raw_text) -- the raw text used to matter only
+    for debugging (turtle/game_timer already exposed theirs via their own
+    one-off OCR calls), but the K/D/A regions need it broadcast too now:
+    when the parsed value gets stuck at 0/0/0 with no obvious cause, the
+    only way to tell "OCR is reading garbage that fails to match" apart
+    from "OCR is reading fine but something downstream is wrong" is to see
+    what Tesseract actually produced, not just the final number."""
     if key in PLAYER_KDA_KEYS_SET:
-        return parse_kda(ocr_kda(img_bgr))
+        text = ocr_kda(img_bgr)
+        return parse_kda(text), text
     text = ocr_number(img_bgr)
     if key.endswith("_gold"):
-        return parse_gold(text)
-    return parse_int(text)
+        return parse_gold(text), text
+    return parse_int(text), text
 
 
 def process_turtle_reading(text, now_ms):
@@ -837,13 +845,19 @@ async def ocr_loop():
                     text_region_names.append(name)
             results = await asyncio.gather(*ocr_tasks)
 
+            # Each of these is now (parsed_value, raw_text) -- see
+            # read_region()'s docstring for why raw_text needs to survive
+            # this far (crop_preview broadcasts it below for the K/D/A keys
+            # specifically, so a stuck-at-zero reading is debuggable instead
+            # of a black box).
             numeric_results = results[:len(keys)]
+            raw_texts = {key: text for key, (_, text) in zip(keys, numeric_results)}
             text_results = dict(zip(text_region_names, results[len(keys):]))
             turtle_raw_text = text_results.get("turtle")
             game_timer_raw_text = text_results.get("game_timer")
 
             changed = False
-            for key, parsed in zip(keys, numeric_results):
+            for key, (parsed, _) in zip(keys, numeric_results):
                 confirmed = confirm_reading(key, parsed)
                 if confirmed is None:
                     continue
@@ -869,7 +883,10 @@ async def ocr_loop():
                 for key, img_bgr in crops.items():
                     data_url = crop_to_data_url(img_bgr)
                     if data_url:
-                        await broadcast({"type": "crop_preview", "region": key, "image": data_url})
+                        msg = {"type": "crop_preview", "region": key, "image": data_url}
+                        if key in PLAYER_KDA_KEYS_SET:
+                            msg["text"] = raw_texts.get(key) or ""
+                        await broadcast(msg)
                 if turtle_crop is not None:
                     data_url = crop_to_data_url(turtle_crop)
                     if data_url:
