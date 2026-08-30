@@ -4675,7 +4675,7 @@ function valUpdateAgentPortrait(team, i, agentName){
   if(!img) return;
   const entry = VAL_AGENT_MAP[(agentName || "").toLowerCase()];
   if(entry && entry.file){
-    img.src = `../overlay/assets/Valorant Agents/${entry.file}`;
+    img.src = `../overlay/assets/Valorant Agents/Portraits/${entry.file}`;
     img.style.display = "block";
   } else {
     img.style.display = "none";
