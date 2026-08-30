@@ -3511,10 +3511,18 @@ let gfxPending = {}; // elementId -> {dx,dy,scale}, for whichever page is curren
 let gfxSelectedIds = new Set(); // Ctrl/Cmd+click toggles a box in/out of this set
 let gfxHistory = []; // stack of gfxPending snapshots, for Ctrl+Z on this page
 const GFX_HISTORY_LIMIT = 50;
+// True from the first drag/resize/nudge since this page was last loaded or
+// saved. Gates whether an incoming state_sync is allowed to reload this
+// page's preview (see gfxLoadPage's caller in connect()'s state_sync
+// handler) -- another operator's Save Positions should show up live for
+// anyone just looking at Graphic Fixing, but must NOT blow away edits still
+// in progress locally that haven't been saved yet.
+let gfxHasUnsavedLocalEdits = false;
 
 function gfxSnapshot(){
   gfxHistory.push(JSON.parse(JSON.stringify(gfxPending)));
   if(gfxHistory.length > GFX_HISTORY_LIMIT) gfxHistory.shift();
+  gfxHasUnsavedLocalEdits = true;
 }
 
 // Some elements are meant to always stay level with each other (e.g. the
@@ -3781,6 +3789,7 @@ function gfxLoadPage(pageKey){
   gfxCurrentPage = pageKey;
   gfxSelectedIds = new Set();
   gfxHistory = [];
+  gfxHasUnsavedLocalEdits = false;
   gfxClearGuides();
   const pageDef = GRAPHIC_PAGES[pageKey];
   const bgImg = document.getElementById("gfx_bg");
@@ -3866,6 +3875,7 @@ document.getElementById("gfx_save").addEventListener("click", () => {
   allOverrides[gfxCurrentPage] = gfxPending;
   sendManualUpdate({ graphicOverrides: allOverrides }, [], []);
   statTick("saves");
+  gfxHasUnsavedLocalEdits = false;
   statusEl.style.color = "";
   statusEl.textContent = "Saved — live on the overlay now.";
 });
@@ -3930,6 +3940,15 @@ function connect(){
       updatePlayerStatNames();
       updatePlayerStatValues();
       hydrateTso();
+      // Picks up another operator's Save Positions live instead of only on
+      // your next tab switch/page click -- gated on Graphic Fixing actually
+      // being visible right now (no point re-rendering an invisible stage)
+      // and on this tab having no unsaved local drag/resize/nudge of its
+      // own, so a peer's save can never blow away an edit still in
+      // progress here.
+      if(!gfxHasUnsavedLocalEdits && document.getElementById("tab-graphics").offsetParent !== null){
+        gfxLoadPage(gfxCurrentPage);
+      }
     } else if(msg.type === "crop_preview"){
       const img = document.getElementById(`crop-${msg.region}`);
       if(img) img.src = msg.image;
@@ -4493,6 +4512,9 @@ function valConnect(){
       valRenderPlantDefuseStatus(valState);
       valBuildMvpDropdown(valState);
       valBuildH2HDropdowns(valState);
+      if(!valgfxHasUnsavedLocalEdits && document.getElementById("valtab-graphics").offsetParent !== null){
+        valgfxLoadPage(valgfxCurrentPage);
+      }
     } else if(msg.type === "crop_preview"){
       const img = document.getElementById(`crop-${msg.region}`);
       if(img) img.src = msg.image;
@@ -5268,10 +5290,14 @@ let valgfxPending = {};
 let valgfxSelectedIds = new Set();
 let valgfxHistory = [];
 const VALGFX_HISTORY_LIMIT = 50;
+// Same reasoning as gfxHasUnsavedLocalEdits above -- gates whether an
+// incoming state_sync is allowed to reactively reload this page's preview.
+let valgfxHasUnsavedLocalEdits = false;
 
 function valgfxSnapshot(){
   valgfxHistory.push(JSON.parse(JSON.stringify(valgfxPending)));
   if(valgfxHistory.length > VALGFX_HISTORY_LIMIT) valgfxHistory.shift();
+  valgfxHasUnsavedLocalEdits = true;
 }
 
 function valgfxUndo(){
@@ -5489,6 +5515,7 @@ function valgfxLoadPage(pageKey){
   valgfxCurrentPage = pageKey;
   valgfxSelectedIds = new Set();
   valgfxHistory = [];
+  valgfxHasUnsavedLocalEdits = false;
   valgfxClearGuides();
   const pageDef = VAL_GRAPHIC_PAGES[pageKey];
   const bgImg = document.getElementById("valgfx_bg");
@@ -5548,6 +5575,7 @@ document.getElementById("valgfx_save").addEventListener("click", () => {
   const allOverrides = Object.assign({}, (valState && valState.graphicOverrides) || {});
   allOverrides[valgfxCurrentPage] = valgfxPending;
   valSendManualUpdate({ graphicOverrides: allOverrides });
+  valgfxHasUnsavedLocalEdits = false;
   statusEl.style.color = "";
   statusEl.textContent = "Saved — live on the overlay now.";
 });
