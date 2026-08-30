@@ -142,13 +142,34 @@ const VAL_AGENT_MAP = {};
   ["Raze","Raze.png"], ["Reyna","Reyna.png"], ["Sage","Sage.png"],
   ["Skye","Skye.png"], ["Sova","Sova.png"], ["Cypher","Sypher.png"],
   ["Viper","Viper.png"], ["Yoru","Yoru.png"],
-  ["Iso","Iso.webp"], ["Waylay","Waylay.webp"], ["Gekko","Gekko.webp"], ["Tejo","Tejo.webp"],
-  ["Clove","Clove.webp"], ["Deadlock","Deadlock.webp"], ["Vyse","Vyse.webp"],
+  ["Iso","Iso.png"], ["Waylay","Waylay.png"], ["Gekko","Gekko.png"], ["Tejo","Tejo.png"],
+  ["Clove","Clove.png"], ["Deadlock","Deadlock.png"], ["Vyse","Vyse.png"],
 ].forEach(([name, file]) => { VAL_AGENT_MAP[name.toLowerCase()] = file; });
 
 function agentPortraitUrl(agentName){
   const file = VAL_AGENT_MAP[(agentName || "").toLowerCase()];
   return file ? `assets/Valorant Agents/${file}` : "";
+}
+
+// Per-agent head/face focus point (as % of the portrait's own width/height),
+// measured directly off each trimmed portrait -- these are full-body art at
+// wildly different poses (standing straight vs. leaning/jumping/turned),
+// so a single fixed object-position doesn't land on the face for every
+// agent (e.g. Waylay/Neon/Gekko lean hard to one side). Drives both
+// object-position (so object-fit:cover's own crop is already biased toward
+// the head) and transform-origin (so the extra CSS zoom keyframe stays
+// pinned on that same point instead of drifting off toward center-top).
+const VAL_AGENT_FOCUS = {
+  astra:{x:57,y:15}, breach:{x:45,y:6}, brimstone:{x:50,y:8}, chamber:{x:42,y:6},
+  fade:{x:57,y:8}, harbor:{x:55,y:7}, jett:{x:25,y:8}, "kay/o":{x:48,y:10},
+  killjoy:{x:62,y:10}, neon:{x:40,y:13}, omen:{x:53,y:13}, phoenix:{x:50,y:6},
+  raze:{x:45,y:10}, reyna:{x:53,y:15}, sage:{x:57,y:8}, skye:{x:50,y:5},
+  sova:{x:53,y:6}, cypher:{x:48,y:6}, viper:{x:40,y:5}, yoru:{x:48,y:6},
+  iso:{x:52,y:7}, waylay:{x:32,y:8}, gekko:{x:45,y:6}, tejo:{x:45,y:10},
+  clove:{x:62,y:10}, deadlock:{x:25,y:8}, vyse:{x:48,y:8},
+};
+function agentFocus(agentName){
+  return VAL_AGENT_FOCUS[(agentName || "").toLowerCase()] || { x:50, y:8 };
 }
 
 const VAL_MAP_MAP = {};
@@ -289,12 +310,16 @@ function sampleThemeColor(img, wrapEl){
   }
 }
 
-function fillSlotPortrait(n, src){
+function fillSlotPortrait(n, agentName){
   const wrap = document.getElementById(`slot${n}-wrap`);
   const img = document.getElementById(`slot${n}-portrait`);
+  const src = agentPortraitUrl(agentName);
   wrap.classList.toggle("filled", !!src);
   if(src){
     img.src = src;
+    const focus = agentFocus(agentName);
+    img.style.objectPosition = `${focus.x}% ${focus.y}%`;
+    img.style.transformOrigin = `${focus.x}% ${focus.y}%`;
     img.onload = () => sampleThemeColor(img, wrap);
     img.onerror = () => wrap.classList.remove("filled");
   }
@@ -324,7 +349,7 @@ function applyState(state){
     const agent = state.postMatch && state.postMatch.players && state.postMatch.players[slot.team] &&
       state.postMatch.players[slot.team][slot.idx] && state.postMatch.players[slot.team][slot.idx].agent;
     document.getElementById(`slot${slot.n}-name`).textContent = playerName;
-    fillSlotPortrait(slot.n, agentPortraitUrl(agent));
+    fillSlotPortrait(slot.n, agent);
   });
 
   applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.characterpick);
