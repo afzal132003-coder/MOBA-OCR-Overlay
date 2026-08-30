@@ -150,6 +150,16 @@ def default_state():
         # manual buttons.
         "spikeBadge": {"visible": False},
 
+        # The full hoax-overlay.png-styled bar (own team plates + score +
+        # the spike badge) is a SEPARATE, independent overlay page from the
+        # main In-Game HUD above, not merged into it -- shown/hidden as a
+        # whole on the operator's own call (hoax_overlay_show/hide), same
+        # push/pull relationship as any other manual overlay toggle in this
+        # project. spikeBadge above still separately controls the badge's
+        # own idle/planted color+animation *within* this overlay once it's
+        # visible.
+        "hoaxOverlay": {"visible": False},
+
         "postMatch": {
             "duration": "", "date": "",
             "result": {"team1": "victory", "team2": "defeat"},
@@ -189,6 +199,7 @@ def load_state():
             # as MOBA's turtleTimer/lordTimer reset on load.
             state["plantDefuse"] = default_state()["plantDefuse"]
             state["spikeBadge"] = default_state()["spikeBadge"]
+            state["hoaxOverlay"] = default_state()["hoaxOverlay"]
             return state
         except (json.JSONDecodeError, OSError):
             pass
@@ -687,6 +698,16 @@ async def handle_client(websocket, path=None):
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
 
+            elif msg_type == "hoax_overlay_show":
+                server_state["hoaxOverlay"]["visible"] = True
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
+            elif msg_type == "hoax_overlay_hide":
+                server_state["hoaxOverlay"]["visible"] = False
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
             elif msg_type == "swap_sides":
                 swap_team_sides()
                 save_state()
@@ -697,6 +718,30 @@ async def handle_client(websocket, path=None):
                 if data_url:
                     loop = asyncio.get_running_loop()
                     img = await loop.run_in_executor(ocr_executor, decode_image_data_url, data_url)
+                    rows = await loop.run_in_executor(
+                        ocr_executor, extract_postmatch_scoreboard, img, build_roster_names(),
+                    )
+                    await websocket.send(json.dumps({"type": "postmatch_scoreboard_extracted", "rows": rows}))
+
+            elif msg_type == "capture_postmatch_scoreboard":
+                # Fast path -- grabs the ONE calibrated region live (not the
+                # continuous poll loop, a one-shot capture same as MOBA's
+                # capture_postmatch_gold/battle_report) and runs it through
+                # the SAME fuzzy-name-match extraction as the upload path
+                # above. No per-player calibration here on purpose -- see
+                # calibrate_valorant.py's docstring on why a fixed slot
+                # would silently read the wrong player once the on-screen
+                # sort order shifts.
+                region = config.get("regions", {}).get("valorant_postmatch_scoreboard")
+                if not region or region.get("w", 0) <= 0 or region.get("h", 0) <= 0:
+                    await websocket.send(json.dumps({
+                        "type": "postmatch_scoreboard_extracted", "rows": [],
+                        "error": "Scoreboard region isn't calibrated yet -- run calibrate_valorant.py valorant_postmatch_scoreboard first.",
+                    }))
+                else:
+                    loop = asyncio.get_running_loop()
+                    with mss.mss() as sct:
+                        img = crop_to_bgr(sct, region)
                     rows = await loop.run_in_executor(
                         ocr_executor, extract_postmatch_scoreboard, img, build_roster_names(),
                     )

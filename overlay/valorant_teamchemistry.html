@@ -80,13 +80,44 @@
      transparent background (a cutout headshot), instead of the photo
      looking like it didn't load at all. Border keeps the box visible and
      framed even then. */
-  .row-photo{ position:absolute; width:99px; height:76px; object-fit:cover; object-position:center 15%; display:none; box-sizing:border-box; border:2px solid #d4af6a; }
-  /* Fixed per screen side, NOT win/loss -- left (team1) is always the
-     defender color (green), right (team2) is always the attacker color
-     (red), same convention Valorant's own UI uses throughout. Explicitly
-     NOT tied to postMatch.result or attackingTeam -- always this side. */
-  .row-photo.team1{ background-color:#3ddc6a; }
-  .row-photo.team2{ background-color:#fa4e5e; }
+  /* Outer wrap: static position/border/backdrop (also what Graphic
+     Fixing's transform targets, same split used everywhere else this
+     session so its transform never fights the inner swivel animation) and
+     what clips the zoomed portrait to the frame. Fixed per screen side,
+     NOT win/loss -- left (team1) is always the defender color (green),
+     right (team2) is always the attacker color (red), Valorant's own
+     convention. Explicitly NOT tied to postMatch.result or attackingTeam.
+     The backdrop color was bleeding through visibly before this zoom fix
+     -- agent portraits carry a lot of transparent padding around the
+     character, and object-fit:cover alone doesn't crop that away, only
+     fills the box dimensions. Scaling the inner image up (below) crops
+     past that padding onto the actual character/face. */
+  .row-photo-wrap{
+    position:absolute; width:99px; height:76px; display:none;
+    box-sizing:border-box; border:2px solid #d4af6a; overflow:hidden;
+  }
+  .row-photo-wrap.team1{ background-color:#3ddc6a; }
+  .row-photo-wrap.team2{ background-color:#fa4e5e; }
+  .row-photo-wrap img{
+    width:100%; height:100%; object-fit:cover; object-position:50% 10%;
+    transform-origin:center center; animation:rowPhotoFloat 5s ease-in-out infinite;
+  }
+  @keyframes rowPhotoFloat{
+    0%,100%{ transform:scale(1.85) translateY(1px) rotate(-0.5deg) skewY(-0.6deg); }
+    50%{ transform:scale(1.85) translateY(-1px) rotate(0.5deg) skewY(0.6deg); }
+  }
+  .row-photo-wrap .ember{
+    position:absolute; bottom:-4px; width:3px; height:3px; border-radius:50%;
+    opacity:0; pointer-events:none; animation:rowEmberRise 3s ease-in infinite;
+  }
+  .row-photo-wrap.team1 .ember{ background:radial-gradient(circle, #fff 0%, #3ddc6a 55%, transparent 100%); box-shadow:0 0 5px 1px rgba(61,220,106,0.55); }
+  .row-photo-wrap.team2 .ember{ background:radial-gradient(circle, #fff 0%, #fa4e5e 55%, transparent 100%); box-shadow:0 0 5px 1px rgba(250,78,94,0.55); }
+  @keyframes rowEmberRise{
+    0%{ transform:translate(0,0) scale(0.6); opacity:0; }
+    12%{ opacity:0.85; }
+    75%{ opacity:0.4; }
+    100%{ transform:translate(var(--drift,4px),-64px) scale(1); opacity:0; }
+  }
 </style>
 </head>
 <body>
@@ -161,16 +192,18 @@ const GFX_ELEMENT_IDS = ["team1-logo","team1-name","series-score","team2-logo","
   ROW_DEFS.forEach(row => {
     // The colored tag box at the very left of each row (PSD's "Layer 18",
     // team-color block) had nothing dynamic in it -- that's the box the
-    // player's own uploaded photo (set in Team Setup, not a hero/agent
-    // render -- Valorant has no fixed pick art) belongs in.
-    const photo = document.createElement("img");
-    photo.className = `row-photo ${row.team}`;
-    photo.id = `p${row.n}-photo`;
-    photo.style.left = (row.x + 1) + "px";
-    photo.style.top = row.y + "px";
-    photo.alt = "";
-    container.appendChild(photo);
-    GFX_ELEMENT_IDS.push(photo.id);
+    // player's own picked agent's portrait belongs in.
+    const photoWrap = document.createElement("div");
+    photoWrap.className = `row-photo-wrap ${row.team}`;
+    photoWrap.id = `p${row.n}-photo`;
+    photoWrap.style.left = (row.x + 1) + "px";
+    photoWrap.style.top = row.y + "px";
+    const photoImg = document.createElement("img");
+    photoImg.id = `p${row.n}-photo-img`;
+    photoImg.alt = "";
+    photoWrap.appendChild(photoImg);
+    container.appendChild(photoWrap);
+    GFX_ELEMENT_IDS.push(photoWrap.id);
 
     COLS.forEach(col => {
       const el = document.createElement("div");
@@ -211,6 +244,13 @@ function setLogo(id, src){
   else { el.style.display = "none"; }
 }
 
+function fillRowPhoto(n, src){
+  const wrap = document.getElementById(`p${n}-photo`);
+  const img = document.getElementById(`p${n}-photo-img`);
+  wrap.style.display = src ? "block" : "none";
+  if(src) img.src = src;
+}
+
 function kdRatio(kills, deaths){
   kills = Number(kills) || 0; deaths = Number(deaths) || 0;
   return (deaths > 0 ? kills / deaths : kills).toFixed(1);
@@ -246,11 +286,28 @@ function applyState(state){
     document.getElementById(`p${row.n}-fb`).textContent = p.firstBloods || 0;
     document.getElementById(`p${row.n}-plants`).textContent = p.plants || 0;
 
-    setLogo(`p${row.n}-photo`, agentPortraitUrl(p.agent));
+    fillRowPhoto(row.n, agentPortraitUrl(p.agent));
   });
 
   applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.teamchemistry);
 }
+
+// Ambient ember particles per row, same treatment as MOBA's pick slots and
+// the Character Pick overlay -- generated once since the row boxes
+// themselves never move.
+document.querySelectorAll(".row-photo-wrap").forEach(wrap => {
+  const emberCount = 3;
+  for(let i = 0; i < emberCount; i++){
+    const ember = document.createElement("div");
+    ember.className = "ember";
+    const leftPct = 15 + Math.random() * 70;
+    const drift = (Math.random() * 10 - 5).toFixed(1);
+    const delay = (Math.random() * 3).toFixed(2);
+    const duration = (2.4 + Math.random() * 1).toFixed(2);
+    ember.style.cssText = `left:${leftPct}%; --drift:${drift}px; animation-delay:${delay}s; animation-duration:${duration}s;`;
+    wrap.appendChild(ember);
+  }
+});
 
 connect();
 </script>

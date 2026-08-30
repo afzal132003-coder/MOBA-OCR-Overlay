@@ -1,11 +1,20 @@
 """
-Interactive calibration tool for Valorant's live HUD (3 regions):
+Interactive calibration tool for Valorant's live HUD (4 regions):
 - Two round-score digit regions (either side of the round timer,
   top-center).
 - One announcement region -- the "SPIKE PLANTED" / "SPIKE DEFUSED" banner
   zone, also top-center, just below the score. Draw it generously (wider/
   taller than the banner itself), same reasoning as MOBA's
   turtle_announcement calibration -- the banner can shift slightly.
+- One post-match scoreboard region -- the WHOLE "Individually Sorted"
+  results table (all 10 rows, both teams). Unlike MOBA's Battle Report/Gold
+  calibration (one tight box per fixed player slot), this is deliberately
+  ONE big box around the entire table: Valorant's scoreboard is
+  individually sorted by ACS, so which row a given player lands on changes
+  match to match -- a fixed per-slot box would silently read the wrong
+  player's numbers. One full-table capture + fuzzy name-matching (same
+  approach as the upload/paste path) works regardless of row order, so
+  draw this one generously around the full table, not tight to any one row.
 
 Have Valorant's in-game HUD on screen (a live round, or paused on a frame
 where the score is visible) when you run this. Writes into
@@ -28,12 +37,16 @@ import numpy as np
 
 CONFIG_PATH = Path(__file__).parent / "valorant_config.json"
 
-REGION_ORDER = ["valorant_team1_score", "valorant_team2_score", "valorant_announcement"]
+REGION_ORDER = [
+    "valorant_team1_score", "valorant_team2_score", "valorant_announcement",
+    "valorant_postmatch_scoreboard",
+]
 
 LABELS = {
     "valorant_team1_score": "TEAM 1 (left/attacker side) - ROUND SCORE",
     "valorant_team2_score": "TEAM 2 (right/defender side) - ROUND SCORE",
     "valorant_announcement": "SPIKE PLANTED / SPIKE DEFUSED banner zone - draw it generously, wider/taller than the text itself",
+    "valorant_postmatch_scoreboard": "POST-MATCH SCOREBOARD - draw around the WHOLE 10-row Individually Sorted table, both teams",
 }
 
 
