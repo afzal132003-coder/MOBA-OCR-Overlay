@@ -103,8 +103,8 @@ def default_player_stat_row():
 
 def default_state():
     return {
-        "team1": {"name": "", "logo": "", "players": ["", "", "", "", ""], "photos": ["", "", "", "", ""]},
-        "team2": {"name": "", "logo": "", "players": ["", "", "", "", ""], "photos": ["", "", "", "", ""]},
+        "team1": {"name": "", "logo": "", "players": ["", "", "", "", ""]},
+        "team2": {"name": "", "logo": "", "players": ["", "", "", "", ""]},
         "seriesScore": {"team1": 0, "team2": 0},
 
         "prematch": {

@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Valorant MVP Overlay</title>
+<style>
+  /*
+    Absolute pixel coordinates on a 1920x1080 canvas, measured against
+    overlay/assets/playermvp-plain.png (the blank template -- KILLS/DEATH/
+    ASSIST/F.BLOODS labels and the "CATALYST FOR CHANGE" tagline are baked
+    into that background already, only the VALUES and identity fields here
+    are dynamic). Cross-checked against playermvp.png (the filled
+    reference) for team logo/name/player-name/photo positions, which
+    aren't separate layers in either PNG -- best estimate, nudge with the
+    Graphic Fixing tab as needed.
+
+    Per an explicit instruction this session: the big art area on the
+    right shows the player's PICKED AGENT portrait (from Agent Pick /
+    Post-Match's Agent field), not an uploaded photo -- even though
+    playermvp.png's own reference shows a real photo there.
+  */
+
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Bold.ttf') format('truetype');
+    font-weight: 700; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');
+    font-weight: 800; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
+    font-weight: 900; font-style: normal;
+  }
+
+  :root{ --font-display: 'TT Supermolot Neue Trial', 'Arial Narrow', Arial, sans-serif; }
+
+  html, body{
+    margin:0; padding:0; background:transparent; overflow:hidden;
+    width:1920px; height:1080px;
+    font-family: var(--font-display);
+  }
+
+  #stage{
+    position:relative; width:1920px; height:1080px;
+    opacity:0; transform:translateY(-16px);
+    animation: enter 0.6s ease forwards;
+  }
+  @keyframes enter{ to{ opacity:1; transform:translateY(0); } }
+
+  .bg-frame{ position:absolute; top:0; left:0; width:1920px; height:1080px; pointer-events:none; }
+
+  #team-logo{ position:absolute; left:185px; top:188px; width:100px; height:90px; object-fit:contain; display:none; }
+
+  #team-name{
+    position:absolute; left:330px; top:197px; width:400px; height:32px;
+    color:#c8cede; font-weight:800; font-style:italic; font-size:22px;
+    letter-spacing:1px; text-transform:uppercase; white-space:nowrap; overflow:hidden;
+  }
+  #player-name{
+    position:absolute; left:330px; top:230px; width:540px; height:60px;
+    color:#f2c14e; font-weight:900; font-style:italic; font-size:46px;
+    text-transform:uppercase; white-space:nowrap; overflow:hidden;
+  }
+
+  .stat-value{
+    position:absolute; left:700px; width:250px; height:70px;
+    display:flex; align-items:center;
+    color:#12193a; font-weight:900; font-size:34px;
+  }
+  #stat-kills{ top:355px; }
+  #stat-deaths{ top:465px; }
+  #stat-assists{ top:578px; }
+  #stat-firstbloods{ top:690px; }
+
+  #agent-portrait{
+    position:absolute; left:1150px; top:90px; width:700px; height:940px;
+    object-fit:contain; object-position:bottom; display:none;
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <img class="bg-frame" src="assets/playermvp-plain.png" alt="">
+
+  <img id="team-logo" alt="">
+  <div id="team-name"></div>
+  <div id="player-name"></div>
+
+  <div class="stat-value" id="stat-kills">0</div>
+  <div class="stat-value" id="stat-deaths">0</div>
+  <div class="stat-value" id="stat-assists">0</div>
+  <div class="stat-value" id="stat-firstbloods">0</div>
+
+  <img id="agent-portrait" alt="">
+</div>
+
+<script>
+// Same agent name -> filename table as dashboard.html's Agent Pick /
+// valorant_teamchemistry.html -- duplicated per standalone-file convention.
+const VAL_AGENT_MAP = {};
+[
+  ["Astra","Astra.png"], ["Breach","Breach.png"], ["Brimstone","Brimstone.png"],
+  ["Chamber","Chamber.png"], ["Fade","Fade.png"], ["Harbor","Harbor.png"],
+  ["Jett","Jett.png"], ["KAY/O","Kayo.png"], ["Killjoy","KillJoy.png"],
+  ["Neon","Neon.png"], ["Omen","Omen.png"], ["Phoenix","Phoenix.png"],
+  ["Raze","Raze.png"], ["Reyna","Reyna.png"], ["Sage","Sage.png"],
+  ["Skye","Skye.png"], ["Sova","Sova.png"], ["Cypher","Sypher.png"],
+  ["Viper","Viper.png"], ["Yoru","Yoru.png"],
+  ["Iso", null], ["Waylay", null], ["Gekko", null], ["Tejo", null],
+  ["Clove", null], ["Deadlock", null], ["Vyse", null],
+].forEach(([name, file]) => { VAL_AGENT_MAP[name.toLowerCase()] = file; });
+
+function agentPortraitUrl(agentName){
+  const file = VAL_AGENT_MAP[(agentName || "").toLowerCase()];
+  return file ? `assets/Valorant Agents/${file}` : "";
+}
+
+const _params = new URLSearchParams(location.search);
+if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
+if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=valorant_mvp"
+  : "ws://localhost:8765?page=valorant_mvp";
+let ws;
+
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync") applyState(msg.data);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+
+function setImg(id, src){
+  const el = document.getElementById(id);
+  if(src){ el.src = src; el.style.display = "block"; }
+  else { el.style.display = "none"; }
+}
+
+const GFX_ELEMENT_IDS = ["team-logo","team-name","player-name","stat-kills","stat-deaths","stat-assists","stat-firstbloods","agent-portrait"];
+
+function applyGraphicOverrides(overrides){
+  GFX_ELEMENT_IDS.forEach(id => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    const o = (overrides && overrides[id]) || {};
+    const dx = o.dx || 0, dy = o.dy || 0, scale = o.scale || 1;
+    el.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+    el.style.transformOrigin = "top left";
+  });
+}
+
+function applyState(state){
+  const mvp = state.mvp || {};
+  const team = mvp.team;
+  const idx = mvp.playerIndex;
+  const hasSelection = team === "team1" || team === "team2";
+  const teamState = hasSelection ? state[team] : null;
+  const playerStats = hasSelection && state.postMatch && state.postMatch.players &&
+    state.postMatch.players[team] && state.postMatch.players[team][idx];
+
+  setImg("team-logo", teamState && teamState.logo);
+  document.getElementById("team-name").textContent = (teamState && teamState.name) || "";
+  document.getElementById("player-name").textContent = (teamState && teamState.players && teamState.players[idx]) || "";
+
+  document.getElementById("stat-kills").textContent = (playerStats && playerStats.kills) || 0;
+  document.getElementById("stat-deaths").textContent = (playerStats && playerStats.deaths) || 0;
+  document.getElementById("stat-assists").textContent = (playerStats && playerStats.assists) || 0;
+  document.getElementById("stat-firstbloods").textContent = (playerStats && playerStats.firstBloods) || 0;
+
+  setImg("agent-portrait", agentPortraitUrl(playerStats && playerStats.agent));
+
+  applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.mvp);
+}
+
+connect();
+</script>
+</body>
+</html>

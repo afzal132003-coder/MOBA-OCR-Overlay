@@ -1154,6 +1154,7 @@
       <div class="row" style="gap:8px;margin-bottom:14px;">
         <button class="secondary" id="valgfx_page_ingame">In-Game HUD</button>
         <button class="secondary" id="valgfx_page_teamchemistry">Team Chemistry Stats</button>
+        <button class="secondary" id="valgfx_page_mvp">MVP</button>
       </div>
       <p class="hint">Click a box to select it, then nudge with arrow keys (hold Shift for 10px steps) for
         pixel-precise placement. Red guide lines appear while dragging when an edge or center lines up with
@@ -4512,29 +4513,19 @@ function valConnect(){
 }
 
 /* ---------- Pre-Match: Team Setup ---------- */
+// No per-player photo upload -- Team Chemistry Stats and the MVP overlay
+// both show the player's PICKED AGENT portrait instead of an uploaded
+// photo (see Agent Pick), so there's nothing here for a photo to feed.
 function valBuildPlayerInputs(containerId, team){
   const container = document.getElementById(containerId);
   container.innerHTML = "";
   for(let i=0;i<5;i++){
     const row = document.createElement("div");
     row.style.cssText = "display:flex;gap:8px;align-items:center;margin-bottom:6px;";
-    row.innerHTML = `
-      <input type="text" id="val_${team}Player${i}" placeholder="Player ${i+1} name" style="flex:1;">
-      <input type="file" id="val_${team}Photo${i}" accept="image/*" style="width:120px;font-size:11px;">
-      <img id="val_${team}PhotoPreview${i}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;background:#0c0a17;display:none;">
-    `;
+    row.innerHTML = `<input type="text" id="val_${team}Player${i}" placeholder="Player ${i+1} name" style="flex:1;">`;
     container.appendChild(row);
   }
   for(let i=0;i<5;i++){
-    document.getElementById(`val_${team}Photo${i}`).addEventListener("change", async (e) => {
-      if(e.target.files[0]){
-        const rawDataUrl = await readFileAsDataURL(e.target.files[0]);
-        const dataUrl = await resizeImageDataUrl(rawDataUrl, 320, "image/jpeg", 0.85);
-        const preview = document.getElementById(`val_${team}PhotoPreview${i}`);
-        preview.src = dataUrl;
-        preview.style.display = "block";
-      }
-    });
     document.getElementById(`val_${team}Player${i}`).addEventListener("input", (e) => valDirtyFields.add(e.target.id));
   }
   wireValPlayerPasteFill(team);
@@ -4666,14 +4657,14 @@ document.getElementById("val_team2Logo").addEventListener("change", async (e) =>
 // unrelated state_sync (e.g. a round-score OCR tick) then overwrites the
 // form with the server's still-unchanged data, LOOKING like the edit
 // "reverted" with zero indication anything went wrong. This waits for the
-// server's own echo to confirm the exact name/players/photos actually
-// landed, instead of assuming success the moment send() returns.
+// server's own echo to confirm the exact name/players actually landed,
+// instead of assuming success the moment send() returns.
 let valSaveTeamInfoPending = null;
 
 document.getElementById("val_saveTeamInfo").addEventListener("click", () => {
   const data = {
-    team1: { name: document.getElementById("val_team1Name").value, players: [], photos: [] },
-    team2: { name: document.getElementById("val_team2Name").value, players: [], photos: [] },
+    team1: { name: document.getElementById("val_team1Name").value, players: [] },
+    team2: { name: document.getElementById("val_team2Name").value, players: [] },
   };
   const logo1 = document.getElementById("val_team1LogoPreview").src;
   const logo2 = document.getElementById("val_team2LogoPreview").src;
@@ -4682,9 +4673,6 @@ document.getElementById("val_saveTeamInfo").addEventListener("click", () => {
   ["team1","team2"].forEach(team => {
     for(let i=0;i<5;i++){
       data[team].players.push(document.getElementById(`val_${team}Player${i}`).value);
-      const photoPreview = document.getElementById(`val_${team}PhotoPreview${i}`);
-      const existing = (valState && valState[team].photos && valState[team].photos[i]) || "";
-      data[team].photos.push(photoPreview.src.startsWith("data:") ? photoPreview.src : existing);
     }
   });
 
@@ -4716,8 +4704,7 @@ function valCheckSaveTeamInfoConfirmed(state){
   const { data } = valSaveTeamInfoPending;
   const matches = ["team1","team2"].every(team =>
     state[team].name === data[team].name &&
-    JSON.stringify(state[team].players) === JSON.stringify(data[team].players) &&
-    JSON.stringify(state[team].photos) === JSON.stringify(data[team].photos)
+    JSON.stringify(state[team].players) === JSON.stringify(data[team].players)
   );
   if(!matches) return;
   clearTimeout(valSaveTeamInfoPending.timeoutHandle);
@@ -4729,7 +4716,7 @@ function valCheckSaveTeamInfoConfirmed(state){
 }
 
 document.getElementById("val_clearTeamInfo").addEventListener("click", () => {
-  if(!confirm("Clear Valorant Team Setup (names, logos, players, photos) for both teams? This pushes the cleared state live immediately.")) return;
+  if(!confirm("Clear Valorant Team Setup (names, logos, players) for both teams? This pushes the cleared state live immediately.")) return;
   document.getElementById("val_team1Name").value = "";
   document.getElementById("val_team2Name").value = "";
   document.getElementById("val_team1LogoPreview").src = "";
@@ -4739,14 +4726,11 @@ document.getElementById("val_clearTeamInfo").addEventListener("click", () => {
   ["team1","team2"].forEach(team => {
     for(let i=0;i<5;i++){
       document.getElementById(`val_${team}Player${i}`).value = "";
-      const preview = document.getElementById(`val_${team}PhotoPreview${i}`);
-      preview.src = ""; preview.style.display = "none";
-      document.getElementById(`val_${team}Photo${i}`).value = "";
     }
   });
   valSendManualUpdate({
-    team1: { name:"", logo:"", players:["","","","",""], photos:["","","","",""] },
-    team2: { name:"", logo:"", players:["","","","",""], photos:["","","","",""] },
+    team1: { name:"", logo:"", players:["","","","",""] },
+    team2: { name:"", logo:"", players:["","","","",""] },
   });
   valDirtyFields.clear();
 });
@@ -5153,10 +5137,6 @@ function valApplyState(state){
       const input = document.getElementById(id);
       if(input && isFree(id)) input.value = name || "";
     });
-    (state[team].photos || []).forEach((photo, i) => {
-      const preview = document.getElementById(`val_${team}PhotoPreview${i}`);
-      if(preview && photo){ preview.src = photo; preview.style.display = "block"; }
-    });
   });
   if(active !== "val_line1") document.getElementById("val_line1").value = state.prematch.context.line1 || "";
   if(active !== "val_line2") document.getElementById("val_line2").value = state.prematch.context.line2 || "";
@@ -5232,6 +5212,22 @@ const VAL_GRAPHIC_PAGES = {
       "series-score": { left:827, top:378, width:267, height:46, kind:"box", label:"Series Score" },
       "team2-name": { left:1370, top:378, width:270, height:46, kind:"name", team:"team2" },
       "team2-logo": { left:1165, top:358, width:95, height:85, kind:"logo", team:"team2" },
+    },
+  },
+  mvp: {
+    label: "MVP", background: "../overlay/assets/playermvp-plain.png",
+    elements: {
+      // All "box" kind, not "logo"/"name" -- MVP's team is whichever one
+      // got selected (mvp.team), not fixed to team1/team2, same reasoning
+      // as MOBA's own MVP Stats page above.
+      "team-logo": { left:185, top:188, width:100, height:90, kind:"box", label:"MVP Team Logo" },
+      "team-name": { left:330, top:197, width:400, height:32, kind:"box", label:"MVP Team Name" },
+      "player-name": { left:330, top:230, width:540, height:60, kind:"box", label:"MVP Player Name" },
+      "stat-kills": { left:700, top:355, width:250, height:70, kind:"box", label:"Kills" },
+      "stat-deaths": { left:700, top:465, width:250, height:70, kind:"box", label:"Deaths" },
+      "stat-assists": { left:700, top:578, width:250, height:70, kind:"box", label:"Assists" },
+      "stat-firstbloods": { left:700, top:690, width:250, height:70, kind:"box", label:"First Bloods" },
+      "agent-portrait": { left:1150, top:90, width:700, height:940, kind:"box", label:"Agent Portrait" },
     },
   },
 };
@@ -5596,6 +5592,7 @@ const OVERLAY_LINKS = [
   {game:"Free Fire", name:"Team Eliminated", file:"overlay/freefire_team_eliminated.html"},
   {game:"Valorant", name:"In-Game HUD", file:"overlay/valorant_ingame.html"},
   {game:"Valorant", name:"Team Chemistry Stats (Post-Match)", file:"overlay/valorant_teamchemistry.html"},
+  {game:"Valorant", name:"MVP", file:"overlay/valorant_mvp.html"},
 ];
 
 function buildOverlayLinksTable(){

@@ -106,6 +106,31 @@
 // are each column's left edge minus the row's x, taken from the K/D/A,
 // ACS, KD, FB, PLANTS header label boxes (and the Line-separator boxes in
 // between) in "teamchemistrystats - removed bg.psd".
+
+// Same agent name -> filename table as dashboard.html's Agent Pick --
+// duplicated here rather than shared since this is a standalone page (same
+// reasoning as every other overlay file in this project). A null file
+// means the agent is real but has no portrait image yet -- the box just
+// stays on its win/loss color with nothing on top of it instead of a
+// broken image, same graceful-degradation behavior as the picker.
+const VAL_AGENT_MAP = {};
+[
+  ["Astra","Astra.png"], ["Breach","Breach.png"], ["Brimstone","Brimstone.png"],
+  ["Chamber","Chamber.png"], ["Fade","Fade.png"], ["Harbor","Harbor.png"],
+  ["Jett","Jett.png"], ["KAY/O","Kayo.png"], ["Killjoy","KillJoy.png"],
+  ["Neon","Neon.png"], ["Omen","Omen.png"], ["Phoenix","Phoenix.png"],
+  ["Raze","Raze.png"], ["Reyna","Reyna.png"], ["Sage","Sage.png"],
+  ["Skye","Skye.png"], ["Sova","Sova.png"], ["Cypher","Sypher.png"],
+  ["Viper","Viper.png"], ["Yoru","Yoru.png"],
+  ["Iso", null], ["Waylay", null], ["Gekko", null], ["Tejo", null],
+  ["Clove", null], ["Deadlock", null], ["Vyse", null],
+].forEach(([name, file]) => { VAL_AGENT_MAP[name.toLowerCase()] = file; });
+
+function agentPortraitUrl(agentName){
+  const file = VAL_AGENT_MAP[(agentName || "").toLowerCase()];
+  return file ? `assets/Valorant Agents/${file}` : "";
+}
+
 const ROW_DEFS = [
   {n:1, team:"team1", idx:0, x:137, y:507},
   {n:2, team:"team1", idx:1, x:137, y:595},
@@ -219,8 +244,7 @@ function applyState(state){
     document.getElementById(`p${row.n}-fb`).textContent = p.firstBloods || 0;
     document.getElementById(`p${row.n}-plants`).textContent = p.plants || 0;
 
-    const photoSrc = (state[row.team] && state[row.team].photos && state[row.team].photos[row.idx]) || "";
-    setLogo(`p${row.n}-photo`, photoSrc);
+    setLogo(`p${row.n}-photo`, agentPortraitUrl(p.agent));
     const photoEl = document.getElementById(`p${row.n}-photo`);
     const won = state.postMatch && state.postMatch.result && state.postMatch.result[row.team] === "victory";
     photoEl.classList.toggle("win", won);
