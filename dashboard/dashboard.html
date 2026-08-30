@@ -4474,6 +4474,27 @@ function valBuildPlayerInputs(containerId, team){
       }
     });
   }
+  wireValPlayerPasteFill(team);
+}
+
+// Same paste-fill behavior as MOBA's wirePlayerPasteFill -- pasting a
+// multi-line block of IGNs into any player-name field fills that field and
+// the ones after it, in order, instead of needing five separate pastes.
+function wireValPlayerPasteFill(team){
+  for(let i=0;i<5;i++){
+    const input = document.getElementById(`val_${team}Player${i}`);
+    if(!input) continue;
+    input.addEventListener("paste", (e) => {
+      const text = (e.clipboardData || window.clipboardData).getData("text");
+      const lines = text.split(/\r\n|\r|\n/).map(l => l.trim()).filter(l => l.length > 0);
+      if(lines.length <= 1) return;
+      e.preventDefault();
+      for(let j = 0; j < lines.length && i + j < 5; j++){
+        const target = document.getElementById(`val_${team}Player${i + j}`);
+        if(target) target.value = lines[j];
+      }
+    });
+  }
 }
 
 document.getElementById("val_team1Logo").addEventListener("change", async (e) => {
