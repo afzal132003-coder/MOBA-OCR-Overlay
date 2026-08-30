@@ -49,9 +49,36 @@
 
   .bg-frame{ position:absolute; top:0; left:0; width:1920px; height:1080px; pointer-events:none; }
 
-  .slot-portrait{
+  /* Same zoom/swivel/ember treatment as MOBA's pick-slot portraits
+     (overlay/prematch.html) -- a tight cover crop scaled up past the frame
+     edge so the constant micro-rotate/skew sway never reveals empty space
+     at the corners, plus a handful of theme-colored embers (sampled from
+     each portrait's own dominant color) drifting up from the bottom while
+     a slot is filled. */
+  .slot-wrap{
     position:absolute; width:159px; height:179px; top:826px;
-    object-fit:cover; object-position:top center; display:none;
+    overflow:hidden; display:none;
+  }
+  .slot-wrap.filled{ display:block; }
+  .slot-wrap img{
+    width:100%; height:100%; object-fit:cover; object-position:50% 15%;
+    transform-origin:center center; animation:slotFloat 5s ease-in-out infinite;
+  }
+  @keyframes slotFloat{
+    0%,100%{ transform:scale(1.16) translateY(2px) rotate(-0.5deg) skewY(-0.6deg); }
+    50%{ transform:scale(1.16) translateY(-2px) rotate(0.5deg) skewY(0.6deg); }
+  }
+  .slot-wrap .ember{
+    position:absolute; bottom:-6px; width:4px; height:4px; border-radius:50%;
+    background:radial-gradient(circle, #fff 0%, var(--ember-color, #ff9d3c) 55%, transparent 100%);
+    box-shadow:0 0 6px 2px var(--ember-glow, rgba(255,159,60,0.55));
+    opacity:0; pointer-events:none; animation:emberRise 3.2s ease-in infinite;
+  }
+  @keyframes emberRise{
+    0%{ transform:translate(0,0) scale(0.6); opacity:0; }
+    12%{ opacity:0.9; }
+    75%{ opacity:0.45; }
+    100%{ transform:translate(var(--drift,6px),-150px) scale(1.1); opacity:0; }
   }
   .slot-name{
     position:absolute; width:159px; height:34px; top:1006px;
@@ -62,11 +89,11 @@
   }
 
   #map-thumb{
-    position:absolute; left:869px; top:826px; width:159px; height:179px;
+    position:absolute; left:880px; top:826px; width:159px; height:179px;
     object-fit:cover; display:none;
   }
   #map-name{
-    position:absolute; left:869px; top:1006px; width:159px; height:34px;
+    position:absolute; left:880px; top:1006px; width:159px; height:34px;
     display:flex; align-items:center; justify-content:center;
     color:#ffffff; font-weight:800; font-style:italic; font-size:14px;
     text-transform:uppercase; letter-spacing:0.3px;
@@ -156,12 +183,20 @@ const GFX_ELEMENT_IDS = ["team1-logo","team1-name","team2-name","team2-logo","ma
 (function buildSlots(){
   const container = document.getElementById("slots");
   SLOT_DEFS.forEach(slot => {
+    // Outer wrap is what Graphic Fixing's dx/dy/scale transform targets
+    // (and what clips the zoomed portrait to the frame) -- the inner img
+    // has its OWN separate transform for the float/sway animation, same
+    // split used for the In-Game HUD's spike badge, so the two transforms
+    // never fight each other.
+    const wrap = document.createElement("div");
+    wrap.className = "slot-wrap";
+    wrap.id = `slot${slot.n}-wrap`;
+    wrap.style.left = slot.x + "px";
     const portrait = document.createElement("img");
-    portrait.className = "slot-portrait";
     portrait.id = `slot${slot.n}-portrait`;
-    portrait.style.left = slot.x + "px";
-    container.appendChild(portrait);
-    GFX_ELEMENT_IDS.push(portrait.id);
+    wrap.appendChild(portrait);
+    container.appendChild(wrap);
+    GFX_ELEMENT_IDS.push(wrap.id);
 
     const name = document.createElement("div");
     name.className = "slot-name";
@@ -199,6 +234,72 @@ function setImg(id, src){
   else { el.style.display = "none"; }
 }
 
+// Same theme-color sampling as MOBA's pick slots (overlay/prematch.html) --
+// duplicated per standalone-file convention.
+function rgbToHsl(r, g, b){
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0; const l = (max + min) / 2;
+  const d = max - min;
+  if(d !== 0){
+    s = d / (1 - Math.abs(2 * l - 1));
+    switch(max){
+      case r: h = ((g - b) / d) % 6; break;
+      case g: h = (b - r) / d + 2; break;
+      default: h = (r - g) / d + 4;
+    }
+    h *= 60;
+    if(h < 0) h += 360;
+  }
+  return { h, s, l };
+}
+function hslToRgb(h, s, l){
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = l - c / 2;
+  let r1, g1, b1;
+  if(h < 60){ [r1,g1,b1] = [c,x,0]; }
+  else if(h < 120){ [r1,g1,b1] = [x,c,0]; }
+  else if(h < 180){ [r1,g1,b1] = [0,c,x]; }
+  else if(h < 240){ [r1,g1,b1] = [0,x,c]; }
+  else if(h < 300){ [r1,g1,b1] = [x,0,c]; }
+  else{ [r1,g1,b1] = [c,0,x]; }
+  return [Math.round((r1+m)*255), Math.round((g1+m)*255), Math.round((b1+m)*255)];
+}
+function sampleThemeColor(img, wrapEl){
+  try{
+    const size = 16;
+    const canvas = document.createElement("canvas");
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0, size, size);
+    const data = ctx.getImageData(0, 0, size, size).data;
+    let r = 0, g = 0, b = 0, n = 0;
+    for(let i = 0; i < data.length; i += 4){ r += data[i]; g += data[i+1]; b += data[i+2]; n++; }
+    r /= n; g /= n; b /= n;
+    let { h, s, l } = rgbToHsl(r, g, b);
+    s = Math.min(1, s * 1.9 + 0.2);
+    l = Math.min(0.74, Math.max(0.48, l * 1.15));
+    const [vr, vg, vb] = hslToRgb(h, s, l);
+    wrapEl.style.setProperty("--ember-color", `rgb(${vr},${vg},${vb})`);
+    wrapEl.style.setProperty("--ember-glow", `rgba(${vr},${vg},${vb},0.6)`);
+  } catch(e) {
+    wrapEl.style.removeProperty("--ember-color");
+    wrapEl.style.removeProperty("--ember-glow");
+  }
+}
+
+function fillSlotPortrait(n, src){
+  const wrap = document.getElementById(`slot${n}-wrap`);
+  const img = document.getElementById(`slot${n}-portrait`);
+  wrap.classList.toggle("filled", !!src);
+  if(src){
+    img.src = src;
+    img.onload = () => sampleThemeColor(img, wrap);
+    img.onerror = () => wrap.classList.remove("filled");
+  }
+}
+
 function applyGraphicOverrides(overrides){
   GFX_ELEMENT_IDS.forEach(id => {
     const el = document.getElementById(id);
@@ -223,11 +324,27 @@ function applyState(state){
     const agent = state.postMatch && state.postMatch.players && state.postMatch.players[slot.team] &&
       state.postMatch.players[slot.team][slot.idx] && state.postMatch.players[slot.team][slot.idx].agent;
     document.getElementById(`slot${slot.n}-name`).textContent = playerName;
-    setImg(`slot${slot.n}-portrait`, agentPortraitUrl(agent));
+    fillSlotPortrait(slot.n, agentPortraitUrl(agent));
   });
 
   applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.characterpick);
 }
+
+// Ambient ember particles per slot, same as MOBA's pick slots -- generated
+// once since the slot boxes themselves never move.
+document.querySelectorAll(".slot-wrap").forEach(wrap => {
+  const emberCount = 4;
+  for(let i = 0; i < emberCount; i++){
+    const ember = document.createElement("div");
+    ember.className = "ember";
+    const leftPct = 15 + Math.random() * 70;
+    const drift = (Math.random() * 16 - 8).toFixed(1);
+    const delay = (Math.random() * 3.2).toFixed(2);
+    const duration = (2.6 + Math.random() * 1.1).toFixed(2);
+    ember.style.cssText = `left:${leftPct}%; --drift:${drift}px; animation-delay:${delay}s; animation-duration:${duration}s;`;
+    wrap.appendChild(ember);
+  }
+});
 
 connect();
 </script>

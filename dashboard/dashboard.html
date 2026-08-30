@@ -1055,13 +1055,24 @@
         <button id="val_manualDefuse">Show Defuse Popup</button>
         <button class="secondary" id="val_manualHide">Hide Popup</button>
       </div>
-      <p class="hint" style="margin-top:14px;">The spike badge on the In-Game HUD is separate from the popup above —
-        it's PERSISTENT (stays up for the rest of the round, doesn't auto-hide after a few seconds), driven by the
-        same "SPIKE PLANTED" detection just above, no separate calibration needed. Push it manually if OCR misses it
-        or you need to correct it:</p>
+      <p class="hint" style="margin-top:14px;">The spike badge (on the separate Hoax Overlay below, not this HUD) is
+        different from the popup above — it's PERSISTENT (stays up for the rest of the round, doesn't auto-hide
+        after a few seconds), driven by the same "SPIKE PLANTED" detection just above, no separate calibration
+        needed. Push it manually if OCR misses it or you need to correct it:</p>
       <div class="row">
         <button id="val_spikeBadgePush">Push Spike Badge Up</button>
         <button class="secondary" id="val_spikeBadgePushDown">Push Spike Badge Down</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Hoax Overlay</h2>
+      <p class="hint">A separate on-demand overlay (its own OBS Browser Source) — team plates + score + the spike
+        badge above, styled from hoax-overlay.png. Independent of the main In-Game HUD; push it up when you want it
+        on screen, pull it down to hide it again.</p>
+      <div class="row">
+        <button id="val_hoaxOverlayPush">Push Hoax Overlay Up</button>
+        <button class="secondary" id="val_hoaxOverlayPushDown">Pull Hoax Overlay Down</button>
       </div>
     </div>
   </div>
@@ -1146,19 +1157,33 @@
       <h2>Post-Match Scoreboard (OCR Import)</h2>
       <p class="hint">Valorant's post-match "Individually Sorted" screen is ONE list mixing both teams together,
         sorted by ACS, with team told apart only by row color — not two separate 5-player columns like MOBA's
-        screens. So this reads the whole screenshot, matches each name it finds against your full 10-player roster
+        screens. So this reads the whole table, matches each name it finds against your full 10-player roster
         (both teams), and lists every result below for you to check before anything is applied. If a row got
         matched to the wrong player, fix it with that row's dropdown; if a row needs to trade places with its
         neighbor, use the arrows — the player and all their stats move together.</p>
-      <div class="paste-zone" id="val_import_zone" tabindex="0">
-        <input type="file" id="val_import_file" accept="image/*">
-        <div class="paste-hint">Upload the post-match scoreboard screenshot, or click here and press Ctrl+V to paste one</div>
-        <div><img id="val_import_preview" style="max-width:100%;border-radius:8px;display:none;margin-top:10px;"></div>
+      <p class="hint">Have the post-match "Individually Sorted" screen up on your monitor, then hit Capture — this
+        reads straight off the screen, no screenshot/upload needed. Unlike MOBA's Import Stats, this is ONE region
+        around the whole table rather than one box per player slot — the on-screen row order shifts match to match
+        (sorted by performance), so a fixed per-slot box would silently read the wrong player; name-matching against
+        your roster handles that regardless of row order. First time only, calibrate generously around the full
+        10-row table:</p>
+      <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+        cd ocr/valorant &amp;&amp; python calibrate_valorant.py valorant_postmatch_scoreboard
       </div>
-      <button id="val_import_extract" style="margin-top:10px;">Extract From Upload</button>
+      <button id="val_import_capture">Capture From Screen Now</button>
       <div id="val_import_status" class="hint"></div>
       <div id="val_import_table" style="margin-top:14px;overflow-x:auto;"></div>
       <button class="secondary" id="val_import_apply" style="display:none;">Apply to Post Match Players</button>
+
+      <details style="margin-top:14px;">
+        <summary style="cursor:pointer;color:#9aa4c0;font-size:12px;">Or upload/paste a screenshot instead</summary>
+        <div class="paste-zone" id="val_import_zone" tabindex="0" style="margin-top:10px;">
+          <input type="file" id="val_import_file" accept="image/*">
+          <div class="paste-hint">Upload the post-match scoreboard screenshot, or click here and press Ctrl+V to paste one</div>
+          <div><img id="val_import_preview" style="max-width:100%;border-radius:8px;display:none;margin-top:10px;"></div>
+        </div>
+        <button class="secondary" id="val_import_extract">Extract From Upload</button>
+      </details>
     </div>
   </div>
 
@@ -1177,6 +1202,7 @@
         <button class="secondary" id="valgfx_page_teamchemistry">Team Chemistry Stats</button>
         <button class="secondary" id="valgfx_page_mvp">MVP</button>
         <button class="secondary" id="valgfx_page_characterpick">Character Pick</button>
+        <button class="secondary" id="valgfx_page_hoax">Hoax Overlay</button>
       </div>
       <p class="hint">Click a box to select it, then nudge with arrow keys (hold Shift for 10px steps) for
         pixel-precise placement. Red guide lines appear while dragging when an edge or center lines up with
@@ -4913,6 +4939,12 @@ document.getElementById("val_spikeBadgePush").addEventListener("click", () => {
 document.getElementById("val_spikeBadgePushDown").addEventListener("click", () => {
   if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"spike_badge_hide"}));
 });
+document.getElementById("val_hoaxOverlayPush").addEventListener("click", () => {
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"hoax_overlay_show"}));
+});
+document.getElementById("val_hoaxOverlayPushDown").addEventListener("click", () => {
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"hoax_overlay_hide"}));
+});
 
 /* ---------- Post-Match: Overall Scoreboard ---------- */
 const VAL_POM_FIELDS = ["acs","kills","deaths","assists","econ","firstBloods","plants","defuses"];
@@ -5117,6 +5149,16 @@ document.getElementById("val_import_extract").addEventListener("click", () => {
   valWs.send(JSON.stringify({type:"extract_postmatch_scoreboard", image: preview.src}));
 });
 
+document.getElementById("val_import_capture").addEventListener("click", () => {
+  const statusEl = document.getElementById("val_import_status");
+  if(!(valWs && valWs.readyState === WebSocket.OPEN)){
+    statusEl.textContent = "Not connected to the Valorant OCR server.";
+    return;
+  }
+  startExtractTimer("val_import_status", "Capturing");
+  valWs.send(JSON.stringify({type:"capture_postmatch_scoreboard"}));
+});
+
 document.getElementById("val_import_apply").addEventListener("click", () => {
   valImportRows.forEach((row, i) => valReadImportRowFromDom(i));
   const seen = {};
@@ -5317,8 +5359,20 @@ const VAL_GRAPHIC_PAGES = {
       "team1-name": { left:110, top:745, width:250, height:36, kind:"name", team:"team1" },
       "team2-name": { left:1560, top:745, width:250, height:36, kind:"name", team:"team2" },
       "team2-logo": { left:1820, top:735, width:60, height:55, kind:"logo", team:"team2" },
-      "map-thumb": { left:869, top:826, width:159, height:179, kind:"box", label:"Map Thumbnail" },
-      "map-name": { left:869, top:1006, width:159, height:34, kind:"box", label:"Map Name" },
+      "map-thumb": { left:880, top:826, width:159, height:179, kind:"box", label:"Map Thumbnail" },
+      "map-name": { left:880, top:1006, width:159, height:34, kind:"box", label:"Map Name" },
+    },
+  },
+  hoax: {
+    label: "Hoax Overlay", background: "../overlay/assets/valorant_hoax_blank.png",
+    elements: {
+      "team1-logo": { left:635, top:3, width:60, height:55, kind:"logo", team:"team1" },
+      "team1-name": { left:700, top:12, width:100, height:34, kind:"name", team:"team1" },
+      "team1-score": { left:797, top:2, width:60, height:50, kind:"box", label:"Team 1 Round Score" },
+      "team2-score": { left:1063, top:2, width:60, height:50, kind:"box", label:"Team 2 Round Score" },
+      "team2-name": { left:1120, top:12, width:100, height:34, kind:"name", team:"team2" },
+      "team2-logo": { left:1225, top:3, width:60, height:55, kind:"logo", team:"team2" },
+      "spike-badge": { left:895, top:0, width:130, height:115, kind:"box", label:"Spike Badge" },
     },
   },
 };
@@ -5356,7 +5410,7 @@ const VAL_GRAPHIC_PAGES = {
   const els = VAL_GRAPHIC_PAGES.characterpick.elements;
   slotXs.forEach((x, i) => {
     const n = i + 1;
-    els[`slot${n}-portrait`] = { left: x, top: 826, width: 159, height: 179, kind: "box", label: `Slot ${n} Portrait` };
+    els[`slot${n}-wrap`] = { left: x, top: 826, width: 159, height: 179, kind: "box", label: `Slot ${n} Portrait` };
     els[`slot${n}-name`] = { left: x, top: 1006, width: 159, height: 34, kind: "box", label: `Slot ${n} Name` };
   });
 })();
@@ -5702,6 +5756,7 @@ const OVERLAY_LINKS = [
   {game:"Valorant", name:"Team Chemistry Stats (Post-Match)", file:"overlay/valorant_teamchemistry.html"},
   {game:"Valorant", name:"MVP", file:"overlay/valorant_mvp.html"},
   {game:"Valorant", name:"Character Pick", file:"overlay/valorant_characterpick.html"},
+  {game:"Valorant", name:"Hoax Overlay", file:"overlay/valorant_hoax.html"},
 ];
 
 function buildOverlayLinksTable(){
