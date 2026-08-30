@@ -1678,6 +1678,39 @@ function readFileAsDataURL(file){
   });
 }
 
+// A phone photo picked straight off disk can be several MB raw -- as a
+// base64 data URL embedded in manual_update, that's several MB PER PLAYER,
+// and Team Setup sends all 10 players' photos + both logos together every
+// save. That total blowing past the relay/engine's 16MB message cap closes
+// the connection outright (not just drops one message), which then looks
+// like everything else -- names included -- randomly failing to save too.
+// These photos only ever render at 32-99px, so there's no reason to carry
+// the original resolution at all; downscale + re-encode before it's ever
+// sent. Skipped (image passed through unchanged) if it's already small
+// enough that re-encoding would just add lossy-compression artifacts for
+// no size benefit.
+function resizeImageDataUrl(dataUrl, maxDim, mimeType, quality){
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if(width <= maxDim && height <= maxDim){
+        resolve(dataUrl);
+        return;
+      }
+      const scale = maxDim / Math.max(width, height);
+      width = Math.round(width * scale);
+      height = Math.round(height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL(mimeType, quality));
+    };
+    img.onerror = () => resolve(dataUrl); // fall back to the original rather than fail the upload
+    img.src = dataUrl;
+  });
+}
+
 // Uploaded logos sometimes have a lot of transparent padding baked into a
 // square canvas around the actual artwork (seen live: a logo that only
 // filled 24% of its own image height, making it look tiny next to a
@@ -4474,7 +4507,8 @@ function valBuildPlayerInputs(containerId, team){
   for(let i=0;i<5;i++){
     document.getElementById(`val_${team}Photo${i}`).addEventListener("change", async (e) => {
       if(e.target.files[0]){
-        const dataUrl = await readFileAsDataURL(e.target.files[0]);
+        const rawDataUrl = await readFileAsDataURL(e.target.files[0]);
+        const dataUrl = await resizeImageDataUrl(rawDataUrl, 320, "image/jpeg", 0.85);
         const preview = document.getElementById(`val_${team}PhotoPreview${i}`);
         preview.src = dataUrl;
         preview.style.display = "block";
@@ -4507,10 +4541,16 @@ function wireValPlayerPasteFill(team){
 }
 
 document.getElementById("val_team1Logo").addEventListener("change", async (e) => {
-  if(e.target.files[0]) document.getElementById("val_team1LogoPreview").src = await readFileAsDataURL(e.target.files[0]);
+  if(e.target.files[0]){
+    const raw = await readFileAsDataURL(e.target.files[0]);
+    document.getElementById("val_team1LogoPreview").src = await resizeImageDataUrl(raw, 500, "image/png");
+  }
 });
 document.getElementById("val_team2Logo").addEventListener("change", async (e) => {
-  if(e.target.files[0]) document.getElementById("val_team2LogoPreview").src = await readFileAsDataURL(e.target.files[0]);
+  if(e.target.files[0]){
+    const raw = await readFileAsDataURL(e.target.files[0]);
+    document.getElementById("val_team2LogoPreview").src = await resizeImageDataUrl(raw, 500, "image/png");
+  }
 });
 
 // A WebSocket .send() doesn't guarantee the message actually reached the
