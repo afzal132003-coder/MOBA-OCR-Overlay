@@ -1167,19 +1167,17 @@
     <div class="card">
       <h2>Post-Match Scoreboard (OCR Import)</h2>
       <p class="hint">Valorant's post-match "Individually Sorted" screen is ONE list mixing both teams together,
-        sorted by ACS, with team told apart only by row color — not two separate 5-player columns like MOBA's
-        screens. So this reads the whole table, matches each name it finds against your full 10-player roster
-        (both teams), and lists every result below for you to check before anything is applied. If a row got
-        matched to the wrong player, fix it with that row's dropdown; if a row needs to trade places with its
-        neighbor, use the arrows — the player and all their stats move together.</p>
+        sorted by ACS — not two separate 5-player columns like MOBA's screens, and there's no reliable way to read
+        WHO a row belongs to automatically. So this reads the 10 rows' stats directly off a calibrated grid, in
+        on-screen top-to-bottom order, and lists them below for you to assign: pick each row's player from its
+        dropdown, and use the arrows if a row needs to trade places with its neighbor — the player and all their
+        stats move together.</p>
       <p class="hint">Have the post-match "Individually Sorted" screen up on your monitor, then hit Capture — this
-        reads straight off the screen, no screenshot/upload needed. Unlike MOBA's Import Stats, this is ONE region
-        around the whole table rather than one box per player slot — the on-screen row order shifts match to match
-        (sorted by performance), so a fixed per-slot box would silently read the wrong player; name-matching against
-        your roster handles that regardless of row order. First time only, calibrate generously around the full
-        10-row table:</p>
+        reads straight off the screen, no screenshot/upload needed. First time only, calibrate the 10x5 stat grid
+        (K/D/A, ACS, K/D, First Bloods, Plants per row — an interactive multi-step tool, follow its on-screen
+        instructions):</p>
       <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-        cd ocr/valorant &amp;&amp; python calibrate_valorant.py valorant_postmatch_scoreboard
+        cd ocr/valorant &amp;&amp; python calibrate_valorant.py valo-postmatch
       </div>
       <button id="val_import_capture">Capture From Screen Now</button>
       <div id="val_import_status" class="hint"></div>
@@ -4587,8 +4585,8 @@ function valConnect(){
       valImportRows = valBuildImportRowsFromExtraction(rows);
       valRenderImportTable();
       document.getElementById("val_import_status").textContent =
-        `Matched ${rows.length} of 10 players` + (elapsed ? ` in ${elapsed}` : "") +
-        ` — review/correct below, then Apply.`;
+        `Read ${rows.length} of 10 grid rows` + (elapsed ? ` in ${elapsed}` : "") +
+        ` — assign each row's player below, then Apply.`;
     } else if(msg.type === "charselect_detected"){
       handleCharselectDetected(msg.results);
     }
@@ -5073,20 +5071,24 @@ function valImportWhoOptionsHtml(selectedTeam, selectedIdx){
   return opts.join("");
 }
 
+// The grid read has no idea who's who -- it just returns up to 10 rows in
+// on-screen top-to-bottom order (whatever rowIndex the calibrated grid
+// cells carried). Default each row to team1 slot 0-4 then team2 slot 0-4
+// as a starting guess purely so the "who" dropdown has something to show;
+// the operator is expected to correct it per row (that's the whole point
+// of dropping name-matching) and use the reorder arrows for row order.
 function valBuildImportRowsFromExtraction(extractedRows){
-  const matchedKeys = new Set(extractedRows.map(r => `${r.team}|${r.playerIndex}`));
-  const rows = extractedRows.map(r => ({
-    team: r.team, playerIndex: r.playerIndex,
+  const sorted = extractedRows.slice().sort((a, b) => a.rowIndex - b.rowIndex);
+  const rows = sorted.map((r, i) => ({
+    team: i < 5 ? "team1" : "team2", playerIndex: i < 5 ? i : i - 5,
     acs: r.acs ?? 0, kills: r.kills ?? 0, deaths: r.deaths ?? 0, assists: r.assists ?? 0,
-    econ: r.econ ?? 0, firstBloods: r.firstBloods ?? 0, plants: r.plants ?? 0, defuses: r.defuses ?? 0,
+    kd: r.kd ?? 0, econ: 0, firstBloods: r.firstBloods ?? 0, plants: r.plants ?? 0, defuses: 0,
   }));
-  ["team1","team2"].forEach(team => {
-    for(let i=0;i<5;i++){
-      if(!matchedKeys.has(`${team}|${i}`)){
-        rows.push({team, playerIndex:i, acs:0, kills:0, deaths:0, assists:0, econ:0, firstBloods:0, plants:0, defuses:0});
-      }
-    }
-  });
+  while(rows.length < 10){
+    const i = rows.length;
+    rows.push({team: i < 5 ? "team1" : "team2", playerIndex: i < 5 ? i : i - 5,
+      acs:0, kills:0, deaths:0, assists:0, kd:0, econ:0, firstBloods:0, plants:0, defuses:0});
+  }
   return rows;
 }
 
@@ -5125,6 +5127,7 @@ function valRenderImportTable(){
       <th style="padding:6px;">K</th>
       <th style="padding:6px;">D</th>
       <th style="padding:6px;">A</th>
+      <th style="padding:6px;" title="Read from the grid for cross-checking only -- not stored, the overlay always derives K/D from Kills/Deaths itself">K/D (ref)</th>
       <th style="padding:6px;">Econ</th>
       <th style="padding:6px;">FB</th>
       <th style="padding:6px;">Plants</th>
@@ -5148,6 +5151,7 @@ function valRenderImportTable(){
       <td style="padding:6px;"><input type="number" id="val_import_${i}_kills" style="width:50px;" value="${row.kills}"></td>
       <td style="padding:6px;"><input type="number" id="val_import_${i}_deaths" style="width:50px;" value="${row.deaths}"></td>
       <td style="padding:6px;"><input type="number" id="val_import_${i}_assists" style="width:50px;" value="${row.assists}"></td>
+      <td style="padding:6px;color:#9aa4c0;">${row.kd || 0}</td>
       <td style="padding:6px;"><input type="number" id="val_import_${i}_econ" style="width:60px;" value="${row.econ}"></td>
       <td style="padding:6px;"><input type="number" id="val_import_${i}_firstBloods" style="width:50px;" value="${row.firstBloods}"></td>
       <td style="padding:6px;"><input type="number" id="val_import_${i}_plants" style="width:50px;" value="${row.plants}"></td>

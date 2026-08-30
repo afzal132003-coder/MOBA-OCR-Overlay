@@ -27,7 +27,6 @@ follow-up once that's been looked at directly.
 
 import asyncio
 import base64
-import difflib
 import json
 import re
 import time
@@ -324,25 +323,38 @@ def ocr_text(img_bgr):
 
 
 # ---------------------------------------------------------------------------
-# Post-match scoreboard screenshot import. Unlike MOBA's Battle Report/Gold
-# screens (two fixed 5-player columns, one per team, so a match to "team1"
-# vs "team2" is just "which half of the screen"), Valorant's own post-match
-# "Individually Sorted" screen is ONE list of all 10 players mixed together
-# and sorted by ACS, with team told apart only by row background color --
-# not something worth building real color-detection CV for blind. Instead,
-# same trick as MOBA's own upload/extract fallback: fuzzy-match each OCR'd
-# name against the FULL roster (both teams combined), which tells us team
-# and roster index directly from the name match itself, regardless of where
-# on screen or in what order the row appears. The dashboard shows every
-# result for manual review/correction before anything is applied.
+# Post-match scoreboard grid read. Valorant's post-match "Individually
+# Sorted" screen is ONE list of all 10 players mixed together and sorted by
+# ACS, with team told apart only by row background color -- there's no way
+# to know from the screen alone which physical row is which roster player.
+# This used to fuzzy-match OCR'd names against the roster to recover
+# identity; per an explicit request that was dropped as unreliable. Instead
+# this reads the 10 rows' stats directly off a per-cell calibrated grid (see
+# calibrate_valorant.py's valo-postmatch step -- 10 rows x 5 stat columns,
+# 50 boxes total) in on-screen top-to-bottom order, with NO identity
+# attached at all. The dashboard's Import Stats table lets the operator
+# assign each row to a player via a dropdown and reorder rows with the
+# up/down arrows -- same "read the numbers, you tell us who" split MOBA's
+# own screenshot import already uses.
 # ---------------------------------------------------------------------------
 
-STAT_NUMBER_REGEX = re.compile(r"^\d{1,3}(?:,\d{3})*$|^\d+$")
-# The K/D/A column can OCR as one slash-joined token ("18/3/5") or as three
-# separate word tokens depending on how tight Tesseract's word boxes land on
-# a given screenshot -- handled as a single case here so callers don't need
-# to guess which form they'll get.
+# The K/D/A column OCRs as one slash-joined token, e.g. "18/3/5".
 KDA_TRIPLE_REGEX = re.compile(r"^(\d+)/(\d+)/(\d+)$")
+KD_DECIMAL_REGEX = re.compile(r"\d+\.\d+|\d+")
+
+TESS_CONFIG_KDA = (
+    "--oem 1 --psm 7 "
+    "-c tessedit_char_whitelist=0123456789/ "
+    "-c load_system_dawg=0 -c load_freq_dawg=0"
+)
+TESS_CONFIG_DECIMAL = (
+    "--oem 1 --psm 7 "
+    "-c tessedit_char_whitelist=0123456789. "
+    "-c load_system_dawg=0 -c load_freq_dawg=0"
+)
+
+POSTMATCH_GRID_COLS = ["kda", "acs", "kd", "fb", "plants"]
+POSTMATCH_GRID_ROWS = 10
 
 
 def decode_image_data_url(data_url):
@@ -352,137 +364,78 @@ def decode_image_data_url(data_url):
     return cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
 
-def normalize_name(s):
-    return re.sub(r"[^a-z0-9]", "", s.lower())
-
-
-def fuzzy_match_name(candidate_text, roster_names):
-    """roster_names: [(team, index, name), ...]. Returns (team, index, name,
-    score) for the best match, or None if nothing clears the threshold. Same
-    matching logic as ocr_engine.py's fuzzy_match_name()."""
-    norm_candidate = normalize_name(candidate_text)
-    if len(norm_candidate) < 2:
+def ocr_kda_triple(img_bgr):
+    """Returns (kills, deaths, assists) or None for a "K/D/A" cell."""
+    processed = preprocess(img_bgr)
+    text = pytesseract.image_to_string(processed, config=TESS_CONFIG_KDA).strip()
+    match = KDA_TRIPLE_REGEX.match(text)
+    if not match:
         return None
-    best = None
-    for team, idx, name in roster_names:
-        norm_name = normalize_name(name)
-        if not norm_name:
-            continue
-        if norm_name in norm_candidate or norm_candidate in norm_name:
-            shorter, longer = sorted([norm_name, norm_candidate], key=len)
-            score = 0.9 + 0.1 * (len(shorter) / len(longer))
-        else:
-            score = difflib.SequenceMatcher(None, norm_candidate, norm_name).ratio()
-        if best is None or score > best[3]:
-            best = (team, idx, name, score)
-    return best if best and best[3] >= 0.45 else None
+    return int(match.group(1)), int(match.group(2)), int(match.group(3))
 
 
-def build_roster_names():
-    names = []
-    for team in ("team1", "team2"):
-        players = server_state.get(team, {}).get("players", ["", "", "", "", ""])
-        for idx, name in enumerate(players):
-            if name:
-                names.append((team, idx, name))
-    return names
+def ocr_decimal(img_bgr):
+    """Returns a float for a K/D-ratio-shaped cell, or None -- same digit
+    pipeline as ocr_number() but the whitelist also allows a decimal point."""
+    processed = preprocess(img_bgr)
+    text = pytesseract.image_to_string(processed, config=TESS_CONFIG_DECIMAL).strip()
+    match = KD_DECIMAL_REGEX.search(text)
+    return float(match.group()) if match else None
 
 
-def _words_and_lines_from_data(data):
-    """Same word/line split as ocr_engine.py's version -- word-level tokens
-    (for numbers, which render as separate tokens even on the same visual
-    row) plus Tesseract's own line-grouped text (for names, which can span
-    a couple of words)."""
-    words = []
-    lines = {}
-    n = len(data["text"])
-    for i in range(n):
-        text = data["text"][i].strip()
-        if not text:
-            continue
-        try:
-            conf = float(data["conf"][i])
-        except (ValueError, TypeError):
-            conf = -1
-        if conf < 25:
-            continue
-        x, y, w, h = data["left"][i], data["top"][i], data["width"][i], data["height"][i]
-        words.append({"text": text, "x": x, "y": y, "w": w, "h": h, "cx": x + w / 2, "cy": y + h / 2})
-        key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
-        entry = lines.setdefault(key, {"words": [], "x0": x, "y0": y, "x1": x + w, "y1": y + h})
-        entry["words"].append(text)
-        entry["x0"] = min(entry["x0"], x)
-        entry["y0"] = min(entry["y0"], y)
-        entry["x1"] = max(entry["x1"], x + w)
-        entry["y1"] = max(entry["y1"], y + h)
-    line_list = []
-    for entry in lines.values():
-        line_list.append({
-            "text": " ".join(entry["words"]),
-            "x": entry["x0"], "y": entry["y0"],
-            "w": entry["x1"] - entry["x0"], "h": entry["y1"] - entry["y0"],
-            "cx": (entry["x0"] + entry["x1"]) / 2, "cy": (entry["y0"] + entry["y1"]) / 2,
-        })
-    return words, line_list
+def extract_postmatch_grid(regions_cfg, img_bgr=None):
+    """Reads all calibrated postmatch grid cells (up to 10 rows x 5 stat
+    columns), either cropped out of an already-loaded img_bgr (the upload
+    path, treated as a full monitor-resolution screenshot so the calibrated
+    screen coordinates still line up) or captured live off-screen (the
+    capture path). Returns a list of row dicts in top-to-bottom on-screen
+    order -- a row with no calibrated cells at all is skipped entirely, but
+    a row missing just some of its 5 cells still comes back with 0 for
+    whichever ones aren't calibrated/readable."""
+    def read_cell(region_key, sct):
+        region = regions_cfg.get(region_key)
+        if not region or region.get("w", 0) <= 0 or region.get("h", 0) <= 0:
+            return None
+        if img_bgr is not None:
+            x, y, w, h = region["x"], region["y"], region["w"], region["h"]
+            crop = img_bgr[max(0, y):y + h, max(0, x):x + w]
+            return crop if crop.size else None
+        return crop_to_bgr(sct, region)
 
+    def build_rows(sct):
+        rows = []
+        for row in range(POSTMATCH_GRID_ROWS):
+            keys = {col: f"valorant_postmatch_row{row}_{col}" for col in POSTMATCH_GRID_COLS}
+            if not any(regions_cfg.get(k) for k in keys.values()):
+                continue
 
-def extract_postmatch_scoreboard(img_bgr, roster_names):
-    """Returns one row per roster slot Tesseract's name-matching found (not
-    necessarily all 10) with a rowY for sorting top-to-bottom -- the
-    dashboard fills any gaps in manually. Column order left to right on the
-    real screen is ACS, K/D/A, ECON, First Bloods, Plants, Defuses, so among
-    the number-shaped tokens found to the right of a matched name, the first
-    plain number is ACS, a slash-triple (however it tokenized) is K/D/A, and
-    the remaining plain numbers fill Econ/First Bloods/Plants/Defuses in
-    that order."""
-    number_words, lines = _words_and_lines_from_data(_image_to_data(img_bgr))
-    img_h = img_bgr.shape[0]
+            kda_crop = read_cell(keys["kda"], sct)
+            kda = ocr_kda_triple(kda_crop) if kda_crop is not None else None
+            kills, deaths, assists = kda if kda else (0, 0, 0)
 
-    best_by_slot = {}
-    for line in lines:
-        match = fuzzy_match_name(line["text"], roster_names)
-        if not match:
-            continue
-        team, idx, name, score = match
-        slot = (team, idx)
-        if slot not in best_by_slot or score > best_by_slot[slot][1]:
-            best_by_slot[slot] = (line, score, name)
+            acs_crop = read_cell(keys["acs"], sct)
+            acs = parse_int(ocr_number(acs_crop)) if acs_crop is not None else None
 
-    rows = []
-    for (team, idx), (line, score, name) in best_by_slot.items():
-        row_cy = line["cy"]
-        row_window = max(line["h"], img_h * 0.02) * 2.2
-        same_row = [
-            w for w in number_words
-            if abs(w["cy"] - row_cy) <= row_window and w["cx"] > line["cx"]
-        ]
-        same_row.sort(key=lambda w: w["x"])
+            kd_crop = read_cell(keys["kd"], sct)
+            kd = ocr_decimal(kd_crop) if kd_crop is not None else None
 
-        kills = deaths = assists = None
-        plain_numbers = []
-        for w in same_row:
-            triple = KDA_TRIPLE_REGEX.match(w["text"])
-            if triple:
-                kills, deaths, assists = int(triple.group(1)), int(triple.group(2)), int(triple.group(3))
-            elif STAT_NUMBER_REGEX.match(w["text"]):
-                plain_numbers.append(int(w["text"].replace(",", "")))
+            fb_crop = read_cell(keys["fb"], sct)
+            first_bloods = parse_int(ocr_number(fb_crop)) if fb_crop is not None else None
 
-        acs = plain_numbers[0] if len(plain_numbers) > 0 else None
-        rest = plain_numbers[1:]
-        econ = rest[0] if len(rest) > 0 else None
-        first_bloods = rest[1] if len(rest) > 1 else None
-        plants = rest[2] if len(rest) > 2 else None
-        defuses = rest[3] if len(rest) > 3 else None
+            plants_crop = read_cell(keys["plants"], sct)
+            plants = parse_int(ocr_number(plants_crop)) if plants_crop is not None else None
 
-        rows.append({
-            "team": team, "playerIndex": idx, "rosterName": name,
-            "ocrName": line["text"], "matchScore": round(score, 2),
-            "rowY": line["cy"],
-            "acs": acs, "kills": kills, "deaths": deaths, "assists": assists,
-            "econ": econ, "firstBloods": first_bloods, "plants": plants, "defuses": defuses,
-        })
-    rows.sort(key=lambda r: r["rowY"])
-    return rows
+            rows.append({
+                "rowIndex": row,
+                "acs": acs or 0, "kills": kills, "deaths": deaths, "assists": assists,
+                "kd": kd or 0.0, "firstBloods": first_bloods or 0, "plants": plants or 0,
+            })
+        return rows
+
+    if img_bgr is not None:
+        return build_rows(None)
+    with mss.mss() as sct:
+        return build_rows(sct)
 
 
 # ---------------------------------------------------------------------------
@@ -833,31 +786,24 @@ async def handle_client(websocket, path=None):
                     loop = asyncio.get_running_loop()
                     img = await loop.run_in_executor(ocr_executor, decode_image_data_url, data_url)
                     rows = await loop.run_in_executor(
-                        ocr_executor, extract_postmatch_scoreboard, img, build_roster_names(),
+                        ocr_executor, extract_postmatch_grid, config.get("regions", {}), img,
                     )
                     await websocket.send(json.dumps({"type": "postmatch_scoreboard_extracted", "rows": rows}))
 
             elif msg_type == "capture_postmatch_scoreboard":
-                # Fast path -- grabs the ONE calibrated region live (not the
-                # continuous poll loop, a one-shot capture same as MOBA's
-                # capture_postmatch_gold/battle_report) and runs it through
-                # the SAME fuzzy-name-match extraction as the upload path
-                # above. No per-player calibration here on purpose -- see
-                # calibrate_valorant.py's docstring on why a fixed slot
-                # would silently read the wrong player once the on-screen
-                # sort order shifts.
-                region = config.get("regions", {}).get("valorant_postmatch_scoreboard")
-                if not region or region.get("w", 0) <= 0 or region.get("h", 0) <= 0:
+                # Fast path -- reads the 50-cell calibrated grid live (not
+                # the continuous poll loop, a one-shot capture same as
+                # MOBA's capture_postmatch_gold/battle_report).
+                regions = config.get("regions", {})
+                if not any(k.startswith("valorant_postmatch_row") for k in regions):
                     await websocket.send(json.dumps({
                         "type": "postmatch_scoreboard_extracted", "rows": [],
-                        "error": "Scoreboard region isn't calibrated yet -- run calibrate_valorant.py valorant_postmatch_scoreboard first.",
+                        "error": "Postmatch grid isn't calibrated yet -- run calibrate_valorant.py valo-postmatch first.",
                     }))
                 else:
                     loop = asyncio.get_running_loop()
-                    with mss.mss() as sct:
-                        img = crop_to_bgr(sct, region)
                     rows = await loop.run_in_executor(
-                        ocr_executor, extract_postmatch_scoreboard, img, build_roster_names(),
+                        ocr_executor, extract_postmatch_grid, regions, None,
                     )
                     await websocket.send(json.dumps({"type": "postmatch_scoreboard_extracted", "rows": rows}))
 
