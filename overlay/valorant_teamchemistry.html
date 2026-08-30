@@ -81,10 +81,12 @@
      looking like it didn't load at all. Border keeps the box visible and
      framed even then. */
   .row-photo{ position:absolute; width:99px; height:76px; object-fit:cover; object-position:center 15%; display:none; box-sizing:border-box; border:2px solid #d4af6a; }
-  /* Win/loss colored, not fixed per team-side -- swaps automatically
-     whichever side actually won, set from applyState() below. */
-  .row-photo.win{ background-color:#3ddc6a; }
-  .row-photo.lose{ background-color:#fa4e5e; }
+  /* Fixed per screen side, NOT win/loss -- left (team1) is always the
+     defender color (green), right (team2) is always the attacker color
+     (red), same convention Valorant's own UI uses throughout. Explicitly
+     NOT tied to postMatch.result or attackingTeam -- always this side. */
+  .row-photo.team1{ background-color:#3ddc6a; }
+  .row-photo.team2{ background-color:#fa4e5e; }
 </style>
 </head>
 <body>
@@ -122,8 +124,8 @@ const VAL_AGENT_MAP = {};
   ["Raze","Raze.png"], ["Reyna","Reyna.png"], ["Sage","Sage.png"],
   ["Skye","Skye.png"], ["Sova","Sova.png"], ["Cypher","Sypher.png"],
   ["Viper","Viper.png"], ["Yoru","Yoru.png"],
-  ["Iso", null], ["Waylay", null], ["Gekko", null], ["Tejo", null],
-  ["Clove", null], ["Deadlock", null], ["Vyse", null],
+  ["Iso","Iso.webp"], ["Waylay","Waylay.webp"], ["Gekko","Gekko.webp"], ["Tejo","Tejo.webp"],
+  ["Clove","Clove.webp"], ["Deadlock","Deadlock.webp"], ["Vyse","Vyse.webp"],
 ].forEach(([name, file]) => { VAL_AGENT_MAP[name.toLowerCase()] = file; });
 
 function agentPortraitUrl(agentName){
@@ -162,7 +164,7 @@ const GFX_ELEMENT_IDS = ["team1-logo","team1-name","series-score","team2-logo","
     // player's own uploaded photo (set in Team Setup, not a hero/agent
     // render -- Valorant has no fixed pick art) belongs in.
     const photo = document.createElement("img");
-    photo.className = "row-photo";
+    photo.className = `row-photo ${row.team}`;
     photo.id = `p${row.n}-photo`;
     photo.style.left = (row.x + 1) + "px";
     photo.style.top = row.y + "px";
@@ -245,10 +247,6 @@ function applyState(state){
     document.getElementById(`p${row.n}-plants`).textContent = p.plants || 0;
 
     setLogo(`p${row.n}-photo`, agentPortraitUrl(p.agent));
-    const photoEl = document.getElementById(`p${row.n}-photo`);
-    const won = state.postMatch && state.postMatch.result && state.postMatch.result[row.team] === "victory";
-    photoEl.classList.toggle("win", won);
-    photoEl.classList.toggle("lose", !won);
   });
 
   applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.teamchemistry);

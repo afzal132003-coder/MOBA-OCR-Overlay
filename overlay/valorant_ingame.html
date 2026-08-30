@@ -79,6 +79,34 @@
     color:#ffffff; font-weight:700; font-size:15px; letter-spacing:0.5px;
     text-transform:uppercase; text-align:center; white-space:nowrap; overflow:hidden;
   }
+
+  /* Spike-planted badge (from hoax-overlay.png) -- persistent, not the
+     6-second toast (that's a separate element on a different page). Idle:
+     white, sitting low (peeking out from under the bar). Planted: slides
+     up into its resting spot and turns red. Built as inline SVG rather
+     than reusing hoax-overlay.png directly since that PNG has no alpha
+     channel to cleanly cut a badge out of, and this needs two color states
+     anyway -- trivial with SVG fill=currentColor, fragile with two raster
+     assets.
+
+     Split into an outer (#spike-badge, static position -- this is the one
+     Graphic Fixing's dx/dy/scale transform applies to, like every other
+     element) and an inner (#spike-badge-inner, the slide+recolor
+     animation's OWN transform) -- both can't share one transform property
+     without a Graphic Fixing save overwriting the animation state or vice
+     versa. */
+  #spike-badge{ position:absolute; left:885px; top:118px; width:110px; height:110px; }
+  #spike-badge-inner{
+    width:100%; height:100%;
+    color:#ffffff;
+    transform:translateY(34px);
+    transition:transform 0.5s cubic-bezier(.34,1.4,.64,1), color 0.4s ease;
+  }
+  #spike-badge-inner.planted{
+    color:#fa4e5e;
+    transform:translateY(0);
+  }
+  #spike-badge-inner svg{ width:100%; height:100%; display:block; }
 </style>
 </head>
 <body>
@@ -95,6 +123,17 @@
   <img class="team-logo" id="team2-logo" alt="">
 
   <div id="context-text"></div>
+
+  <div id="spike-badge">
+    <div id="spike-badge-inner">
+      <svg viewBox="0 0 100 100">
+        <polygon points="50,5 90,27 90,73 50,95 10,73 10,27" fill="currentColor" opacity="0.18"/>
+        <polygon points="50,20 75,33 75,67 50,80 25,67 25,33" fill="currentColor"/>
+        <polygon points="50,35 62,42 62,58 50,65 38,58 38,42" fill="#0c0a17"/>
+        <polygon points="50,70 60,86 40,86" fill="currentColor"/>
+      </svg>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -124,7 +163,7 @@ function setLogo(id, src){
   else { el.style.display = "none"; }
 }
 
-const GFX_ELEMENT_IDS = ["team1-logo","team1-name","team1-score","team2-logo","team2-name","team2-score","context-text"];
+const GFX_ELEMENT_IDS = ["team1-logo","team1-name","team1-score","team2-logo","team2-name","team2-score","context-text","spike-badge"];
 
 function applyGraphicOverrides(overrides){
   GFX_ELEMENT_IDS.forEach(id => {
@@ -150,6 +189,10 @@ function applyState(state){
   const line2 = (ctx && ctx.line2) || "";
   document.getElementById("context-text").textContent =
     [line1, line2].filter(Boolean).join(" - ");
+
+  document.getElementById("spike-badge-inner").classList.toggle(
+    "planted", !!(state.spikeBadge && state.spikeBadge.visible)
+  );
 
   applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.ingame);
 }

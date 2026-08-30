@@ -109,6 +109,7 @@ def default_state():
 
         "prematch": {
             "context": {"line1": "", "line2": ""},
+            "map": "",
         },
 
         # OCR-fed once the two score regions are calibrated -- same
@@ -135,6 +136,19 @@ def default_state():
             "status": "idle", "shownUntil": None,
             "team": None, "type": None,  # type: "plant" | "defuse"
         },
+
+        # A separate, PERSISTENT spike-planted indicator (the small hex
+        # badge hanging off the round-score bar) -- distinct from
+        # plantDefuse above (a 6-second toast). This has no auto-hide: once
+        # the spike is planted it should stay visible on the HUD for the
+        # rest of the round, not vanish after 6 seconds like the toast
+        # does. Driven off the SAME OCR detection as plantDefuse (see
+        # process_plant_defuse_reading) -- no separate calibration needed,
+        # despite the badge being visually a different element. Manual
+        # push/push-down (spike_badge_show/spike_badge_hide) still works as
+        # an operator override, same relationship as plantDefuse's own
+        # manual buttons.
+        "spikeBadge": {"visible": False},
 
         "postMatch": {
             "duration": "", "date": "",
@@ -174,6 +188,7 @@ def load_state():
             # a process restart -- always come back up idle, same reasoning
             # as MOBA's turtleTimer/lordTimer reset on load.
             state["plantDefuse"] = default_state()["plantDefuse"]
+            state["spikeBadge"] = default_state()["spikeBadge"]
             return state
         except (json.JSONDecodeError, OSError):
             pass
@@ -591,6 +606,7 @@ def process_plant_defuse_reading(text, now_ms):
             pd["shownUntil"] = now_ms + PLANT_DEFUSE_DISPLAY_SECONDS * 1000
             pd["team"] = team
             pd["type"] = event_type
+            server_state["spikeBadge"]["visible"] = (event_type == "plant")
             changed = True
 
     return changed
@@ -658,6 +674,16 @@ async def handle_client(websocket, path=None):
             elif msg_type == "plant_defuse_hide":
                 server_state["plantDefuse"]["status"] = "idle"
                 server_state["plantDefuse"]["shownUntil"] = None
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
+            elif msg_type == "spike_badge_show":
+                server_state["spikeBadge"]["visible"] = True
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
+            elif msg_type == "spike_badge_hide":
+                server_state["spikeBadge"]["visible"] = False
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
 

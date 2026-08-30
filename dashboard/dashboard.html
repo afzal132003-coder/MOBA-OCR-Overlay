@@ -966,6 +966,19 @@
     </div>
 
     <div class="card">
+      <h2>Map</h2>
+      <p class="hint">Drives the map thumbnail on the Character Pick overlay.</p>
+      <div class="row">
+        <div class="team-form">
+          <label>Map</label>
+          <select id="val_map"></select>
+        </div>
+      </div>
+      <button id="val_map_save">Save Map</button>
+      <div id="val_map_status" class="hint"></div>
+    </div>
+
+    <div class="card">
       <h2>Agent Pick</h2>
       <p class="hint">Assign each player's agent for this map — saves straight into the same Agent field used later
         in Post-Match's Overall Scoreboard, so picking it here means it's already filled in after the match instead
@@ -1041,6 +1054,14 @@
         <button id="val_manualPlant">Show Plant Popup</button>
         <button id="val_manualDefuse">Show Defuse Popup</button>
         <button class="secondary" id="val_manualHide">Hide Popup</button>
+      </div>
+      <p class="hint" style="margin-top:14px;">The spike badge on the In-Game HUD is separate from the popup above —
+        it's PERSISTENT (stays up for the rest of the round, doesn't auto-hide after a few seconds), driven by the
+        same "SPIKE PLANTED" detection just above, no separate calibration needed. Push it manually if OCR misses it
+        or you need to correct it:</p>
+      <div class="row">
+        <button id="val_spikeBadgePush">Push Spike Badge Up</button>
+        <button class="secondary" id="val_spikeBadgePushDown">Push Spike Badge Down</button>
       </div>
     </div>
   </div>
@@ -1155,6 +1176,7 @@
         <button class="secondary" id="valgfx_page_ingame">In-Game HUD</button>
         <button class="secondary" id="valgfx_page_teamchemistry">Team Chemistry Stats</button>
         <button class="secondary" id="valgfx_page_mvp">MVP</button>
+        <button class="secondary" id="valgfx_page_characterpick">Character Pick</button>
       </div>
       <p class="hint">Click a box to select it, then nudge with arrow keys (hold Shift for 10px steps) for
         pixel-precise placement. Red guide lines appear while dragging when an edge or center lines up with
@@ -4594,8 +4616,8 @@ const VAL_AGENT_LIST = [
   ["Raze","Raze.png"], ["Reyna","Reyna.png"], ["Sage","Sage.png"],
   ["Skye","Skye.png"], ["Sova","Sova.png"], ["Cypher","Sypher.png"],
   ["Viper","Viper.png"], ["Yoru","Yoru.png"],
-  ["Iso", null], ["Waylay", null], ["Gekko", null], ["Tejo", null],
-  ["Clove", null], ["Deadlock", null], ["Vyse", null],
+  ["Iso","Iso.webp"], ["Waylay","Waylay.webp"], ["Gekko","Gekko.webp"], ["Tejo","Tejo.webp"],
+  ["Clove","Clove.webp"], ["Deadlock","Deadlock.webp"], ["Vyse","Vyse.webp"],
 ];
 const VAL_AGENT_MAP = {};
 VAL_AGENT_LIST.forEach(([name, file]) => { VAL_AGENT_MAP[name.toLowerCase()] = {name, file}; });
@@ -4658,6 +4680,35 @@ document.getElementById("val_agentPick_save").addEventListener("click", () => {
   });
   valSendManualUpdate({ postMatch: pom });
   document.getElementById("val_agentPick_status").textContent = "Saved.";
+});
+
+/* ---------- Pre-Match: Map ----------
+ * Same null-file graceful-degradation pattern as Agent Pick -- pick a map
+ * name now, drop the thumbnail image in later with no code changes needed.
+ * Ratio for whatever map images get supplied: 159x219 (~0.73:1, portrait),
+ * matching the frame in character-pick-valorant.psd. */
+const VAL_MAP_LIST = [
+  "Ascent", "Bind", "Haven", "Split", "Icebox", "Breeze",
+  "Fracture", "Pearl", "Lotus", "Sunset", "Abyss", "Corrode",
+];
+(function buildValMapSelect(){
+  const sel = document.getElementById("val_map");
+  const blank = document.createElement("option");
+  blank.value = ""; blank.textContent = "(not set)";
+  sel.appendChild(blank);
+  VAL_MAP_LIST.forEach(name => {
+    const opt = document.createElement("option");
+    opt.value = name; opt.textContent = name;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener("input", () => valDirtyFields.add("val_map"));
+})();
+document.getElementById("val_map_save").addEventListener("click", () => {
+  const map = document.getElementById("val_map").value;
+  const prematch = Object.assign({}, (valState && valState.prematch) || {context:{line1:"",line2:""}}, { map });
+  valSendManualUpdate({ prematch });
+  valDirtyFields.delete("val_map");
+  document.getElementById("val_map_status").textContent = "Saved.";
 });
 
 document.getElementById("val_team1Logo").addEventListener("change", async (e) => {
@@ -4855,6 +4906,12 @@ document.getElementById("val_manualDefuse").addEventListener("click", () => {
 });
 document.getElementById("val_manualHide").addEventListener("click", () => {
   if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"plant_defuse_hide"}));
+});
+document.getElementById("val_spikeBadgePush").addEventListener("click", () => {
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"spike_badge_show"}));
+});
+document.getElementById("val_spikeBadgePushDown").addEventListener("click", () => {
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"spike_badge_hide"}));
 });
 
 /* ---------- Post-Match: Overall Scoreboard ---------- */
@@ -5160,6 +5217,7 @@ function valApplyState(state){
       if(input && isFree(id)) input.value = name || "";
     });
   });
+  if(isFree("val_map")) document.getElementById("val_map").value = state.prematch.map || "";
   if(active !== "val_line1") document.getElementById("val_line1").value = state.prematch.context.line1 || "";
   if(active !== "val_line2") document.getElementById("val_line2").value = state.prematch.context.line2 || "";
   if(active !== "val_series_t1") document.getElementById("val_series_t1").value = state.seriesScore.team1 || 0;
@@ -5252,6 +5310,17 @@ const VAL_GRAPHIC_PAGES = {
       "agent-portrait": { left:1150, top:90, width:700, height:940, kind:"box", label:"Agent Portrait" },
     },
   },
+  characterpick: {
+    label: "Character Pick", background: "../overlay/assets/valorant_characterpick_blank.png",
+    elements: {
+      "team1-logo": { left:40, top:735, width:60, height:55, kind:"logo", team:"team1" },
+      "team1-name": { left:110, top:745, width:250, height:36, kind:"name", team:"team1" },
+      "team2-name": { left:1560, top:745, width:250, height:36, kind:"name", team:"team2" },
+      "team2-logo": { left:1820, top:735, width:60, height:55, kind:"logo", team:"team2" },
+      "map-thumb": { left:869, top:826, width:159, height:179, kind:"box", label:"Map Thumbnail" },
+      "map-name": { left:869, top:1006, width:159, height:34, kind:"box", label:"Map Name" },
+    },
+  },
 };
 // Same ROW_DEFS/COLS math as overlay/valorant_teamchemistry.html, kept in
 // sync manually since one lives in dashboard.html's preview and the other
@@ -5278,6 +5347,17 @@ const VAL_GRAPHIC_PAGES = {
         kind: "box", label: `P${row.n} ${col.key.toUpperCase()}`,
       };
     });
+  });
+})();
+// Same reasoning as addTeamChemistryRows above -- mirrors
+// overlay/valorant_characterpick.html's SLOT_DEFS x-positions manually.
+(function addCharacterPickSlots(){
+  const slotXs = [25, 194, 363, 533, 702, 1036, 1205, 1374, 1544, 1713];
+  const els = VAL_GRAPHIC_PAGES.characterpick.elements;
+  slotXs.forEach((x, i) => {
+    const n = i + 1;
+    els[`slot${n}-portrait`] = { left: x, top: 826, width: 159, height: 179, kind: "box", label: `Slot ${n} Portrait` };
+    els[`slot${n}-name`] = { left: x, top: 1006, width: 159, height: 34, kind: "box", label: `Slot ${n} Name` };
   });
 })();
 
@@ -5621,6 +5701,7 @@ const OVERLAY_LINKS = [
   {game:"Valorant", name:"In-Game HUD", file:"overlay/valorant_ingame.html"},
   {game:"Valorant", name:"Team Chemistry Stats (Post-Match)", file:"overlay/valorant_teamchemistry.html"},
   {game:"Valorant", name:"MVP", file:"overlay/valorant_mvp.html"},
+  {game:"Valorant", name:"Character Pick", file:"overlay/valorant_characterpick.html"},
 ];
 
 function buildOverlayLinksTable(){

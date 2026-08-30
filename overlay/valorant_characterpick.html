@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Valorant Character Pick Overlay</title>
+<style>
+  /*
+    Absolute pixel coordinates on a 1920x1080 canvas, measured directly off
+    "character-pick-valorant.psd"'s layer boxes (10 player-slot layers,
+    the map-slot frame, the gold VS bar). Team logo/name at the bar's ends
+    and each slot's player-name label aren't separate layers in that PSD
+    (added per an explicit request this session) -- positions there are a
+    reasonable estimate, nudge with Graphic Fixing as needed. Background is
+    overlay/assets/valorant_characterpick_blank.png, rendered from that PSD
+    with the Background fill AND the baked reference map screenshot both
+    hidden (map is dynamic here, not baked in).
+  */
+
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Bold.ttf') format('truetype');
+    font-weight: 700; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');
+    font-weight: 800; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
+    font-weight: 900; font-style: normal;
+  }
+
+  :root{ --font-display: 'TT Supermolot Neue Trial', 'Arial Narrow', Arial, sans-serif; }
+
+  html, body{
+    margin:0; padding:0; background:transparent; overflow:hidden;
+    width:1920px; height:1080px;
+    font-family: var(--font-display);
+  }
+
+  #stage{
+    position:relative; width:1920px; height:1080px;
+    opacity:0; transform:translateY(-16px);
+    animation: enter 0.6s ease forwards;
+  }
+  @keyframes enter{ to{ opacity:1; transform:translateY(0); } }
+
+  .bg-frame{ position:absolute; top:0; left:0; width:1920px; height:1080px; pointer-events:none; }
+
+  .slot-portrait{
+    position:absolute; width:159px; height:179px; top:826px;
+    object-fit:cover; object-position:top center; display:none;
+  }
+  .slot-name{
+    position:absolute; width:159px; height:34px; top:1006px;
+    display:flex; align-items:center; justify-content:center;
+    color:#ffffff; font-weight:700; font-style:italic; font-size:13px;
+    text-transform:uppercase; letter-spacing:0.3px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+
+  #map-thumb{
+    position:absolute; left:869px; top:826px; width:159px; height:179px;
+    object-fit:cover; display:none;
+  }
+  #map-name{
+    position:absolute; left:869px; top:1006px; width:159px; height:34px;
+    display:flex; align-items:center; justify-content:center;
+    color:#ffffff; font-weight:800; font-style:italic; font-size:14px;
+    text-transform:uppercase; letter-spacing:0.3px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+
+  .team-logo{ position:absolute; top:735px; width:60px; height:55px; object-fit:contain; display:none; }
+  #team1-logo{ left:40px; }
+  #team2-logo{ left:1820px; }
+
+  .team-name{
+    position:absolute; top:745px; width:250px; height:36px;
+    display:flex; align-items:center;
+    color:#12193a; font-weight:900; font-style:italic; font-size:24px;
+    text-transform:uppercase; white-space:nowrap; overflow:hidden;
+  }
+  #team1-name{ left:110px; justify-content:flex-start; }
+  #team2-name{ left:1560px; justify-content:flex-end; }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <img class="bg-frame" src="assets/valorant_characterpick_blank.png" alt="">
+
+  <img id="map-thumb" alt="">
+  <div id="map-name"></div>
+
+  <img class="team-logo" id="team1-logo" alt="">
+  <div class="team-name" id="team1-name"></div>
+  <div class="team-name" id="team2-name"></div>
+  <img class="team-logo" id="team2-logo" alt="">
+
+  <div id="slots"></div>
+</div>
+
+<script>
+// Same lookup tables as dashboard.html's Agent Pick / other Valorant
+// overlays -- duplicated per standalone-file convention.
+const VAL_AGENT_MAP = {};
+[
+  ["Astra","Astra.png"], ["Breach","Breach.png"], ["Brimstone","Brimstone.png"],
+  ["Chamber","Chamber.png"], ["Fade","Fade.png"], ["Harbor","Harbor.png"],
+  ["Jett","Jett.png"], ["KAY/O","Kayo.png"], ["Killjoy","KillJoy.png"],
+  ["Neon","Neon.png"], ["Omen","Omen.png"], ["Phoenix","Phoenix.png"],
+  ["Raze","Raze.png"], ["Reyna","Reyna.png"], ["Sage","Sage.png"],
+  ["Skye","Skye.png"], ["Sova","Sova.png"], ["Cypher","Sypher.png"],
+  ["Viper","Viper.png"], ["Yoru","Yoru.png"],
+  ["Iso","Iso.webp"], ["Waylay","Waylay.webp"], ["Gekko","Gekko.webp"], ["Tejo","Tejo.webp"],
+  ["Clove","Clove.webp"], ["Deadlock","Deadlock.webp"], ["Vyse","Vyse.webp"],
+].forEach(([name, file]) => { VAL_AGENT_MAP[name.toLowerCase()] = file; });
+
+function agentPortraitUrl(agentName){
+  const file = VAL_AGENT_MAP[(agentName || "").toLowerCase()];
+  return file ? `assets/Valorant Agents/${file}` : "";
+}
+
+const VAL_MAP_MAP = {};
+[
+  "Ascent","Bind","Haven","Split","Icebox","Breeze",
+  "Fracture","Pearl","Lotus","Sunset","Abyss","Corrode",
+].forEach(name => { VAL_MAP_MAP[name.toLowerCase()] = `${name}.webp`; });
+
+function mapThumbUrl(mapName){
+  const file = VAL_MAP_MAP[(mapName || "").toLowerCase()];
+  return file ? `assets/Valorant Maps/${file}` : "";
+}
+
+// Slot x-starts measured off the PSD's Layer 2/Layer 2 copy.../Layer 2
+// copy 9 boxes -- 5 team1 slots, a gap for the map frame, then 5 team2
+// slots, all 159px wide.
+const SLOT_DEFS = [
+  {n:1, team:"team1", idx:0, x:25},
+  {n:2, team:"team1", idx:1, x:194},
+  {n:3, team:"team1", idx:2, x:363},
+  {n:4, team:"team1", idx:3, x:533},
+  {n:5, team:"team1", idx:4, x:702},
+  {n:6, team:"team2", idx:0, x:1036},
+  {n:7, team:"team2", idx:1, x:1205},
+  {n:8, team:"team2", idx:2, x:1374},
+  {n:9, team:"team2", idx:3, x:1544},
+  {n:10, team:"team2", idx:4, x:1713},
+];
+
+const GFX_ELEMENT_IDS = ["team1-logo","team1-name","team2-name","team2-logo","map-thumb","map-name"];
+
+(function buildSlots(){
+  const container = document.getElementById("slots");
+  SLOT_DEFS.forEach(slot => {
+    const portrait = document.createElement("img");
+    portrait.className = "slot-portrait";
+    portrait.id = `slot${slot.n}-portrait`;
+    portrait.style.left = slot.x + "px";
+    container.appendChild(portrait);
+    GFX_ELEMENT_IDS.push(portrait.id);
+
+    const name = document.createElement("div");
+    name.className = "slot-name";
+    name.id = `slot${slot.n}-name`;
+    name.style.left = slot.x + "px";
+    container.appendChild(name);
+    GFX_ELEMENT_IDS.push(name.id);
+  });
+})();
+
+const _params = new URLSearchParams(location.search);
+if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
+if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=valorant_characterpick"
+  : "ws://localhost:8765?page=valorant_characterpick";
+let ws;
+
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync") applyState(msg.data);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+
+function setImg(id, src){
+  const el = document.getElementById(id);
+  if(!el) return;
+  if(src){ el.src = src; el.style.display = "block"; }
+  else { el.style.display = "none"; }
+}
+
+function applyGraphicOverrides(overrides){
+  GFX_ELEMENT_IDS.forEach(id => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    const o = (overrides && overrides[id]) || {};
+    const dx = o.dx || 0, dy = o.dy || 0, scale = o.scale || 1;
+    el.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+    el.style.transformOrigin = "top left";
+  });
+}
+
+function applyState(state){
+  document.getElementById("team1-name").textContent = state.team1.name || "";
+  document.getElementById("team2-name").textContent = state.team2.name || "";
+  setImg("team1-logo", state.team1.logo);
+  setImg("team2-logo", state.team2.logo);
+  setImg("map-thumb", mapThumbUrl(state.prematch && state.prematch.map));
+  document.getElementById("map-name").textContent = (state.prematch && state.prematch.map) || "";
+
+  SLOT_DEFS.forEach(slot => {
+    const playerName = (state[slot.team] && state[slot.team].players && state[slot.team].players[slot.idx]) || "";
+    const agent = state.postMatch && state.postMatch.players && state.postMatch.players[slot.team] &&
+      state.postMatch.players[slot.team][slot.idx] && state.postMatch.players[slot.team][slot.idx].agent;
+    document.getElementById(`slot${slot.n}-name`).textContent = playerName;
+    setImg(`slot${slot.n}-portrait`, agentPortraitUrl(agent));
+  });
+
+  applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.characterpick);
+}
+
+connect();
+</script>
+</body>
+</html>
