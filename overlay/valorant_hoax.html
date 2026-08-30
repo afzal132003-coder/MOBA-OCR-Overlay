@@ -14,13 +14,23 @@
     Background is assets/valorant_hoax_blank.png -- chroma-keyed from
     hoax-overlay.png's own flat RGB(103,103,103) fill (no PSD/alpha channel
     was available for this one, but that gray was perfectly uniform, so a
-    straight color-key extraction came out clean) with the baked-in badge
-    region additionally cut out, since that badge was baked red with no way
-    to recolor it -- this page draws its own badge on top instead (see
-    below) so it can actually switch between idle/planted.
+    straight color-key extraction came out clean).
 
     Positions measured directly off that blank template's crop -- no PSD,
     best-estimate only, nudge with Graphic Fixing as needed.
+
+    The spike badge (assets/hoax.png -- a flat white icon on transparent,
+    same file the user previously had saved as Swiftplay.png) has TWO
+    independently Graphic-Fixing-adjustable positions rather than one
+    element plus a hardcoded animation offset: "spike-badge-idle" (where
+    it sits, white, before the spike is planted) and "spike-badge-planted"
+    (where it settles, red, once planted) -- both editable in Graphic
+    Fixing's Hoax Overlay page like any other element, so the whole
+    idle->planted travel path is under the operator's control, not baked
+    into CSS. Recolored via CSS filter, not mask-image: mask-image's
+    url() is blocked by CORS when this page is opened as a local file
+    (works over https, but OBS/testing often opens these as file://
+    directly) -- a plain <img> doesn't have that restriction.
   */
 
   @font-face {
@@ -86,26 +96,13 @@
   #team1-score{ left:797px; }
   #team2-score{ left:1063px; }
 
-  /* Spike badge -- Swiftplay.png is a flat white icon on transparent.
-     Recolored via CSS filter rather than mask-image: mask-image's url()
-     is blocked by CORS when this page is opened as a local file (works
-     over https, but OBS/testing often opens these as file:// directly,
-     so it needs to actually work there too) -- a plain <img> doesn't have
-     that restriction. brightness(0) first flattens the white source to
-     solid black (keeping the alpha shape), then invert/sepia/hue-rotate
-     tints that black to the target red. Idle: white (no filter), sitting
-     low. Planted: slides up and turns red. Same outer(static)/inner
-     (animated) split as everywhere else this session, so Graphic Fixing's
-     own transform never fights the animation's transform. */
-  #spike-badge{ position:absolute; left:895px; top:0px; width:130px; height:115px; }
-  #spike-badge-inner{
-    width:100%; height:100%; object-fit:contain;
-    transform:translateY(30px);
-    transition:transform 0.5s cubic-bezier(.34,1.4,.64,1), filter 0.4s ease;
+  #spike-badge{
+    position:absolute; object-fit:contain;
+    transition: left 0.5s cubic-bezier(.34,1.4,.64,1), top 0.5s cubic-bezier(.34,1.4,.64,1),
+                width 0.5s ease, height 0.5s ease, filter 0.4s ease;
   }
-  #spike-badge-inner.planted{
+  #spike-badge.planted{
     filter:brightness(0) saturate(100%) invert(48%) sepia(75%) saturate(3000%) hue-rotate(335deg) brightness(100%) contrast(103%);
-    transform:translateY(0);
   }
 </style>
 </head>
@@ -122,9 +119,7 @@
   <div class="team-name" id="team2-name"></div>
   <img class="team-logo" id="team2-logo" alt="">
 
-  <div id="spike-badge">
-    <img id="spike-badge-inner" src="assets/Swiftplay.png" alt="">
-  </div>
+  <img id="spike-badge" src="assets/hoax.png" alt="">
 </div>
 
 <script>
@@ -154,7 +149,24 @@ function setImg(id, src){
   else { el.style.display = "none"; }
 }
 
-const GFX_ELEMENT_IDS = ["team1-logo","team1-name","team1-score","team2-logo","team2-name","team2-score","spike-badge"];
+const GFX_ELEMENT_IDS = ["team1-logo","team1-name","team1-score","team2-logo","team2-name","team2-score"];
+
+// Base (un-nudged) positions for the badge's two states -- Graphic
+// Fixing's dx/dy/scale for "spike-badge-idle"/"spike-badge-planted" apply
+// on top of these, same math as every other element's override, just
+// applied to left/top/width/height directly instead of a transform (so
+// the transition between the two is a real position change the operator
+// fully controls, not a fixed CSS keyframe offset).
+const BADGE_IDLE_BASE = { left:895, top:60, width:110, height:95 };
+const BADGE_PLANTED_BASE = { left:895, top:0, width:110, height:95 };
+
+function effectiveBadgeRect(base, overrides, id){
+  const o = (overrides && overrides[id]) || {};
+  return {
+    left: base.left + (o.dx || 0), top: base.top + (o.dy || 0),
+    width: base.width * (o.scale || 1), height: base.height * (o.scale || 1),
+  };
+}
 
 function applyGraphicOverrides(overrides){
   GFX_ELEMENT_IDS.forEach(id => {
@@ -179,11 +191,20 @@ function applyState(state){
   document.getElementById("team1-score").textContent = state.liveScore.team1;
   document.getElementById("team2-score").textContent = state.liveScore.team2;
 
-  document.getElementById("spike-badge-inner").classList.toggle(
-    "planted", !!(state.spikeBadge && state.spikeBadge.visible)
+  const overrides = state.graphicOverrides && state.graphicOverrides.hoax;
+  const planted = !!(state.spikeBadge && state.spikeBadge.visible);
+  const rect = effectiveBadgeRect(
+    planted ? BADGE_PLANTED_BASE : BADGE_IDLE_BASE, overrides,
+    planted ? "spike-badge-planted" : "spike-badge-idle",
   );
+  const badge = document.getElementById("spike-badge");
+  badge.style.left = rect.left + "px";
+  badge.style.top = rect.top + "px";
+  badge.style.width = rect.width + "px";
+  badge.style.height = rect.height + "px";
+  badge.classList.toggle("planted", planted);
 
-  applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.hoax);
+  applyGraphicOverrides(overrides);
 }
 
 connect();
