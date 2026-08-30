@@ -935,9 +935,10 @@
           <div id="val_team2PlayerInputs" style="margin-top:10px;"></div>
         </div>
       </div>
-      <div style="display:flex; gap:8px;">
+      <div style="display:flex; gap:8px; align-items:center;">
         <button id="val_saveTeamInfo">Save Team Info</button>
         <button id="val_clearTeamInfo" class="secondary">Clear</button>
+        <span id="val_saveTeamInfo_status" class="hint" style="margin:0;"></span>
       </div>
     </div>
 
@@ -2096,16 +2097,21 @@ function buildPlayerNameInputs(containerId, team){
   wirePlayerPasteFill(team);
 }
 
-// Pasting a multi-line block of IGNs (one per line) into any player-name
-// field fills that field and the ones after it, in order — so copying a
-// full roster and pasting once into Player 1 fills all 5 instead of
-// needing five separate paste actions. A single-line paste behaves like a
-// normal paste into just that one field.
+// Pasting a multi-line block of IGNs (one per line) into an EMPTY
+// player-name field fills that field and the ones after it, in order — so
+// copying a full roster and pasting once into a blank Player 1 fills all 5
+// instead of needing five separate paste actions. Only triggers when the
+// target field is empty at paste time -- pasting a corrected single name
+// into an ALREADY-FILLED field (a one-field edit, not a bulk roster fill)
+// must never cascade into the next field(s) just because the clipboard
+// happened to carry a trailing/extra line; it previously did exactly that
+// and silently overwrote the next player's name.
 function wirePlayerPasteFill(team){
   for(let i=0;i<5;i++){
     const input = document.getElementById(`${team}Player${i}`);
     if(!input) continue;
     input.addEventListener("paste", (e) => {
+      if(input.value.trim().length > 0) return;
       const text = (e.clipboardData || window.clipboardData).getData("text");
       const lines = text.split(/\r\n|\r|\n/).map(l => l.trim()).filter(l => l.length > 0);
       if(lines.length <= 1) return;
@@ -4427,6 +4433,7 @@ function valConnect(){
       // element so a live broadcast tick can't fight an operator's
       // in-progress typing, same pattern MOBA's own team1Name/etc. use.
       valApplyState(valState);
+      valCheckSaveTeamInfoConfirmed(valState);
       valRenderScoreGrid(valState);
       valRenderPlantDefuseStatus(valState);
       valBuildMvpDropdown(valState);
@@ -4485,6 +4492,7 @@ function wireValPlayerPasteFill(team){
     const input = document.getElementById(`val_${team}Player${i}`);
     if(!input) continue;
     input.addEventListener("paste", (e) => {
+      if(input.value.trim().length > 0) return;
       const text = (e.clipboardData || window.clipboardData).getData("text");
       const lines = text.split(/\r\n|\r|\n/).map(l => l.trim()).filter(l => l.length > 0);
       if(lines.length <= 1) return;
@@ -4504,6 +4512,16 @@ document.getElementById("val_team2Logo").addEventListener("change", async (e) =>
   if(e.target.files[0]) document.getElementById("val_team2LogoPreview").src = await readFileAsDataURL(e.target.files[0]);
 });
 
+// A WebSocket .send() doesn't guarantee the message actually reached the
+// engine -- over a flaky relay connection (dropped/reconnecting mid-send)
+// it can silently vanish while readyState still reports OPEN, and the next
+// unrelated state_sync (e.g. a round-score OCR tick) then overwrites the
+// form with the server's still-unchanged data, LOOKING like the edit
+// "reverted" with zero indication anything went wrong. This waits for the
+// server's own echo to confirm the exact name/players/photos actually
+// landed, instead of assuming success the moment send() returns.
+let valSaveTeamInfoPending = null;
+
 document.getElementById("val_saveTeamInfo").addEventListener("click", () => {
   const data = {
     team1: { name: document.getElementById("val_team1Name").value, players: [], photos: [] },
@@ -4521,8 +4539,45 @@ document.getElementById("val_saveTeamInfo").addEventListener("click", () => {
       data[team].photos.push(photoPreview.src.startsWith("data:") ? photoPreview.src : existing);
     }
   });
+
+  const statusEl = document.getElementById("val_saveTeamInfo_status");
+  if(!(valWs && valWs.readyState === WebSocket.OPEN)){
+    statusEl.textContent = "NOT saved — not connected to the Valorant OCR engine right now.";
+    statusEl.style.color = "#f5a4a4";
+    return;
+  }
   valSendManualUpdate(data);
+  statusEl.style.color = "";
+  statusEl.textContent = "Saving...";
+  if(valSaveTeamInfoPending) clearTimeout(valSaveTeamInfoPending.timeoutHandle);
+  valSaveTeamInfoPending = {
+    data,
+    timeoutHandle: setTimeout(() => {
+      statusEl.textContent = "Not confirmed saved after 5s — connection may be dropping messages, check the CONNECTED badge and try again.";
+      statusEl.style.color = "#f5a4a4";
+      valSaveTeamInfoPending = null;
+    }, 5000),
+  };
 });
+
+// Called from the state_sync handler in valConnect() -- checks whether the
+// server's current state actually matches the last thing this tab tried to
+// save, and only then reports success.
+function valCheckSaveTeamInfoConfirmed(state){
+  if(!valSaveTeamInfoPending) return;
+  const { data } = valSaveTeamInfoPending;
+  const matches = ["team1","team2"].every(team =>
+    state[team].name === data[team].name &&
+    JSON.stringify(state[team].players) === JSON.stringify(data[team].players) &&
+    JSON.stringify(state[team].photos) === JSON.stringify(data[team].photos)
+  );
+  if(!matches) return;
+  clearTimeout(valSaveTeamInfoPending.timeoutHandle);
+  valSaveTeamInfoPending = null;
+  const statusEl = document.getElementById("val_saveTeamInfo_status");
+  statusEl.style.color = "#7fd88f";
+  statusEl.textContent = "Saved — confirmed live on the server.";
+}
 
 document.getElementById("val_clearTeamInfo").addEventListener("click", () => {
   if(!confirm("Clear Valorant Team Setup (names, logos, players, photos) for both teams? This pushes the cleared state live immediately.")) return;
