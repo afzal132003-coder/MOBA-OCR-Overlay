@@ -5022,6 +5022,10 @@ const VAL_GRAPHIC_PAGES = {
   ];
   const els = VAL_GRAPHIC_PAGES.teamchemistry.elements;
   rowDefs.forEach(row => {
+    els[`p${row.n}-photo`] = {
+      left: row.x + 1, top: row.y, width: 99, height: 76,
+      kind: "box", label: `P${row.n} Photo`,
+    };
     cols.forEach(col => {
       els[`p${row.n}-${col.key}`] = {
         left: row.x + col.dx, top: row.y + 8, width: col.w, height: 60,

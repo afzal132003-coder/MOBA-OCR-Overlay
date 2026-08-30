@@ -74,6 +74,8 @@
   }
   .stat-cell.name-cell{ color:#ffffff; font-style:italic; font-size:20px; text-transform:uppercase; overflow:hidden; white-space:nowrap; }
   .stat-cell.center{ justify-content:center; text-align:center; }
+
+  .row-photo{ position:absolute; width:99px; height:76px; object-fit:cover; display:none; }
 </style>
 </head>
 <body>
@@ -121,6 +123,19 @@ const GFX_ELEMENT_IDS = ["team1-logo","team1-name","series-score","team2-logo","
 (function buildRows(){
   const container = document.getElementById("rows");
   ROW_DEFS.forEach(row => {
+    // The colored tag box at the very left of each row (PSD's "Layer 18",
+    // team-color block) had nothing dynamic in it -- that's the box the
+    // player's own uploaded photo (set in Team Setup, not a hero/agent
+    // render -- Valorant has no fixed pick art) belongs in.
+    const photo = document.createElement("img");
+    photo.className = "row-photo";
+    photo.id = `p${row.n}-photo`;
+    photo.style.left = (row.x + 1) + "px";
+    photo.style.top = row.y + "px";
+    photo.alt = "";
+    container.appendChild(photo);
+    GFX_ELEMENT_IDS.push(photo.id);
+
     COLS.forEach(col => {
       const el = document.createElement("div");
       el.className = `stat-cell ${col.cls}`;
@@ -194,6 +209,9 @@ function applyState(state){
     document.getElementById(`p${row.n}-kd`).textContent = kdRatio(p.kills, p.deaths);
     document.getElementById(`p${row.n}-fb`).textContent = p.firstBloods || 0;
     document.getElementById(`p${row.n}-plants`).textContent = p.plants || 0;
+
+    const photoSrc = (state[row.team] && state[row.team].photos && state[row.team].photos[row.idx]) || "";
+    setLogo(`p${row.n}-photo`, photoSrc);
   });
 
   applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.teamchemistry);
