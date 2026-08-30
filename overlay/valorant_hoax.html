@@ -19,18 +19,12 @@
     Positions measured directly off that blank template's crop -- no PSD,
     best-estimate only, nudge with Graphic Fixing as needed.
 
-    The spike badge (assets/hoax.png -- a flat white icon on transparent,
-    same file the user previously had saved as Swiftplay.png) has TWO
-    independently Graphic-Fixing-adjustable positions rather than one
-    element plus a hardcoded animation offset: "spike-badge-idle" (where
-    it sits, white, before the spike is planted) and "spike-badge-planted"
-    (where it settles, red, once planted) -- both editable in Graphic
-    Fixing's Hoax Overlay page like any other element, so the whole
-    idle->planted travel path is under the operator's control, not baked
-    into CSS. Recolored via CSS filter, not mask-image: mask-image's
-    url() is blocked by CORS when this page is opened as a local file
-    (works over https, but OBS/testing often opens these as file://
-    directly) -- a plain <img> doesn't have that restriction.
+    The spike badge now lives on the main In-Game HUD instead
+    (overlay/valorant_ingame.html) -- moved there per explicit request, so
+    it isn't duplicated here too (both would react to the same Push Spike
+    Badge Up/Down buttons, showing two badges at once if this page and the
+    main HUD were both live in OBS simultaneously). This page is just team
+    plates + score.
   */
 
   @font-face {
@@ -95,15 +89,6 @@
   }
   #team1-score{ left:797px; }
   #team2-score{ left:1063px; }
-
-  #spike-badge{
-    position:absolute; object-fit:contain;
-    transition: left 0.5s cubic-bezier(.34,1.4,.64,1), top 0.5s cubic-bezier(.34,1.4,.64,1),
-                width 0.5s ease, height 0.5s ease, filter 0.4s ease;
-  }
-  #spike-badge.planted{
-    filter:brightness(0) saturate(100%) invert(48%) sepia(75%) saturate(3000%) hue-rotate(335deg) brightness(100%) contrast(103%);
-  }
 </style>
 </head>
 <body>
@@ -118,8 +103,6 @@
   <div class="team-score" id="team2-score">0</div>
   <div class="team-name" id="team2-name"></div>
   <img class="team-logo" id="team2-logo" alt="">
-
-  <img id="spike-badge" src="assets/hoax.png" alt="">
 </div>
 
 <script>
@@ -151,23 +134,6 @@ function setImg(id, src){
 
 const GFX_ELEMENT_IDS = ["team1-logo","team1-name","team1-score","team2-logo","team2-name","team2-score"];
 
-// Base (un-nudged) positions for the badge's two states -- Graphic
-// Fixing's dx/dy/scale for "spike-badge-idle"/"spike-badge-planted" apply
-// on top of these, same math as every other element's override, just
-// applied to left/top/width/height directly instead of a transform (so
-// the transition between the two is a real position change the operator
-// fully controls, not a fixed CSS keyframe offset).
-const BADGE_IDLE_BASE = { left:895, top:60, width:110, height:95 };
-const BADGE_PLANTED_BASE = { left:895, top:0, width:110, height:95 };
-
-function effectiveBadgeRect(base, overrides, id){
-  const o = (overrides && overrides[id]) || {};
-  return {
-    left: base.left + (o.dx || 0), top: base.top + (o.dy || 0),
-    width: base.width * (o.scale || 1), height: base.height * (o.scale || 1),
-  };
-}
-
 function applyGraphicOverrides(overrides){
   GFX_ELEMENT_IDS.forEach(id => {
     const el = document.getElementById(id);
@@ -191,20 +157,7 @@ function applyState(state){
   document.getElementById("team1-score").textContent = state.liveScore.team1;
   document.getElementById("team2-score").textContent = state.liveScore.team2;
 
-  const overrides = state.graphicOverrides && state.graphicOverrides.hoax;
-  const planted = !!(state.spikeBadge && state.spikeBadge.visible);
-  const rect = effectiveBadgeRect(
-    planted ? BADGE_PLANTED_BASE : BADGE_IDLE_BASE, overrides,
-    planted ? "spike-badge-planted" : "spike-badge-idle",
-  );
-  const badge = document.getElementById("spike-badge");
-  badge.style.left = rect.left + "px";
-  badge.style.top = rect.top + "px";
-  badge.style.width = rect.width + "px";
-  badge.style.height = rect.height + "px";
-  badge.classList.toggle("planted", planted);
-
-  applyGraphicOverrides(overrides);
+  applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.hoax);
 }
 
 connect();

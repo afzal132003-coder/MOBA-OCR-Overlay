@@ -508,8 +508,8 @@ AGENT_FILE_MAP = {
     "Raze": "Raze.png", "Reyna": "Reyna.png", "Sage": "Sage.png",
     "Skye": "Skye.png", "Sova": "Sova.png", "Cypher": "Sypher.png",
     "Viper": "Viper.png", "Yoru": "Yoru.png",
-    "Iso": "Iso.webp", "Waylay": "Waylay.webp", "Gekko": "Gekko.webp", "Tejo": "Tejo.webp",
-    "Clove": "Clove.webp", "Deadlock": "Deadlock.webp", "Vyse": "Vyse.webp",
+    "Iso": "Iso.png", "Waylay": "Waylay.png", "Gekko": "Gekko.png", "Tejo": "Tejo.png",
+    "Clove": "Clove.png", "Deadlock": "Deadlock.png", "Vyse": "Vyse.png",
 }
 
 _agent_signatures = None  # lazily built once: {agent_name: [16 avg-BGR cells]}

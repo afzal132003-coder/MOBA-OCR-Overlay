@@ -80,6 +80,23 @@
     text-transform:uppercase; text-align:center; white-space:nowrap; overflow:hidden;
   }
 
+  /* Spike badge (assets/spikebadge.png -- a flat white icon on
+     transparent). Two independently Graphic-Fixing-adjustable positions
+     rather than one element plus a hardcoded animation offset:
+     "spike-badge-idle" (before planted) and "spike-badge-planted" (once
+     planted) -- both editable in Graphic Fixing's In-Game HUD page, so the
+     whole idle->planted travel path is under the operator's control.
+     PERSISTENT, not the 6-second toast (that's the separate Plant/Defuse
+     Popup). Recolored via CSS filter, not mask-image: mask-image's url()
+     is blocked by CORS when this page is opened as a local file. */
+  #spike-badge{
+    position:absolute; object-fit:contain;
+    transition: left 0.5s cubic-bezier(.34,1.4,.64,1), top 0.5s cubic-bezier(.34,1.4,.64,1),
+                width 0.5s ease, height 0.5s ease, filter 0.4s ease;
+  }
+  #spike-badge.planted{
+    filter:brightness(0) saturate(100%) invert(48%) sepia(75%) saturate(3000%) hue-rotate(335deg) brightness(100%) contrast(103%);
+  }
 </style>
 </head>
 <body>
@@ -96,6 +113,8 @@
   <img class="team-logo" id="team2-logo" alt="">
 
   <div id="context-text"></div>
+
+  <img id="spike-badge" src="assets/spikebadge.png" alt="">
 </div>
 
 <script>
@@ -127,6 +146,26 @@ function setLogo(id, src){
 
 const GFX_ELEMENT_IDS = ["team1-logo","team1-name","team1-score","team2-logo","team2-name","team2-score","context-text"];
 
+// Base (un-nudged) positions for the badge's two states -- Graphic
+// Fixing's dx/dy/scale for "spike-badge-idle"/"spike-badge-planted" apply
+// on top of these directly to left/top/width/height (not a transform), so
+// the idle->planted travel is a real position change fully under the
+// operator's control, not a fixed CSS keyframe offset.
+// Idle sits BELOW the Group/Match Context badge (top:80, height:38 -- ends
+// at y:118); planted travels UP to sit ABOVE it instead. Both are just
+// starting points -- the operator marks the real positions in Graphic
+// Fixing themselves.
+const BADGE_IDLE_BASE = { left:905, top:160, width:110, height:95 };
+const BADGE_PLANTED_BASE = { left:905, top:15, width:110, height:95 };
+
+function effectiveBadgeRect(base, overrides, id){
+  const o = (overrides && overrides[id]) || {};
+  return {
+    left: base.left + (o.dx || 0), top: base.top + (o.dy || 0),
+    width: base.width * (o.scale || 1), height: base.height * (o.scale || 1),
+  };
+}
+
 function applyGraphicOverrides(overrides){
   GFX_ELEMENT_IDS.forEach(id => {
     const el = document.getElementById(id);
@@ -152,7 +191,20 @@ function applyState(state){
   document.getElementById("context-text").textContent =
     [line1, line2].filter(Boolean).join(" - ");
 
-  applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.ingame);
+  const overrides = state.graphicOverrides && state.graphicOverrides.ingame;
+  const planted = !!(state.spikeBadge && state.spikeBadge.visible);
+  const rect = effectiveBadgeRect(
+    planted ? BADGE_PLANTED_BASE : BADGE_IDLE_BASE, overrides,
+    planted ? "spike-badge-planted" : "spike-badge-idle",
+  );
+  const badge = document.getElementById("spike-badge");
+  badge.style.left = rect.left + "px";
+  badge.style.top = rect.top + "px";
+  badge.style.width = rect.width + "px";
+  badge.style.height = rect.height + "px";
+  badge.classList.toggle("planted", planted);
+
+  applyGraphicOverrides(overrides);
 }
 
 connect();
