@@ -312,6 +312,14 @@
   </div>
 </div>
 
+<details class="card" id="overlayLinksCard" style="margin-bottom:20px;">
+  <summary style="cursor:pointer;font-weight:800;color:#8b5cf6;font-size:14px;">Overlay Browser Source Links (all games)</summary>
+  <p class="hint">Paste one of these straight into an OBS Browser Source's URL field — no need to check "Local file"
+    or browse manually, each already points at the real .html file on this PC. Only valid on this machine; if the
+    project folder ever moves, update REPO_ROOT near the bottom of dashboard.html.</p>
+  <div id="overlayLinksTable" style="overflow-x:auto;"></div>
+</details>
+
 <div class="category-bar">
   <button class="category-btn active" data-category="moba">MOBA</button>
   <button class="category-btn" data-category="valorant">Valorant</button>
@@ -1117,12 +1125,31 @@
   <div class="val-tab-panel" id="valtab-graphics">
     <div class="card">
       <h2>Graphic Fixing</h2>
-      <p class="hint">Same drag-to-nudge tool as MOBA's Graphic Fixing tab, once it's wired up here — but that needs
-        the actual overlay pages built pixel-precise against your real graphic assets first (same reasoning as every
-        MOBA graphic this session: POPUPS.psd, MVP.psd, the team stats template all came from you before Graphic
-        Fixing could position anything against them). Send the Scoreboard/MVP/Head-to-Head/Plant-Defuse PSDs or blank
-        PNG exports whenever you have them and this tab gets built out properly — nothing about the tab structure
-        needs to change once that happens, this placeholder just becomes real content.</p>
+      <p class="hint">Same drag-to-nudge tool as MOBA's Graphic Fixing tab — In-Game HUD and Team Chemistry Stats are
+        built from your valo-overlay.psd / "teamchemistrystats - removed bg.psd" assets, so their default positions
+        here are a best estimate (those PSDs don't have separate name/logo/score layers to measure exactly against).
+        Drag a name/logo/score to reposition it; drag the little gold handle on its corner to resize. This preview
+        updates instantly, but nothing changes on the real overlay until you click Save Positions — safe to
+        experiment.</p>
+      <div class="row" style="gap:8px;margin-bottom:14px;">
+        <button class="secondary" id="valgfx_page_ingame">In-Game HUD</button>
+        <button class="secondary" id="valgfx_page_teamchemistry">Team Chemistry Stats</button>
+      </div>
+      <p class="hint">Click a box to select it, then nudge with arrow keys (hold Shift for 10px steps) for
+        pixel-precise placement. Red guide lines appear while dragging when an edge or center lines up with
+        another box or the canvas center/edges — drag onto one to snap to it. Ctrl/Cmd+click to select
+        multiple boxes and move them together with arrow keys or by dragging any one of them. Ctrl+Z
+        undoes the last drag/resize/nudge/reset on this page, Ctrl+S saves.</p>
+      <div id="valgfx_stage_wrap" style="position:relative;width:960px;height:540px;background:#000;border:1px solid #332b52;border-radius:6px;overflow:hidden;">
+        <img id="valgfx_bg" style="position:absolute;top:0;left:0;width:960px;height:540px;object-fit:cover;" alt="">
+        <div id="valgfx_stage" style="position:absolute;top:0;left:0;width:960px;height:540px;"></div>
+        <div id="valgfx_guides" style="position:absolute;top:0;left:0;width:960px;height:540px;pointer-events:none;z-index:50;"></div>
+      </div>
+      <div class="row" style="margin-top:14px;gap:10px;align-items:center;">
+        <button id="valgfx_save">Save Positions</button>
+        <button class="secondary" id="valgfx_reset">Reset This Page to Default</button>
+        <span id="valgfx_status" class="hint" style="margin:0;"></span>
+      </div>
     </div>
   </div>
 
@@ -3637,7 +3664,12 @@ function gfxWireDrag(box, geo){
 // Only acts while the Graphic Fixing tab is visible and focus isn't in a
 // text field elsewhere on the page.
 document.addEventListener("keydown", (e) => {
-  if(!document.getElementById("tab-graphics").classList.contains("active")) return;
+  // offsetParent check (not just the tab's own "active" class) so this
+  // stays silent when the MOBA category itself is hidden behind another
+  // game's category panel, even if this tab was the last one open within
+  // MOBA -- otherwise an arrow-key nudge meant for e.g. Valorant's own
+  // Graphic Fixing tab would also move a MOBA element at the same time.
+  if(document.getElementById("tab-graphics").offsetParent === null) return;
   const tag = document.activeElement && document.activeElement.tagName;
   if(tag === "INPUT" || tag === "TEXTAREA") return;
 
@@ -4920,6 +4952,429 @@ valBuildPostMatchRows("val_pom_players_team2", "team2");
 connect();
 ffConnect();
 valConnect();
+
+/* ---------- Valorant Graphic Fixing ----------
+ * Full duplicate of MOBA's gfx* drag/resize/snap/undo system (see
+ * GRAPHIC_PAGES and the gfx* functions above) rather than sharing it --
+ * that system is wired tight to currentState/ws/sendManualUpdate/
+ * #gfx_stage, and reaching into a live, working tool to parameterize it
+ * mid-broadcast-season is a worse risk than the duplication. Reuses the
+ * SAME .gfx-box/.gfx-handle/.gfx-ghost CSS classes (those aren't
+ * ID-scoped) against a separate #valgfx_stage container, so the two
+ * systems can't cross-select or cross-drag each other's elements. */
+const VAL_GRAPHIC_PAGES = {
+  ingame: {
+    label: "In-Game HUD", background: "../overlay/assets/valorant_ingame_blank.png",
+    elements: {
+      "team1-logo": { left:6, top:3, width:50, height:50, kind:"logo", team:"team1" },
+      "team1-name": { left:64, top:9, width:190, height:38, kind:"name", team:"team1" },
+      "team1-score": { left:266, top:4, width:112, height:48, kind:"box", label:"Team 1 Round Score" },
+      "team2-score": { left:1542, top:4, width:112, height:48, kind:"box", label:"Team 2 Round Score" },
+      "team2-name": { left:1666, top:9, width:190, height:38, kind:"name", team:"team2" },
+      "team2-logo": { left:1864, top:3, width:50, height:50, kind:"logo", team:"team2" },
+      "context-text": { left:827, top:80, width:242, height:38, kind:"box", label:"Group / Match Context" },
+    },
+  },
+  teamchemistry: {
+    label: "Team Chemistry Stats", background: "../overlay/assets/valorant_teamchemistry_blank.png",
+    elements: {
+      "team1-logo": { left:660, top:358, width:95, height:85, kind:"logo", team:"team1" },
+      "team1-name": { left:280, top:378, width:270, height:46, kind:"name", team:"team1" },
+      "series-score": { left:827, top:378, width:267, height:46, kind:"box", label:"Series Score" },
+      "team2-name": { left:1370, top:378, width:270, height:46, kind:"name", team:"team2" },
+      "team2-logo": { left:1165, top:358, width:95, height:85, kind:"logo", team:"team2" },
+    },
+  },
+};
+// Same ROW_DEFS/COLS math as overlay/valorant_teamchemistry.html, kept in
+// sync manually since one lives in dashboard.html's preview and the other
+// in the actual OBS page -- if the overlay file's coordinates ever get
+// re-measured, mirror the change here too.
+(function addTeamChemistryRows(){
+  const rowDefs = [
+    {n:1, x:137, y:507}, {n:2, x:137, y:595}, {n:3, x:137, y:682}, {n:4, x:137, y:770}, {n:5, x:137, y:857},
+    {n:6, x:989, y:507}, {n:7, x:989, y:595}, {n:8, x:989, y:682}, {n:9, x:989, y:770}, {n:10, x:989, y:857},
+  ];
+  const cols = [
+    {key:"name", dx:108, w:275}, {key:"kda", dx:409, w:74}, {key:"acs", dx:504, w:59},
+    {key:"kd", dx:578, w:40}, {key:"fb", dx:657, w:36}, {key:"plants", dx:714, w:72},
+  ];
+  const els = VAL_GRAPHIC_PAGES.teamchemistry.elements;
+  rowDefs.forEach(row => {
+    cols.forEach(col => {
+      els[`p${row.n}-${col.key}`] = {
+        left: row.x + col.dx, top: row.y + 8, width: col.w, height: 60,
+        kind: "box", label: `P${row.n} ${col.key.toUpperCase()}`,
+      };
+    });
+  });
+})();
+
+const VALGFX_SCALE = 0.5;
+const VALGFX_STAGE_W = 960, VALGFX_STAGE_H = 540;
+const VALGFX_SNAP_THRESHOLD = 4;
+
+let valgfxCurrentPage = "ingame";
+let valgfxPending = {};
+let valgfxSelectedIds = new Set();
+let valgfxHistory = [];
+const VALGFX_HISTORY_LIMIT = 50;
+
+function valgfxSnapshot(){
+  valgfxHistory.push(JSON.parse(JSON.stringify(valgfxPending)));
+  if(valgfxHistory.length > VALGFX_HISTORY_LIMIT) valgfxHistory.shift();
+}
+
+function valgfxUndo(){
+  const prev = valgfxHistory.pop();
+  if(!prev) return;
+  valgfxPending = prev;
+  document.querySelectorAll("#valgfx_stage .gfx-box").forEach(box => {
+    valgfxPositionBox(box, VAL_GRAPHIC_PAGES[valgfxCurrentPage].elements[box.dataset.id]);
+  });
+  document.getElementById("valgfx_status").textContent = "Undone locally — click Save Positions to make it permanent.";
+}
+
+function valgfxPositionBox(box, geo){
+  const o = valgfxPending[box.dataset.id] || {dx:0, dy:0, scale:1};
+  box.style.left = ((geo.left + o.dx) * VALGFX_SCALE) + "px";
+  box.style.top = ((geo.top + o.dy) * VALGFX_SCALE) + "px";
+  box.style.width = (geo.width * o.scale * VALGFX_SCALE) + "px";
+  box.style.height = (geo.height * o.scale * VALGFX_SCALE) + "px";
+}
+
+function valgfxSelectBox(id, additive){
+  if(additive){
+    if(valgfxSelectedIds.has(id)) valgfxSelectedIds.delete(id);
+    else valgfxSelectedIds.add(id);
+  } else {
+    valgfxSelectedIds = new Set([id]);
+  }
+  document.querySelectorAll("#valgfx_stage .gfx-box").forEach(b => {
+    b.classList.toggle("gfx-selected", valgfxSelectedIds.has(b.dataset.id));
+  });
+}
+
+function valgfxDeselectAll(){
+  valgfxSelectedIds = new Set();
+  document.querySelectorAll("#valgfx_stage .gfx-box").forEach(b => b.classList.remove("gfx-selected"));
+}
+
+function valgfxBoxRect(id){
+  const geo = VAL_GRAPHIC_PAGES[valgfxCurrentPage].elements[id];
+  const o = valgfxPending[id] || {dx:0, dy:0, scale:1};
+  const left = (geo.left + o.dx) * VALGFX_SCALE;
+  const top = (geo.top + o.dy) * VALGFX_SCALE;
+  const width = geo.width * o.scale * VALGFX_SCALE;
+  const height = geo.height * o.scale * VALGFX_SCALE;
+  return { left, right: left + width, top, bottom: top + height, centerX: left + width / 2, centerY: top + height / 2 };
+}
+
+function valgfxSnap(movingId, proposedLeft, proposedTop){
+  const geo = VAL_GRAPHIC_PAGES[valgfxCurrentPage].elements[movingId];
+  const o = valgfxPending[movingId];
+  const width = geo.width * o.scale * VALGFX_SCALE;
+  const height = geo.height * o.scale * VALGFX_SCALE;
+
+  const refX = [0, VALGFX_STAGE_W / 2, VALGFX_STAGE_W];
+  const refY = [0, VALGFX_STAGE_H / 2, VALGFX_STAGE_H];
+  Object.keys(VAL_GRAPHIC_PAGES[valgfxCurrentPage].elements).forEach(otherId => {
+    if(otherId === movingId) return;
+    const r = valgfxBoxRect(otherId);
+    refX.push(r.left, r.centerX, r.right);
+    refY.push(r.top, r.centerY, r.bottom);
+  });
+
+  const findBestDelta = (candidates, refs) => {
+    let best = null;
+    candidates.forEach(c => {
+      refs.forEach(r => {
+        const delta = r - c;
+        if(Math.abs(delta) <= VALGFX_SNAP_THRESHOLD && (best === null || Math.abs(delta) < Math.abs(best))) best = delta;
+      });
+    });
+    return best;
+  };
+
+  const deltaX = findBestDelta([proposedLeft, proposedLeft + width / 2, proposedLeft + width], refX);
+  const deltaY = findBestDelta([proposedTop, proposedTop + height / 2, proposedTop + height], refY);
+  const snappedLeft = deltaX === null ? proposedLeft : proposedLeft + deltaX;
+  const snappedTop = deltaY === null ? proposedTop : proposedTop + deltaY;
+
+  const near = (a, b) => Math.abs(a - b) < 0.6;
+  const finalX = [snappedLeft, snappedLeft + width / 2, snappedLeft + width];
+  const finalY = [snappedTop, snappedTop + height / 2, snappedTop + height];
+  const vGuides = [...new Set(refX.filter(r => finalX.some(c => near(c, r))))];
+  const hGuides = [...new Set(refY.filter(r => finalY.some(c => near(c, r))))];
+
+  return { left: snappedLeft, top: snappedTop, vGuides, hGuides };
+}
+
+function valgfxShowGuides(vGuides, hGuides){
+  const container = document.getElementById("valgfx_guides");
+  container.innerHTML = "";
+  vGuides.forEach(x => {
+    const line = document.createElement("div");
+    line.style.cssText = `position:absolute;left:${x}px;top:0;width:1px;height:${VALGFX_STAGE_H}px;background:#ff3b3b;`;
+    container.appendChild(line);
+  });
+  hGuides.forEach(y => {
+    const line = document.createElement("div");
+    line.style.cssText = `position:absolute;top:${y}px;left:0;height:1px;width:${VALGFX_STAGE_W}px;background:#ff3b3b;`;
+    container.appendChild(line);
+  });
+}
+function valgfxClearGuides(){ document.getElementById("valgfx_guides").innerHTML = ""; }
+
+function valgfxWireDrag(box, geo){
+  const id = box.dataset.id;
+  let mode = null;
+  let startX = 0, startY = 0, startScale = 1;
+  let startPositions = {};
+
+  box.addEventListener("mousedown", (e) => {
+    mode = e.target.classList.contains("gfx-handle") ? "resize" : "move";
+    startX = e.clientX; startY = e.clientY;
+    const additive = e.ctrlKey || e.metaKey;
+
+    if(mode === "resize"){
+      valgfxSelectBox(id, false);
+    } else if(additive){
+      valgfxSelectBox(id, true);
+    } else if(!valgfxSelectedIds.has(id)){
+      valgfxSelectBox(id, false);
+    }
+
+    valgfxSnapshot();
+    startScale = valgfxPending[id].scale;
+    startPositions = {};
+    const idsToMove = mode === "move" && valgfxSelectedIds.size > 0 ? valgfxSelectedIds : new Set([id]);
+    idsToMove.forEach(sid => {
+      startPositions[sid] = { dx: valgfxPending[sid].dx, dy: valgfxPending[sid].dy };
+    });
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if(!mode) return;
+    const deltaX = (e.clientX - startX) / VALGFX_SCALE;
+    const deltaY = (e.clientY - startY) / VALGFX_SCALE;
+
+    if(mode === "move"){
+      const ids = valgfxSelectedIds.size > 0 ? Array.from(valgfxSelectedIds) : [id];
+      if(ids.length > 1){
+        ids.forEach(sid => {
+          valgfxPending[sid].dx = Math.round(startPositions[sid].dx + deltaX);
+          valgfxPending[sid].dy = Math.round(startPositions[sid].dy + deltaY);
+          const sbox = document.querySelector(`#valgfx_stage .gfx-box[data-id="${sid}"]`);
+          const sgeo = VAL_GRAPHIC_PAGES[valgfxCurrentPage].elements[sid];
+          if(sbox) valgfxPositionBox(sbox, sgeo);
+        });
+      } else {
+        const proposedLeft = (geo.left + startPositions[id].dx + deltaX) * VALGFX_SCALE;
+        const proposedTop = (geo.top + startPositions[id].dy + deltaY) * VALGFX_SCALE;
+        const snap = valgfxSnap(id, proposedLeft, proposedTop);
+        valgfxPending[id].dx = Math.round(snap.left / VALGFX_SCALE - geo.left);
+        valgfxPending[id].dy = Math.round(snap.top / VALGFX_SCALE - geo.top);
+        valgfxShowGuides(snap.vGuides, snap.hGuides);
+        valgfxPositionBox(box, geo);
+      }
+    } else {
+      let newScale = (geo.width * startScale + deltaX) / geo.width;
+      if(newScale < 0.2) newScale = 0.2;
+      valgfxPending[id].scale = Math.round(newScale * 100) / 100;
+      valgfxPositionBox(box, geo);
+    }
+  });
+
+  window.addEventListener("mouseup", () => {
+    if(mode) valgfxClearGuides();
+    mode = null;
+  });
+}
+
+document.addEventListener("keydown", (e) => {
+  if(document.getElementById("valtab-graphics").offsetParent === null) return;
+  const tag = document.activeElement && document.activeElement.tagName;
+  if(tag === "INPUT" || tag === "TEXTAREA") return;
+
+  if((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z"){
+    e.preventDefault();
+    valgfxUndo();
+    return;
+  }
+  if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s"){
+    e.preventDefault();
+    document.getElementById("valgfx_save").click();
+    return;
+  }
+  if(valgfxSelectedIds.size === 0) return;
+  const step = e.shiftKey ? 10 : 1;
+  let dx = 0, dy = 0;
+  if(e.key === "ArrowLeft") dx = -step;
+  else if(e.key === "ArrowRight") dx = step;
+  else if(e.key === "ArrowUp") dy = -step;
+  else if(e.key === "ArrowDown") dy = step;
+  else return;
+
+  e.preventDefault();
+  valgfxSnapshot();
+  valgfxSelectedIds.forEach(sid => {
+    valgfxPending[sid].dx += dx;
+    valgfxPending[sid].dy += dy;
+    const box = document.querySelector(`#valgfx_stage .gfx-box[data-id="${sid}"]`);
+    const geo = VAL_GRAPHIC_PAGES[valgfxCurrentPage].elements[sid];
+    if(box) valgfxPositionBox(box, geo);
+  });
+});
+
+document.getElementById("valgfx_stage_wrap").addEventListener("mousedown", (e) => {
+  if(e.ctrlKey || e.metaKey) return;
+  if(e.target.id === "valgfx_stage_wrap" || e.target.id === "valgfx_stage" || e.target.id === "valgfx_bg"){
+    valgfxDeselectAll();
+  }
+});
+
+function valgfxLoadPage(pageKey){
+  valgfxCurrentPage = pageKey;
+  valgfxSelectedIds = new Set();
+  valgfxHistory = [];
+  valgfxClearGuides();
+  const pageDef = VAL_GRAPHIC_PAGES[pageKey];
+  const bgImg = document.getElementById("valgfx_bg");
+  bgImg.src = pageDef.background;
+  bgImg.style.display = "block";
+  document.getElementById("valgfx_stage_wrap").style.background = "#000";
+
+  document.querySelectorAll("#valtab-graphics .row button.secondary").forEach(b => b.classList.remove("gfx-active"));
+  const pageBtn = document.getElementById(`valgfx_page_${pageKey}`);
+  if(pageBtn){ pageBtn.style.background = "#8b5cf6"; pageBtn.style.color = "#0c0a17"; }
+  Object.keys(VAL_GRAPHIC_PAGES).filter(k => k !== pageKey).forEach(k => {
+    const b = document.getElementById(`valgfx_page_${k}`);
+    if(b){ b.style.background = ""; b.style.color = ""; }
+  });
+
+  const existing = (valState && valState.graphicOverrides && valState.graphicOverrides[pageKey]) || {};
+  valgfxPending = {};
+  Object.keys(pageDef.elements).forEach(id => {
+    valgfxPending[id] = Object.assign({dx:0, dy:0, scale:1}, existing[id] || {});
+  });
+
+  const stage = document.getElementById("valgfx_stage");
+  stage.innerHTML = "";
+
+  Object.entries(pageDef.elements).forEach(([id, geo]) => {
+    const box = document.createElement("div");
+    box.className = "gfx-box";
+    box.dataset.id = id;
+
+    let inner;
+    if(geo.kind === "logo"){
+      const src = valState && valState[geo.team] && valState[geo.team].logo;
+      inner = src ? `<img src="${src}" alt="">` : `<span class="gfx-label">${geo.team} logo</span>`;
+    } else if(geo.kind === "name"){
+      const name = (valState && valState[geo.team] && valState[geo.team].name) || geo.team;
+      inner = `<span class="gfx-label" style="color:#fff;">${name}</span>`;
+    } else {
+      inner = `<span class="gfx-label">${geo.label || id}</span>`;
+    }
+    box.innerHTML = inner + `<div class="gfx-handle" title="Drag to resize"></div>`;
+
+    stage.appendChild(box);
+    valgfxPositionBox(box, geo);
+    valgfxWireDrag(box, geo);
+  });
+
+  document.getElementById("valgfx_status").textContent = "";
+}
+
+document.getElementById("valgfx_save").addEventListener("click", () => {
+  const statusEl = document.getElementById("valgfx_status");
+  if(!(valWs && valWs.readyState === WebSocket.OPEN)){
+    statusEl.textContent = "NOT saved — not connected to the Valorant OCR engine right now.";
+    statusEl.style.color = "#f5a4a4";
+    return;
+  }
+  const allOverrides = Object.assign({}, (valState && valState.graphicOverrides) || {});
+  allOverrides[valgfxCurrentPage] = valgfxPending;
+  valSendManualUpdate({ graphicOverrides: allOverrides });
+  statusEl.style.color = "";
+  statusEl.textContent = "Saved — live on the overlay now.";
+});
+
+document.getElementById("valgfx_reset").addEventListener("click", () => {
+  valgfxSnapshot();
+  Object.keys(valgfxPending).forEach(id => { valgfxPending[id] = {dx:0, dy:0, scale:1}; });
+  document.querySelectorAll("#valgfx_stage .gfx-box").forEach(box => {
+    valgfxPositionBox(box, VAL_GRAPHIC_PAGES[valgfxCurrentPage].elements[box.dataset.id]);
+  });
+  document.getElementById("valgfx_status").textContent = "Reset locally — click Save Positions to make it permanent.";
+});
+
+Object.keys(VAL_GRAPHIC_PAGES).forEach(key => {
+  document.getElementById(`valgfx_page_${key}`).addEventListener("click", () => valgfxLoadPage(key));
+});
+valgfxLoadPage("ingame");
+
+/* ---------- Overlay Browser Source Links (all games) ----------
+ * Purely static/local -- no WS dependency, just a copy-paste reference so
+ * OBS setup doesn't require hunting through the project folder each time.
+ * REPO_ROOT is this PC's fixed project path (see SETUP_GUIDE.md's "Moving
+ * everything to a new PC" section if that ever changes). */
+const REPO_ROOT = "C:/Users/user/MOBA-OCR-Overlay";
+const OVERLAY_LINKS = [
+  {game:"MOBA", name:"In-Game HUD", file:"overlay/overlay.html"},
+  {game:"MOBA", name:"Prematch / Draft Board", file:"overlay/prematch.html"},
+  {game:"MOBA", name:"Post Match Recap", file:"overlay/postmatch.html"},
+  {game:"MOBA", name:"MVP Stats", file:"overlay/mvp_stats.html"},
+  {game:"Free Fire", name:"Scoreboard", file:"overlay/freefire_scoreboard.html"},
+  {game:"Free Fire", name:"Booyah", file:"overlay/freefire_booyah.html"},
+  {game:"Free Fire", name:"Headshot Hunter", file:"overlay/freefire_headshot_hunter.html"},
+  {game:"Free Fire", name:"Team Eliminated", file:"overlay/freefire_team_eliminated.html"},
+  {game:"Valorant", name:"In-Game HUD", file:"overlay/valorant_ingame.html"},
+  {game:"Valorant", name:"Team Chemistry Stats (Post-Match)", file:"overlay/valorant_teamchemistry.html"},
+];
+
+function buildOverlayLinksTable(){
+  const container = document.getElementById("overlayLinksTable");
+  const table = document.createElement("table");
+  table.style.cssText = "width:100%;border-collapse:collapse;font-size:13px;";
+  table.innerHTML = `
+    <thead><tr style="text-align:left;color:#9aa4c0;">
+      <th style="padding:6px;">Game</th>
+      <th style="padding:6px;">Asset</th>
+      <th style="padding:6px;">Browser Source Link</th>
+      <th style="padding:6px;"></th>
+    </tr></thead>
+    <tbody></tbody>
+  `;
+  const tbody = table.querySelector("tbody");
+  OVERLAY_LINKS.forEach(item => {
+    const link = `file:///${REPO_ROOT}/${item.file}`;
+    const tr = document.createElement("tr");
+    tr.style.borderTop = "1px solid #332b52";
+    tr.innerHTML = `
+      <td style="padding:6px;color:#6d7899;">${item.game}</td>
+      <td style="padding:6px;font-weight:700;">${item.name}</td>
+      <td style="padding:6px;"><input type="text" readonly value="${link}" style="width:100%;font-family:monospace;font-size:11px;background:#0c0a17;color:#c8cede;border:1px solid #332b52;border-radius:4px;padding:4px 6px;" onclick="this.select();"></td>
+      <td style="padding:6px;"><button type="button" class="secondary overlay-link-copy" data-link="${link}">Copy</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+  container.innerHTML = "";
+  container.appendChild(table);
+  container.querySelectorAll(".overlay-link-copy").forEach(btn => {
+    btn.addEventListener("click", () => {
+      navigator.clipboard.writeText(btn.dataset.link).then(() => {
+        const old = btn.textContent;
+        btn.textContent = "Copied!";
+        setTimeout(() => { btn.textContent = old; }, 1200);
+      });
+    });
+  });
+}
+buildOverlayLinksTable();
 </script>
 </body>
 </html>

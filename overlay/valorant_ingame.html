@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Valorant In-Game Overlay</title>
+<style>
+  /*
+    Absolute pixel coordinates on a 1920x1080 canvas, positioned against
+    overlay/assets/valorant_ingame_blank.png (rendered from valo-overlay.psd
+    with its flat gray placeholder Background layer hidden -- the shapes
+    there have no baked-in text/logo, this page supplies all of that live).
+    Set the OBS Browser Source to 1920x1080 so this lines up exactly.
+    Default positions here are a best estimate from the reference export
+    (valo-overlay.png doesn't have real layers for name/logo/score to
+    measure against) -- nudge with the Valorant Graphic Fixing tab as
+    needed, same workflow as MOBA's overlay.
+  */
+
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Bold.ttf') format('truetype');
+    font-weight: 700; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');
+    font-weight: 800; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
+    font-weight: 900; font-style: normal;
+  }
+
+  :root{
+    --font-display: 'TT Supermolot Neue Trial', 'Arial Narrow', Arial, sans-serif;
+  }
+
+  html, body{
+    margin:0; padding:0; background:transparent; overflow:hidden;
+    width:1920px; height:1080px;
+    font-family: var(--font-display);
+  }
+
+  #stage{
+    position:relative; width:1920px; height:1080px;
+    opacity:0; transform:translateY(-16px);
+    animation: enter 0.6s ease forwards;
+  }
+  @keyframes enter{ to{ opacity:1; transform:translateY(0); } }
+
+  .bg-frame{ position:absolute; top:0; left:0; width:1920px; height:1080px; pointer-events:none; }
+
+  .team-logo{ position:absolute; object-fit:contain; display:none; }
+  #team1-logo{ left:6px; top:3px; width:50px; height:50px; }
+  #team2-logo{ left:1864px; top:3px; width:50px; height:50px; }
+
+  .team-name{
+    position:absolute; top:9px; height:38px; width:190px;
+    display:flex; align-items:center;
+    color:#ffffff; font-weight:800; font-style:italic;
+    font-size:22px; letter-spacing:0.5px; text-transform:uppercase;
+    white-space:nowrap; overflow:hidden;
+  }
+  #team1-name{ left:64px; justify-content:flex-start; }
+  #team2-name{ left:1666px; justify-content:flex-end; }
+
+  .team-score{
+    position:absolute; top:4px; width:112px; height:48px;
+    display:flex; align-items:center; justify-content:center;
+    color:#12193a; font-weight:900; font-style:italic; font-size:32px;
+  }
+  #team1-score{ left:266px; }
+  #team2-score{ left:1542px; }
+
+  #context-text{
+    position:absolute; left:827px; top:80px; width:242px; height:38px;
+    display:flex; align-items:center; justify-content:center;
+    color:#ffffff; font-weight:700; font-size:15px; letter-spacing:0.5px;
+    text-transform:uppercase; text-align:center; white-space:nowrap; overflow:hidden;
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <img class="bg-frame" src="assets/valorant_ingame_blank.png" alt="">
+
+  <img class="team-logo" id="team1-logo" alt="">
+  <div class="team-name" id="team1-name"></div>
+  <div class="team-score" id="team1-score">0</div>
+
+  <div class="team-score" id="team2-score">0</div>
+  <div class="team-name" id="team2-name"></div>
+  <img class="team-logo" id="team2-logo" alt="">
+
+  <div id="context-text"></div>
+</div>
+
+<script>
+const _params = new URLSearchParams(location.search);
+if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
+if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=valorant_ingame"
+  : "ws://localhost:8765?page=valorant_ingame";
+let ws;
+
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync") applyState(msg.data);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+
+function setLogo(id, src){
+  const el = document.getElementById(id);
+  if(src){ el.src = src; el.style.display = "block"; }
+  else { el.style.display = "none"; }
+}
+
+const GFX_ELEMENT_IDS = ["team1-logo","team1-name","team1-score","team2-logo","team2-name","team2-score","context-text"];
+
+function applyGraphicOverrides(overrides){
+  GFX_ELEMENT_IDS.forEach(id => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    const o = (overrides && overrides[id]) || {};
+    const dx = o.dx || 0, dy = o.dy || 0, scale = o.scale || 1;
+    el.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+    el.style.transformOrigin = "top left";
+  });
+}
+
+function applyState(state){
+  document.getElementById("team1-name").textContent = state.team1.name || "";
+  document.getElementById("team2-name").textContent = state.team2.name || "";
+  setLogo("team1-logo", state.team1.logo);
+  setLogo("team2-logo", state.team2.logo);
+  document.getElementById("team1-score").textContent = state.liveScore.team1;
+  document.getElementById("team2-score").textContent = state.liveScore.team2;
+
+  const ctx = state.prematch && state.prematch.context;
+  const line1 = (ctx && ctx.line1) || "";
+  const line2 = (ctx && ctx.line2) || "";
+  document.getElementById("context-text").textContent =
+    [line1, line2].filter(Boolean).join(" - ");
+
+  applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.valorant_ingame);
+}
+
+connect();
+</script>
+</body>
+</html>
