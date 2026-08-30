@@ -1,5 +1,5 @@
 """
-Interactive calibration tool for Valorant's live HUD (4 regions):
+Interactive calibration tool for Valorant's live HUD (14 regions):
 - Two round-score digit regions (either side of the round timer,
   top-center).
 - One announcement region -- the "SPIKE PLANTED" / "SPIKE DEFUSED" banner
@@ -15,6 +15,15 @@ Interactive calibration tool for Valorant's live HUD (4 regions):
   player's numbers. One full-table capture + fuzzy name-matching (same
   approach as the upload/paste path) works regardless of row order, so
   draw this one generously around the full table, not tight to any one row.
+- Ten character-select slot regions (5 defenders/left, 5 attackers/right)
+  -- UNLIKE the scoreboard above, these ARE fixed per-slot boxes on
+  purpose: the character-select screen's layout doesn't reorder by
+  performance the way the post-match scoreboard does, so a tight box per
+  slot is safe here. Draw each one tightly around just that player's agent
+  portrait art (not their name or the lock-in icon) -- this feeds a
+  color-signature best-guess match against the known agent portraits, not
+  literal OCR, so a tight, representative crop matters more than it does
+  for text regions.
 
 Have Valorant's in-game HUD on screen (a live round, or paused on a frame
 where the score is visible) when you run this. Writes into
@@ -37,10 +46,13 @@ import numpy as np
 
 CONFIG_PATH = Path(__file__).parent / "valorant_config.json"
 
+CHARSELECT_KEYS = [f"valorant_charselect_team1_{i}" for i in range(5)] + \
+                  [f"valorant_charselect_team2_{i}" for i in range(5)]
+
 REGION_ORDER = [
     "valorant_team1_score", "valorant_team2_score", "valorant_announcement",
     "valorant_postmatch_scoreboard",
-]
+] + CHARSELECT_KEYS
 
 LABELS = {
     "valorant_team1_score": "TEAM 1 (left/attacker side) - ROUND SCORE",
@@ -48,6 +60,9 @@ LABELS = {
     "valorant_announcement": "SPIKE PLANTED / SPIKE DEFUSED banner zone - draw it generously, wider/taller than the text itself",
     "valorant_postmatch_scoreboard": "POST-MATCH SCOREBOARD - draw around the WHOLE 10-row Individually Sorted table, both teams",
 }
+for i in range(5):
+    LABELS[f"valorant_charselect_team1_{i}"] = f"CHAR-SELECT - Team 1 (defenders/left) Player {i+1} - crop tight to just the agent art"
+    LABELS[f"valorant_charselect_team2_{i}"] = f"CHAR-SELECT - Team 2 (attackers/right) Player {i+1} - crop tight to just the agent art"
 
 
 def load_config():

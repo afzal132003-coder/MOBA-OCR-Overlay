@@ -485,6 +485,120 @@ def extract_postmatch_scoreboard(img_bgr, roster_names):
     return rows
 
 
+# ---------------------------------------------------------------------------
+# Character-select agent auto-detection. NOT text OCR -- a color-signature
+# best-guess match against the known agent portrait images, since agent
+# identity on that screen is conveyed by art, not text. Deliberately a
+# "suggest, then let the operator confirm/correct via Agent Pick" tool,
+# same safety net every other extraction feature in this project already
+# uses -- color-only matching is inherently less certain than reading
+# text, especially since these agent portraits are a different art style
+# (fan-art renders) than whatever the live character-select screen's own
+# icons actually look like. Treat a match as a starting point, not a
+# verdict. AGENT_FILE_MAP is the same name->filename table as the
+# dashboard/overlay JS copies -- kept in sync manually, same as those.
+# ---------------------------------------------------------------------------
+
+AGENTS_DIR = Path(__file__).parent.parent.parent / "overlay" / "assets" / "Valorant Agents"
+AGENT_FILE_MAP = {
+    "Astra": "Astra.png", "Breach": "Breach.png", "Brimstone": "Brimstone.png",
+    "Chamber": "Chamber.png", "Fade": "Fade.png", "Harbor": "Harbor.png",
+    "Jett": "Jett.png", "KAY/O": "Kayo.png", "Killjoy": "KillJoy.png",
+    "Neon": "Neon.png", "Omen": "Omen.png", "Phoenix": "Phoenix.png",
+    "Raze": "Raze.png", "Reyna": "Reyna.png", "Sage": "Sage.png",
+    "Skye": "Skye.png", "Sova": "Sova.png", "Cypher": "Sypher.png",
+    "Viper": "Viper.png", "Yoru": "Yoru.png",
+    "Iso": "Iso.webp", "Waylay": "Waylay.webp", "Gekko": "Gekko.webp", "Tejo": "Tejo.webp",
+    "Clove": "Clove.webp", "Deadlock": "Deadlock.webp", "Vyse": "Vyse.webp",
+}
+
+_agent_signatures = None  # lazily built once: {agent_name: [16 avg-BGR cells]}
+
+
+def _color_signature(img_bgr, grid=4):
+    """Average color per cell of a grid x grid split -- captures rough
+    color AND spatial layout (tells a mostly-dark agent with a bright head
+    apart from one that's bright all over), more robust than a single
+    global average color."""
+    h, w = img_bgr.shape[:2]
+    cells = []
+    for gy in range(grid):
+        for gx in range(grid):
+            y0, y1 = h * gy // grid, h * (gy + 1) // grid
+            x0, x1 = w * gx // grid, w * (gx + 1) // grid
+            cell = img_bgr[y0:y1, x0:x1]
+            cells.append((0.0, 0.0, 0.0) if cell.size == 0 else tuple(cell.reshape(-1, 3).mean(axis=0)))
+    return cells
+
+
+def _build_agent_signatures():
+    global _agent_signatures
+    if _agent_signatures is not None:
+        return _agent_signatures
+    sigs = {}
+    for name, filename in AGENT_FILE_MAP.items():
+        path = AGENTS_DIR / filename
+        if not path.exists():
+            continue
+        img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+        if img is None:
+            continue
+        if img.ndim == 3 and img.shape[2] == 4:
+            # Composite onto mid-gray so transparent margins (agent
+            # portraits carry a lot of it) don't skew the signature toward
+            # whatever the crop's own background color happens to be.
+            alpha = img[:, :, 3:4].astype(float) / 255.0
+            bgr = img[:, :, :3].astype(float)
+            gray_bg = np.full_like(bgr, 128.0)
+            img = (bgr * alpha + gray_bg * (1 - alpha)).astype(np.uint8)
+        sigs[name] = _color_signature(img)
+    _agent_signatures = sigs
+    return sigs
+
+
+def match_agent_by_color(img_bgr):
+    """Returns (agent_name, confidence 0-1) for the closest-matching known
+    agent portrait, or (None, 0.0) if no signatures could be built at all.
+    confidence is a rough 1-minus-normalized-distance readout, not a
+    calibrated probability -- good enough to flag "not sure" cases for the
+    operator, not to trust blindly."""
+    sigs = _build_agent_signatures()
+    if not sigs:
+        return None, 0.0
+    query = _color_signature(img_bgr)
+    best_name, best_dist = None, None
+    for name, sig in sigs.items():
+        dist = sum(
+            sum((a - b) ** 2 for a, b in zip(qc, sc)) ** 0.5
+            for qc, sc in zip(query, sig)
+        )
+        if best_dist is None or dist < best_dist:
+            best_name, best_dist = name, dist
+    max_dist = 441.7 * 16  # sqrt(3*255^2) per cell, times 16 cells
+    confidence = max(0.0, 1 - (best_dist / max_dist))
+    return best_name, round(confidence, 2)
+
+
+def capture_and_match_charselect(regions_cfg):
+    """One-shot live capture of all 10 calibrated character-select slots
+    (fixed positions -- unlike the post-match scoreboard, this screen
+    doesn't reorder by performance, so per-slot calibration is valid
+    here), each matched independently against the known agent portraits."""
+    results = []
+    with mss.mss() as sct:
+        for team in ("team1", "team2"):
+            for i in range(5):
+                key = f"valorant_charselect_{team}_{i}"
+                region = regions_cfg.get(key)
+                if not region or region.get("w", 0) <= 0 or region.get("h", 0) <= 0:
+                    results.append({"team": team, "playerIndex": i, "agent": None, "confidence": 0.0})
+                    continue
+                img = crop_to_bgr(sct, region)
+                agent, confidence = match_agent_by_color(img)
+                results.append({"team": team, "playerIndex": i, "agent": agent, "confidence": confidence})
+    return results
+
+
 CROP_PREVIEW_MAX_DIMENSION = 500
 
 
@@ -746,6 +860,13 @@ async def handle_client(websocket, path=None):
                         ocr_executor, extract_postmatch_scoreboard, img, build_roster_names(),
                     )
                     await websocket.send(json.dumps({"type": "postmatch_scoreboard_extracted", "rows": rows}))
+
+            elif msg_type == "capture_charselect":
+                loop = asyncio.get_running_loop()
+                results = await loop.run_in_executor(
+                    ocr_executor, capture_and_match_charselect, config.get("regions", {}),
+                )
+                await websocket.send(json.dumps({"type": "charselect_detected", "results": results}))
     finally:
         connected_clients.discard(websocket)
         connected_pages.pop(websocket, None)

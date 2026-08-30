@@ -61,12 +61,12 @@
   }
   .slot-wrap.filled{ display:block; }
   .slot-wrap img{
-    width:100%; height:100%; object-fit:cover; object-position:50% 15%;
-    transform-origin:center center; animation:slotFloat 5s ease-in-out infinite;
+    width:100%; height:100%; object-fit:cover; object-position:50% 0%;
+    transform-origin:center top; animation:slotFloat 5s ease-in-out infinite;
   }
   @keyframes slotFloat{
-    0%,100%{ transform:scale(1.16) translateY(2px) rotate(-0.5deg) skewY(-0.6deg); }
-    50%{ transform:scale(1.16) translateY(-2px) rotate(0.5deg) skewY(0.6deg); }
+    0%,100%{ transform:scale(2.5) translateY(2px) rotate(-0.5deg) skewY(-0.6deg); }
+    50%{ transform:scale(2.5) translateY(-2px) rotate(0.5deg) skewY(0.6deg); }
   }
   .slot-wrap .ember{
     position:absolute; bottom:-6px; width:4px; height:4px; border-radius:50%;

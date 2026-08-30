@@ -983,6 +983,16 @@
       <p class="hint">Assign each player's agent for this map — saves straight into the same Agent field used later
         in Post-Match's Overall Scoreboard, so picking it here means it's already filled in after the match instead
         of retyping it.</p>
+      <p class="hint">Auto-detect (best guess): reads the 10 character-select slots and matches each against the
+        known agent portraits by color/composition — NOT text OCR, so treat every suggestion as a starting point,
+        not a verdict, and check each one before saving. Low-confidence guesses (&lt;45%) are left blank rather than
+        filled with a bad guess. First time only, calibrate each of the 10 slots tightly around just the agent art
+        (not the name or lock-in icon):</p>
+      <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+        cd ocr/valorant &amp;&amp; python calibrate_valorant.py valorant_charselect_team1_0 valorant_charselect_team1_1 valorant_charselect_team1_2 valorant_charselect_team1_3 valorant_charselect_team1_4 valorant_charselect_team2_0 valorant_charselect_team2_1 valorant_charselect_team2_2 valorant_charselect_team2_3 valorant_charselect_team2_4
+      </div>
+      <button id="val_charselect_capture">Auto-Detect From Screen Now</button>
+      <div id="val_charselect_status" class="hint"></div>
       <div class="two-col">
         <div class="col">
           <h3>Team 1</h3>
@@ -4578,6 +4588,8 @@ function valConnect(){
       document.getElementById("val_import_status").textContent =
         `Matched ${rows.length} of 10 players` + (elapsed ? ` in ${elapsed}` : "") +
         ` — review/correct below, then Apply.`;
+    } else if(msg.type === "charselect_detected"){
+      handleCharselectDetected(msg.results);
     }
   };
 }
@@ -4707,6 +4719,36 @@ document.getElementById("val_agentPick_save").addEventListener("click", () => {
   valSendManualUpdate({ postMatch: pom });
   document.getElementById("val_agentPick_status").textContent = "Saved.";
 });
+
+document.getElementById("val_charselect_capture").addEventListener("click", () => {
+  const statusEl = document.getElementById("val_charselect_status");
+  if(!(valWs && valWs.readyState === WebSocket.OPEN)){
+    statusEl.textContent = "Not connected to the Valorant OCR server.";
+    return;
+  }
+  startExtractTimer("val_charselect_status", "Detecting");
+  valWs.send(JSON.stringify({type:"capture_charselect"}));
+});
+
+// Pre-fills the Agent Pick dropdowns with best-guess matches -- never
+// auto-saves on its own, so a bad guess just sits in the field like any
+// other typo would until you notice it and fix it or hit Save yourself.
+const VAL_CHARSELECT_MIN_CONFIDENCE = 0.45;
+function handleCharselectDetected(results){
+  const elapsed = stopExtractTimer("val_charselect_status");
+  let filled = 0;
+  (results || []).forEach(r => {
+    if(!r.agent || r.confidence < VAL_CHARSELECT_MIN_CONFIDENCE) return;
+    const input = document.getElementById(`val_agentPick_${r.team}_${r.playerIndex}_agent`);
+    if(!input) return;
+    input.value = r.agent;
+    valUpdateAgentPortrait(r.team, r.playerIndex, r.agent);
+    valDirtyFields.add(input.id);
+    filled++;
+  });
+  document.getElementById("val_charselect_status").textContent =
+    `Filled ${filled} of 10 (best guess — review each before saving)` + (elapsed ? ` — took ${elapsed}` : "");
+}
 
 /* ---------- Pre-Match: Map ----------
  * Same null-file graceful-degradation pattern as Agent Pick -- pick a map
