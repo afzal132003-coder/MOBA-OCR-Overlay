@@ -27,6 +27,7 @@ follow-up once that's been looked at directly.
 
 import asyncio
 import base64
+import difflib
 import json
 import re
 import time
@@ -296,6 +297,168 @@ def ocr_text(img_bgr):
     return " ".join(ocr_lines(img_bgr)).strip()
 
 
+# ---------------------------------------------------------------------------
+# Post-match scoreboard screenshot import. Unlike MOBA's Battle Report/Gold
+# screens (two fixed 5-player columns, one per team, so a match to "team1"
+# vs "team2" is just "which half of the screen"), Valorant's own post-match
+# "Individually Sorted" screen is ONE list of all 10 players mixed together
+# and sorted by ACS, with team told apart only by row background color --
+# not something worth building real color-detection CV for blind. Instead,
+# same trick as MOBA's own upload/extract fallback: fuzzy-match each OCR'd
+# name against the FULL roster (both teams combined), which tells us team
+# and roster index directly from the name match itself, regardless of where
+# on screen or in what order the row appears. The dashboard shows every
+# result for manual review/correction before anything is applied.
+# ---------------------------------------------------------------------------
+
+STAT_NUMBER_REGEX = re.compile(r"^\d{1,3}(?:,\d{3})*$|^\d+$")
+# The K/D/A column can OCR as one slash-joined token ("18/3/5") or as three
+# separate word tokens depending on how tight Tesseract's word boxes land on
+# a given screenshot -- handled as a single case here so callers don't need
+# to guess which form they'll get.
+KDA_TRIPLE_REGEX = re.compile(r"^(\d+)/(\d+)/(\d+)$")
+
+
+def decode_image_data_url(data_url):
+    header, _, b64data = data_url.partition(",")
+    raw = base64.b64decode(b64data)
+    arr = np.frombuffer(raw, dtype=np.uint8)
+    return cv2.imdecode(arr, cv2.IMREAD_COLOR)
+
+
+def normalize_name(s):
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+def fuzzy_match_name(candidate_text, roster_names):
+    """roster_names: [(team, index, name), ...]. Returns (team, index, name,
+    score) for the best match, or None if nothing clears the threshold. Same
+    matching logic as ocr_engine.py's fuzzy_match_name()."""
+    norm_candidate = normalize_name(candidate_text)
+    if len(norm_candidate) < 2:
+        return None
+    best = None
+    for team, idx, name in roster_names:
+        norm_name = normalize_name(name)
+        if not norm_name:
+            continue
+        if norm_name in norm_candidate or norm_candidate in norm_name:
+            shorter, longer = sorted([norm_name, norm_candidate], key=len)
+            score = 0.9 + 0.1 * (len(shorter) / len(longer))
+        else:
+            score = difflib.SequenceMatcher(None, norm_candidate, norm_name).ratio()
+        if best is None or score > best[3]:
+            best = (team, idx, name, score)
+    return best if best and best[3] >= 0.45 else None
+
+
+def build_roster_names():
+    names = []
+    for team in ("team1", "team2"):
+        players = server_state.get(team, {}).get("players", ["", "", "", "", ""])
+        for idx, name in enumerate(players):
+            if name:
+                names.append((team, idx, name))
+    return names
+
+
+def _words_and_lines_from_data(data):
+    """Same word/line split as ocr_engine.py's version -- word-level tokens
+    (for numbers, which render as separate tokens even on the same visual
+    row) plus Tesseract's own line-grouped text (for names, which can span
+    a couple of words)."""
+    words = []
+    lines = {}
+    n = len(data["text"])
+    for i in range(n):
+        text = data["text"][i].strip()
+        if not text:
+            continue
+        try:
+            conf = float(data["conf"][i])
+        except (ValueError, TypeError):
+            conf = -1
+        if conf < 25:
+            continue
+        x, y, w, h = data["left"][i], data["top"][i], data["width"][i], data["height"][i]
+        words.append({"text": text, "x": x, "y": y, "w": w, "h": h, "cx": x + w / 2, "cy": y + h / 2})
+        key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
+        entry = lines.setdefault(key, {"words": [], "x0": x, "y0": y, "x1": x + w, "y1": y + h})
+        entry["words"].append(text)
+        entry["x0"] = min(entry["x0"], x)
+        entry["y0"] = min(entry["y0"], y)
+        entry["x1"] = max(entry["x1"], x + w)
+        entry["y1"] = max(entry["y1"], y + h)
+    line_list = []
+    for entry in lines.values():
+        line_list.append({
+            "text": " ".join(entry["words"]),
+            "x": entry["x0"], "y": entry["y0"],
+            "w": entry["x1"] - entry["x0"], "h": entry["y1"] - entry["y0"],
+            "cx": (entry["x0"] + entry["x1"]) / 2, "cy": (entry["y0"] + entry["y1"]) / 2,
+        })
+    return words, line_list
+
+
+def extract_postmatch_scoreboard(img_bgr, roster_names):
+    """Returns one row per roster slot Tesseract's name-matching found (not
+    necessarily all 10) with a rowY for sorting top-to-bottom -- the
+    dashboard fills any gaps in manually. Column order left to right on the
+    real screen is ACS, K/D/A, ECON, First Bloods, Plants, Defuses, so among
+    the number-shaped tokens found to the right of a matched name, the first
+    plain number is ACS, a slash-triple (however it tokenized) is K/D/A, and
+    the remaining plain numbers fill Econ/First Bloods/Plants/Defuses in
+    that order."""
+    number_words, lines = _words_and_lines_from_data(_image_to_data(img_bgr))
+    img_h = img_bgr.shape[0]
+
+    best_by_slot = {}
+    for line in lines:
+        match = fuzzy_match_name(line["text"], roster_names)
+        if not match:
+            continue
+        team, idx, name, score = match
+        slot = (team, idx)
+        if slot not in best_by_slot or score > best_by_slot[slot][1]:
+            best_by_slot[slot] = (line, score, name)
+
+    rows = []
+    for (team, idx), (line, score, name) in best_by_slot.items():
+        row_cy = line["cy"]
+        row_window = max(line["h"], img_h * 0.02) * 2.2
+        same_row = [
+            w for w in number_words
+            if abs(w["cy"] - row_cy) <= row_window and w["cx"] > line["cx"]
+        ]
+        same_row.sort(key=lambda w: w["x"])
+
+        kills = deaths = assists = None
+        plain_numbers = []
+        for w in same_row:
+            triple = KDA_TRIPLE_REGEX.match(w["text"])
+            if triple:
+                kills, deaths, assists = int(triple.group(1)), int(triple.group(2)), int(triple.group(3))
+            elif STAT_NUMBER_REGEX.match(w["text"]):
+                plain_numbers.append(int(w["text"].replace(",", "")))
+
+        acs = plain_numbers[0] if len(plain_numbers) > 0 else None
+        rest = plain_numbers[1:]
+        econ = rest[0] if len(rest) > 0 else None
+        first_bloods = rest[1] if len(rest) > 1 else None
+        plants = rest[2] if len(rest) > 2 else None
+        defuses = rest[3] if len(rest) > 3 else None
+
+        rows.append({
+            "team": team, "playerIndex": idx, "rosterName": name,
+            "ocrName": line["text"], "matchScore": round(score, 2),
+            "rowY": line["cy"],
+            "acs": acs, "kills": kills, "deaths": deaths, "assists": assists,
+            "econ": econ, "firstBloods": first_bloods, "plants": plants, "defuses": defuses,
+        })
+    rows.sort(key=lambda r: r["rowY"])
+    return rows
+
+
 CROP_PREVIEW_MAX_DIMENSION = 500
 
 
@@ -502,6 +665,16 @@ async def handle_client(websocket, path=None):
                 swap_team_sides()
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
+            elif msg_type == "extract_postmatch_scoreboard":
+                data_url = payload.get("image", "")
+                if data_url:
+                    loop = asyncio.get_running_loop()
+                    img = await loop.run_in_executor(ocr_executor, decode_image_data_url, data_url)
+                    rows = await loop.run_in_executor(
+                        ocr_executor, extract_postmatch_scoreboard, img, build_roster_names(),
+                    )
+                    await websocket.send(json.dumps({"type": "postmatch_scoreboard_extracted", "rows": rows}))
     finally:
         connected_clients.discard(websocket)
         connected_pages.pop(websocket, None)

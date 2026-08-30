@@ -911,6 +911,7 @@
     <button class="val-tab-btn active" data-valtab="prematch">Pre-Match</button>
     <button class="val-tab-btn" data-valtab="liveops">Live In-Game Ops</button>
     <button class="val-tab-btn" data-valtab="postmatch">Post-Match</button>
+    <button class="val-tab-btn" data-valtab="import">Import Stats</button>
     <button class="val-tab-btn" data-valtab="graphics">Graphic Fixing</button>
   </div>
 
@@ -1103,6 +1104,28 @@
       </div>
       <button id="val_h2h_push">Push Head-to-Head to Overlay</button>
       <div id="val_h2h_status" class="hint"></div>
+    </div>
+  </div>
+
+  <!-- ===================== IMPORT STATS ===================== -->
+  <div class="val-tab-panel" id="valtab-import">
+    <div class="card">
+      <h2>Post-Match Scoreboard (OCR Import)</h2>
+      <p class="hint">Valorant's post-match "Individually Sorted" screen is ONE list mixing both teams together,
+        sorted by ACS, with team told apart only by row color — not two separate 5-player columns like MOBA's
+        screens. So this reads the whole screenshot, matches each name it finds against your full 10-player roster
+        (both teams), and lists every result below for you to check before anything is applied. If a row got
+        matched to the wrong player, fix it with that row's dropdown; if a row needs to trade places with its
+        neighbor, use the arrows — the player and all their stats move together.</p>
+      <div class="paste-zone" id="val_import_zone" tabindex="0">
+        <input type="file" id="val_import_file" accept="image/*">
+        <div class="paste-hint">Upload the post-match scoreboard screenshot, or click here and press Ctrl+V to paste one</div>
+        <div><img id="val_import_preview" style="max-width:100%;border-radius:8px;display:none;margin-top:10px;"></div>
+      </div>
+      <button id="val_import_extract" style="margin-top:10px;">Extract From Upload</button>
+      <div id="val_import_status" class="hint"></div>
+      <div id="val_import_table" style="margin-top:14px;overflow-x:auto;"></div>
+      <button class="secondary" id="val_import_apply" style="display:none;">Apply to Post Match Players</button>
     </div>
   </div>
 
@@ -4399,6 +4422,14 @@ function valConnect(){
         document.getElementById("val_announcementLastText").textContent =
           (msg.text && msg.text.trim()) ? msg.text : "(nothing read this frame)";
       }
+    } else if(msg.type === "postmatch_scoreboard_extracted"){
+      const elapsed = stopExtractTimer("val_import_status");
+      const rows = msg.rows || [];
+      valImportRows = valBuildImportRowsFromExtraction(rows);
+      valRenderImportTable();
+      document.getElementById("val_import_status").textContent =
+        `Matched ${rows.length} of 10 players` + (elapsed ? ` in ${elapsed}` : "") +
+        ` — review/correct below, then Apply.`;
     }
   };
 }
@@ -4635,6 +4666,170 @@ document.getElementById("val_pom_clear").addEventListener("click", () => {
     }
   });
   valSendManualUpdate({ postMatch: valGatherPostMatch() });
+});
+
+/* ---------- Import Stats: Post-Match Scoreboard (OCR) ----------
+ * Valorant's post-match screen is ONE list mixing both teams, sorted by
+ * ACS -- unlike MOBA's Import Stats (two fixed 5-player columns), a row
+ * here can belong to either team, so each row carries its own team+index
+ * via a combined "who" dropdown rather than being pinned to a team column.
+ * Reordering swaps a WHOLE row (identity + stats together), matching "move
+ * this player's line up/down" literally instead of MOBA's swap-values-only
+ * reorder (which only made sense there because identity was already fixed
+ * per screen half). */
+let valImportRows = [];
+
+function valImportWhoOptionsHtml(selectedTeam, selectedIdx){
+  const opts = [];
+  ["team1","team2"].forEach(team => {
+    const players = (valState && valState[team] && valState[team].players) || ["","","","",""];
+    const label = team === "team1" ? "T1" : "T2";
+    for(let i=0;i<5;i++){
+      const name = players[i] || `Player ${i+1}`;
+      const selected = (team === selectedTeam && i === selectedIdx) ? "selected" : "";
+      opts.push(`<option value="${team}|${i}" ${selected}>${label}: ${name}</option>`);
+    }
+  });
+  return opts.join("");
+}
+
+function valBuildImportRowsFromExtraction(extractedRows){
+  const matchedKeys = new Set(extractedRows.map(r => `${r.team}|${r.playerIndex}`));
+  const rows = extractedRows.map(r => ({
+    team: r.team, playerIndex: r.playerIndex,
+    acs: r.acs ?? 0, kills: r.kills ?? 0, deaths: r.deaths ?? 0, assists: r.assists ?? 0,
+    econ: r.econ ?? 0, firstBloods: r.firstBloods ?? 0, plants: r.plants ?? 0, defuses: r.defuses ?? 0,
+  }));
+  ["team1","team2"].forEach(team => {
+    for(let i=0;i<5;i++){
+      if(!matchedKeys.has(`${team}|${i}`)){
+        rows.push({team, playerIndex:i, acs:0, kills:0, deaths:0, assists:0, econ:0, firstBloods:0, plants:0, defuses:0});
+      }
+    }
+  });
+  return rows;
+}
+
+function valReadImportRowFromDom(i){
+  const row = valImportRows[i];
+  if(!row) return;
+  const whoEl = document.getElementById(`val_import_${i}_who`);
+  if(whoEl){
+    const [team, idxStr] = whoEl.value.split("|");
+    row.team = team;
+    row.playerIndex = Number(idxStr);
+  }
+  VAL_POM_FIELDS.forEach(f => {
+    const el = document.getElementById(`val_import_${i}_${f}`);
+    if(el) row[f] = Number(el.value || 0);
+  });
+}
+
+function highlightDuplicateValImportWho(){
+  const selects = Array.from(document.querySelectorAll(".val-import-who"));
+  const counts = {};
+  selects.forEach(s => { counts[s.value] = (counts[s.value] || 0) + 1; });
+  selects.forEach(s => { s.style.borderColor = counts[s.value] > 1 ? "#c0453f" : ""; });
+}
+
+function valRenderImportTable(){
+  const container = document.getElementById("val_import_table");
+  container.innerHTML = "";
+  const table = document.createElement("table");
+  table.style.cssText = "width:100%;border-collapse:collapse;font-size:13px;";
+  table.innerHTML = `
+    <thead><tr style="text-align:left;color:#9aa4c0;">
+      <th style="padding:6px;">Reorder</th>
+      <th style="padding:6px;">Player</th>
+      <th style="padding:6px;">ACS</th>
+      <th style="padding:6px;">K</th>
+      <th style="padding:6px;">D</th>
+      <th style="padding:6px;">A</th>
+      <th style="padding:6px;">Econ</th>
+      <th style="padding:6px;">FB</th>
+      <th style="padding:6px;">Plants</th>
+      <th style="padding:6px;">Defuses</th>
+    </tr></thead>
+    <tbody></tbody>
+  `;
+  const tbody = table.querySelector("tbody");
+  valImportRows.forEach((row, i) => {
+    const tr = document.createElement("tr");
+    tr.style.borderTop = "1px solid #332b52";
+    tr.innerHTML = `
+      <td style="padding:6px;">
+        <div class="reorder-btns">
+          <button type="button" class="reorder-btn val-import-reorder" data-dir="up" data-i="${i}" title="Move this player's row up" ${i===0?"disabled":""}>&#9650;</button>
+          <button type="button" class="reorder-btn val-import-reorder" data-dir="down" data-i="${i}" title="Move this player's row down" ${i===valImportRows.length-1?"disabled":""}>&#9660;</button>
+        </div>
+      </td>
+      <td style="padding:6px;"><select id="val_import_${i}_who" class="import-who-select val-import-who" style="width:170px;">${valImportWhoOptionsHtml(row.team, row.playerIndex)}</select></td>
+      <td style="padding:6px;"><input type="number" id="val_import_${i}_acs" style="width:60px;" value="${row.acs}"></td>
+      <td style="padding:6px;"><input type="number" id="val_import_${i}_kills" style="width:50px;" value="${row.kills}"></td>
+      <td style="padding:6px;"><input type="number" id="val_import_${i}_deaths" style="width:50px;" value="${row.deaths}"></td>
+      <td style="padding:6px;"><input type="number" id="val_import_${i}_assists" style="width:50px;" value="${row.assists}"></td>
+      <td style="padding:6px;"><input type="number" id="val_import_${i}_econ" style="width:60px;" value="${row.econ}"></td>
+      <td style="padding:6px;"><input type="number" id="val_import_${i}_firstBloods" style="width:50px;" value="${row.firstBloods}"></td>
+      <td style="padding:6px;"><input type="number" id="val_import_${i}_plants" style="width:50px;" value="${row.plants}"></td>
+      <td style="padding:6px;"><input type="number" id="val_import_${i}_defuses" style="width:60px;" value="${row.defuses}"></td>
+    `;
+    tbody.appendChild(tr);
+  });
+  container.appendChild(table);
+  highlightDuplicateValImportWho();
+  container.querySelectorAll(".val-import-who").forEach(sel => {
+    sel.addEventListener("change", () => highlightDuplicateValImportWho());
+  });
+  container.querySelectorAll(".val-import-reorder").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const i = Number(btn.dataset.i);
+      const j = btn.dataset.dir === "up" ? i - 1 : i + 1;
+      if(j < 0 || j >= valImportRows.length) return;
+      valReadImportRowFromDom(i);
+      valReadImportRowFromDom(j);
+      const tmp = valImportRows[i]; valImportRows[i] = valImportRows[j]; valImportRows[j] = tmp;
+      valRenderImportTable();
+    });
+  });
+  document.getElementById("val_import_apply").style.display = "inline-block";
+}
+
+wireImportUpload("val_import_file", "val_import_preview", "val_import_status");
+wirePasteZone("val_import_zone", "val_import_preview", "val_import_status");
+
+document.getElementById("val_import_extract").addEventListener("click", () => {
+  const preview = document.getElementById("val_import_preview");
+  const statusEl = document.getElementById("val_import_status");
+  if(!preview.src || !preview.src.startsWith("data:")){
+    statusEl.textContent = "Upload a screenshot first.";
+    return;
+  }
+  if(!(valWs && valWs.readyState === WebSocket.OPEN)){
+    statusEl.textContent = "Not connected to the Valorant OCR server.";
+    return;
+  }
+  startExtractTimer("val_import_status", "Extracting");
+  valWs.send(JSON.stringify({type:"extract_postmatch_scoreboard", image: preview.src}));
+});
+
+document.getElementById("val_import_apply").addEventListener("click", () => {
+  valImportRows.forEach((row, i) => valReadImportRowFromDom(i));
+  const seen = {};
+  let dupe = false;
+  valImportRows.forEach(row => {
+    const key = `${row.team}|${row.playerIndex}`;
+    if(seen[key]) dupe = true;
+    seen[key] = true;
+  });
+  if(dupe && !confirm("Two or more rows are pointing at the same player -- one will overwrite the other in Post Match. Apply anyway?")) return;
+  valImportRows.forEach(row => {
+    VAL_POM_FIELDS.forEach(f => {
+      const target = document.getElementById(`val_pom_${row.team}_${row.playerIndex}_${f}`);
+      if(target) target.value = row[f];
+    });
+  });
+  document.getElementById("val_import_status").textContent =
+    "Applied — go to the Post-Match tab and click 'Push Post Match' to send it live.";
 });
 
 /* ---------- Post-Match: MVP ---------- */
