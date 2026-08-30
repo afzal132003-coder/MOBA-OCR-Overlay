@@ -900,10 +900,211 @@
 </div>
 
 <div class="category-panel" id="category-valorant">
-  <div class="coming-soon">
-    <h2>Valorant</h2>
-    <p class="hint">Tools for this game are coming soon.</p>
+
+  <div class="hint" style="margin-bottom:10px;">
+    Connects separately from the MOBA connection above, to <code>valorant_engine.py</code> (a different process
+    from <code>ocr_engine.py</code>/<code>freefire_engine.py</code>) — start that instead on a Valorant day.
+    Status: <span id="valStatus" class="disconnected" style="font-weight:800;">DISCONNECTED</span>
   </div>
+
+  <div class="ff-tabbar" style="display:flex;gap:8px;">
+    <button class="val-tab-btn active" data-valtab="prematch">Pre-Match</button>
+    <button class="val-tab-btn" data-valtab="liveops">Live In-Game Ops</button>
+    <button class="val-tab-btn" data-valtab="postmatch">Post-Match</button>
+  </div>
+
+  <!-- ===================== PRE-MATCH ===================== -->
+  <div class="val-tab-panel active" id="valtab-prematch">
+
+    <div class="card">
+      <h2>Team Setup</h2>
+      <p class="hint">IGN + team logo, same as MOBA. Each player also gets a photo (used on the MVP and Head-to-Head
+        graphics later) — a real headshot, not a character/agent render, since Valorant doesn't have fixed hero art
+        the way a MOBA pick does.</p>
+      <div class="two-col">
+        <div class="col">
+          <h3>Team 1</h3>
+          <label>Team Name</label>
+          <input type="text" id="val_team1Name" placeholder="TEAM 1">
+          <label>Team Logo</label>
+          <input type="file" id="val_team1Logo" accept="image/*">
+          <img class="logo-preview" id="val_team1LogoPreview">
+          <div id="val_team1PlayerInputs" style="margin-top:10px;"></div>
+        </div>
+        <div class="col">
+          <h3>Team 2</h3>
+          <label>Team Name</label>
+          <input type="text" id="val_team2Name" placeholder="TEAM 2">
+          <label>Team Logo</label>
+          <input type="file" id="val_team2Logo" accept="image/*">
+          <img class="logo-preview" id="val_team2LogoPreview">
+          <div id="val_team2PlayerInputs" style="margin-top:10px;"></div>
+        </div>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button id="val_saveTeamInfo">Save Team Info</button>
+        <button id="val_clearTeamInfo" class="secondary">Clear</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Team Sides</h2>
+      <p class="hint">If the teams switch which side of the screen they're on, hit this once — it swaps EVERYTHING
+        tagged Team 1 vs Team 2 in one go: names, logos, players, photos, live round score, attacking side, and
+        post match data. Overlay graphics all update automatically, no other changes needed.</p>
+      <button class="danger" id="val_swapSides">Swap Team 1 &lt;-&gt; Team 2</button>
+    </div>
+
+    <div class="card">
+      <h2>Match Context &amp; Series Score</h2>
+      <div class="row">
+        <div class="team-form">
+          <label>Context Line 1 (e.g. tournament name)</label>
+          <input type="text" id="val_line1">
+          <label>Context Line 2 (e.g. round/stage)</label>
+          <input type="text" id="val_line2">
+        </div>
+        <div class="team-form">
+          <label>Team 1 Series Score</label>
+          <input type="number" id="val_series_t1" value="0">
+          <label>Team 2 Series Score</label>
+          <input type="number" id="val_series_t2" value="0">
+        </div>
+      </div>
+      <button id="val_saveContext">Save</button>
+    </div>
+  </div>
+
+  <!-- ===================== LIVE IN-GAME OPS ===================== -->
+  <div class="val-tab-panel" id="valtab-liveops">
+
+    <div class="card">
+      <h2>Round Score</h2>
+      <p class="hint">The two small numbers either side of the round timer, top-center. First time only, calibrate:</p>
+      <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+        cd ocr &amp;&amp; python calibrate_valorant.py valorant_team1_score valorant_team2_score
+      </div>
+      <div class="stat-grid" id="val_scoreGrid"></div>
+    </div>
+
+    <div class="card">
+      <h2>Attacking Side</h2>
+      <p class="hint">The spike can only be planted by attackers and defused by defenders, and those sides swap at
+        halftime — flip this once each half so the Plant/Defuse popup below attributes the right team automatically
+        (it doesn't try to detect this itself).</p>
+      <div class="row">
+        <label style="display:flex;align-items:center;gap:8px;margin:0;">
+          <input type="radio" name="val_attackingTeam" id="val_attacking_t1" value="team1" checked> Team 1 is attacking
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;margin:0;">
+          <input type="radio" name="val_attackingTeam" id="val_attacking_t2" value="team2"> Team 2 is attacking
+        </label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Plant / Defuse Popup</h2>
+      <p class="hint">Auto-detects the "SPIKE PLANTED" / "SPIKE DEFUSED" on-screen banner (top-center, below the
+        round score) — team is derived from Attacking Side above, not read off the banner. First time only, calibrate
+        generously (wider/taller than the banner, it can shift slightly):</p>
+      <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+        cd ocr &amp;&amp; python calibrate_valorant.py valorant_announcement
+      </div>
+      <div class="row">
+        <div class="crop-box" style="max-width:220px;">
+          <img id="crop-valorant_announcement">
+          <div class="label">announcement banner</div>
+        </div>
+        <div class="team-form">
+          <label>Last OCR reading</label>
+          <div id="val_announcementLastText" style="font-size:12px;color:#9aa4c0;min-height:18px;">&mdash;</div>
+          <label style="margin-top:10px;">Current popup status</label>
+          <div id="val_plantDefuseStatus" style="font-size:12px;color:#9aa4c0;">idle</div>
+        </div>
+      </div>
+      <p class="hint">Manual override (in case OCR misses it, or you want it off-schedule):</p>
+      <div class="row">
+        <button id="val_manualPlant">Show Plant Popup</button>
+        <button id="val_manualDefuse">Show Defuse Popup</button>
+        <button class="secondary" id="val_manualHide">Hide Popup</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== POST-MATCH ===================== -->
+  <div class="val-tab-panel" id="valtab-postmatch">
+
+    <div class="card">
+      <h2>Match Info &amp; Result</h2>
+      <div class="row">
+        <div class="team-form">
+          <label>Duration</label>
+          <input type="text" id="val_pom_duration" placeholder="24:09">
+          <label>Date</label>
+          <input type="text" id="val_pom_date" placeholder="AUG 18, 2026">
+        </div>
+        <div class="team-form">
+          <label>Team 1 Result</label>
+          <select id="val_pom_t1_result"><option value="victory">Victory</option><option value="defeat">Defeat</option></select>
+          <label>Team 2 Result</label>
+          <select id="val_pom_t2_result"><option value="victory">Victory</option><option value="defeat">Defeat</option></select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Overall Scoreboard</h2>
+      <p class="hint">Matches the in-game "Individually Sorted" results screen (ACS, K/D/A, ECON, First Bloods,
+        Plants, Defuses) — that screen mixes both teams together sorted by performance, with team told apart only by
+        row color, so enter each player under their actual roster team here rather than screen order. Automated
+        capture for this is a planned follow-up once tested against a real live screen.</p>
+      <div class="two-col">
+        <div class="col">
+          <h3>Team 1</h3>
+          <div id="val_pom_players_team1"></div>
+        </div>
+        <div class="col">
+          <h3>Team 2</h3>
+          <div id="val_pom_players_team2"></div>
+        </div>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button id="val_pom_push">Push Post Match</button>
+        <button id="val_pom_clear" class="secondary">Clear</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Push MVP</h2>
+      <p class="hint">Kills/Deaths/Assists/First Bloods come straight from that player's row in the Overall Scoreboard above.</p>
+      <div class="row">
+        <div class="team-form">
+          <label>Player</label>
+          <select id="val_mvp_player"></select>
+        </div>
+      </div>
+      <button id="val_mvp_push">Push MVP to Overlay</button>
+      <div id="val_mvp_status" class="hint"></div>
+    </div>
+
+    <div class="card">
+      <h2>Push Head-to-Head</h2>
+      <p class="hint">One player per side, compared against each other — independent of the MVP selection above.</p>
+      <div class="two-col">
+        <div class="col">
+          <h3>Team 1</h3>
+          <select id="val_h2h_team1_player"></select>
+        </div>
+        <div class="col">
+          <h3>Team 2</h3>
+          <select id="val_h2h_team2_player"></select>
+        </div>
+      </div>
+      <button id="val_h2h_push">Push Head-to-Head to Overlay</button>
+      <div id="val_h2h_status" class="hint"></div>
+    </div>
+  </div>
+
 </div>
 
 <div class="category-panel" id="category-cs2">
@@ -1303,6 +1504,13 @@ const WS_URL = _relay
 const FF_WS_URL = _relay
   ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_dashboard"
   : "ws://localhost:8765?page=freefire_dashboard";
+// Valorant tab's own connection -- same reasoning as FF_WS_URL above,
+// talks to whichever engine is actually listening (valorant_engine.py on
+// a Valorant day), namespaced state kept completely separate from both
+// the MOBA and Free Fire globals.
+const VAL_WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=valorant_dashboard"
+  : "ws://localhost:8765?page=valorant_dashboard";
 
 function changeConnection(){
   const currentRelay = localStorage.getItem("moba_relay") || "";
@@ -1398,6 +1606,17 @@ document.querySelectorAll(".ff-tab-btn").forEach(btn => {
     document.querySelectorAll(".ff-tab-panel").forEach(p => p.classList.remove("active"));
     btn.classList.add("active");
     document.getElementById("fftab-" + btn.dataset.fftab).classList.add("active");
+  });
+});
+
+/* ---------- Valorant sub-tabs (same isolated-class-names reasoning as
+   the FreeFire ones above) ---------- */
+document.querySelectorAll(".val-tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".val-tab-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".val-tab-panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("valtab-" + btn.dataset.valtab).classList.add("active");
   });
 });
 
@@ -4114,8 +4333,400 @@ buildDraftSlots("pm_picks_team1", "team1", "picks");
 buildDraftSlots("pm_picks_team2", "team2", "picks");
 buildPlayerRows("pom_players_team1", "team1");
 buildPlayerRows("pom_players_team2", "team2");
+
+/* ========================= VALORANT ========================= *
+ * Own WebSocket (VAL_WS_URL above), own state (valState -- a totally
+ * different shape from both currentState and ffState), everything
+ * namespaced "val"/"Val" so nothing here can collide with the MOBA or
+ * Free Fire globals/functions. See ocr/valorant_engine.py for the state
+ * shape this mirrors. */
+let valWs;
+let valState = null;
+let valLockedFields = new Set();
+
+function valSendManualUpdate(data, lock, unlock){
+  if(valWs && valWs.readyState === WebSocket.OPEN){
+    valWs.send(JSON.stringify({type:"manual_update", data, lock: lock||[], unlock: unlock||[]}));
+  }
+}
+
+function valConnect(){
+  valWs = new WebSocket(VAL_WS_URL);
+  valWs.onopen = () => {
+    document.getElementById("valStatus").textContent = "CONNECTED";
+    document.getElementById("valStatus").className = "connected";
+  };
+  valWs.onclose = () => {
+    document.getElementById("valStatus").textContent = "DISCONNECTED";
+    document.getElementById("valStatus").className = "disconnected";
+    setTimeout(valConnect, 2000);
+  };
+  valWs.onerror = () => valWs.close();
+  valWs.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync"){
+      valState = msg.data;
+      valLockedFields = new Set(msg.locked || []);
+      // Runs every tick, not just once -- otherwise Swap Sides (or any
+      // other server-side change to team1/team2 identity) wouldn't
+      // visibly update these fields until a page refresh. Each input
+      // field is individually guarded against the currently-focused
+      // element so a live broadcast tick can't fight an operator's
+      // in-progress typing, same pattern MOBA's own team1Name/etc. use.
+      valApplyState(valState);
+      valRenderScoreGrid(valState);
+      valRenderPlantDefuseStatus(valState);
+      valBuildMvpDropdown(valState);
+      valBuildH2HDropdowns(valState);
+    } else if(msg.type === "crop_preview"){
+      const img = document.getElementById(`crop-${msg.region}`);
+      if(img) img.src = msg.image;
+      if(msg.region === "valorant_announcement"){
+        document.getElementById("val_announcementLastText").textContent =
+          (msg.text && msg.text.trim()) ? msg.text : "(nothing read this frame)";
+      }
+    }
+  };
+}
+
+/* ---------- Pre-Match: Team Setup ---------- */
+function valBuildPlayerInputs(containerId, team){
+  const container = document.getElementById(containerId);
+  container.innerHTML = "";
+  for(let i=0;i<5;i++){
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:8px;align-items:center;margin-bottom:6px;";
+    row.innerHTML = `
+      <input type="text" id="val_${team}Player${i}" placeholder="Player ${i+1} name" style="flex:1;">
+      <input type="file" id="val_${team}Photo${i}" accept="image/*" style="width:120px;font-size:11px;">
+      <img id="val_${team}PhotoPreview${i}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;background:#0c0a17;display:none;">
+    `;
+    container.appendChild(row);
+  }
+  for(let i=0;i<5;i++){
+    document.getElementById(`val_${team}Photo${i}`).addEventListener("change", async (e) => {
+      if(e.target.files[0]){
+        const dataUrl = await readFileAsDataURL(e.target.files[0]);
+        const preview = document.getElementById(`val_${team}PhotoPreview${i}`);
+        preview.src = dataUrl;
+        preview.style.display = "block";
+      }
+    });
+  }
+}
+
+document.getElementById("val_team1Logo").addEventListener("change", async (e) => {
+  if(e.target.files[0]) document.getElementById("val_team1LogoPreview").src = await readFileAsDataURL(e.target.files[0]);
+});
+document.getElementById("val_team2Logo").addEventListener("change", async (e) => {
+  if(e.target.files[0]) document.getElementById("val_team2LogoPreview").src = await readFileAsDataURL(e.target.files[0]);
+});
+
+document.getElementById("val_saveTeamInfo").addEventListener("click", () => {
+  const data = {
+    team1: { name: document.getElementById("val_team1Name").value, players: [], photos: [] },
+    team2: { name: document.getElementById("val_team2Name").value, players: [], photos: [] },
+  };
+  const logo1 = document.getElementById("val_team1LogoPreview").src;
+  const logo2 = document.getElementById("val_team2LogoPreview").src;
+  if(logo1 && logo1.startsWith("data:")) data.team1.logo = logo1;
+  if(logo2 && logo2.startsWith("data:")) data.team2.logo = logo2;
+  ["team1","team2"].forEach(team => {
+    for(let i=0;i<5;i++){
+      data[team].players.push(document.getElementById(`val_${team}Player${i}`).value);
+      const photoPreview = document.getElementById(`val_${team}PhotoPreview${i}`);
+      const existing = (valState && valState[team].photos && valState[team].photos[i]) || "";
+      data[team].photos.push(photoPreview.src.startsWith("data:") ? photoPreview.src : existing);
+    }
+  });
+  valSendManualUpdate(data);
+});
+
+document.getElementById("val_clearTeamInfo").addEventListener("click", () => {
+  if(!confirm("Clear Valorant Team Setup (names, logos, players, photos) for both teams? This pushes the cleared state live immediately.")) return;
+  document.getElementById("val_team1Name").value = "";
+  document.getElementById("val_team2Name").value = "";
+  document.getElementById("val_team1LogoPreview").src = "";
+  document.getElementById("val_team2LogoPreview").src = "";
+  document.getElementById("val_team1Logo").value = "";
+  document.getElementById("val_team2Logo").value = "";
+  ["team1","team2"].forEach(team => {
+    for(let i=0;i<5;i++){
+      document.getElementById(`val_${team}Player${i}`).value = "";
+      const preview = document.getElementById(`val_${team}PhotoPreview${i}`);
+      preview.src = ""; preview.style.display = "none";
+      document.getElementById(`val_${team}Photo${i}`).value = "";
+    }
+  });
+  valSendManualUpdate({
+    team1: { name:"", logo:"", players:["","","","",""], photos:["","","","",""] },
+    team2: { name:"", logo:"", players:["","","","",""], photos:["","","","",""] },
+  });
+});
+
+document.getElementById("val_swapSides").addEventListener("click", () => {
+  if(!confirm("Swap Team 1 and Team 2? This interchanges names, logos, players, photos, live round score, attacking side, and post match data between the two sides.")) return;
+  if(valWs && valWs.readyState === WebSocket.OPEN){
+    valWs.send(JSON.stringify({type:"swap_sides"}));
+  }
+});
+
+/* ---------- Pre-Match: Context & Series ---------- */
+document.getElementById("val_saveContext").addEventListener("click", () => {
+  valSendManualUpdate({
+    prematch: { context: { line1: document.getElementById("val_line1").value, line2: document.getElementById("val_line2").value } },
+    seriesScore: { team1: Number(document.getElementById("val_series_t1").value)||0, team2: Number(document.getElementById("val_series_t2").value)||0 },
+  });
+});
+
+/* ---------- Live Ops: Round Score ---------- */
+const VAL_SCORE_FIELDS = [
+  { key: "t1", team: "team1", label: "Team 1 Round Score", cropKey: "valorant_team1_score" },
+  { key: "t2", team: "team2", label: "Team 2 Round Score", cropKey: "valorant_team2_score" },
+];
+function valBuildScoreGrid(){
+  const grid = document.getElementById("val_scoreGrid");
+  grid.innerHTML = "";
+  VAL_SCORE_FIELDS.forEach(f => {
+    const card = document.createElement("div");
+    card.className = "stat-card";
+    card.innerHTML = `
+      <div class="stat-main">
+        <div class="label">${f.label}</div>
+        <div class="live-value" id="val-live-${f.key}">0</div>
+        <div class="override-row">
+          <label style="margin:0;display:inline-block;"><input type="checkbox" id="val-lock-${f.key}"> Override</label>
+        </div>
+        <div class="override-row">
+          <input type="number" id="val-input-${f.key}" disabled>
+          <button data-key="${f.key}" class="val-apply-btn">Apply</button>
+        </div>
+      </div>
+      <div class="stat-crop">
+        <img id="crop-${f.cropKey}">
+        <div class="crop-caption">live OCR</div>
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+  grid.querySelectorAll(".val-apply-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const f = VAL_SCORE_FIELDS.find(x => x.key === btn.dataset.key);
+      const val = Number(document.getElementById(`val-input-${f.key}`).value || 0);
+      valSendManualUpdate({ liveScore: { [f.team]: val } }, [`liveScore.${f.team}`], []);
+    });
+  });
+  VAL_SCORE_FIELDS.forEach(f => {
+    document.getElementById(`val-lock-${f.key}`).addEventListener("change", (e) => {
+      document.getElementById(`val-input-${f.key}`).disabled = !e.target.checked;
+      if(!e.target.checked) valSendManualUpdate({}, [], [`liveScore.${f.team}`]);
+    });
+  });
+}
+function valRenderScoreGrid(state){
+  VAL_SCORE_FIELDS.forEach(f => {
+    const value = state.liveScore[f.team];
+    const liveEl = document.getElementById(`val-live-${f.key}`);
+    if(liveEl) liveEl.textContent = value;
+    const isLocked = valLockedFields.has(`liveScore.${f.team}`);
+    document.getElementById(`val-lock-${f.key}`).checked = isLocked;
+    const input = document.getElementById(`val-input-${f.key}`);
+    input.disabled = !isLocked;
+    if(document.activeElement !== input) input.value = value;
+  });
+}
+
+/* ---------- Live Ops: Attacking Side ---------- */
+document.querySelectorAll('input[name="val_attackingTeam"]').forEach(radio => {
+  radio.addEventListener("change", () => {
+    if(radio.checked) valSendManualUpdate({ attackingTeam: radio.value });
+  });
+});
+
+/* ---------- Live Ops: Plant/Defuse ---------- */
+function valRenderPlantDefuseStatus(state){
+  const pd = state.plantDefuse;
+  const teamLabel = pd.team === "team1" ? (state.team1.name || "Team 1") : pd.team === "team2" ? (state.team2.name || "Team 2") : "";
+  document.getElementById("val_plantDefuseStatus").textContent =
+    pd.status === "shown" ? `SHOWN — ${pd.type} (${teamLabel})` : "idle";
+}
+document.getElementById("val_manualPlant").addEventListener("click", () => {
+  if(!(valWs && valWs.readyState === WebSocket.OPEN)) return;
+  const attacking = document.getElementById("val_attacking_t1").checked ? "team1" : "team2";
+  valWs.send(JSON.stringify({type:"plant_defuse_show", eventType:"plant", team: attacking}));
+});
+document.getElementById("val_manualDefuse").addEventListener("click", () => {
+  if(!(valWs && valWs.readyState === WebSocket.OPEN)) return;
+  const defending = document.getElementById("val_attacking_t1").checked ? "team2" : "team1";
+  valWs.send(JSON.stringify({type:"plant_defuse_show", eventType:"defuse", team: defending}));
+});
+document.getElementById("val_manualHide").addEventListener("click", () => {
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"plant_defuse_hide"}));
+});
+
+/* ---------- Post-Match: Overall Scoreboard ---------- */
+const VAL_POM_FIELDS = ["acs","kills","deaths","assists","econ","firstBloods","plants","defuses"];
+function valBuildPostMatchRows(containerId, team){
+  const container = document.getElementById(containerId);
+  container.innerHTML = "";
+  for(let i=0;i<5;i++){
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #241d3d;";
+    row.innerHTML = `
+      <div style="min-width:100px;">
+        <label>Player ${i+1}</label>
+        <div id="val_pom_${team}_${i}_nameLabel" style="font-weight:700;color:#9aa4c0;">&mdash;</div>
+      </div>
+      <div style="width:84px;"><label>Agent</label><input type="text" id="val_pom_${team}_${i}_agent"></div>
+      <div style="width:52px;"><label>ACS</label><input type="number" id="val_pom_${team}_${i}_acs" value="0"></div>
+      <div style="width:36px;"><label>K</label><input type="number" id="val_pom_${team}_${i}_kills" value="0"></div>
+      <div style="width:36px;"><label>D</label><input type="number" id="val_pom_${team}_${i}_deaths" value="0"></div>
+      <div style="width:36px;"><label>A</label><input type="number" id="val_pom_${team}_${i}_assists" value="0"></div>
+      <div style="width:56px;"><label>Econ</label><input type="number" id="val_pom_${team}_${i}_econ" value="0"></div>
+      <div style="width:36px;"><label>FB</label><input type="number" id="val_pom_${team}_${i}_firstBloods" value="0"></div>
+      <div style="width:48px;"><label>Plants</label><input type="number" id="val_pom_${team}_${i}_plants" value="0"></div>
+      <div style="width:48px;"><label>Defuses</label><input type="number" id="val_pom_${team}_${i}_defuses" value="0"></div>
+    `;
+    container.appendChild(row);
+  }
+}
+function valGatherPostMatch(){
+  const players = {team1:[], team2:[]};
+  ["team1","team2"].forEach(team => {
+    for(let i=0;i<5;i++){
+      const row = { agent: document.getElementById(`val_pom_${team}_${i}_agent`).value };
+      VAL_POM_FIELDS.forEach(f => { row[f] = Number(document.getElementById(`val_pom_${team}_${i}_${f}`).value || 0); });
+      players[team].push(row);
+    }
+  });
+  return {
+    duration: document.getElementById("val_pom_duration").value,
+    date: document.getElementById("val_pom_date").value,
+    result: {
+      team1: document.getElementById("val_pom_t1_result").value,
+      team2: document.getElementById("val_pom_t2_result").value,
+    },
+    players,
+  };
+}
+document.getElementById("val_pom_push").addEventListener("click", () => {
+  valSendManualUpdate({ postMatch: valGatherPostMatch() });
+});
+document.getElementById("val_pom_clear").addEventListener("click", () => {
+  if(!confirm("Clear the Overall Scoreboard for both teams? This pushes the cleared state live immediately.")) return;
+  ["team1","team2"].forEach(team => {
+    for(let i=0;i<5;i++){
+      document.getElementById(`val_pom_${team}_${i}_agent`).value = "";
+      VAL_POM_FIELDS.forEach(f => { document.getElementById(`val_pom_${team}_${i}_${f}`).value = 0; });
+    }
+  });
+  valSendManualUpdate({ postMatch: valGatherPostMatch() });
+});
+
+/* ---------- Post-Match: MVP ---------- */
+function valBuildMvpDropdown(state){
+  const select = document.getElementById("val_mvp_player");
+  const prevValue = select.value;
+  select.innerHTML = "";
+  ["team1","team2"].forEach(team => {
+    const teamLabel = state[team].name || (team === "team1" ? "Team 1" : "Team 2");
+    (state[team].players || []).forEach((name, i) => {
+      const opt = document.createElement("option");
+      opt.value = `${team}|${i}`;
+      opt.textContent = `${teamLabel} — ${name || `Player ${i + 1}`}`;
+      select.appendChild(opt);
+    });
+  });
+  if(prevValue && Array.from(select.options).some(o => o.value === prevValue)) select.value = prevValue;
+}
+document.getElementById("val_mvp_push").addEventListener("click", () => {
+  const [team, idxStr] = document.getElementById("val_mvp_player").value.split("|");
+  valSendManualUpdate({ mvp: { team, playerIndex: Number(idxStr) } });
+  document.getElementById("val_mvp_status").textContent = "Pushed.";
+});
+
+/* ---------- Post-Match: Head-to-Head ---------- */
+function valBuildH2HDropdowns(state){
+  ["team1","team2"].forEach(team => {
+    const select = document.getElementById(`val_h2h_${team}_player`);
+    const prevValue = select.value;
+    select.innerHTML = "";
+    (state[team].players || []).forEach((name, i) => {
+      const opt = document.createElement("option");
+      opt.value = i;
+      opt.textContent = name || `Player ${i + 1}`;
+      select.appendChild(opt);
+    });
+    if(prevValue !== "" && Array.from(select.options).some(o => o.value === prevValue)) select.value = prevValue;
+  });
+}
+document.getElementById("val_h2h_push").addEventListener("click", () => {
+  valSendManualUpdate({
+    headToHead: {
+      team1: { playerIndex: Number(document.getElementById("val_h2h_team1_player").value) },
+      team2: { playerIndex: Number(document.getElementById("val_h2h_team2_player").value) },
+    },
+  });
+  document.getElementById("val_h2h_status").textContent = "Pushed.";
+});
+
+// Runs on EVERY state_sync, not just once -- so Swap Sides (or any other
+// server-side change to team1/team2 identity) shows up immediately
+// instead of needing a page refresh. Each editable input is individually
+// guarded against document.activeElement so a broadcast tick can't
+// overwrite what the operator is actively typing right now -- same
+// pattern MOBA's own team1Name/etc. fields already use.
+function valApplyState(state){
+  const active = document.activeElement && document.activeElement.id;
+  if(active !== "val_team1Name") document.getElementById("val_team1Name").value = state.team1.name || "";
+  if(active !== "val_team2Name") document.getElementById("val_team2Name").value = state.team2.name || "";
+  if(state.team1.logo) document.getElementById("val_team1LogoPreview").src = state.team1.logo;
+  if(state.team2.logo) document.getElementById("val_team2LogoPreview").src = state.team2.logo;
+  ["team1","team2"].forEach(team => {
+    (state[team].players || []).forEach((name, i) => {
+      const id = `val_${team}Player${i}`;
+      const input = document.getElementById(id);
+      if(input && active !== id) input.value = name || "";
+    });
+    (state[team].photos || []).forEach((photo, i) => {
+      const preview = document.getElementById(`val_${team}PhotoPreview${i}`);
+      if(preview && photo){ preview.src = photo; preview.style.display = "block"; }
+    });
+  });
+  if(active !== "val_line1") document.getElementById("val_line1").value = state.prematch.context.line1 || "";
+  if(active !== "val_line2") document.getElementById("val_line2").value = state.prematch.context.line2 || "";
+  if(active !== "val_series_t1") document.getElementById("val_series_t1").value = state.seriesScore.team1 || 0;
+  if(active !== "val_series_t2") document.getElementById("val_series_t2").value = state.seriesScore.team2 || 0;
+  document.getElementById(state.attackingTeam === "team2" ? "val_attacking_t2" : "val_attacking_t1").checked = true;
+  if(active !== "val_pom_duration") document.getElementById("val_pom_duration").value = state.postMatch.duration || "";
+  if(active !== "val_pom_date") document.getElementById("val_pom_date").value = state.postMatch.date || "";
+  document.getElementById("val_pom_t1_result").value = (state.postMatch.result && state.postMatch.result.team1) || "victory";
+  document.getElementById("val_pom_t2_result").value = (state.postMatch.result && state.postMatch.result.team2) || "defeat";
+  ["team1","team2"].forEach(team => {
+    (state.postMatch.players[team] || []).forEach((p, i) => {
+      const nameLabel = document.getElementById(`val_pom_${team}_${i}_nameLabel`);
+      if(nameLabel) nameLabel.textContent = state[team].players[i] || `Player ${i + 1}`;
+      const agentId = `val_pom_${team}_${i}_agent`;
+      const agentInput = document.getElementById(agentId);
+      if(agentInput && active !== agentId) agentInput.value = p.agent || "";
+      VAL_POM_FIELDS.forEach(f => {
+        const id = `val_pom_${team}_${i}_${f}`;
+        const el = document.getElementById(id);
+        if(el && active !== id) el.value = p[f] || 0;
+      });
+    });
+  });
+}
+
+valBuildPlayerInputs("val_team1PlayerInputs", "team1");
+valBuildPlayerInputs("val_team2PlayerInputs", "team2");
+valBuildScoreGrid();
+valBuildPostMatchRows("val_pom_players_team1", "team1");
+valBuildPostMatchRows("val_pom_players_team2", "team2");
+
 connect();
 ffConnect();
+valConnect();
 </script>
 </body>
 </html>
