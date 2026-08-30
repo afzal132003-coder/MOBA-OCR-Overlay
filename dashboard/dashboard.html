@@ -4480,6 +4480,7 @@ function valBuildPlayerInputs(containerId, team){
         preview.style.display = "block";
       }
     });
+    document.getElementById(`val_${team}Player${i}`).addEventListener("input", (e) => valDirtyFields.add(e.target.id));
   }
   wireValPlayerPasteFill(team);
 }
@@ -4574,6 +4575,7 @@ function valCheckSaveTeamInfoConfirmed(state){
   if(!matches) return;
   clearTimeout(valSaveTeamInfoPending.timeoutHandle);
   valSaveTeamInfoPending = null;
+  valDirtyFields.clear();
   const statusEl = document.getElementById("val_saveTeamInfo_status");
   statusEl.style.color = "#7fd88f";
   statusEl.textContent = "Saved — confirmed live on the server.";
@@ -4599,6 +4601,7 @@ document.getElementById("val_clearTeamInfo").addEventListener("click", () => {
     team1: { name:"", logo:"", players:["","","","",""], photos:["","","","",""] },
     team2: { name:"", logo:"", players:["","","","",""], photos:["","","","",""] },
   });
+  valDirtyFields.clear();
 });
 
 document.getElementById("val_swapSides").addEventListener("click", () => {
@@ -4977,17 +4980,31 @@ document.getElementById("val_h2h_push").addEventListener("click", () => {
 // guarded against document.activeElement so a broadcast tick can't
 // overwrite what the operator is actively typing right now -- same
 // pattern MOBA's own team1Name/etc. fields already use.
+// Field ids the operator has typed into since the last confirmed save --
+// protected from being overwritten by an incoming state_sync even while
+// NOT focused. The focus-only guard below was enough for a stable
+// connection, but a flaky relay reconnecting mid-edit fires a fresh
+// state_sync that would otherwise silently blank out every field except
+// whichever single one currently has focus -- e.g. typing all 5 player
+// names in turn leaves the first 4 unfocused and vulnerable the instant a
+// reconnect lands. Cleared once valCheckSaveTeamInfoConfirmed confirms the
+// server actually has what was typed, or when Clear explicitly overwrites.
+let valDirtyFields = new Set();
+document.getElementById("val_team1Name").addEventListener("input", (e) => valDirtyFields.add(e.target.id));
+document.getElementById("val_team2Name").addEventListener("input", (e) => valDirtyFields.add(e.target.id));
+
 function valApplyState(state){
   const active = document.activeElement && document.activeElement.id;
-  if(active !== "val_team1Name") document.getElementById("val_team1Name").value = state.team1.name || "";
-  if(active !== "val_team2Name") document.getElementById("val_team2Name").value = state.team2.name || "";
+  const isFree = (id) => active !== id && !valDirtyFields.has(id);
+  if(isFree("val_team1Name")) document.getElementById("val_team1Name").value = state.team1.name || "";
+  if(isFree("val_team2Name")) document.getElementById("val_team2Name").value = state.team2.name || "";
   if(state.team1.logo) document.getElementById("val_team1LogoPreview").src = state.team1.logo;
   if(state.team2.logo) document.getElementById("val_team2LogoPreview").src = state.team2.logo;
   ["team1","team2"].forEach(team => {
     (state[team].players || []).forEach((name, i) => {
       const id = `val_${team}Player${i}`;
       const input = document.getElementById(id);
-      if(input && active !== id) input.value = name || "";
+      if(input && isFree(id)) input.value = name || "";
     });
     (state[team].photos || []).forEach((photo, i) => {
       const preview = document.getElementById(`val_${team}PhotoPreview${i}`);
