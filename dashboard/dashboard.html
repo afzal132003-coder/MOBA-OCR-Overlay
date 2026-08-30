@@ -314,9 +314,9 @@
 
 <details class="card" id="overlayLinksCard" style="margin-bottom:20px;">
   <summary style="cursor:pointer;font-weight:800;color:#8b5cf6;font-size:14px;">Overlay Browser Source Links (all games)</summary>
-  <p class="hint">Paste one of these straight into an OBS Browser Source's URL field — no need to check "Local file"
-    or browse manually, each already points at the real .html file on this PC. Only valid on this machine; if the
-    project folder ever moves, update REPO_ROOT near the bottom of dashboard.html.</p>
+  <p class="hint">Paste one of these straight into an OBS Browser Source's URL field — works from any PC, not just
+    the one running the OCR engine, same as this dashboard's own hosted link. Includes the relay/token this
+    dashboard itself connected with, so it'll show DISCONNECTED if you opened this page without those in the URL.</p>
   <div id="overlayLinksTable" style="overflow-x:auto;"></div>
 </details>
 
@@ -5318,11 +5318,20 @@ Object.keys(VAL_GRAPHIC_PAGES).forEach(key => {
 valgfxLoadPage("ingame");
 
 /* ---------- Overlay Browser Source Links (all games) ----------
- * Purely static/local -- no WS dependency, just a copy-paste reference so
- * OBS setup doesn't require hunting through the project folder each time.
- * REPO_ROOT is this PC's fixed project path (see SETUP_GUIDE.md's "Moving
- * everything to a new PC" section if that ever changes). */
-const REPO_ROOT = "C:/Users/user/MOBA-OCR-Overlay";
+ * Points at the Vercel-hosted copy (same origin this dashboard itself is
+ * served from, when opened that way) rather than a local file path -- OBS
+ * can be on a completely different PC than wherever the OCR engine runs,
+ * same reasoning as the dashboard's own relay setup. The relay/token query
+ * params are the SAME _relay/_token this dashboard connected with (see top
+ * of this script) -- reused as-is rather than inventing a separate viewer
+ * credential that doesn't exist yet; every overlay page only ever reads
+ * state (state_sync), never sends manual_update, so the admin token's
+ * extra write access is unused here, not a functional problem, just not
+ * least-privilege. Falls back to this page's own origin if it wasn't
+ * opened via Vercel (e.g. a local dashboard.html double-click). */
+const OVERLAY_BASE_URL = location.origin && location.origin !== "null"
+  ? location.origin
+  : "https://prematch-moba.vercel.app";
 const OVERLAY_LINKS = [
   {game:"MOBA", name:"In-Game HUD", file:"overlay/overlay.html"},
   {game:"MOBA", name:"Prematch / Draft Board", file:"overlay/prematch.html"},
@@ -5351,7 +5360,10 @@ function buildOverlayLinksTable(){
   `;
   const tbody = table.querySelector("tbody");
   OVERLAY_LINKS.forEach(item => {
-    const link = `file:///${REPO_ROOT}/${item.file}`;
+    let link = `${OVERLAY_BASE_URL}/${item.file}`;
+    if(_relay){
+      link += `?relay=${encodeURIComponent(_relay)}&token=${encodeURIComponent(_token)}`;
+    }
     const tr = document.createElement("tr");
     tr.style.borderTop = "1px solid #332b52";
     tr.innerHTML = `
