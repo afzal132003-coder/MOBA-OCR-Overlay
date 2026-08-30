@@ -76,9 +76,31 @@
   #stat-assists{ top:578px; }
   #stat-firstbloods{ top:690px; }
 
+  /* #agent-portrait (outer) is the Graphic-Fixing target -- static
+     position/size, matches its old id so any already-saved Graphic Fixing
+     position for it keeps working. #agent-portrait-img (inner) carries the
+     "alive" sway on its own separate transform, same outer/inner split
+     used everywhere else in this project so the two transforms don't
+     fight each other. This is a flat single-image portrait (not a rigged
+     character), so a real independent legs-still/torso-moves rig isn't
+     possible -- instead the rotate/skew pivots from the very BOTTOM of the
+     box (feet), same trick as a tree swaying from its trunk base: the
+     pivot point itself barely moves while everything further from it
+     (the head/shoulders) sways more, reading as "planted feet, live
+     upper body" without needing the art itself split into layers. */
   #agent-portrait{
     position:absolute; left:1150px; top:90px; width:700px; height:940px;
-    object-fit:contain; object-position:bottom; display:none;
+    display:none;
+  }
+  #agent-portrait.visible{ display:block; }
+  #agent-portrait-img{
+    width:100%; height:100%; object-fit:contain; object-position:bottom;
+    transform-origin:50% 100%;
+    animation: agentSway 6s ease-in-out infinite;
+  }
+  @keyframes agentSway{
+    0%, 100%{ transform:rotate(-0.6deg) skewX(-0.35deg); }
+    50%{ transform:rotate(0.6deg) skewX(0.35deg); }
   }
 </style>
 </head>
@@ -96,7 +118,9 @@
   <div class="stat-value" id="stat-assists">0</div>
   <div class="stat-value" id="stat-firstbloods">0</div>
 
-  <img id="agent-portrait" alt="">
+  <div id="agent-portrait">
+    <img id="agent-portrait-img" alt="">
+  </div>
 </div>
 
 <script>
@@ -146,6 +170,15 @@ function setImg(id, src){
   else { el.style.display = "none"; }
 }
 
+// agent-portrait is a wrap(static, Graphic-Fixing target)/img(animated
+// sway) pair -- see the outer/inner split note in the CSS above.
+function setWrappedImg(wrapId, imgId, src){
+  const wrap = document.getElementById(wrapId);
+  const img = document.getElementById(imgId);
+  wrap.classList.toggle("visible", !!src);
+  if(src) img.src = src;
+}
+
 const GFX_ELEMENT_IDS = ["team-logo","team-name","player-name","stat-kills","stat-deaths","stat-assists","stat-firstbloods","agent-portrait"];
 
 function applyGraphicOverrides(overrides){
@@ -177,7 +210,7 @@ function applyState(state){
   document.getElementById("stat-assists").textContent = (playerStats && playerStats.assists) || 0;
   document.getElementById("stat-firstbloods").textContent = (playerStats && playerStats.firstBloods) || 0;
 
-  setImg("agent-portrait", agentPortraitUrl(playerStats && playerStats.agent));
+  setWrappedImg("agent-portrait", "agent-portrait-img", agentPortraitUrl(playerStats && playerStats.agent));
 
   applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.mvp);
 }

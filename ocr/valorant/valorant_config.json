@@ -1,5 +1,5 @@
 {
-  "monitor": 1,
+  "monitor": 2,
   "tesseract_path": "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
   "poll_interval_seconds": 0.15,
   "debounce_frames": 7,

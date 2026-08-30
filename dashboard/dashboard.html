@@ -1069,10 +1069,12 @@
         — it's PERSISTENT (stays up for the rest of the round, doesn't auto-hide after a few seconds), driven by the
         same "SPIKE PLANTED" detection just above, no separate calibration needed. Its idle (before planted) and
         settled (after planted) positions are both independently adjustable in Graphic Fixing → In-Game HUD. Push it
-        manually if OCR misses it or you need to correct it:</p>
+        manually if OCR misses it or you need to correct it, or hide it entirely for a round where you don't want it
+        on screen at all:</p>
       <div class="row">
         <button id="val_spikeBadgePush">Push Spike Badge Up</button>
         <button class="secondary" id="val_spikeBadgePushDown">Push Spike Badge Down</button>
+        <button class="secondary" id="val_spikeBadgeDisappear">Hide Spike Badge Completely</button>
       </div>
     </div>
 
@@ -1212,10 +1214,11 @@
         <button class="secondary" id="valgfx_page_mvp">MVP</button>
         <button class="secondary" id="valgfx_page_characterpick">Character Pick</button>
         <button class="secondary" id="valgfx_page_hoax">Hoax Overlay</button>
+        <button class="secondary" id="valgfx_page_characterfixing">Character Fixing</button>
       </div>
-      <p class="hint">Click a box to select it, then nudge with arrow keys (hold Shift for 10px steps) for
-        pixel-precise placement. Red guide lines appear while dragging when an edge or center lines up with
-        another box or the canvas center/edges — drag onto one to snap to it. Ctrl/Cmd+click to select
+      <p class="hint" id="valgfx_stage_hint">Click a box to select it, then nudge with arrow keys (hold Shift for
+        10px steps) for pixel-precise placement. Red guide lines appear while dragging when an edge or center lines
+        up with another box or the canvas center/edges — drag onto one to snap to it. Ctrl/Cmd+click to select
         multiple boxes and move them together with arrow keys or by dragging any one of them. Ctrl+Z
         undoes the last drag/resize/nudge/reset on this page, Ctrl+S saves.</p>
       <div id="valgfx_stage_wrap" style="position:relative;width:960px;height:540px;background:#000;border:1px solid #332b52;border-radius:6px;overflow:hidden;">
@@ -1223,10 +1226,59 @@
         <div id="valgfx_stage" style="position:absolute;top:0;left:0;width:960px;height:540px;"></div>
         <div id="valgfx_guides" style="position:absolute;top:0;left:0;width:960px;height:540px;pointer-events:none;z-index:50;"></div>
       </div>
-      <div class="row" style="margin-top:14px;gap:10px;align-items:center;">
+      <div class="row" style="margin-top:14px;gap:10px;align-items:center;" id="valgfx_stage_controls">
         <button id="valgfx_save">Save Positions</button>
         <button class="secondary" id="valgfx_reset">Reset This Page to Default</button>
         <span id="valgfx_status" class="hint" style="margin:0;"></span>
+      </div>
+
+      <!-- Character Fixing: per-agent portrait pan/zoom, independent of the
+           drag-canvas above (that one nudges fixed DOM elements/slots; this
+           one is keyed by AGENT so the same fix follows an agent into
+           whichever slot they're picked into). Two ratios per agent since
+           Character Pick's slot (159x179) and Team Chemistry Stats' row
+           (99x76) are different box shapes. -->
+      <div id="valgfx_characterfixing_panel" style="display:none;">
+        <label>Agent</label>
+        <select id="valcf_agent" style="width:220px;"></select>
+        <div class="two-col" style="margin-top:14px;">
+          <div class="col">
+            <h3>Character Pick preview</h3>
+            <div style="width:318px;height:358px;overflow:hidden;position:relative;background:#0c0a17;border:1px solid #332b52;border-radius:6px;">
+              <img id="valcf_preview_characterpick" style="width:100%;height:100%;object-fit:cover;" alt="">
+            </div>
+            <div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap;">
+              <button class="secondary" data-cf-ctx="characterpick" data-cf-action="left">&#8592;</button>
+              <button class="secondary" data-cf-ctx="characterpick" data-cf-action="right">&#8594;</button>
+              <button class="secondary" data-cf-ctx="characterpick" data-cf-action="up">&#8593;</button>
+              <button class="secondary" data-cf-ctx="characterpick" data-cf-action="down">&#8595;</button>
+              <button class="secondary" data-cf-ctx="characterpick" data-cf-action="zoomin">Zoom In</button>
+              <button class="secondary" data-cf-ctx="characterpick" data-cf-action="zoomout">Zoom Out</button>
+              <button class="secondary" data-cf-ctx="characterpick" data-cf-action="reset">Reset</button>
+            </div>
+            <div class="hint" id="valcf_readout_characterpick"></div>
+          </div>
+          <div class="col">
+            <h3>Team Chemistry Stats preview</h3>
+            <div style="width:297px;height:228px;overflow:hidden;position:relative;background:#0c0a17;border:1px solid #332b52;border-radius:6px;">
+              <img id="valcf_preview_teamchemistry" style="width:100%;height:100%;object-fit:cover;" alt="">
+            </div>
+            <div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap;">
+              <button class="secondary" data-cf-ctx="teamchemistry" data-cf-action="left">&#8592;</button>
+              <button class="secondary" data-cf-ctx="teamchemistry" data-cf-action="right">&#8594;</button>
+              <button class="secondary" data-cf-ctx="teamchemistry" data-cf-action="up">&#8593;</button>
+              <button class="secondary" data-cf-ctx="teamchemistry" data-cf-action="down">&#8595;</button>
+              <button class="secondary" data-cf-ctx="teamchemistry" data-cf-action="zoomin">Zoom In</button>
+              <button class="secondary" data-cf-ctx="teamchemistry" data-cf-action="zoomout">Zoom Out</button>
+              <button class="secondary" data-cf-ctx="teamchemistry" data-cf-action="reset">Reset</button>
+            </div>
+            <div class="hint" id="valcf_readout_teamchemistry"></div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:14px;gap:10px;align-items:center;">
+          <button id="valcf_save">Save Character Fixing</button>
+          <span id="valcf_status" class="hint" style="margin:0;"></span>
+        </div>
       </div>
     </div>
   </div>
@@ -4980,6 +5032,9 @@ document.getElementById("val_spikeBadgePush").addEventListener("click", () => {
 document.getElementById("val_spikeBadgePushDown").addEventListener("click", () => {
   if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"spike_badge_hide"}));
 });
+document.getElementById("val_spikeBadgeDisappear").addEventListener("click", () => {
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"spike_badge_disappear"}));
+});
 document.getElementById("val_hoaxOverlayPush").addEventListener("click", () => {
   if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"hoax_overlay_show"}));
 });
@@ -5414,6 +5469,7 @@ const VAL_GRAPHIC_PAGES = {
       "team2-logo": { left:1820, top:735, width:60, height:55, kind:"logo", team:"team2" },
       "map-thumb": { left:869, top:826, width:159, height:179, kind:"box", label:"Map Thumbnail" },
       "map-name": { left:869, top:1006, width:159, height:34, kind:"box", label:"Map Name" },
+      "vs-bracket": { left:919, top:745, width:80, height:57, kind:"box", label:"VS Bracket" },
     },
   },
   hoax: {
@@ -5775,10 +5831,131 @@ document.getElementById("valgfx_reset").addEventListener("click", () => {
   document.getElementById("valgfx_status").textContent = "Reset locally — click Save Positions to make it permanent.";
 });
 
-Object.keys(VAL_GRAPHIC_PAGES).forEach(key => {
-  document.getElementById(`valgfx_page_${key}`).addEventListener("click", () => valgfxLoadPage(key));
+/* ---------- Graphic Fixing: Character Fixing tab ----------
+ * Per-agent portrait pan/zoom -- separate from the drag-canvas above
+ * (that one nudges fixed DOM elements/slots; this one is keyed by AGENT
+ * NAME so a fix follows that agent into whichever slot they're picked
+ * into). Two independent ratios per agent -- Character Pick's slot
+ * (159x179) and Team Chemistry Stats' row (99x76) are different box
+ * shapes, so the same crop doesn't necessarily look right in both.
+ * Not a drag UI like the boxes above: pan/zoom buttons nudge dx/dy
+ * (object-position percentage points) and scale (an extra zoom multiplier
+ * on top of the portrait's own pre-cropped baseline), previewed live the
+ * same way the overlay itself renders it. */
+let valcfPending = { characterpick: {}, teamchemistry: {} };
+let valcfCurrentAgent = null;
+
+function valcfBuildAgentOptions(){
+  const select = document.getElementById("valcf_agent");
+  select.innerHTML = "";
+  VAL_AGENT_LIST.forEach(([name]) => {
+    const opt = document.createElement("option");
+    opt.value = name.toLowerCase();
+    opt.textContent = name;
+    select.appendChild(opt);
+  });
+}
+
+function valcfGetFix(ctx, agentKey){
+  return Object.assign({dx:0, dy:0, scale:1}, valcfPending[ctx][agentKey] || {});
+}
+
+function valcfUpdatePreviews(){
+  ["characterpick","teamchemistry"].forEach(ctx => {
+    const agentKey = valcfCurrentAgent;
+    const entry = VAL_AGENT_MAP[agentKey];
+    const img = document.getElementById(`valcf_preview_${ctx}`);
+    if(entry && entry.file){
+      img.src = `../overlay/assets/Valorant Agents/Portraits/${entry.file}`;
+      img.style.display = "block";
+    } else {
+      img.style.display = "none";
+    }
+    const fix = valcfGetFix(ctx, agentKey);
+    img.style.objectPosition = `${50 + fix.dx}% ${12 + fix.dy}%`;
+    img.style.transformOrigin = "50% 12%";
+    img.style.transform = `scale(${(1.08 * fix.scale).toFixed(3)})`;
+    document.getElementById(`valcf_readout_${ctx}`).textContent =
+      `pan ${fix.dx >= 0 ? "+" : ""}${fix.dx}, ${fix.dy >= 0 ? "+" : ""}${fix.dy}   zoom x${fix.scale.toFixed(2)}`;
+  });
+}
+
+function valcfLoad(){
+  const existing = (valState && valState.characterFraming) || {};
+  valcfPending = {
+    characterpick: Object.assign({}, existing.characterpick || {}),
+    teamchemistry: Object.assign({}, existing.teamchemistry || {}),
+  };
+  if(!valcfCurrentAgent) valcfCurrentAgent = VAL_AGENT_LIST[0][0].toLowerCase();
+  document.getElementById("valcf_agent").value = valcfCurrentAgent;
+  valcfUpdatePreviews();
+  document.getElementById("valcf_status").textContent = "";
+}
+
+document.getElementById("valcf_agent").addEventListener("change", (e) => {
+  valcfCurrentAgent = e.target.value;
+  valcfUpdatePreviews();
 });
-valgfxLoadPage("ingame");
+
+document.querySelectorAll("[data-cf-ctx]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const ctx = btn.dataset.cfCtx;
+    const action = btn.dataset.cfAction;
+    const agentKey = valcfCurrentAgent;
+    const fix = valcfGetFix(ctx, agentKey);
+    const PAN_STEP = 2, ZOOM_STEP = 0.05;
+    if(action === "left") fix.dx -= PAN_STEP;
+    if(action === "right") fix.dx += PAN_STEP;
+    if(action === "up") fix.dy -= PAN_STEP;
+    if(action === "down") fix.dy += PAN_STEP;
+    if(action === "zoomin") fix.scale = Math.min(3, fix.scale + ZOOM_STEP);
+    if(action === "zoomout") fix.scale = Math.max(0.3, fix.scale - ZOOM_STEP);
+    if(action === "reset"){ fix.dx = 0; fix.dy = 0; fix.scale = 1; }
+    valcfPending[ctx][agentKey] = fix;
+    valcfUpdatePreviews();
+  });
+});
+
+document.getElementById("valcf_save").addEventListener("click", () => {
+  const statusEl = document.getElementById("valcf_status");
+  if(!(valWs && valWs.readyState === WebSocket.OPEN)){
+    statusEl.textContent = "NOT saved — not connected to the Valorant OCR engine right now.";
+    statusEl.style.color = "#f5a4a4";
+    return;
+  }
+  valSendManualUpdate({ characterFraming: valcfPending });
+  statusEl.style.color = "";
+  statusEl.textContent = "Saved — live on the overlay now.";
+});
+
+valcfBuildAgentOptions();
+
+function valgfxShowStagePage(pageKey){
+  document.getElementById("valgfx_stage_wrap").style.display = "";
+  document.getElementById("valgfx_stage_controls").style.display = "";
+  document.getElementById("valgfx_stage_hint").style.display = "";
+  document.getElementById("valgfx_characterfixing_panel").style.display = "none";
+  const cfBtn = document.getElementById("valgfx_page_characterfixing");
+  if(cfBtn){ cfBtn.style.background = ""; cfBtn.style.color = ""; }
+  valgfxLoadPage(pageKey);
+}
+
+function valgfxShowCharacterFixingPanel(){
+  document.getElementById("valgfx_stage_wrap").style.display = "none";
+  document.getElementById("valgfx_stage_controls").style.display = "none";
+  document.getElementById("valgfx_stage_hint").style.display = "none";
+  document.getElementById("valgfx_characterfixing_panel").style.display = "block";
+  document.querySelectorAll("#valtab-graphics .row button.secondary").forEach(b => { b.style.background = ""; b.style.color = ""; });
+  const btn = document.getElementById("valgfx_page_characterfixing");
+  btn.style.background = "#8b5cf6"; btn.style.color = "#0c0a17";
+  valcfLoad();
+}
+
+Object.keys(VAL_GRAPHIC_PAGES).forEach(key => {
+  document.getElementById(`valgfx_page_${key}`).addEventListener("click", () => valgfxShowStagePage(key));
+});
+document.getElementById("valgfx_page_characterfixing").addEventListener("click", valgfxShowCharacterFixingPanel);
+valgfxShowStagePage("ingame");
 
 /* ---------- Overlay Browser Source Links (all games) ----------
  * Points at the Vercel-hosted copy (same origin this dashboard itself is

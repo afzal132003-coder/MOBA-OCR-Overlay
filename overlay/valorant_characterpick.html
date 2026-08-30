@@ -62,13 +62,17 @@
     overflow:hidden; display:none;
   }
   .slot-wrap.filled{ display:block; }
+  /* object-position/--fix-zoom are set per-agent from state.characterFraming
+     (Graphic Fixing -> Character Fixing tab) -- 50%/12% and 1 are just the
+     un-adjusted defaults. */
   .slot-wrap img{
     width:100%; height:100%; object-fit:cover; object-position:50% 12%;
     transform-origin:center 12%; animation:slotFloat 5s ease-in-out infinite;
+    --fix-zoom:1;
   }
   @keyframes slotFloat{
-    0%,100%{ transform:scale(1.08) translateY(2px) rotate(-0.5deg) skewY(-0.6deg); }
-    50%{ transform:scale(1.08) translateY(-2px) rotate(0.5deg) skewY(0.6deg); }
+    0%,100%{ transform:scale(calc(1.08 * var(--fix-zoom))) translateY(2px) rotate(-0.5deg) skewY(-0.6deg); }
+    50%{ transform:scale(calc(1.08 * var(--fix-zoom))) translateY(-2px) rotate(0.5deg) skewY(0.6deg); }
   }
   .slot-wrap .ember{
     position:absolute; bottom:-6px; width:4px; height:4px; border-radius:50%;
@@ -114,6 +118,13 @@
   }
   #team1-name{ left:110px; justify-content:flex-start; }
   #team2-name{ left:1560px; justify-content:flex-end; }
+
+  /* Cut out of the gold bar's own baked art (valorant_characterpick_blank.png
+     used to have this glyph painted directly into the bar) and erased from
+     that background, so it can be a normal Graphic-Fixing-movable element
+     instead of a fixed part of the frame -- the operator centers it
+     themselves instead of it always sitting wherever the source art put it. */
+  #vs-bracket{ position:absolute; left:919px; top:745px; width:80px; height:57px; object-fit:contain; }
 </style>
 </head>
 <body>
@@ -128,6 +139,8 @@
   <div class="team-name" id="team1-name"></div>
   <div class="team-name" id="team2-name"></div>
   <img class="team-logo" id="team2-logo" alt="">
+
+  <img id="vs-bracket" src="assets/valorant_vs_bracket.png" alt="">
 
   <div id="slots"></div>
 </div>
@@ -180,7 +193,7 @@ const SLOT_DEFS = [
   {n:10, team:"team2", idx:4, x:1713},
 ];
 
-const GFX_ELEMENT_IDS = ["team1-logo","team1-name","team2-name","team2-logo","map-thumb","map-name"];
+const GFX_ELEMENT_IDS = ["team1-logo","team1-name","team2-name","team2-logo","map-thumb","map-name","vs-bracket"];
 
 (function buildSlots(){
   const container = document.getElementById("slots");
@@ -291,6 +304,11 @@ function sampleThemeColor(img, wrapEl){
   }
 }
 
+// Populated at the top of applyState() each state_sync -- per-agent
+// pan/zoom from the dashboard's Character Fixing tab (Graphic Fixing),
+// keyed by agent name, independent of which slot they land in.
+let characterFramingCharacterPick = {};
+
 function fillSlotPortrait(n, agentName){
   const wrap = document.getElementById(`slot${n}-wrap`);
   const img = document.getElementById(`slot${n}-portrait`);
@@ -298,6 +316,9 @@ function fillSlotPortrait(n, agentName){
   wrap.classList.toggle("filled", !!src);
   if(src){
     img.src = src;
+    const fix = characterFramingCharacterPick[(agentName || "").toLowerCase()] || {};
+    img.style.objectPosition = `${50 + (fix.dx || 0)}% ${12 + (fix.dy || 0)}%`;
+    img.style.setProperty("--fix-zoom", fix.scale || 1);
     img.onload = () => sampleThemeColor(img, wrap);
     img.onerror = () => wrap.classList.remove("filled");
   }
@@ -315,6 +336,8 @@ function applyGraphicOverrides(overrides){
 }
 
 function applyState(state){
+  characterFramingCharacterPick = (state.characterFraming && state.characterFraming.characterpick) || {};
+
   document.getElementById("team1-name").textContent = state.team1.name || "";
   document.getElementById("team2-name").textContent = state.team2.name || "";
   setImg("team1-logo", state.team1.logo);

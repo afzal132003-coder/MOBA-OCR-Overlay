@@ -87,19 +87,46 @@
      planted) -- both editable in Graphic Fixing's In-Game HUD page, so the
      whole idle->planted travel path is under the operator's control.
      PERSISTENT, not the 6-second toast (that's the separate Plant/Defuse
-     Popup). Recolored via CSS filter, not mask-image: mask-image's url()
-     is blocked by CORS when this page is opened as a local file. */
+     Popup). A third state, "hidden", removes the badge entirely -- a
+     manual-only operator override (OCR never sets it), for rounds where
+     the badge shouldn't be competing for attention at all.
+     Recolored via an inline SVG filter (#spikeRedFilter below), not
+     mask-image or a CSS hue-rotate/sepia chain -- mask-image's url() is
+     blocked by CORS when this page is opened as a local file, and an SVG
+     feFlood+feComposite recolor hits an exact target red off the icon's
+     own alpha shape instead of an approximated hue-rotated one. Pulses
+     while planted -- Valorant broadcasts use a pulsing red spike icon as
+     the "danger, spike is live" cue, so this echoes that instead of just
+     sitting there as a static red badge. */
   #spike-badge{
     position:absolute; object-fit:contain;
     transition: left 0.5s cubic-bezier(.34,1.4,.64,1), top 0.5s cubic-bezier(.34,1.4,.64,1),
-                width 0.5s ease, height 0.5s ease, filter 0.4s ease;
+                width 0.5s ease, height 0.5s ease, opacity 0.3s ease;
   }
+  #spike-badge.hidden{ opacity:0; pointer-events:none; }
   #spike-badge.planted{
-    filter:brightness(0) saturate(100%) invert(48%) sepia(75%) saturate(3000%) hue-rotate(335deg) brightness(100%) contrast(103%);
+    animation: spikePulse 1.1s ease-in-out infinite;
+  }
+  @keyframes spikePulse{
+    0%, 100%{
+      filter:url(#spikeRedFilter) drop-shadow(0 0 4px rgba(255,24,24,0.85));
+      transform:scale(1);
+    }
+    50%{
+      filter:url(#spikeRedFilter) drop-shadow(0 0 16px rgba(255,24,24,1));
+      transform:scale(1.07);
+    }
   }
 </style>
 </head>
 <body>
+
+<svg width="0" height="0" style="position:absolute">
+  <filter id="spikeRedFilter" x="-30%" y="-30%" width="160%" height="160%">
+    <feFlood flood-color="#ff1414" result="flood"/>
+    <feComposite in="flood" in2="SourceAlpha" operator="in"/>
+  </filter>
+</svg>
 
 <div id="stage">
   <img class="bg-frame" src="assets/valorant_ingame_blank.png" alt="">
@@ -192,7 +219,8 @@ function applyState(state){
     [line1, line2].filter(Boolean).join(" - ");
 
   const overrides = state.graphicOverrides && state.graphicOverrides.ingame;
-  const planted = !!(state.spikeBadge && state.spikeBadge.visible);
+  const badgeMode = (state.spikeBadge && state.spikeBadge.mode) || "idle";
+  const planted = badgeMode === "planted";
   const rect = effectiveBadgeRect(
     planted ? BADGE_PLANTED_BASE : BADGE_IDLE_BASE, overrides,
     planted ? "spike-badge-planted" : "spike-badge-idle",
@@ -203,6 +231,7 @@ function applyState(state){
   badge.style.width = rect.width + "px";
   badge.style.height = rect.height + "px";
   badge.classList.toggle("planted", planted);
+  badge.classList.toggle("hidden", badgeMode === "hidden");
 
   applyGraphicOverrides(overrides);
 }

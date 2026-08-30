@@ -146,8 +146,12 @@ def default_state():
         # despite the badge being visually a different element. Manual
         # push/push-down (spike_badge_show/spike_badge_hide) still works as
         # an operator override, same relationship as plantDefuse's own
-        # manual buttons.
-        "spikeBadge": {"visible": False},
+        # manual buttons. mode is "idle" (white, below context text),
+        # "planted" (red, above context text), or "hidden" (not drawn at
+        # all -- a manual-only override, OCR never sets this one, for
+        # rounds where the operator doesn't want the badge competing for
+        # attention at all).
+        "spikeBadge": {"mode": "idle"},
 
         # The full hoax-overlay.png-styled bar (own team plates + score +
         # the spike badge) is a SEPARATE, independent overlay page from the
@@ -184,6 +188,18 @@ def default_state():
         },
 
         "graphicOverrides": {},
+
+        # Per-agent portrait pan/zoom, independent of graphicOverrides above
+        # (which is keyed by fixed DOM element/slot id) -- this is keyed by
+        # AGENT NAME instead, since the same agent can land in any slot
+        # depending on who picks them. Two separate sub-objects because
+        # Character Pick's slot box (159x179) and Team Chemistry Stats' row
+        # box (99x76) are different aspect ratios, so the same crop doesn't
+        # necessarily look right in both. {dx, dy} are object-position
+        # percentage-point shifts (pan), {scale} is an extra zoom multiplier
+        # on top of the pre-cropped portrait's own baseline framing -- see
+        # the Character Fixing tab in the dashboard's Graphic Fixing page.
+        "characterFraming": {"characterpick": {}, "teamchemistry": {}},
     }
 
 
@@ -684,7 +700,7 @@ def process_plant_defuse_reading(text, now_ms):
             pd["shownUntil"] = now_ms + PLANT_DEFUSE_DISPLAY_SECONDS * 1000
             pd["team"] = team
             pd["type"] = event_type
-            server_state["spikeBadge"]["visible"] = (event_type == "plant")
+            server_state["spikeBadge"]["mode"] = "planted" if event_type == "plant" else "idle"
             changed = True
 
     return changed
@@ -732,6 +748,8 @@ async def handle_client(websocket, path=None):
                     server_state["headToHead"] = data["headToHead"]
                 if "graphicOverrides" in data:
                     server_state["graphicOverrides"] = data["graphicOverrides"]
+                if "characterFraming" in data:
+                    server_state["characterFraming"] = data["characterFraming"]
                 for field in payload.get("lock", []):
                     locked_fields.add(field)
                 for field in payload.get("unlock", []):
@@ -756,12 +774,17 @@ async def handle_client(websocket, path=None):
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
 
             elif msg_type == "spike_badge_show":
-                server_state["spikeBadge"]["visible"] = True
+                server_state["spikeBadge"]["mode"] = "planted"
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
 
             elif msg_type == "spike_badge_hide":
-                server_state["spikeBadge"]["visible"] = False
+                server_state["spikeBadge"]["mode"] = "idle"
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
+            elif msg_type == "spike_badge_disappear":
+                server_state["spikeBadge"]["mode"] = "hidden"
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
 

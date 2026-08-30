@@ -102,13 +102,17 @@
      this specific graphic was actually designed with. */
   .row-photo-wrap.team1{ background-color:#97dace; }
   .row-photo-wrap.team2{ background-color:#fa4e5e; }
+  /* object-position/--fix-zoom are set per-agent from state.characterFraming
+     (Graphic Fixing -> Character Fixing tab) -- 50%/12% and 1 are just the
+     un-adjusted defaults. */
   .row-photo-wrap img{
     width:100%; height:100%; object-fit:cover; object-position:50% 12%;
     transform-origin:center 12%; animation:rowPhotoFloat 5s ease-in-out infinite;
+    --fix-zoom:1;
   }
   @keyframes rowPhotoFloat{
-    0%,100%{ transform:scale(1.08) translateY(1px) rotate(-0.5deg) skewY(-0.6deg); }
-    50%{ transform:scale(1.08) translateY(-1px) rotate(0.5deg) skewY(0.6deg); }
+    0%,100%{ transform:scale(calc(1.08 * var(--fix-zoom))) translateY(1px) rotate(-0.5deg) skewY(-0.6deg); }
+    50%{ transform:scale(calc(1.08 * var(--fix-zoom))) translateY(-1px) rotate(0.5deg) skewY(0.6deg); }
   }
   .row-photo-wrap .ember{
     position:absolute; bottom:-4px; width:3px; height:3px; border-radius:50%;
@@ -248,12 +252,22 @@ function setLogo(id, src){
   else { el.style.display = "none"; }
 }
 
+// Populated at the top of applyState() each state_sync -- per-agent
+// pan/zoom from the dashboard's Character Fixing tab (Graphic Fixing),
+// keyed by agent name, independent of which row they land in.
+let characterFramingTeamChemistry = {};
+
 function fillRowPhoto(n, agentName){
   const wrap = document.getElementById(`p${n}-photo`);
   const img = document.getElementById(`p${n}-photo-img`);
   const src = agentPortraitUrl(agentName);
   wrap.style.display = src ? "block" : "none";
-  if(src) img.src = src;
+  if(src){
+    img.src = src;
+    const fix = characterFramingTeamChemistry[(agentName || "").toLowerCase()] || {};
+    img.style.objectPosition = `${50 + (fix.dx || 0)}% ${12 + (fix.dy || 0)}%`;
+    img.style.setProperty("--fix-zoom", fix.scale || 1);
+  }
 }
 
 function kdRatio(kills, deaths){
@@ -273,6 +287,8 @@ function applyGraphicOverrides(overrides){
 }
 
 function applyState(state){
+  characterFramingTeamChemistry = (state.characterFraming && state.characterFraming.teamchemistry) || {};
+
   document.getElementById("team1-name").textContent = state.team1.name || "";
   document.getElementById("team2-name").textContent = state.team2.name || "";
   setLogo("team1-logo", state.team1.logo);
