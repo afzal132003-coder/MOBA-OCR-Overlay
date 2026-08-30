@@ -964,6 +964,25 @@
         </label>
       </div>
     </div>
+
+    <div class="card">
+      <h2>Agent Pick</h2>
+      <p class="hint">Assign each player's agent for this map — saves straight into the same Agent field used later
+        in Post-Match's Overall Scoreboard, so picking it here means it's already filled in after the match instead
+        of retyping it.</p>
+      <div class="two-col">
+        <div class="col">
+          <h3>Team 1</h3>
+          <div id="val_agentPick_team1"></div>
+        </div>
+        <div class="col">
+          <h3>Team 2</h3>
+          <div id="val_agentPick_team2"></div>
+        </div>
+      </div>
+      <button id="val_agentPick_save">Save Agent Picks</button>
+      <div id="val_agentPick_status" class="hint"></div>
+    </div>
   </div>
 
   <!-- ===================== LIVE IN-GAME OPS ===================== -->
@@ -1153,6 +1172,8 @@
       </div>
     </div>
   </div>
+
+  <datalist id="valAgentDatalist"></datalist>
 
 </div>
 
@@ -4540,6 +4561,92 @@ function wireValPlayerPasteFill(team){
   }
 }
 
+/* ---------- Pre-Match: Agent Pick ----------
+ * Images live in overlay/assets/Valorant Agents/ (not dashboard/assets/ --
+ * that's where the overlay pages themselves already look) since nothing
+ * about this picker needs its own copy; "../overlay/assets/..." from here
+ * reaches the same files dashboard.html's Graphic Fixing backgrounds
+ * already use the same relative-path pattern for. A null file means the
+ * agent's name is still typeable/selectable, just no portrait yet -- swap
+ * in a real filename here once you have the image, no other code changes
+ * needed. Writes straight into postMatch.players[team][i].agent, the SAME
+ * field the Post-Match Overall Scoreboard's own Agent input reads/writes,
+ * so a pre-match pick is already there after the game instead of having to
+ * be retyped. */
+const VAL_AGENT_LIST = [
+  ["Astra","Astra.png"], ["Breach","Breach.png"], ["Brimstone","Brimstone.png"],
+  ["Chamber","Chamber.png"], ["Fade","Fade.png"], ["Harbor","Harbor.png"],
+  ["Jett","Jett.png"], ["KAY/O","Kayo.png"], ["Killjoy","KillJoy.png"],
+  ["Neon","Neon.png"], ["Omen","Omen.png"], ["Phoenix","Phoenix.png"],
+  ["Raze","Raze.png"], ["Reyna","Reyna.png"], ["Sage","Sage.png"],
+  ["Skye","Skye.png"], ["Sova","Sova.png"], ["Cypher","Sypher.png"],
+  ["Viper","Viper.png"], ["Yoru","Yoru.png"],
+  ["Iso", null], ["Waylay", null], ["Gekko", null], ["Tejo", null],
+  ["Clove", null], ["Deadlock", null], ["Vyse", null],
+];
+const VAL_AGENT_MAP = {};
+VAL_AGENT_LIST.forEach(([name, file]) => { VAL_AGENT_MAP[name.toLowerCase()] = {name, file}; });
+
+(function buildValAgentDatalist(){
+  const dl = document.getElementById("valAgentDatalist");
+  VAL_AGENT_LIST.forEach(([name]) => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    dl.appendChild(opt);
+  });
+})();
+
+function valUpdateAgentPortrait(team, i, agentName){
+  const img = document.getElementById(`val_agentPick_${team}_${i}_portrait`);
+  if(!img) return;
+  const entry = VAL_AGENT_MAP[(agentName || "").toLowerCase()];
+  if(entry && entry.file){
+    img.src = `../overlay/assets/Valorant Agents/${entry.file}`;
+    img.style.display = "block";
+  } else {
+    img.style.display = "none";
+  }
+}
+
+function valBuildAgentPickRows(containerId, team){
+  const container = document.getElementById(containerId);
+  container.innerHTML = "";
+  for(let i=0;i<5;i++){
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:8px;align-items:center;margin-bottom:8px;";
+    row.innerHTML = `
+      <img id="val_agentPick_${team}_${i}_portrait" style="width:36px;height:36px;border-radius:6px;object-fit:cover;background:#0c0a17;display:none;" alt="">
+      <div style="min-width:110px;font-weight:700;color:#9aa4c0;" id="val_agentPick_${team}_${i}_nameLabel">Player ${i+1}</div>
+      <input type="text" id="val_agentPick_${team}_${i}_agent" list="valAgentDatalist" placeholder="Agent" style="flex:1;">
+    `;
+    container.appendChild(row);
+  }
+  for(let i=0;i<5;i++){
+    document.getElementById(`val_agentPick_${team}_${i}_agent`).addEventListener("input", (e) => {
+      valDirtyFields.add(e.target.id);
+      valUpdateAgentPortrait(team, i, e.target.value);
+    });
+  }
+}
+valBuildAgentPickRows("val_agentPick_team1", "team1");
+valBuildAgentPickRows("val_agentPick_team2", "team2");
+
+document.getElementById("val_agentPick_save").addEventListener("click", () => {
+  const pom = JSON.parse(JSON.stringify((valState && valState.postMatch) || {players:{team1:[],team2:[]}}));
+  ["team1","team2"].forEach(team => {
+    for(let i=0;i<5;i++){
+      const agent = document.getElementById(`val_agentPick_${team}_${i}_agent`).value;
+      if(!pom.players[team][i]) pom.players[team][i] = {};
+      pom.players[team][i].agent = agent;
+      const pomAgentInput = document.getElementById(`val_pom_${team}_${i}_agent`);
+      if(pomAgentInput) pomAgentInput.value = agent;
+      valDirtyFields.delete(`val_agentPick_${team}_${i}_agent`);
+    }
+  });
+  valSendManualUpdate({ postMatch: pom });
+  document.getElementById("val_agentPick_status").textContent = "Saved.";
+});
+
 document.getElementById("val_team1Logo").addEventListener("change", async (e) => {
   if(e.target.files[0]){
     const raw = await readFileAsDataURL(e.target.files[0]);
@@ -5072,6 +5179,15 @@ function valApplyState(state){
         const el = document.getElementById(id);
         if(el && active !== id) el.value = p[f] || 0;
       });
+
+      const pickNameLabel = document.getElementById(`val_agentPick_${team}_${i}_nameLabel`);
+      if(pickNameLabel) pickNameLabel.textContent = state[team].players[i] || `Player ${i + 1}`;
+      const pickAgentId = `val_agentPick_${team}_${i}_agent`;
+      const pickAgentInput = document.getElementById(pickAgentId);
+      if(pickAgentInput && isFree(pickAgentId)){
+        pickAgentInput.value = p.agent || "";
+        valUpdateAgentPortrait(team, i, p.agent || "");
+      }
     });
   });
 }
