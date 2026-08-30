@@ -5,9 +5,9 @@ Folder layout:
 MOBA-OCR-Overlay/
   overlay/overlay.html      <- Broadcast graphic (add as OBS Browser Source)
   dashboard/dashboard.html  <- Control panel (open in a normal browser tab)
-  ocr/ocr_engine.py         <- Captures screen, runs OCR, runs the local server
-  ocr/calibrate_hud.py      <- One-time tool to mark where the numbers are on screen
-  ocr/config.json           <- All settings + crop coordinates live here
+  ocr/moba/ocr_engine.py         <- Captures screen, runs OCR, runs the local server
+  ocr/moba/calibrate_hud.py      <- One-time tool to mark where the numbers are on screen
+  ocr/moba/config.json           <- All settings + crop coordinates live here
 ```
 
 How the pieces talk to each other: `ocr_engine.py` starts a local WebSocket
@@ -34,7 +34,7 @@ everything through a small cloud relay with token-based access instead of
    https://github.com/UB-Mannheim/tesseract/wiki and run it (default install
    location is `C:\Program Files\Tesseract-OCR\tesseract.exe`).
    If you install it somewhere else, update `"tesseract_path"` in
-   `ocr/config.json` to match.
+   `ocr/moba/config.json` to match.
 
 3. **Install the Python packages.** Open a terminal (PowerShell) in the
    `ocr` folder and run:
@@ -68,7 +68,7 @@ This replaces manually figuring out pixel coordinates.
 
 1. Get your game's spectator HUD on screen and pause on a frame where all
    the numbers are visible (kills, objectives, gold, series score).
-2. In the `ocr` folder, double-click **`calibrate_hud.bat`** (or run
+2. In the `ocr/moba` folder, double-click **`calibrate_hud.bat`** (or run
    `python calibrate_hud.py`).
 3. A screenshot window pops up, one per stat, in this order:
    Team 1 Kills → Team 1 Objectives → Team 1 Gold → Team 2 Gold →
@@ -87,8 +87,8 @@ background) — this is what makes OCR reliable.
 
 ## Step 4 — Start the OCR engine
 
-In the `ocr` folder, double-click **`start.bat`** (or run
-`python ocr_engine.py`). Keep this window open — it's both the OCR reader
+In the `ocr` folder, double-click **`start_moba.bat`** (or run
+`python moba/ocr_engine.py` from inside `ocr/`). Keep this window open — it's both the OCR reader
 and the local relay server. You should see:
 ```
 OCR relay server running at ws://localhost:8765
@@ -128,7 +128,7 @@ status badge should turn green ("CONNECTED"). From here:
      receiving live updates.
 4. Click OK. The graphic bar should appear with a transparent background —
    position it at the top of your scene like the reference layout.
-5. If it shows "disconnected"/stale numbers, make sure `start.bat`
+5. If it shows "disconnected"/stale numbers, make sure `start_moba.bat`
    (the OCR engine) is already running before you add/refresh the source.
 
 **vMix**: add a **Web Browser** input, point it at the same
@@ -177,7 +177,7 @@ just make sure filenames follow that pattern.
 ### Data persistence
 
 `ocr_engine.py` now saves all dashboard state (team info, live stats,
-prematch draft, post-match stats) to `ocr/state.json` and reloads it on
+prematch draft, post-match stats) to `ocr/moba/state.json` and reloads it on
 startup. Restarting the engine (e.g. after editing `config.json`) no
 longer wipes out manually-entered data like the 20 draft slots or 10
 players' damage stats.
@@ -198,7 +198,7 @@ folder, reinstall two things, then recalibrate.
    wherever) — it does not need to match this PC's folder path. This
    single copy already includes everything you've built up: the hero
    portrait library, the custom fonts, all the template PNGs, and
-   `ocr/state.json` (your saved team names/logos/stats — see below if you
+   `ocr/moba/state.json` (your saved team names/logos/stats — see below if you
    don't want to carry that over).
 
 2. **On the new PC, install the prerequisites** (same as the original
@@ -211,13 +211,13 @@ folder, reinstall two things, then recalibrate.
      pip install -r requirements.txt
      ```
 
-3. **Recalibrate — don't skip this.** `ocr/config.json`'s `"monitor"`
+3. **Recalibrate — don't skip this.** `ocr/moba/config.json`'s `"monitor"`
    value and every region's x/y/width/height are specific to this PC's
    monitor layout and resolution. On the new PC:
    - Run `python -c "import mss; print(mss.mss().monitors)"` in the `ocr`
      folder to see the new PC's monitor list, and update `"monitor"` in
      `config.json` if it has a different layout than this one.
-   - Re-run `calibrate_hud.bat` to redraw all the crop boxes against the new
+   - Re-run `calibrate_hud.bat` (in `ocr/moba/`) to redraw all the crop boxes against the new
      PC's actual screen — the saved coordinates from this PC almost
      certainly won't line up on different hardware.
 
@@ -225,13 +225,13 @@ folder, reinstall two things, then recalibrate.
    Tesseract actually installed on the new PC (usually the same default
    `C:\Program Files\Tesseract-OCR\tesseract.exe`, but confirm).
 
-5. **Decide about `ocr/state.json`** — it holds the current team
+5. **Decide about `ocr/moba/state.json`** — it holds the current team
    names/logos/live stats/prematch draft/post-match data. Keep it if you
    want to walk into the new PC with everything already filled in;
    delete it (or just don't copy it) if you'd rather start that PC fresh
    — a new one will be generated automatically on first run.
 
-6. **Run it the same way as before**: `start.bat`, then open
+6. **Run it the same way as before**: `start_moba.bat` (in `ocr/`), then open
    `dashboard/dashboard.html`, `overlay/overlay.html`, `prematch.html`,
    and `postmatch.html` — add the three overlay HTMLs as OBS Browser
    Sources exactly as in Step 6 above, just browsing to their new
@@ -242,10 +242,10 @@ folder, reinstall two things, then recalibrate.
 ## Troubleshooting
 
 - **"tesseract is not installed or it's not in your PATH"** — fix the
-  `tesseract_path` value in `ocr/config.json` to point at your actual
+  `tesseract_path` value in `ocr/moba/config.json` to point at your actual
   `tesseract.exe`.
 - **Numbers don't update** — check the crop preview in the dashboard; if
-  it's blank or misaligned, re-run `calibrate_hud.bat`.
+  it's blank or misaligned, re-run `calibrate_hud.bat` (in `ocr/moba/`).
 - **Gold shows wrong for values like "11.7k"** — the engine already parses
   a `k` suffix as ×1000; if it's still off, make the crop box tighter so
   only the digits and the `k` are inside it (no `$` sign or icon).
@@ -253,7 +253,7 @@ folder, reinstall two things, then recalibrate.
   to something else (e.g. 8766), and it will be picked up automatically by
   overlay.html/dashboard.html only if you also update the `WS_URL` constant
   near the top of their `<script>` sections to match.
-- **Dashboard says DISCONNECTED** — the OCR engine (`start.bat`) must be
+- **Dashboard says DISCONNECTED** — the OCR engine (`start_moba.bat` (in `ocr/`)) must be
   running first; the dashboard and overlay are just viewers of it.
 - **Error mentioning `--oem` or "failed loading language"** — your
   Tesseract install is missing the LSTM traineddata. Re-run the UB-Mannheim
@@ -263,7 +263,7 @@ folder, reinstall two things, then recalibrate.
 
 ### Tuning speed vs. stability
 
-`ocr/config.json` has two settings that trade off latency against
+`ocr/moba/config.json` has two settings that trade off latency against
 misreads:
 
 - `poll_interval_seconds` — how often each region is re-read. Lower =
@@ -275,6 +275,6 @@ misreads:
   `poll_interval_seconds * 2`).
 
 If you still see stale/laggy numbers after this update, check Task
-Manager while `start.bat` is running — if CPU is pegged, raise
+Manager while `start_moba.bat` (in `ocr/`) is running — if CPU is pegged, raise
 `poll_interval_seconds` slightly (e.g. `0.5`) rather than lowering
 `debounce_frames`, since a busy CPU causes more OCR misreads, not fewer.

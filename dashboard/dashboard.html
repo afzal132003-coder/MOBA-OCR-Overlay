@@ -354,7 +354,7 @@
   <div class="card">
     <h2>Match Clock</h2>
     <p class="hint">Counts up (elapsed match time), shown top-center on the In-Game overlay. Calibrate
-      <code>python calibrate_hud.py game_timer</code> around the live MM:SS HUD clock and it reads automatically —
+      <code>cd ocr/moba && python calibrate_hud.py game_timer</code> around the live MM:SS HUD clock and it reads automatically —
       the crop + last OCR reading are shown live below so you can confirm it's catching the right thing. Manual
       Start/Pause/Reset below still work as a fallback for before calibration or whenever the clock isn't
       visible on screen.</p>
@@ -461,7 +461,7 @@
       the main HUD, for whenever you have time. Check the box next to any value to override it manually (locks that
       player's whole K/D/A reading, since OCR reads all three together); uncheck to hand it back to OCR:</p>
     <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-      cd ocr &amp;&amp; python calibrate_teamstats.py
+      cd ocr/moba &amp;&amp; python calibrate_teamstats.py
     </div>
     <div class="two-col" style="margin-top:14px;">
       <div class="col">
@@ -477,7 +477,7 @@
 
   <div class="card">
     <h2>Turtle &amp; Lord Announcement</h2>
-    <p class="hint">Calibrate with <code>python calibrate_hud.py turtle_announcement</code> — draw the box around the
+    <p class="hint">Calibrate with <code>cd ocr/moba && python calibrate_hud.py turtle_announcement</code> — draw the box around the
       "Turtle spawning in Ns" / "Turtle Spawned" / "Lord Spawned" toast zone, generously (wider/taller than the
       text). Both objectives are read from this same zone, so one calibration covers both. The crop and the exact
       text OCR is reading are shown live below so you can confirm it's catching the right thing before trusting it
@@ -776,7 +776,7 @@
       needed. First time only: calibrate the 20 regions once with the command below (like you did for the HUD),
       it's reused after that.</p>
     <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-      cd ocr &amp;&amp; python calibrate_postmatch_hero.py
+      cd ocr/moba &amp;&amp; python calibrate_postmatch_hero.py
     </div>
     <button id="import_battleReport_capture">Capture From Screen Now</button>
     <div id="import_battleReport_status" class="hint"></div>
@@ -802,7 +802,7 @@
       player you select for the MVP graphic pulls their K/D/A from here. First time only: calibrate the 10 regions
       once with the command below.</p>
     <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-      cd ocr &amp;&amp; python calibrate_postmatch_kda.py
+      cd ocr/moba &amp;&amp; python calibrate_postmatch_kda.py
     </div>
     <button id="import_kda_capture">Capture From Screen Now</button>
     <div id="import_kda_status" class="hint"></div>
@@ -816,7 +816,7 @@
       Gold is read per player straight off the screen and summed per team automatically. First time only:
       calibrate the 10 regions once with the command below.</p>
     <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-      cd ocr &amp;&amp; python calibrate_postmatch_gold.py
+      cd ocr/moba &amp;&amp; python calibrate_postmatch_gold.py
     </div>
     <button id="import_gold_capture">Capture From Screen Now</button>
     <div id="import_gold_status" class="hint"></div>
@@ -911,6 +911,7 @@
     <button class="val-tab-btn active" data-valtab="prematch">Pre-Match</button>
     <button class="val-tab-btn" data-valtab="liveops">Live In-Game Ops</button>
     <button class="val-tab-btn" data-valtab="postmatch">Post-Match</button>
+    <button class="val-tab-btn" data-valtab="graphics">Graphic Fixing</button>
   </div>
 
   <!-- ===================== PRE-MATCH ===================== -->
@@ -956,6 +957,25 @@
     </div>
 
     <div class="card">
+      <h2>Attacking Side</h2>
+      <p class="hint">The spike can only be planted by attackers and defused by defenders, and those sides swap at
+        halftime — flip this once each half so the Plant/Defuse popup (Live In-Game Ops tab) attributes the right
+        team automatically (it doesn't try to detect this itself).</p>
+      <div class="row">
+        <label style="display:flex;align-items:center;gap:8px;margin:0;">
+          <input type="radio" name="val_attackingTeam" id="val_attacking_t1" value="team1" checked> Team 1 is attacking
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;margin:0;">
+          <input type="radio" name="val_attackingTeam" id="val_attacking_t2" value="team2"> Team 2 is attacking
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== LIVE IN-GAME OPS ===================== -->
+  <div class="val-tab-panel" id="valtab-liveops">
+
+    <div class="card">
       <h2>Match Context &amp; Series Score</h2>
       <div class="row">
         <div class="team-form">
@@ -973,33 +993,14 @@
       </div>
       <button id="val_saveContext">Save</button>
     </div>
-  </div>
-
-  <!-- ===================== LIVE IN-GAME OPS ===================== -->
-  <div class="val-tab-panel" id="valtab-liveops">
 
     <div class="card">
       <h2>Round Score</h2>
       <p class="hint">The two small numbers either side of the round timer, top-center. First time only, calibrate:</p>
       <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-        cd ocr &amp;&amp; python calibrate_valorant.py valorant_team1_score valorant_team2_score
+        cd ocr/valorant &amp;&amp; python calibrate_valorant.py valorant_team1_score valorant_team2_score
       </div>
       <div class="stat-grid" id="val_scoreGrid"></div>
-    </div>
-
-    <div class="card">
-      <h2>Attacking Side</h2>
-      <p class="hint">The spike can only be planted by attackers and defused by defenders, and those sides swap at
-        halftime — flip this once each half so the Plant/Defuse popup below attributes the right team automatically
-        (it doesn't try to detect this itself).</p>
-      <div class="row">
-        <label style="display:flex;align-items:center;gap:8px;margin:0;">
-          <input type="radio" name="val_attackingTeam" id="val_attacking_t1" value="team1" checked> Team 1 is attacking
-        </label>
-        <label style="display:flex;align-items:center;gap:8px;margin:0;">
-          <input type="radio" name="val_attackingTeam" id="val_attacking_t2" value="team2"> Team 2 is attacking
-        </label>
-      </div>
     </div>
 
     <div class="card">
@@ -1008,7 +1009,7 @@
         round score) — team is derived from Attacking Side above, not read off the banner. First time only, calibrate
         generously (wider/taller than the banner, it can shift slightly):</p>
       <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-        cd ocr &amp;&amp; python calibrate_valorant.py valorant_announcement
+        cd ocr/valorant &amp;&amp; python calibrate_valorant.py valorant_announcement
       </div>
       <div class="row">
         <div class="crop-box" style="max-width:220px;">
@@ -1102,6 +1103,19 @@
       </div>
       <button id="val_h2h_push">Push Head-to-Head to Overlay</button>
       <div id="val_h2h_status" class="hint"></div>
+    </div>
+  </div>
+
+  <!-- ===================== GRAPHIC FIXING ===================== -->
+  <div class="val-tab-panel" id="valtab-graphics">
+    <div class="card">
+      <h2>Graphic Fixing</h2>
+      <p class="hint">Same drag-to-nudge tool as MOBA's Graphic Fixing tab, once it's wired up here — but that needs
+        the actual overlay pages built pixel-precise against your real graphic assets first (same reasoning as every
+        MOBA graphic this session: POPUPS.psd, MVP.psd, the team stats template all came from you before Graphic
+        Fixing could position anything against them). Send the Scoreboard/MVP/Head-to-Head/Plant-Defuse PSDs or blank
+        PNG exports whenever you have them and this tab gets built out properly — nothing about the tab structure
+        needs to change once that happens, this placeholder just becomes real content.</p>
     </div>
   </div>
 
