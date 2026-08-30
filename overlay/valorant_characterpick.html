@@ -49,24 +49,26 @@
 
   .bg-frame{ position:absolute; top:0; left:0; width:1920px; height:1080px; pointer-events:none; }
 
-  /* Same zoom/swivel/ember treatment as MOBA's pick-slot portraits
-     (overlay/prematch.html) -- a tight cover crop scaled up past the frame
-     edge so the constant micro-rotate/skew sway never reveals empty space
-     at the corners, plus a handful of theme-colored embers (sampled from
-     each portrait's own dominant color) drifting up from the bottom while
-     a slot is filled. */
+  /* Portraits are pre-cropped per-agent to a consistent head-to-frame ratio
+     (see overlay/assets/Valorant Agents/Portraits/ -- generated from the
+     full-body source art by measuring each agent's own head bounding box,
+     since a single fixed CSS crop landed on wildly different parts of the
+     body depending on the pose). object-fit:cover here just does the final
+     minor trim to the slot's own aspect -- the heavy lifting (centering on
+     the actual head) already happened in that pre-crop. The sway animation
+     is a subtle scale now, not a zoom -- zoom is baked into the crop. */
   .slot-wrap{
     position:absolute; width:159px; height:179px; top:826px;
     overflow:hidden; display:none;
   }
   .slot-wrap.filled{ display:block; }
   .slot-wrap img{
-    width:100%; height:100%; object-fit:cover; object-position:50% 0%;
-    transform-origin:center top; animation:slotFloat 5s ease-in-out infinite;
+    width:100%; height:100%; object-fit:cover; object-position:50% 12%;
+    transform-origin:center 12%; animation:slotFloat 5s ease-in-out infinite;
   }
   @keyframes slotFloat{
-    0%,100%{ transform:scale(2.5) translateY(2px) rotate(-0.5deg) skewY(-0.6deg); }
-    50%{ transform:scale(2.5) translateY(-2px) rotate(0.5deg) skewY(0.6deg); }
+    0%,100%{ transform:scale(1.08) translateY(2px) rotate(-0.5deg) skewY(-0.6deg); }
+    50%{ transform:scale(1.08) translateY(-2px) rotate(0.5deg) skewY(0.6deg); }
   }
   .slot-wrap .ember{
     position:absolute; bottom:-6px; width:4px; height:4px; border-radius:50%;
@@ -89,11 +91,11 @@
   }
 
   #map-thumb{
-    position:absolute; left:880px; top:826px; width:159px; height:179px;
+    position:absolute; left:869px; top:826px; width:159px; height:179px;
     object-fit:cover; display:none;
   }
   #map-name{
-    position:absolute; left:880px; top:1006px; width:159px; height:34px;
+    position:absolute; left:869px; top:1006px; width:159px; height:34px;
     display:flex; align-items:center; justify-content:center;
     color:#ffffff; font-weight:800; font-style:italic; font-size:14px;
     text-transform:uppercase; letter-spacing:0.3px;
@@ -148,28 +150,7 @@ const VAL_AGENT_MAP = {};
 
 function agentPortraitUrl(agentName){
   const file = VAL_AGENT_MAP[(agentName || "").toLowerCase()];
-  return file ? `assets/Valorant Agents/${file}` : "";
-}
-
-// Per-agent head/face focus point (as % of the portrait's own width/height),
-// measured directly off each trimmed portrait -- these are full-body art at
-// wildly different poses (standing straight vs. leaning/jumping/turned),
-// so a single fixed object-position doesn't land on the face for every
-// agent (e.g. Waylay/Neon/Gekko lean hard to one side). Drives both
-// object-position (so object-fit:cover's own crop is already biased toward
-// the head) and transform-origin (so the extra CSS zoom keyframe stays
-// pinned on that same point instead of drifting off toward center-top).
-const VAL_AGENT_FOCUS = {
-  astra:{x:57,y:15}, breach:{x:45,y:6}, brimstone:{x:50,y:8}, chamber:{x:42,y:6},
-  fade:{x:57,y:8}, harbor:{x:55,y:7}, jett:{x:25,y:8}, "kay/o":{x:48,y:10},
-  killjoy:{x:62,y:10}, neon:{x:40,y:13}, omen:{x:53,y:13}, phoenix:{x:50,y:6},
-  raze:{x:45,y:10}, reyna:{x:53,y:15}, sage:{x:57,y:8}, skye:{x:50,y:5},
-  sova:{x:53,y:6}, cypher:{x:48,y:6}, viper:{x:40,y:5}, yoru:{x:48,y:6},
-  iso:{x:52,y:7}, waylay:{x:32,y:8}, gekko:{x:45,y:6}, tejo:{x:45,y:10},
-  clove:{x:62,y:10}, deadlock:{x:25,y:8}, vyse:{x:48,y:8},
-};
-function agentFocus(agentName){
-  return VAL_AGENT_FOCUS[(agentName || "").toLowerCase()] || { x:50, y:8 };
+  return file ? `assets/Valorant Agents/Portraits/${file}` : "";
 }
 
 const VAL_MAP_MAP = {};
@@ -317,9 +298,6 @@ function fillSlotPortrait(n, agentName){
   wrap.classList.toggle("filled", !!src);
   if(src){
     img.src = src;
-    const focus = agentFocus(agentName);
-    img.style.objectPosition = `${focus.x}% ${focus.y}%`;
-    img.style.transformOrigin = `${focus.x}% ${focus.y}%`;
     img.onload = () => sampleThemeColor(img, wrap);
     img.onerror = () => wrap.classList.remove("filled");
   }
