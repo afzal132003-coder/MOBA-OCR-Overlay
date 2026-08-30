@@ -75,7 +75,14 @@
   .stat-cell.name-cell{ color:#ffffff; font-style:italic; font-size:20px; text-transform:uppercase; overflow:hidden; white-space:nowrap; }
   .stat-cell.center{ justify-content:center; text-align:center; }
 
-  .row-photo{ position:absolute; width:99px; height:76px; object-fit:cover; display:none; }
+  /* background-color is a fallback backdrop, matching the team-color tag
+     this box replaces -- shows through if the uploaded photo has its own
+     transparent background (a cutout headshot), instead of the photo
+     looking like it didn't load at all. Border keeps the box visible and
+     framed even then. */
+  .row-photo{ position:absolute; width:99px; height:76px; object-fit:cover; display:none; box-sizing:border-box; border:2px solid #d4af6a; }
+  .row-photo.team1{ background-color:#97dace; }
+  .row-photo.team2{ background-color:#fa4e5e; }
 </style>
 </head>
 <body>
@@ -128,7 +135,7 @@ const GFX_ELEMENT_IDS = ["team1-logo","team1-name","series-score","team2-logo","
     // player's own uploaded photo (set in Team Setup, not a hero/agent
     // render -- Valorant has no fixed pick art) belongs in.
     const photo = document.createElement("img");
-    photo.className = "row-photo";
+    photo.className = `row-photo ${row.team}`;
     photo.id = `p${row.n}-photo`;
     photo.style.left = (row.x + 1) + "px";
     photo.style.top = row.y + "px";
