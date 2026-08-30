@@ -7,8 +7,8 @@
   "server_port": 8765,
   "regions": {},
   "relay": {
-    "enabled": false,
-    "url": "",
-    "token": ""
+    "enabled": true,
+    "url": "wss://moba-ocr-overlay-production.up.railway.app",
+    "token": "7NAmOd7tkqRC7IUcgdG3fHeWtmpQw82z"
   }
 }
