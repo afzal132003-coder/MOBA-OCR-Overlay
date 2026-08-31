@@ -21,18 +21,18 @@
 
     Head-to-Head lives in THIS SAME file/OBS source as a second display
     mode (state.mvpScreenMode: "mvp" | "headtohead"), not a separate page
-    -- an explicit request, so the sponsor branding strip (top-left) stays
-    on screen through the transition instead of the whole browser source
-    swapping. #sponsor-branding is cropped out of playermvp-plain.png's
-    own baked copy into its own standalone asset and shown unconditionally
-    regardless of mode; #mvp-content/#h2h-content each carry the rest of
-    their own layout (own bg-frame, own dynamic elements) and cross-fade
-    via the .screen-content/.visible classes below when the operator
-    toggles mode from the dashboard. Head-to-Head's own positions are
-    measured off overlay/assets/headtohead.png (no PSD, no obvious per-
-    player value slots baked into that flat art either) -- best estimate,
-    nudge with Graphic Fixing -> Head to Head as needed, same as every
-    other PSD-less asset in this project.
+    -- an explicit request. #mvp-content/#h2h-content each carry their own
+    layout (own bg-frame, own dynamic elements) and cross-fade via the
+    .screen-content/.visible classes below when the operator toggles mode
+    from the dashboard. Head-to-Head's own positions are measured off
+    overlay/assets/headtohead.png (no PSD, no obvious per-player value
+    slots baked into that flat art either) -- best estimate, nudge with
+    Graphic Fixing -> Head to Head as needed, same as every other PSD-less
+    asset in this project. Head-to-Head's two agent portraits use the SAME
+    full-body art + object-fit:contain/bottom + bottom-pivoted sway
+    animation as MVP's own big art area (see #agent-portrait below) --
+    just resized/repositioned to fit inside Head-to-Head's smaller chevron
+    zones instead of MVP's big 700x940 area.
   */
 
   @font-face {
@@ -67,12 +67,6 @@
   @keyframes enter{ to{ opacity:1; transform:translateY(0); } }
 
   .bg-frame{ position:absolute; top:0; left:0; width:1920px; height:1080px; pointer-events:none; }
-
-  /* Always visible regardless of mvpScreenMode -- see the file-level
-     comment above. z-index keeps it above BOTH bg-frames (headtohead.png's
-     own gold "VERSUS" banner spans the full top of the canvas and would
-     otherwise paint over it once h2h-content is visible). */
-  #sponsor-branding{ position:absolute; left:59px; top:48px; width:485px; height:99px; object-fit:contain; z-index:10; }
 
   /* MVP and Head-to-Head each get their own wrap so the operator's mode
      toggle can cross-fade between them without touching the sponsor
@@ -164,19 +158,26 @@
   #h2h-p1-firstbloods, #h2h-p2-firstbloods{ top:667px; }
 
   /* Picked agent portrait, framed within each side's gold chevron cluster
-     -- "character pick" per an explicit request, same cropped headshot
-     asset Character Pick/Team Chemistry Stats use (Valorant Agents/
-     Portraits/), not the full-body art MVP's own big art area uses. */
-  .h2h-portrait{ position:absolute; top:182px; width:380px; height:447px; object-fit:cover; display:none; }
-  #h2h-p1-portrait{ left:80px; }
-  #h2h-p2-portrait{ left:1460px; }
+     -- SAME treatment as MVP's own big art area (full-body art, contain,
+     bottom-anchored, bottom-pivoted sway), not the tight headshot crop
+     Character Pick/Team Chemistry Stats use -- object-fit:cover on a
+     full-body image here was cropping off both the head and feet. Outer
+     wrap (Graphic-Fixing target, static) / inner img (sway animation),
+     same split as #agent-portrait / #agent-portrait-img above. */
+  .h2h-portrait-wrap{ position:absolute; top:182px; width:380px; height:447px; display:none; }
+  .h2h-portrait-wrap.visible{ display:block; }
+  #h2h-p1-portrait-wrap{ left:80px; }
+  #h2h-p2-portrait-wrap{ left:1460px; }
+  .h2h-portrait-img{
+    width:100%; height:100%; object-fit:contain; object-position:bottom;
+    transform-origin:50% 100%;
+    animation: agentSway 6s ease-in-out infinite;
+  }
 </style>
 </head>
 <body>
 
 <div id="stage">
-  <img id="sponsor-branding" src="assets/valorant_sponsor_branding.png" alt="">
-
   <div id="mvp-content" class="screen-content visible">
     <img class="bg-frame" src="assets/playermvp-plain.png" alt="">
 
@@ -197,8 +198,12 @@
   <div id="h2h-content" class="screen-content">
     <img class="bg-frame" src="assets/headtohead.png" alt="">
 
-    <img class="h2h-portrait" id="h2h-p1-portrait" alt="">
-    <img class="h2h-portrait" id="h2h-p2-portrait" alt="">
+    <div class="h2h-portrait-wrap" id="h2h-p1-portrait-wrap">
+      <img class="h2h-portrait-img" id="h2h-p1-portrait-img" alt="">
+    </div>
+    <div class="h2h-portrait-wrap" id="h2h-p2-portrait-wrap">
+      <img class="h2h-portrait-img" id="h2h-p2-portrait-img" alt="">
+    </div>
 
     <img class="h2h-logo" id="h2h-team1-logo" alt="">
     <div class="h2h-name" id="h2h-team1-name"></div>
@@ -273,8 +278,8 @@ function setWrappedImg(wrapId, imgId, src){
   if(src) img.src = src;
 }
 
-const GFX_ELEMENT_IDS = ["sponsor-branding","team-logo","team-name","player-name","stat-kills","stat-deaths","stat-assists","stat-firstbloods","agent-portrait"];
-const H2H_GFX_ELEMENT_IDS = ["h2h-team1-logo","h2h-team1-name","h2h-team2-name","h2h-team2-logo","h2h-p1-portrait","h2h-p2-portrait","h2h-p1-kills","h2h-p1-deaths","h2h-p1-assists","h2h-p1-firstbloods","h2h-p2-kills","h2h-p2-deaths","h2h-p2-assists","h2h-p2-firstbloods"];
+const GFX_ELEMENT_IDS = ["team-logo","team-name","player-name","stat-kills","stat-deaths","stat-assists","stat-firstbloods","agent-portrait"];
+const H2H_GFX_ELEMENT_IDS = ["h2h-team1-logo","h2h-team1-name","h2h-team2-name","h2h-team2-logo","h2h-p1-portrait-wrap","h2h-p2-portrait-wrap","h2h-p1-kills","h2h-p1-deaths","h2h-p1-assists","h2h-p1-firstbloods","h2h-p2-kills","h2h-p2-deaths","h2h-p2-assists","h2h-p2-firstbloods"];
 
 function applyGraphicOverridesTo(ids, overrides){
   ids.forEach(id => {
@@ -360,8 +365,8 @@ function applyState(state){
   document.getElementById("h2h-team2-name").textContent = p2.name;
   setImg("h2h-team1-logo", p1.logo);
   setImg("h2h-team2-logo", p2.logo);
-  setImg("h2h-p1-portrait", agentPortraitUrl(p1.agent));
-  setImg("h2h-p2-portrait", agentPortraitUrl(p2.agent));
+  setWrappedImg("h2h-p1-portrait-wrap", "h2h-p1-portrait-img", agentPortraitUrl(p1.agent));
+  setWrappedImg("h2h-p2-portrait-wrap", "h2h-p2-portrait-img", agentPortraitUrl(p2.agent));
   document.getElementById("h2h-p1-kills").textContent = p1.kills;
   document.getElementById("h2h-p1-deaths").textContent = p1.deaths;
   document.getElementById("h2h-p1-assists").textContent = p1.assists;
