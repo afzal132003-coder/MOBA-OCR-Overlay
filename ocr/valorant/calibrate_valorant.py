@@ -199,9 +199,10 @@ def calibrate_postmatch_grid(frame, monitor):
         elif event == cv2.EVENT_LBUTTONUP:
             dragging["kind"], dragging["idx"] = None, None
 
-    win2 = ("Drag orange lines onto column edges (" +
+    win2 = ("Drag CYAN lines onto column edges (" +
             " | ".join(POSTMATCH_COL_LABELS[c] for c in POSTMATCH_COLS) +
-            "), drag cyan lines onto each of the 10 row edges.   "
+            "). Drag the 9 ORANGE lines onto the boundary between each of the 10 rows "
+            "(each row is numbered on the left so you can count all 10).   "
             "ENTER=confirm  R=reset  ESC=cancel")
     cv2.namedWindow(win2)
     cv2.setMouseCallback(win2, on_mouse)
@@ -209,12 +210,17 @@ def calibrate_postmatch_grid(frame, monitor):
     cancelled = False
     while True:
         canvas = disp.copy()
+        row_bounds_preview = [0.0] + sorted(row_dividers) + [float(disp_h)]
+        for i in range(POSTMATCH_ROWS):
+            mid_y = int((row_bounds_preview[i] + row_bounds_preview[i + 1]) / 2)
+            cv2.putText(canvas, f"R{i+1}", (4, mid_y + 5), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5, (255, 255, 255), 1, cv2.LINE_AA)
         for ry in row_dividers:
             ryi = int(ry)
-            cv2.line(canvas, (0, ryi), (disp_w, ryi), (255, 210, 0), 2)
+            cv2.line(canvas, (0, ryi), (disp_w, ryi), (0, 140, 255), 2)
         for dx in col_dividers:
             dxi = int(dx)
-            cv2.line(canvas, (dxi, 0), (dxi, disp_h), (0, 200, 255), 2)
+            cv2.line(canvas, (dxi, 0), (dxi, disp_h), (255, 220, 0), 2)
         cv2.imshow(win2, canvas)
         key = cv2.waitKey(20) & 0xFF
         if key in (13, 32):  # ENTER / SPACE
