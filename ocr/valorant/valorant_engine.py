@@ -114,6 +114,19 @@ SPIKE_PLANTED_REGEX = re.compile(r"spike\W*planted", re.IGNORECASE)
 SPIKE_DEFUSED_REGEX = re.compile(r"spike\W*defused", re.IGNORECASE)
 PLANT_DEFUSE_DISPLAY_SECONDS = 6
 
+# Spike badge/bug banner triggers -- separate from (and faster than) the
+# plant/defuse TOAST above, an explicit request. "planting" is the
+# in-progress planting-animation text (distinct from "planted", past
+# tense, so this can't double-fire off the completed-plant banner) --
+# catching it turns the badge/bug on the moment the plant STARTS instead
+# of waiting for the completed "SPIKE PLANTED" banner. "BUY PHASE" is the
+# reliable marker printed at the start of every new round -- seeing it
+# turns the badge/bug back off, a second, more immediate way to catch a
+# round ending than the round-timer safety net (see ROUND_TIMER_KEY),
+# which still runs as a fallback in case this text is ever missed.
+SPIKE_PLANTING_REGEX = re.compile(r"\bplanting\b", re.IGNORECASE)
+BUY_PHASE_REGEX = re.compile(r"buy\W*phase", re.IGNORECASE)
+
 connected_clients = set()
 connected_pages = {}
 ocr_executor = ThreadPoolExecutor(max_workers=4)
@@ -773,6 +786,23 @@ def process_plant_defuse_reading(text, now_ms):
             # case, the dashboard buttons stay as an override for when OCR
             # misses it.
             server_state["bugBanner"]["mode"] = "planted" if event_type == "plant" else "defused"
+            changed = True
+
+    # Spike badge/bug banner: independent of the toast state machine above
+    # (checked every frame, not gated behind pd["status"] == "idle") --
+    # "planting" turns them on the moment the plant animation starts,
+    # "BUY PHASE" turns them back off at the start of the next round. Each
+    # only acts if it'd actually change something, both to avoid spamming
+    # state_sync broadcasts every frame the text stays on screen, and so
+    # BUY PHASE doesn't stomp an operator's explicit "hidden" override.
+    if text:
+        if SPIKE_PLANTING_REGEX.search(text) and server_state["spikeBadge"]["mode"] != "planted":
+            server_state["spikeBadge"]["mode"] = "planted"
+            server_state["bugBanner"]["mode"] = "planted"
+            changed = True
+        elif BUY_PHASE_REGEX.search(text) and server_state["spikeBadge"]["mode"] == "planted":
+            server_state["spikeBadge"]["mode"] = "idle"
+            server_state["bugBanner"]["mode"] = "hidden"
             changed = True
 
     return changed

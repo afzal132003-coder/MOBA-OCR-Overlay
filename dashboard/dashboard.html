@@ -1097,11 +1097,13 @@
         <button class="secondary" id="val_spikeComboDown">Spike Defused + Badge Down</button>
       </div>
       <p class="hint" style="margin-top:14px;">The spike badge on the In-Game HUD is different from the popup above
-        — it's PERSISTENT (stays up for the rest of the round, doesn't auto-hide after a few seconds), driven by the
-        same "SPIKE PLANTED" detection just above, no separate calibration needed. Its idle (before planted) and
-        settled (after planted) positions are both independently adjustable in Graphic Fixing → In-Game HUD. Push it
-        manually if OCR misses it or you need to correct it, or hide it entirely for a round where you don't want it
-        on screen at all:</p>
+        — it's PERSISTENT (stays up for the rest of the round, doesn't auto-hide after a few seconds). It (and the Bug
+        Banner below) turn on the moment OCR reads "planting" — before the completed "SPIKE PLANTED" banner even
+        appears — and turn back off as soon as OCR reads "BUY PHASE" at the start of the next round (SPIKE DEFUSED
+        text and the round-timer safety net still turn it off too, as backups). No separate calibration needed, same
+        announcement region as above. Its idle (before planted) and settled (after planted) positions are both
+        independently adjustable in Graphic Fixing → In-Game HUD. Push it manually if OCR misses it or you need to
+        correct it, or hide it entirely for a round where you don't want it on screen at all:</p>
       <div class="row">
         <button id="val_spikeBadgePush">Push Spike Badge Up</button>
         <button class="secondary" id="val_spikeBadgePushDown">Push Spike Badge Down</button>
