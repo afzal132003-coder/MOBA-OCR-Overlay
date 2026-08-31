@@ -5243,15 +5243,15 @@ function valRenderImportTable(){
         </div>
       </td>
       <td style="padding:6px;"><select id="val_import_${i}_who" class="import-who-select val-import-who" style="width:170px;">${valImportWhoOptionsHtml(row.team, row.playerIndex)}</select></td>
-      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_acs" style="width:56px;" value="${row.acs}"></td>
-      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_kills" style="width:44px;" value="${row.kills}"></td>
-      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_deaths" style="width:44px;" value="${row.deaths}"></td>
-      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_assists" style="width:44px;" value="${row.assists}"></td>
+      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_acs" style="width:72px;" value="${row.acs}"></td>
+      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_kills" style="width:64px;" value="${row.kills}"></td>
+      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_deaths" style="width:64px;" value="${row.deaths}"></td>
+      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_assists" style="width:64px;" value="${row.assists}"></td>
       <td style="padding:6px;color:#9aa4c0;text-align:center;">${row.kd || 0}</td>
-      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_econ" style="width:56px;" value="${row.econ}"></td>
-      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_firstBloods" style="width:44px;" value="${row.firstBloods}"></td>
-      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_plants" style="width:44px;" value="${row.plants}"></td>
-      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_defuses" style="width:56px;" value="${row.defuses}"></td>
+      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_econ" style="width:72px;" value="${row.econ}"></td>
+      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_firstBloods" style="width:64px;" value="${row.firstBloods}"></td>
+      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_plants" style="width:64px;" value="${row.plants}"></td>
+      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_defuses" style="width:72px;" value="${row.defuses}"></td>
     `;
     tbody.appendChild(tr);
   });
