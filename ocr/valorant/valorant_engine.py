@@ -30,7 +30,6 @@ import base64
 import json
 import re
 import time
-from collections import Counter, deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
@@ -86,9 +85,10 @@ config = load_config()
 if config.get("tesseract_path"):
     pytesseract.pytesseract.tesseract_cmd = config["tesseract_path"]
 
-TEAM1_SCORE_KEY = "valorant_team1_score"
-TEAM2_SCORE_KEY = "valorant_team2_score"
-REGION_ORDER = [TEAM1_SCORE_KEY, TEAM2_SCORE_KEY]
+# Round score is manual-only (an explicit request -- OCR on it wasn't
+# reliable enough to be worth it) -- liveScore is set entirely through
+# valSendManualUpdate from the dashboard, same as seriesScore always was.
+# No calibrated region, no polling, no debounce for it at all anymore.
 
 # The round timer (e.g. "0:04", top-center between the two scores) --
 # read purely as a SAFETY NET for the spike badge, not displayed anywhere
@@ -116,7 +116,7 @@ PLANT_DEFUSE_DISPLAY_SECONDS = 6
 
 connected_clients = set()
 connected_pages = {}
-ocr_executor = ThreadPoolExecutor(max_workers=len(REGION_ORDER) + 2)
+ocr_executor = ThreadPoolExecutor(max_workers=4)
 
 
 def default_player_stat_row():
@@ -283,10 +283,6 @@ def save_state():
 server_state = load_state()
 locked_fields = set()
 
-DEBOUNCE_WINDOW = max(2, config.get("debounce_frames", 7))
-last_confirmed = {key: None for key in REGION_ORDER}
-reading_window = {key: deque(maxlen=DEBOUNCE_WINDOW) for key in REGION_ORDER}
-
 # Round-timer jump tracking for the spike badge safety net (see
 # ROUND_TIMER_KEY above). _last_round_timer_seconds is a FROZEN baseline
 # from before a suspected jump -- it deliberately does NOT update on every
@@ -329,26 +325,6 @@ def track_round_timer(seconds):
     return False
 
 
-def confirm_reading(key, raw_value):
-    """Rolling-window majority vote, same logic (and same reasoning) as
-    ocr_engine.py's version -- a window tolerates the occasional bad frame
-    mixed in among mostly-good ones instead of a single misread frame
-    resetting a consecutive-match streak back to zero."""
-    if raw_value is None:
-        return None
-    window = reading_window[key]
-    window.append(raw_value)
-    if len(window) < window.maxlen:
-        return None
-    value, count = Counter(window).most_common(1)[0]
-    if count * 2 <= len(window):
-        return None
-    if last_confirmed[key] == value:
-        return None
-    last_confirmed[key] = value
-    return value
-
-
 def preprocess(img_bgr, upscale=4):
     """Same digit-tuned pipeline as ocr_engine.py's preprocess() -- see
     that file for the reasoning behind each step (border padding, upscale,
@@ -382,10 +358,6 @@ def parse_int(text):
     if not match:
         return None
     return int(match.group())
-
-
-def read_region(key, img_bgr):
-    return parse_int(ocr_number(img_bgr))
 
 
 TESS_CONFIG_TIMER = (
@@ -469,20 +441,19 @@ def ocr_text(img_bgr):
 
 # The K/D/A column OCRs as one slash-joined token, e.g. "18/3/5".
 KDA_TRIPLE_REGEX = re.compile(r"^(\d+)/(\d+)/(\d+)$")
-KD_DECIMAL_REGEX = re.compile(r"\d+\.\d+|\d+")
 
 TESS_CONFIG_KDA = (
     "--oem 1 --psm 7 "
     "-c tessedit_char_whitelist=0123456789/ "
     "-c load_system_dawg=0 -c load_freq_dawg=0"
 )
-TESS_CONFIG_DECIMAL = (
-    "--oem 1 --psm 7 "
-    "-c tessedit_char_whitelist=0123456789. "
-    "-c load_system_dawg=0 -c load_freq_dawg=0"
-)
 
-POSTMATCH_GRID_COLS = ["kda", "acs", "kd", "fb", "plants"]
+# Real on-screen left-to-right order: ACS, K/D/A, Econ, First Bloods,
+# Plants -- each is now its OWN individually-calibrated box (drag-one-box,
+# same flow as the ingame/char-select regions) rather than a computed grid
+# subdivision, per an explicit request that the grid-line-drag approach
+# wasn't reliable enough.
+POSTMATCH_GRID_COLS = ["acs", "kda", "econ", "fb", "plants"]
 POSTMATCH_GRID_ROWS = 10
 
 
@@ -503,24 +474,16 @@ def ocr_kda_triple(img_bgr):
     return int(match.group(1)), int(match.group(2)), int(match.group(3))
 
 
-def ocr_decimal(img_bgr):
-    """Returns a float for a K/D-ratio-shaped cell, or None -- same digit
-    pipeline as ocr_number() but the whitelist also allows a decimal point."""
-    processed = preprocess(img_bgr)
-    text = pytesseract.image_to_string(processed, config=TESS_CONFIG_DECIMAL).strip()
-    match = KD_DECIMAL_REGEX.search(text)
-    return float(match.group()) if match else None
-
-
 def extract_postmatch_grid(regions_cfg, img_bgr=None):
-    """Reads all calibrated postmatch grid cells (up to 10 rows x 5 stat
-    columns), either cropped out of an already-loaded img_bgr (the upload
-    path, treated as a full monitor-resolution screenshot so the calibrated
-    screen coordinates still line up) or captured live off-screen (the
-    capture path). Returns a list of row dicts in top-to-bottom on-screen
-    order -- a row with no calibrated cells at all is skipped entirely, but
-    a row missing just some of its 5 cells still comes back with 0 for
-    whichever ones aren't calibrated/readable."""
+    """Reads all calibrated postmatch cells (up to 10 rows x 5 stat
+    columns, 50 individually-calibrated boxes), either cropped out of an
+    already-loaded img_bgr (the upload path, treated as a full monitor-
+    resolution screenshot so the calibrated screen coordinates still line
+    up) or captured live off-screen (the capture path). Returns a list of
+    row dicts in top-to-bottom on-screen order -- a row with no calibrated
+    cells at all is skipped entirely, but a row missing just some of its 5
+    cells still comes back with 0 for whichever ones aren't calibrated/
+    readable."""
     def read_cell(region_key, sct):
         region = regions_cfg.get(region_key)
         if not region or region.get("w", 0) <= 0 or region.get("h", 0) <= 0:
@@ -545,8 +508,8 @@ def extract_postmatch_grid(regions_cfg, img_bgr=None):
             acs_crop = read_cell(keys["acs"], sct)
             acs = parse_int(ocr_number(acs_crop)) if acs_crop is not None else None
 
-            kd_crop = read_cell(keys["kd"], sct)
-            kd = ocr_decimal(kd_crop) if kd_crop is not None else None
+            econ_crop = read_cell(keys["econ"], sct)
+            econ = parse_int(ocr_number(econ_crop)) if econ_crop is not None else None
 
             fb_crop = read_cell(keys["fb"], sct)
             first_bloods = parse_int(ocr_number(fb_crop)) if fb_crop is not None else None
@@ -557,7 +520,7 @@ def extract_postmatch_grid(regions_cfg, img_bgr=None):
             rows.append({
                 "rowIndex": row,
                 "acs": acs or 0, "kills": kills, "deaths": deaths, "assists": assists,
-                "kd": kd or 0.0, "firstBloods": first_bloods or 0, "plants": plants or 0,
+                "econ": econ or 0, "firstBloods": first_bloods or 0, "plants": plants or 0,
             })
         return rows
 
@@ -724,16 +687,6 @@ async def broadcast_presence():
     await broadcast({"type": "presence", "pages": presence_counts()})
 
 
-def apply_live_score(key, value):
-    team = "team1" if key == TEAM1_SCORE_KEY else "team2"
-    if f"liveScore.{team}" in locked_fields:
-        return False
-    if server_state["liveScore"][team] == value:
-        return False
-    server_state["liveScore"][team] = value
-    return True
-
-
 def swap_team_sides():
     """Interchange everything currently tagged team1 <-> team2 -- same
     full-identity-swap approach as MOBA's swap_team_sides() (see
@@ -814,6 +767,12 @@ def process_plant_defuse_reading(text, now_ms):
             pd["team"] = team
             pd["type"] = event_type
             server_state["spikeBadge"]["mode"] = "planted" if event_type == "plant" else "idle"
+            # The bug banner (SPIKEPLANTED_BUG / BOMBDEFUSED_BUG art) now
+            # follows the same OCR trigger as the spike badge, an explicit
+            # request -- no separate manual push needed for the common
+            # case, the dashboard buttons stay as an override for when OCR
+            # misses it.
+            server_state["bugBanner"]["mode"] = "planted" if event_type == "plant" else "defused"
             changed = True
 
     return changed
@@ -993,12 +952,6 @@ async def ocr_loop():
         frame_counter = 0
         while True:
             regions = config.get("regions", {})
-            crops = {}
-            for key in REGION_ORDER:
-                region = regions.get(key)
-                if not region or region.get("w", 0) <= 0 or region.get("h", 0) <= 0:
-                    continue
-                crops[key] = crop_to_bgr(sct, region)
 
             announcement_region = regions.get(ANNOUNCEMENT_REGION_KEY)
             announcement_crop = None
@@ -1010,19 +963,14 @@ async def ocr_loop():
             if timer_region and timer_region.get("w", 0) > 0 and timer_region.get("h", 0) > 0:
                 timer_crop = crop_to_bgr(sct, timer_region)
 
-            keys = list(crops.keys())
-            ocr_tasks = [
-                loop.run_in_executor(ocr_executor, read_region, key, crops[key])
-                for key in keys
-            ]
+            ocr_tasks = []
             if announcement_crop is not None:
                 ocr_tasks.append(loop.run_in_executor(ocr_executor, ocr_text, announcement_crop))
             if timer_crop is not None:
                 ocr_tasks.append(loop.run_in_executor(ocr_executor, ocr_round_timer, timer_crop))
             results = await asyncio.gather(*ocr_tasks)
 
-            numeric_results = results[:len(keys)]
-            idx = len(keys)
+            idx = 0
             announcement_raw_text = None
             if announcement_crop is not None:
                 announcement_raw_text = results[idx]
@@ -1030,13 +978,6 @@ async def ocr_loop():
             timer_seconds = results[idx] if timer_crop is not None else None
 
             changed = False
-            for key, parsed in zip(keys, numeric_results):
-                confirmed = confirm_reading(key, parsed)
-                if confirmed is None:
-                    continue
-                if apply_live_score(key, confirmed):
-                    changed = True
-
             if process_plant_defuse_reading(announcement_raw_text, int(time.time() * 1000)):
                 changed = True
 
@@ -1046,13 +987,10 @@ async def ocr_loop():
             # starting up, nothing to correct.
             if track_round_timer(timer_seconds) and server_state["spikeBadge"]["mode"] == "planted":
                 server_state["spikeBadge"]["mode"] = "idle"
+                server_state["bugBanner"]["mode"] = "hidden"
                 changed = True
 
             if frame_counter % 2 == 0:
-                for key, img_bgr in crops.items():
-                    data_url = crop_to_data_url(img_bgr)
-                    if data_url:
-                        await broadcast({"type": "crop_preview", "region": key, "image": data_url})
                 if announcement_crop is not None:
                     data_url = crop_to_data_url(announcement_crop)
                     if data_url:
