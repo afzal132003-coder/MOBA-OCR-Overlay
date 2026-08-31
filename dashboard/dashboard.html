@@ -1076,6 +1076,14 @@
         <button class="secondary" id="val_spikeBadgePushDown">Push Spike Badge Down</button>
         <button class="secondary" id="val_spikeBadgeDisappear">Hide Spike Badge Completely</button>
       </div>
+      <p class="hint" style="margin-top:14px;">Bug Banner — a separate, fully manual ribbon graphic (SPIKEPLANTED_BUG /
+        BOMBDEFUSED_BUG), on the In-Game HUD only. No OCR involved at all — push it up or pull it down entirely by
+        hand. Position is adjustable in Graphic Fixing → In-Game HUD.</p>
+      <div class="row">
+        <button id="val_bugBannerPlanted">Show "Spike Planted" Bug</button>
+        <button id="val_bugBannerDefused">Show "Bomb Defused" Bug</button>
+        <button class="secondary" id="val_bugBannerHide">Hide Bug Banner</button>
+      </div>
     </div>
 
     <div class="card">
@@ -5035,6 +5043,15 @@ document.getElementById("val_spikeBadgePushDown").addEventListener("click", () =
 document.getElementById("val_spikeBadgeDisappear").addEventListener("click", () => {
   if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"spike_badge_disappear"}));
 });
+document.getElementById("val_bugBannerPlanted").addEventListener("click", () => {
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"bug_banner_show_planted"}));
+});
+document.getElementById("val_bugBannerDefused").addEventListener("click", () => {
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"bug_banner_show_defused"}));
+});
+document.getElementById("val_bugBannerHide").addEventListener("click", () => {
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"bug_banner_hide"}));
+});
 document.getElementById("val_hoaxOverlayPush").addEventListener("click", () => {
   if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"hoax_overlay_show"}));
 });
@@ -5432,6 +5449,7 @@ const VAL_GRAPHIC_PAGES = {
       // real positions here.
       "spike-badge-idle": { left:905, top:160, width:110, height:95, kind:"box", label:"Spike Badge (Idle position)" },
       "spike-badge-planted": { left:905, top:15, width:110, height:95, kind:"box", label:"Spike Badge (Planted position)" },
+      "bug-banner": { left:783, top:133, width:356, height:54, kind:"box", label:"Bug Banner (Spike Planted / Bomb Defused)" },
     },
   },
   teamchemistry: {

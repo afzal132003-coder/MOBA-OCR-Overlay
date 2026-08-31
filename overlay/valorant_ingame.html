@@ -117,6 +117,21 @@
       transform:scale(1.07);
     }
   }
+
+  /* Two complete pre-made banner graphics (SPIKEPLANTED_BUG.png /
+     BOMBDEFUSED_BUG.png) supplied as full 1920x1080 canvases with the
+     ribbon art at the same spot on both -- cropped down to just that
+     ribbon (was 1920x1080, now 356x54 at the crop's original on-canvas
+     position) so this element's own size matches every other Graphic
+     Fixing box on this page instead of being an awkward stage-sized drag
+     target. One <img> whose src toggles between the two covers both
+     states. Fully manual -- no OCR, pushed/pulled from the dashboard only. */
+  #bug-banner{
+    position:absolute; left:783px; top:133px; width:356px; height:54px;
+    object-fit:contain;
+    opacity:0; pointer-events:none; transition:opacity 0.3s ease;
+  }
+  #bug-banner.visible{ opacity:1; }
 </style>
 </head>
 <body>
@@ -142,6 +157,8 @@
   <div id="context-text"></div>
 
   <img id="spike-badge" src="assets/spikebadge.png" alt="">
+
+  <img id="bug-banner" alt="">
 </div>
 
 <script>
@@ -171,7 +188,20 @@ function setLogo(id, src){
   else { el.style.display = "none"; }
 }
 
-const GFX_ELEMENT_IDS = ["team1-logo","team1-name","team1-score","team2-logo","team2-name","team2-score","context-text"];
+const GFX_ELEMENT_IDS = ["team1-logo","team1-name","team1-score","team2-logo","team2-name","team2-score","context-text","bug-banner"];
+
+function setBugBanner(mode){
+  const el = document.getElementById("bug-banner");
+  if(mode === "planted"){
+    el.src = "assets/SPIKEPLANTED_BUG.png";
+    el.classList.add("visible");
+  } else if(mode === "defused"){
+    el.src = "assets/BOMBDEFUSED_BUG.png";
+    el.classList.add("visible");
+  } else {
+    el.classList.remove("visible");
+  }
+}
 
 // Base (un-nudged) positions for the badge's two states -- Graphic
 // Fixing's dx/dy/scale for "spike-badge-idle"/"spike-badge-planted" apply
@@ -232,6 +262,8 @@ function applyState(state){
   badge.style.height = rect.height + "px";
   badge.classList.toggle("planted", planted);
   badge.classList.toggle("hidden", badgeMode === "hidden");
+
+  setBugBanner((state.bugBanner && state.bugBanner.mode) || "hidden");
 
   applyGraphicOverrides(overrides);
 }

@@ -153,6 +153,15 @@ def default_state():
         # attention at all).
         "spikeBadge": {"mode": "idle"},
 
+        # A separate, fully-manual banner from spikeBadge above -- two
+        # complete pre-made graphics (SPIKEPLANTED_BUG.png / BOMBDEFUSED_
+        # BUG.png, both 1920x1080 with the ribbon art pre-positioned at the
+        # same spot on that canvas) toggled entirely by the operator, no
+        # OCR involved at all. Lives on the main In-Game HUD only (not a
+        # separate page). Resets to hidden on load, same as every other
+        # "currently showing" manual overlay toggle in this project.
+        "bugBanner": {"mode": "hidden"},
+
         # The full hoax-overlay.png-styled bar (own team plates + score +
         # the spike badge) is a SEPARATE, independent overlay page from the
         # main In-Game HUD above, not merged into it -- shown/hidden as a
@@ -214,6 +223,7 @@ def load_state():
             # as MOBA's turtleTimer/lordTimer reset on load.
             state["plantDefuse"] = default_state()["plantDefuse"]
             state["spikeBadge"] = default_state()["spikeBadge"]
+            state["bugBanner"] = default_state()["bugBanner"]
             state["hoaxOverlay"] = default_state()["hoaxOverlay"]
             return state
         except (json.JSONDecodeError, OSError):
@@ -785,6 +795,21 @@ async def handle_client(websocket, path=None):
 
             elif msg_type == "spike_badge_disappear":
                 server_state["spikeBadge"]["mode"] = "hidden"
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
+            elif msg_type == "bug_banner_show_planted":
+                server_state["bugBanner"]["mode"] = "planted"
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
+            elif msg_type == "bug_banner_show_defused":
+                server_state["bugBanner"]["mode"] = "defused"
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
+            elif msg_type == "bug_banner_hide":
+                server_state["bugBanner"]["mode"] = "hidden"
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
 
