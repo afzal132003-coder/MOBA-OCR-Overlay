@@ -1032,9 +1032,12 @@
 
     <div class="card">
       <h2>Round Score</h2>
-      <p class="hint">The two small numbers either side of the round timer, top-center. First time only, calibrate:</p>
+      <p class="hint">The two small numbers either side of the round timer, top-center. First time only, calibrate
+        (this also picks up the round timer itself, valorant_round_timer -- not shown anywhere, it's only read as a
+        safety net so the spike badge automatically clears once a round ends, even if OCR misses the exact
+        "defused"/"planted" banner text):</p>
       <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-        cd ocr/valorant &amp;&amp; python calibrate_valorant.py valorant_team1_score valorant_team2_score
+        cd ocr/valorant &amp;&amp; python calibrate_valorant.py valo-ingame
       </div>
       <div class="stat-grid" id="val_scoreGrid"></div>
     </div>

@@ -7,7 +7,12 @@ categories you can run independently:
                    DEFUSED" announcement banner zone (draw it generously,
                    wider/taller than the text itself -- same reasoning as
                    MOBA's turtle_announcement calibration, the banner can
-                   shift slightly).
+                   shift slightly) + the round timer itself (the M:SS clock
+                   between the two scores, cropped tight to just the
+                   digits) -- that one isn't shown anywhere, it's purely a
+                   safety net so the spike badge auto-clears itself once
+                   the round moves on, even if the exact end-of-round
+                   banner text isn't recognized.
 
   valo-character   Ten character-select slot regions (5 defenders/left, 5
                    attackers/right) -- FIXED per-slot boxes on purpose: the
@@ -67,7 +72,7 @@ CHARSELECT_KEYS = [f"valorant_charselect_team1_{i}" for i in range(5)] + \
                   [f"valorant_charselect_team2_{i}" for i in range(5)]
 
 CATEGORIES = {
-    "valo-ingame": ["valorant_team1_score", "valorant_team2_score", "valorant_announcement"],
+    "valo-ingame": ["valorant_team1_score", "valorant_team2_score", "valorant_announcement", "valorant_round_timer"],
     "valo-character": CHARSELECT_KEYS,
     "valo-postmatch": None,  # special interactive grid flow, not a plain key list
 }
@@ -85,6 +90,7 @@ LABELS = {
     "valorant_team1_score": "TEAM 1 (left/attacker side) - ROUND SCORE",
     "valorant_team2_score": "TEAM 2 (right/defender side) - ROUND SCORE",
     "valorant_announcement": "SPIKE PLANTED / SPIKE DEFUSED banner zone - draw it generously, wider/taller than the text itself",
+    "valorant_round_timer": "ROUND TIMER (the M:SS clock between the two scores) - crop tight to just the digits, used only as a spike-badge safety net, not displayed anywhere",
 }
 for i in range(5):
     LABELS[f"valorant_charselect_team1_{i}"] = f"CHAR-SELECT - Team 1 (defenders/left) Player {i+1} - crop tight to just the agent art"

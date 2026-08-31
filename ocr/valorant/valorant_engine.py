@@ -90,6 +90,16 @@ TEAM1_SCORE_KEY = "valorant_team1_score"
 TEAM2_SCORE_KEY = "valorant_team2_score"
 REGION_ORDER = [TEAM1_SCORE_KEY, TEAM2_SCORE_KEY]
 
+# The round timer (e.g. "0:04", top-center between the two scores) --
+# read purely as a SAFETY NET for the spike badge, not displayed anywhere
+# itself. Any time the badge is "planted" and this timer jumps UP instead
+# of continuing to count down, that means the round has moved on (spike
+# defused, exploded, whatever ended it) -- turn the badge back to idle
+# regardless of which exact end-of-round banner text fired, since guessing
+# every possible "ATTACKERS WIN"-style banner wording is more fragile than
+# just watching the timer reset. See ocr_loop()/track_round_timer().
+ROUND_TIMER_KEY = "valorant_round_timer"
+
 # The top-center announcement zone -- confirmed against a real clip (not
 # assumed): "SPIKE PLANTED" is genuine on-screen text, same toast-style
 # banner as MOBA's turtle/lord announcements. Reads generously (whole
@@ -277,6 +287,47 @@ DEBOUNCE_WINDOW = max(2, config.get("debounce_frames", 7))
 last_confirmed = {key: None for key in REGION_ORDER}
 reading_window = {key: deque(maxlen=DEBOUNCE_WINDOW) for key in REGION_ORDER}
 
+# Round-timer jump tracking for the spike badge safety net (see
+# ROUND_TIMER_KEY above). _last_round_timer_seconds is a FROZEN baseline
+# from before a suspected jump -- it deliberately does NOT update on every
+# poll while a jump is being confirmed, only once the jump is confirmed or
+# abandoned. That matters because once a real round transition happens the
+# new timer immediately resumes counting DOWN (e.g. 100, 99, 98...), so
+# only the very first post-jump reading is actually higher than the one
+# right before it -- comparing every frame against the immediately-prior
+# frame (instead of a frozen baseline) would see that first jump, then see
+# "99 < 100" on the next frame and wrongly conclude nothing happened.
+# Comparing against a frozen pre-jump baseline instead lets consecutive
+# elevated-but-decreasing readings still count as confirming the same
+# jump, which is what a real round transition looks like.
+_last_round_timer_seconds = None
+_timer_jump_streak = 0
+TIMER_JUMP_CONFIRM_FRAMES = 2
+
+
+def track_round_timer(seconds):
+    """Call once per poll with the raw (unconfirmed) timer reading, or
+    None if unreadable this frame. Returns True if this reading confirms
+    the round just moved on (only meaningful while spikeBadge is
+    "planted" -- caller decides what to do with True)."""
+    global _last_round_timer_seconds, _timer_jump_streak
+    if seconds is None:
+        return False
+    if _last_round_timer_seconds is None:
+        _last_round_timer_seconds = seconds
+        return False
+    jumped = seconds > _last_round_timer_seconds + 2
+    if jumped:
+        _timer_jump_streak += 1
+    else:
+        _timer_jump_streak = 0
+        _last_round_timer_seconds = seconds  # only move the baseline when NOT mid-jump
+    if _timer_jump_streak >= TIMER_JUMP_CONFIRM_FRAMES:
+        _last_round_timer_seconds = seconds
+        _timer_jump_streak = 0
+        return True
+    return False
+
 
 def confirm_reading(key, raw_value):
     """Rolling-window majority vote, same logic (and same reasoning) as
@@ -335,6 +386,29 @@ def parse_int(text):
 
 def read_region(key, img_bgr):
     return parse_int(ocr_number(img_bgr))
+
+
+TESS_CONFIG_TIMER = (
+    "--oem 1 --psm 7 "
+    "-c tessedit_char_whitelist=0123456789: "
+    "-c load_system_dawg=0 -c load_freq_dawg=0"
+)
+ROUND_TIMER_REGEX = re.compile(r"(\d{1,2}):(\d{2})")
+
+
+def ocr_round_timer(img_bgr):
+    """Returns total seconds parsed from an "M:SS" reading, or None. Not a
+    debounced/confirmed value like the scores -- this is read raw, every
+    poll, purely to detect when it jumps UP (see track_round_timer)."""
+    processed = preprocess(img_bgr)
+    text = pytesseract.image_to_string(processed, config=TESS_CONFIG_TIMER)
+    match = ROUND_TIMER_REGEX.search(text.strip())
+    if not match:
+        return None
+    minutes, seconds = int(match.group(1)), int(match.group(2))
+    if seconds > 59:
+        return None
+    return minutes * 60 + seconds
 
 
 MAX_OCR_DIMENSION = 1920
@@ -931,6 +1005,11 @@ async def ocr_loop():
             if announcement_region and announcement_region.get("w", 0) > 0 and announcement_region.get("h", 0) > 0:
                 announcement_crop = crop_to_bgr(sct, announcement_region)
 
+            timer_region = regions.get(ROUND_TIMER_KEY)
+            timer_crop = None
+            if timer_region and timer_region.get("w", 0) > 0 and timer_region.get("h", 0) > 0:
+                timer_crop = crop_to_bgr(sct, timer_region)
+
             keys = list(crops.keys())
             ocr_tasks = [
                 loop.run_in_executor(ocr_executor, read_region, key, crops[key])
@@ -938,10 +1017,17 @@ async def ocr_loop():
             ]
             if announcement_crop is not None:
                 ocr_tasks.append(loop.run_in_executor(ocr_executor, ocr_text, announcement_crop))
+            if timer_crop is not None:
+                ocr_tasks.append(loop.run_in_executor(ocr_executor, ocr_round_timer, timer_crop))
             results = await asyncio.gather(*ocr_tasks)
 
             numeric_results = results[:len(keys)]
-            announcement_raw_text = results[len(keys)] if announcement_crop is not None else None
+            idx = len(keys)
+            announcement_raw_text = None
+            if announcement_crop is not None:
+                announcement_raw_text = results[idx]
+                idx += 1
+            timer_seconds = results[idx] if timer_crop is not None else None
 
             changed = False
             for key, parsed in zip(keys, numeric_results):
@@ -952,6 +1038,14 @@ async def ocr_loop():
                     changed = True
 
             if process_plant_defuse_reading(announcement_raw_text, int(time.time() * 1000)):
+                changed = True
+
+            # Spike badge safety net -- see ROUND_TIMER_KEY/track_round_timer
+            # above. Only acts while the badge is actually showing planted;
+            # a timer jump the rest of the time is just a normal new round
+            # starting up, nothing to correct.
+            if track_round_timer(timer_seconds) and server_state["spikeBadge"]["mode"] == "planted":
+                server_state["spikeBadge"]["mode"] = "idle"
                 changed = True
 
             if frame_counter % 2 == 0:
@@ -965,6 +1059,14 @@ async def ocr_loop():
                         await broadcast({
                             "type": "crop_preview", "region": ANNOUNCEMENT_REGION_KEY,
                             "image": data_url, "text": announcement_raw_text or "",
+                        })
+                if timer_crop is not None:
+                    data_url = crop_to_data_url(timer_crop)
+                    if data_url:
+                        await broadcast({
+                            "type": "crop_preview", "region": ROUND_TIMER_KEY,
+                            "image": data_url,
+                            "text": f"{timer_seconds}s" if timer_seconds is not None else "",
                         })
 
             if changed:
