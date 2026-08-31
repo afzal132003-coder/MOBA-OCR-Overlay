@@ -138,6 +138,18 @@ PLANT_DEFUSE_DISPLAY_SECONDS = 6
 SPIKE_PLANTING_REGEX = re.compile(r"\bplanting\b", re.IGNORECASE)
 BUY_PHASE_REGEX = re.compile(r"buy\W*phase", re.IGNORECASE)
 
+# Master switch for all of the above -- explicit request after several
+# tuning passes (banner text, "planting"/"BUY PHASE", the round-timer red-
+# icon color check) still weren't reliable enough in real games. False
+# turns OCR OFF entirely for the plant/defuse popup, spike badge, and bug
+# banner -- ocr_loop() skips reading/deciding anything for them (see the
+# check near its top). The dashboard's manual buttons (including the
+# Spike Bug + Badge Up/Down combo buttons) still fully control all three
+# by hand either way, since those go through handle_client's message
+# handlers, a completely separate code path from this flag. Flip back to
+# True once the detection logic gets revisited.
+PLANT_DEFUSE_AUTO_DETECT = False
+
 connected_clients = set()
 connected_pages = {}
 ocr_executor = ThreadPoolExecutor(max_workers=4)
@@ -1096,6 +1108,19 @@ async def ocr_loop():
     with mss.mss() as sct:
         frame_counter = 0
         while True:
+            if not PLANT_DEFUSE_AUTO_DETECT:
+                # Whole plant/defuse/spike-badge OCR pipeline switched off
+                # -- explicit request after several tuning passes still
+                # weren't reliable enough. The spike badge, bug banner, and
+                # plant/defuse popup are all still fully controllable by
+                # hand from the dashboard buttons (including the combo
+                # buttons); this just stops OCR from reading/deciding
+                # anything for them. Flip PLANT_DEFUSE_AUTO_DETECT back to
+                # True above once the detection logic gets revisited.
+                frame_counter += 1
+                await asyncio.sleep(interval)
+                continue
+
             regions = config.get("regions", {})
 
             announcement_region = regions.get(ANNOUNCEMENT_REGION_KEY)

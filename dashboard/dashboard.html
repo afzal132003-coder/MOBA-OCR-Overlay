@@ -1064,13 +1064,19 @@
 
     <div class="card">
       <h2>Plant / Defuse Popup</h2>
-      <p class="hint">Auto-detects two SEPARATE on-screen banners -- the small "SPIKE PLANTED"/"SPIKE DEFUSED" toast
-        (top-center, below the round score) AND the big center-screen round-end/"BUY PHASE" banner, a different
-        position and size from the toast (confirmed against real clips: neither shows the other's text). Team is
-        derived from Attacking Side above, not read off the banner. First time only, calibrate the toast (generously
-        -- wider/taller than the text, it can shift slightly), the center banner (generously around the whole banner
-        area), and the round timer next to the toast (crop tight to just the digits) -- the timer isn't shown
-        anywhere, it's read as a safety net AND to detect the game's own red spike icon that replaces it once
+      <p class="hint" style="background:#3a2412;border:1px solid #7a4a1a;border-radius:6px;padding:10px;color:#f2c14e;">
+        OCR auto-detection for the popup, spike badge, and bug banner is currently <strong>OFF</strong> (set
+        <code>PLANT_DEFUSE_AUTO_DETECT = False</code> in valorant_engine.py) -- it wasn't reliable enough across
+        several tuning passes. Everything below still works fully by hand; the previews/readings just won't update
+        on their own until it's turned back on.
+      </p>
+      <p class="hint">When re-enabled, this auto-detects two SEPARATE on-screen banners -- the small "SPIKE
+        PLANTED"/"SPIKE DEFUSED" toast (top-center, below the round score) AND the big center-screen round-end/"BUY
+        PHASE" banner, a different position and size from the toast (confirmed against real clips: neither shows the
+        other's text). Team is derived from Attacking Side above, not read off the banner. Calibrate the toast
+        (generously -- wider/taller than the text, it can shift slightly), the center banner (generously around the
+        whole banner area), and the round timer next to the toast (crop tight to just the digits) -- the timer isn't
+        shown anywhere, it's read as a safety net AND to detect the game's own red spike icon that replaces it once
         planted:</p>
       <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
         cd ocr/valorant &amp;&amp; python calibrate_valorant.py valo-ingame
