@@ -201,9 +201,10 @@ def calibrate_postmatch_grid(frame, monitor):
 
     win2 = ("Drag CYAN lines onto column edges (" +
             " | ".join(POSTMATCH_COL_LABELS[c] for c in POSTMATCH_COLS) +
-            "). Drag the 9 ORANGE lines onto the boundary between each of the 10 rows "
-            "(each row is numbered on the left so you can count all 10).   "
-            "ENTER=confirm  R=reset  ESC=cancel")
+            "). Drag the 9 draggable ORANGE lines onto the boundary between each of the "
+            "10 rows -- 2 more orange lines (11 total) frame the very top/bottom edges "
+            "and aren't draggable (each row is numbered on the left so you can count "
+            "all 10).   ENTER=confirm  R=reset  ESC=cancel")
     cv2.namedWindow(win2)
     cv2.setMouseCallback(win2, on_mouse)
 
@@ -215,7 +216,10 @@ def calibrate_postmatch_grid(frame, monitor):
             mid_y = int((row_bounds_preview[i] + row_bounds_preview[i + 1]) / 2)
             cv2.putText(canvas, f"R{i+1}", (4, mid_y + 5), cv2.FONT_HERSHEY_SIMPLEX,
                         0.5, (255, 255, 255), 1, cv2.LINE_AA)
-        for ry in row_dividers:
+        # 9 draggable internal dividers + the box's own top/bottom edges,
+        # drawn the same orange, so all 10 rows are fully framed top and
+        # bottom instead of just having boundaries between them.
+        for ry in [0] + row_dividers + [disp_h - 1]:
             ryi = int(ry)
             cv2.line(canvas, (0, ryi), (disp_w, ryi), (0, 140, 255), 2)
         for dx in col_dividers:
