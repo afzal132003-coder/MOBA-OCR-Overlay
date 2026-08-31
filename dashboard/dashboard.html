@@ -87,6 +87,21 @@
   .stat-card .override-row{display:flex;align-items:center;gap:8px;margin-top:8px;}
   .stat-card input[type=number]{width:80px;display:inline-block;}
   .stat-card.locked{border-color:#f2c14e;}
+
+  /* Import Stats grid number cells (Valorant postmatch import) -- the
+     default input[type=number] padding (8px 10px) plus the browser's own
+     spinner arrows left almost no room for a 2-3 digit value inside a
+     50-60px cell, clipping digits. Its own smaller padding + centered text
+     + spinner arrows hidden (reclaims ~16px) fixes that without touching
+     the shared input[type=number] rule everything else on the page uses. */
+  .import-num-input{
+    width:100%; box-sizing:border-box; padding:6px 2px; font-size:13px; text-align:center;
+    -moz-appearance:textfield;
+  }
+  .import-num-input::-webkit-outer-spin-button,
+  .import-num-input::-webkit-inner-spin-button{
+    -webkit-appearance:none; margin:0;
+  }
   /* QC crop preview lives right next to its own stat's controls now,
      instead of a separate section the operator had to scroll to and
      visually match up by eye against this card. */
@@ -5228,15 +5243,15 @@ function valRenderImportTable(){
         </div>
       </td>
       <td style="padding:6px;"><select id="val_import_${i}_who" class="import-who-select val-import-who" style="width:170px;">${valImportWhoOptionsHtml(row.team, row.playerIndex)}</select></td>
-      <td style="padding:6px;"><input type="number" id="val_import_${i}_acs" style="width:60px;" value="${row.acs}"></td>
-      <td style="padding:6px;"><input type="number" id="val_import_${i}_kills" style="width:50px;" value="${row.kills}"></td>
-      <td style="padding:6px;"><input type="number" id="val_import_${i}_deaths" style="width:50px;" value="${row.deaths}"></td>
-      <td style="padding:6px;"><input type="number" id="val_import_${i}_assists" style="width:50px;" value="${row.assists}"></td>
-      <td style="padding:6px;color:#9aa4c0;">${row.kd || 0}</td>
-      <td style="padding:6px;"><input type="number" id="val_import_${i}_econ" style="width:60px;" value="${row.econ}"></td>
-      <td style="padding:6px;"><input type="number" id="val_import_${i}_firstBloods" style="width:50px;" value="${row.firstBloods}"></td>
-      <td style="padding:6px;"><input type="number" id="val_import_${i}_plants" style="width:50px;" value="${row.plants}"></td>
-      <td style="padding:6px;"><input type="number" id="val_import_${i}_defuses" style="width:60px;" value="${row.defuses}"></td>
+      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_acs" style="width:56px;" value="${row.acs}"></td>
+      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_kills" style="width:44px;" value="${row.kills}"></td>
+      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_deaths" style="width:44px;" value="${row.deaths}"></td>
+      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_assists" style="width:44px;" value="${row.assists}"></td>
+      <td style="padding:6px;color:#9aa4c0;text-align:center;">${row.kd || 0}</td>
+      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_econ" style="width:56px;" value="${row.econ}"></td>
+      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_firstBloods" style="width:44px;" value="${row.firstBloods}"></td>
+      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_plants" style="width:44px;" value="${row.plants}"></td>
+      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_defuses" style="width:56px;" value="${row.defuses}"></td>
     `;
     tbody.appendChild(tr);
   });
