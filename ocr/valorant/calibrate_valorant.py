@@ -158,7 +158,13 @@ def calibrate_postmatch_grid(frame, monitor):
         return None
 
     n_cols = len(POSTMATCH_COLS)
-    scale = max(1.0, min(4.0, 1400 / max(w, 1)))
+    # Cap BOTH dimensions to fit on screen -- scaling by width alone (the
+    # old behavior) could stretch a tall, narrow box well past the screen's
+    # actual height, pushing the bottom rows (and their ending line) off
+    # the visible window entirely with no way to scroll down to them.
+    max_disp_w = max(200, min(1400, monitor["width"] - 120))
+    max_disp_h = max(200, min(900, monitor["height"] - 160))
+    scale = max(0.2, min(4.0, max_disp_w / max(w, 1), max_disp_h / max(h, 1)))
     crop = frame[y:y + h, x:x + w]
     disp = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
     disp_h, disp_w = disp.shape[:2]
