@@ -1156,7 +1156,10 @@
 
     <div class="card">
       <h2>Push Head-to-Head</h2>
-      <p class="hint">One player per side, compared against each other — independent of the MVP selection above.</p>
+      <p class="hint">One player per side, compared against each other — independent of the MVP selection above.
+        Lives in the SAME overlay source as the MVP screen (not a separate Browser Source) — pushing this
+        transitions the MVP screen over to Head-to-Head, sponsor branding stays on screen through the change.
+        Position it in Graphic Fixing → Head to Head.</p>
       <div class="two-col">
         <div class="col">
           <h3>Team 1</h3>
@@ -1220,6 +1223,7 @@
         <button class="secondary" id="valgfx_page_ingame">In-Game HUD</button>
         <button class="secondary" id="valgfx_page_teamchemistry">Team Chemistry Stats</button>
         <button class="secondary" id="valgfx_page_mvp">MVP</button>
+        <button class="secondary" id="valgfx_page_headtohead">Head to Head</button>
         <button class="secondary" id="valgfx_page_characterpick">Character Pick</button>
         <button class="secondary" id="valgfx_page_hoax">Hoax Overlay</button>
         <button class="secondary" id="valgfx_page_characterfixing">Character Fixing</button>
@@ -5317,7 +5321,8 @@ function valBuildMvpDropdown(state){
 document.getElementById("val_mvp_push").addEventListener("click", () => {
   const [team, idxStr] = document.getElementById("val_mvp_player").value.split("|");
   valSendManualUpdate({ mvp: { team, playerIndex: Number(idxStr) } });
-  document.getElementById("val_mvp_status").textContent = "Pushed.";
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"mvp_screen_show_mvp"}));
+  document.getElementById("val_mvp_status").textContent = "Pushed — MVP screen is live now.";
 });
 
 /* ---------- Post-Match: Head-to-Head ---------- */
@@ -5342,7 +5347,9 @@ document.getElementById("val_h2h_push").addEventListener("click", () => {
       team2: { playerIndex: Number(document.getElementById("val_h2h_team2_player").value) },
     },
   });
-  document.getElementById("val_h2h_status").textContent = "Pushed.";
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"mvp_screen_show_headtohead"}));
+  document.getElementById("val_h2h_status").textContent =
+    "Pushed — the MVP screen transitions to Head-to-Head now (same overlay source, sponsor branding stays put).";
 });
 
 // Runs on EVERY state_sync, not just once -- so Swap Sides (or any other
@@ -5476,6 +5483,26 @@ const VAL_GRAPHIC_PAGES = {
       "stat-assists": { left:700, top:578, width:250, height:70, kind:"box", label:"Assists" },
       "stat-firstbloods": { left:700, top:690, width:250, height:70, kind:"box", label:"First Bloods" },
       "agent-portrait": { left:1150, top:90, width:700, height:940, kind:"box", label:"Agent Portrait" },
+      "sponsor-branding": { left:59, top:48, width:485, height:99, kind:"box", label:"Sponsor Branding (always visible, MVP + Head to Head)" },
+    },
+  },
+  headtohead: {
+    // No PSD for this one -- positions are a best estimate off the flat
+    // headtohead.png reference (see the file-level comment in
+    // valorant_mvp.html), nudge here as needed. Lives in the SAME overlay
+    // file/OBS source as MVP (a cross-fade toggle, not a separate page).
+    label: "Head to Head", background: "../overlay/assets/headtohead.png",
+    elements: {
+      "h2h-team1-name": { left:20, top:35, width:660, height:50, kind:"box", label:"Player 1 Name" },
+      "h2h-team2-name": { left:1240, top:35, width:660, height:50, kind:"box", label:"Player 2 Name" },
+      "h2h-p1-kills": { left:930, top:312, width:150, height:40, kind:"box", label:"Player 1 Kills" },
+      "h2h-p1-deaths": { left:930, top:432, width:150, height:40, kind:"box", label:"Player 1 Deaths" },
+      "h2h-p1-assists": { left:930, top:547, width:150, height:40, kind:"box", label:"Player 1 Assists" },
+      "h2h-p1-firstbloods": { left:930, top:667, width:150, height:40, kind:"box", label:"Player 1 First Bloods" },
+      "h2h-p2-kills": { left:1110, top:312, width:150, height:40, kind:"box", label:"Player 2 Kills" },
+      "h2h-p2-deaths": { left:1110, top:432, width:150, height:40, kind:"box", label:"Player 2 Deaths" },
+      "h2h-p2-assists": { left:1110, top:547, width:150, height:40, kind:"box", label:"Player 2 Assists" },
+      "h2h-p2-firstbloods": { left:1110, top:667, width:150, height:40, kind:"box", label:"Player 2 First Bloods" },
     },
   },
   characterpick: {

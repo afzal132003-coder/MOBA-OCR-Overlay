@@ -18,6 +18,21 @@
     right shows the player's PICKED AGENT portrait (from Agent Pick /
     Post-Match's Agent field), not an uploaded photo -- even though
     playermvp.png's own reference shows a real photo there.
+
+    Head-to-Head lives in THIS SAME file/OBS source as a second display
+    mode (state.mvpScreenMode: "mvp" | "headtohead"), not a separate page
+    -- an explicit request, so the sponsor branding strip (top-left) stays
+    on screen through the transition instead of the whole browser source
+    swapping. #sponsor-branding is cropped out of playermvp-plain.png's
+    own baked copy into its own standalone asset and shown unconditionally
+    regardless of mode; #mvp-content/#h2h-content each carry the rest of
+    their own layout (own bg-frame, own dynamic elements) and cross-fade
+    via the .screen-content/.visible classes below when the operator
+    toggles mode from the dashboard. Head-to-Head's own positions are
+    measured off overlay/assets/headtohead.png (no PSD, no obvious per-
+    player value slots baked into that flat art either) -- best estimate,
+    nudge with Graphic Fixing -> Head to Head as needed, same as every
+    other PSD-less asset in this project.
   */
 
   @font-face {
@@ -52,6 +67,23 @@
   @keyframes enter{ to{ opacity:1; transform:translateY(0); } }
 
   .bg-frame{ position:absolute; top:0; left:0; width:1920px; height:1080px; pointer-events:none; }
+
+  /* Always visible regardless of mvpScreenMode -- see the file-level
+     comment above. z-index keeps it above BOTH bg-frames (headtohead.png's
+     own gold "VERSUS" banner spans the full top of the canvas and would
+     otherwise paint over it once h2h-content is visible). */
+  #sponsor-branding{ position:absolute; left:59px; top:48px; width:485px; height:99px; object-fit:contain; z-index:10; }
+
+  /* MVP and Head-to-Head each get their own wrap so the operator's mode
+     toggle can cross-fade between them without touching the sponsor
+     branding above. */
+  .screen-content{
+    position:absolute; top:0; left:0; width:1920px; height:1080px;
+    opacity:0; transform:translateY(20px) scale(0.98);
+    pointer-events:none;
+    transition: opacity 0.5s ease, transform 0.5s ease;
+  }
+  .screen-content.visible{ opacity:1; transform:translateY(0) scale(1); pointer-events:auto; }
 
   #team-logo{ position:absolute; left:185px; top:188px; width:100px; height:90px; object-fit:contain; display:none; }
 
@@ -102,24 +134,66 @@
     0%, 100%{ transform:rotate(-0.6deg) skewX(-0.35deg); }
     50%{ transform:rotate(0.6deg) skewX(0.35deg); }
   }
+
+  /* ---- Head to Head (assets/headtohead.png) ---- */
+  .h2h-name{
+    position:absolute; top:35px; width:660px; height:50px;
+    color:#f2c14e; font-weight:900; font-style:italic; font-size:32px;
+    text-transform:uppercase; white-space:nowrap; overflow:hidden;
+  }
+  #h2h-team1-name{ left:20px; text-align:right; }
+  #h2h-team2-name{ left:1240px; text-align:left; }
+
+  .h2h-stat{
+    position:absolute; width:150px; height:40px;
+    display:flex; align-items:center; justify-content:center;
+    color:#ffffff; font-weight:900; font-size:28px;
+  }
+  .h2h-stat.p1{ left:930px; }
+  .h2h-stat.p2{ left:1110px; }
+  #h2h-p1-kills, #h2h-p2-kills{ top:312px; }
+  #h2h-p1-deaths, #h2h-p2-deaths{ top:432px; }
+  #h2h-p1-assists, #h2h-p2-assists{ top:547px; }
+  #h2h-p1-firstbloods, #h2h-p2-firstbloods{ top:667px; }
 </style>
 </head>
 <body>
 
 <div id="stage">
-  <img class="bg-frame" src="assets/playermvp-plain.png" alt="">
+  <img id="sponsor-branding" src="assets/valorant_sponsor_branding.png" alt="">
 
-  <img id="team-logo" alt="">
-  <div id="team-name"></div>
-  <div id="player-name"></div>
+  <div id="mvp-content" class="screen-content visible">
+    <img class="bg-frame" src="assets/playermvp-plain.png" alt="">
 
-  <div class="stat-value" id="stat-kills">0</div>
-  <div class="stat-value" id="stat-deaths">0</div>
-  <div class="stat-value" id="stat-assists">0</div>
-  <div class="stat-value" id="stat-firstbloods">0</div>
+    <img id="team-logo" alt="">
+    <div id="team-name"></div>
+    <div id="player-name"></div>
 
-  <div id="agent-portrait">
-    <img id="agent-portrait-img" alt="">
+    <div class="stat-value" id="stat-kills">0</div>
+    <div class="stat-value" id="stat-deaths">0</div>
+    <div class="stat-value" id="stat-assists">0</div>
+    <div class="stat-value" id="stat-firstbloods">0</div>
+
+    <div id="agent-portrait">
+      <img id="agent-portrait-img" alt="">
+    </div>
+  </div>
+
+  <div id="h2h-content" class="screen-content">
+    <img class="bg-frame" src="assets/headtohead.png" alt="">
+
+    <div class="h2h-name" id="h2h-team1-name"></div>
+    <div class="h2h-name" id="h2h-team2-name"></div>
+
+    <div class="h2h-stat p1" id="h2h-p1-kills">0</div>
+    <div class="h2h-stat p1" id="h2h-p1-deaths">0</div>
+    <div class="h2h-stat p1" id="h2h-p1-assists">0</div>
+    <div class="h2h-stat p1" id="h2h-p1-firstbloods">0</div>
+
+    <div class="h2h-stat p2" id="h2h-p2-kills">0</div>
+    <div class="h2h-stat p2" id="h2h-p2-deaths">0</div>
+    <div class="h2h-stat p2" id="h2h-p2-assists">0</div>
+    <div class="h2h-stat p2" id="h2h-p2-firstbloods">0</div>
   </div>
 </div>
 
@@ -179,10 +253,11 @@ function setWrappedImg(wrapId, imgId, src){
   if(src) img.src = src;
 }
 
-const GFX_ELEMENT_IDS = ["team-logo","team-name","player-name","stat-kills","stat-deaths","stat-assists","stat-firstbloods","agent-portrait"];
+const GFX_ELEMENT_IDS = ["sponsor-branding","team-logo","team-name","player-name","stat-kills","stat-deaths","stat-assists","stat-firstbloods","agent-portrait"];
+const H2H_GFX_ELEMENT_IDS = ["h2h-team1-name","h2h-team2-name","h2h-p1-kills","h2h-p1-deaths","h2h-p1-assists","h2h-p1-firstbloods","h2h-p2-kills","h2h-p2-deaths","h2h-p2-assists","h2h-p2-firstbloods"];
 
-function applyGraphicOverrides(overrides){
-  GFX_ELEMENT_IDS.forEach(id => {
+function applyGraphicOverridesTo(ids, overrides){
+  ids.forEach(id => {
     const el = document.getElementById(id);
     if(!el) return;
     const o = (overrides && overrides[id]) || {};
@@ -190,6 +265,20 @@ function applyGraphicOverrides(overrides){
     el.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
     el.style.transformOrigin = "top left";
   });
+}
+
+function h2hPlayerStats(state, team, idx){
+  const hasSelection = (team === "team1" || team === "team2") && idx !== null && idx !== undefined;
+  const teamState = hasSelection ? state[team] : null;
+  const playerStats = hasSelection && state.postMatch && state.postMatch.players &&
+    state.postMatch.players[team] && state.postMatch.players[team][idx];
+  return {
+    name: (teamState && teamState.players && teamState.players[idx]) || "",
+    kills: (playerStats && playerStats.kills) || 0,
+    deaths: (playerStats && playerStats.deaths) || 0,
+    assists: (playerStats && playerStats.assists) || 0,
+    firstBloods: (playerStats && playerStats.firstBloods) || 0,
+  };
 }
 
 function applyState(state){
@@ -212,7 +301,27 @@ function applyState(state){
 
   setWrappedImg("agent-portrait", "agent-portrait-img", agentPortraitUrl(playerStats && playerStats.agent));
 
-  applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.mvp);
+  applyGraphicOverridesTo(GFX_ELEMENT_IDS, state.graphicOverrides && state.graphicOverrides.mvp);
+
+  const h2h = state.headToHead || {};
+  const p1 = h2hPlayerStats(state, "team1", h2h.team1 && h2h.team1.playerIndex);
+  const p2 = h2hPlayerStats(state, "team2", h2h.team2 && h2h.team2.playerIndex);
+  document.getElementById("h2h-team1-name").textContent = p1.name;
+  document.getElementById("h2h-team2-name").textContent = p2.name;
+  document.getElementById("h2h-p1-kills").textContent = p1.kills;
+  document.getElementById("h2h-p1-deaths").textContent = p1.deaths;
+  document.getElementById("h2h-p1-assists").textContent = p1.assists;
+  document.getElementById("h2h-p1-firstbloods").textContent = p1.firstBloods;
+  document.getElementById("h2h-p2-kills").textContent = p2.kills;
+  document.getElementById("h2h-p2-deaths").textContent = p2.deaths;
+  document.getElementById("h2h-p2-assists").textContent = p2.assists;
+  document.getElementById("h2h-p2-firstbloods").textContent = p2.firstBloods;
+
+  applyGraphicOverridesTo(H2H_GFX_ELEMENT_IDS, state.graphicOverrides && state.graphicOverrides.headtohead);
+
+  const screenMode = state.mvpScreenMode || "mvp";
+  document.getElementById("mvp-content").classList.toggle("visible", screenMode === "mvp");
+  document.getElementById("h2h-content").classList.toggle("visible", screenMode === "headtohead");
 }
 
 connect();

@@ -196,6 +196,17 @@ def default_state():
             "team2": {"playerIndex": None},
         },
 
+        # Which of the two layouts valorant_mvp.html is currently showing --
+        # a momentary display toggle (like hoaxOverlay/spikeBadge), NOT part
+        # of the mvp/headToHead player selections above, which persist
+        # across restarts on their own. The MVP and Head-to-Head content
+        # live in the SAME overlay page/OBS source (an explicit request --
+        # the sponsor branding strip stays on screen through the
+        # transition instead of the whole source swapping), so this just
+        # picks which content is currently animated in. Resets to "mvp" on
+        # load, same as every other "currently showing" toggle.
+        "mvpScreenMode": "mvp",
+
         "graphicOverrides": {},
 
         # Per-agent portrait pan/zoom, independent of graphicOverrides above
@@ -224,6 +235,7 @@ def load_state():
             state["plantDefuse"] = default_state()["plantDefuse"]
             state["spikeBadge"] = default_state()["spikeBadge"]
             state["bugBanner"] = default_state()["bugBanner"]
+            state["mvpScreenMode"] = default_state()["mvpScreenMode"]
             state["hoaxOverlay"] = default_state()["hoaxOverlay"]
             return state
         except (json.JSONDecodeError, OSError):
@@ -810,6 +822,16 @@ async def handle_client(websocket, path=None):
 
             elif msg_type == "bug_banner_hide":
                 server_state["bugBanner"]["mode"] = "hidden"
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
+            elif msg_type == "mvp_screen_show_headtohead":
+                server_state["mvpScreenMode"] = "headtohead"
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
+            elif msg_type == "mvp_screen_show_mvp":
+                server_state["mvpScreenMode"] = "mvp"
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
 
