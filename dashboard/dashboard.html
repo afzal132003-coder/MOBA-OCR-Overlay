@@ -1064,26 +1064,46 @@
 
     <div class="card">
       <h2>Plant / Defuse Popup</h2>
-      <p class="hint">Auto-detects the "SPIKE PLANTED" / "SPIKE DEFUSED" on-screen banner (top-center, below the
-        round score) — team is derived from Attacking Side above, not read off the banner. First time only, calibrate
-        both the banner (generously -- wider/taller than the text, it can shift slightly) and the round timer next to
-        it (crop tight to just the digits) -- the timer isn't shown anywhere, it's only read as a safety net so the
-        spike badge automatically clears once a round ends, even if OCR misses the exact "defused"/"planted" text:</p>
+      <p class="hint">Auto-detects two SEPARATE on-screen banners -- the small "SPIKE PLANTED"/"SPIKE DEFUSED" toast
+        (top-center, below the round score) AND the big center-screen round-end/"BUY PHASE" banner, a different
+        position and size from the toast (confirmed against real clips: neither shows the other's text). Team is
+        derived from Attacking Side above, not read off the banner. First time only, calibrate the toast (generously
+        -- wider/taller than the text, it can shift slightly), the center banner (generously around the whole banner
+        area), and the round timer next to the toast (crop tight to just the digits) -- the timer isn't shown
+        anywhere, it's read as a safety net AND to detect the game's own red spike icon that replaces it once
+        planted:</p>
       <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
         cd ocr/valorant &amp;&amp; python calibrate_valorant.py valo-ingame
       </div>
       <div class="row">
         <div class="crop-box" style="max-width:220px;">
           <img id="crop-valorant_announcement">
-          <div class="label">announcement banner</div>
+          <div class="label">small toast</div>
         </div>
-        <div class="team-form">
-          <label>Last OCR reading</label>
-          <div id="val_announcementLastText" style="font-size:12px;color:#9aa4c0;min-height:18px;">&mdash;</div>
-          <label style="margin-top:10px;">Current popup status</label>
-          <div id="val_plantDefuseStatus" style="font-size:12px;color:#9aa4c0;">idle</div>
+        <div class="crop-box" style="max-width:220px;">
+          <img id="crop-valorant_round_banner">
+          <div class="label">center banner (round-end / buy phase)</div>
+        </div>
+        <div class="crop-box" style="max-width:140px;">
+          <img id="crop-valorant_round_timer">
+          <div class="label">round timer / spike icon</div>
         </div>
       </div>
+      <div class="row" style="margin-top:8px;">
+        <div class="team-form">
+          <label>Last toast OCR reading</label>
+          <div id="val_announcementLastText" style="font-size:12px;color:#9aa4c0;min-height:18px;">&mdash;</div>
+        </div>
+        <div class="team-form">
+          <label>Last center banner OCR reading</label>
+          <div id="val_roundBannerLastText" style="font-size:12px;color:#9aa4c0;min-height:18px;">&mdash;</div>
+        </div>
+        <div class="team-form">
+          <label>Last round timer reading</label>
+          <div id="val_roundTimerLastText" style="font-size:12px;color:#9aa4c0;min-height:18px;">&mdash;</div>
+        </div>
+      </div>
+      <p class="hint" style="margin-top:8px;">Current popup status: <span id="val_plantDefuseStatus" style="color:#9aa4c0;">idle</span></p>
       <p class="hint">Manual override (in case OCR misses it, or you want it off-schedule):</p>
       <div class="row">
         <button id="val_manualPlant">Show Plant Popup</button>
@@ -4691,6 +4711,12 @@ function valConnect(){
       if(img) img.src = msg.image;
       if(msg.region === "valorant_announcement"){
         document.getElementById("val_announcementLastText").textContent =
+          (msg.text && msg.text.trim()) ? msg.text : "(nothing read this frame)";
+      } else if(msg.region === "valorant_round_banner"){
+        document.getElementById("val_roundBannerLastText").textContent =
+          (msg.text && msg.text.trim()) ? msg.text : "(nothing read this frame)";
+      } else if(msg.region === "valorant_round_timer"){
+        document.getElementById("val_roundTimerLastText").textContent =
           (msg.text && msg.text.trim()) ? msg.text : "(nothing read this frame)";
       }
     } else if(msg.type === "postmatch_scoreboard_extracted"){

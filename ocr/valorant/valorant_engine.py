@@ -106,6 +106,17 @@ ROUND_TIMER_KEY = "valorant_round_timer"
 # banner, not just the words) same reasoning as turtle_announcement's own
 # calibration hint -- the banner can shift slightly.
 ANNOUNCEMENT_REGION_KEY = "valorant_announcement"
+# A SECOND, separately-calibrated region -- confirmed against real clips
+# that the small toast above and this one are NOT the same screen spot:
+# the big center-screen round-end result banner ("ATTACKERS/DEFENDERS WON"
+# + "Spike Defused"/etc as a subtitle), later replaced in that same spot
+# by "BUY PHASE". Read with the same generic ocr_text() pipeline as the
+# toast, and its text is just concatenated onto the toast's own reading
+# before either gets matched against any regex below -- so "SPIKE DEFUSED"
+# said here counts exactly the same as it would in the small toast, and
+# "BUY PHASE" (which only ever appears here, never in the small toast) is
+# finally something the OCR loop actually sees.
+ROUND_BANNER_REGION_KEY = "valorant_round_banner"
 # "defused" only, not "defus\w*" -- Valorant shows a "next DEFUSING"
 # progress bar WHILE a defuse is in progress (confirmed on a real clip),
 # which must NOT fire this early; only the completed-defuse banner should,
@@ -422,31 +433,45 @@ def ocr_round_timer(img_bgr):
 
 
 # Once the spike is planted, Valorant swaps the M:SS countdown in this SAME
-# box for a solid red hexagonal spike icon (confirmed against a real clip)
-# -- no digits left for ocr_round_timer to read at all. Detecting that icon
-# by color instead (a plain red-pixel-ratio check, same "match by color, not
-# literal pixels" reasoning as match_agent_by_color, just simpler since this
-# is one solid, distinctive color rather than 25+ portraits to tell apart)
-# is a fast, purely-visual THIRD trigger for the spike badge/bug, on top of
-# the "planting" text trigger and the full "SPIKE PLANTED" banner -- reuses
-# the round timer's existing calibration, nothing new to set up.
-# Raised from an initial 0.12 -- that was loose enough to false-positive on
-# ordinary HUD red (attacking-side accents, anti-aliased digit edges) and
-# was popping the badge up with no spike actually planted. The icon fills
-# most of a tightly-calibrated timer crop, so demanding a clear majority of
-# strongly-saturated red pixels is still comfortably met by the real icon
-# while rejecting a crop that's merely got some red in it somewhere.
-SPIKE_ICON_RED_RATIO = 0.40  # fraction of pixels that must look "red enough"
+# box for a red spike icon (confirmed against a real clip) -- no digits
+# left for ocr_round_timer to read at all. Detecting that icon by color
+# instead (a plain red-pixel-ratio check, same "match by color, not literal
+# pixels" reasoning as match_agent_by_color, just simpler since this is one
+# distinctive color rather than 25+ portraits to tell apart) is a fast,
+# purely-visual THIRD trigger for the spike badge/bug, on top of the
+# "planting" text trigger and the full "SPIKE PLANTED" banner -- reuses the
+# round timer's existing calibration, nothing new to set up.
+#
+# Color ratio ALONE turned out unreliable in both directions: a high
+# threshold (0.40, tried first after color-only false-positived on ordinary
+# HUD red) missed the real icon too, because a lot of the icon's own crop
+# is dark background/outline, not solid red fill -- the red-colored portion
+# alone doesn't reliably clear a high bar. So this now ALSO requires
+# ocr_round_timer() to have found no M:SS digits in the same crop this
+# frame (see the call site in ocr_loop) -- real countdown digits always
+# parse fine, so "digits failed to parse" + "some red present" together is
+# a much more specific icon signal than either alone, and lets the color
+# side of the check use a lower, more forgiving ratio.
+SPIKE_ICON_RED_RATIO = 0.15  # fraction of pixels that must look "red enough"
+
+
+def spike_icon_red_ratio(img_bgr):
+    """The raw fraction of "red enough" pixels in a round-timer crop --
+    split out from detect_spike_icon() so the OCR loop can also surface
+    this number in the dashboard's crop preview (see ocr_loop), letting the
+    SPIKE_ICON_RED_RATIO threshold above get tuned against a real observed
+    value instead of guessed blind."""
+    b = img_bgr[:, :, 0].astype(np.int16)
+    g = img_bgr[:, :, 1].astype(np.int16)
+    r = img_bgr[:, :, 2].astype(np.int16)
+    red_mask = (r > 110) & (r > g + 60) & (r > b + 60)
+    return float(red_mask.mean())
 
 
 def detect_spike_icon(img_bgr):
     """Returns True if this round-timer crop looks like the red spike icon
     rather than plain white/gray countdown digits."""
-    b = img_bgr[:, :, 0].astype(np.int16)
-    g = img_bgr[:, :, 1].astype(np.int16)
-    r = img_bgr[:, :, 2].astype(np.int16)
-    red_mask = (r > 110) & (r > g + 60) & (r > b + 60)
-    return bool(red_mask.mean() >= SPIKE_ICON_RED_RATIO)
+    return spike_icon_red_ratio(img_bgr) >= SPIKE_ICON_RED_RATIO
 
 
 MAX_OCR_DIMENSION = 1920
@@ -1048,6 +1073,11 @@ async def ocr_loop():
             if announcement_region and announcement_region.get("w", 0) > 0 and announcement_region.get("h", 0) > 0:
                 announcement_crop = crop_to_bgr(sct, announcement_region)
 
+            round_banner_region = regions.get(ROUND_BANNER_REGION_KEY)
+            round_banner_crop = None
+            if round_banner_region and round_banner_region.get("w", 0) > 0 and round_banner_region.get("h", 0) > 0:
+                round_banner_crop = crop_to_bgr(sct, round_banner_region)
+
             timer_region = regions.get(ROUND_TIMER_KEY)
             timer_crop = None
             if timer_region and timer_region.get("w", 0) > 0 and timer_region.get("h", 0) > 0:
@@ -1056,6 +1086,8 @@ async def ocr_loop():
             ocr_tasks = []
             if announcement_crop is not None:
                 ocr_tasks.append(loop.run_in_executor(ocr_executor, ocr_text, announcement_crop))
+            if round_banner_crop is not None:
+                ocr_tasks.append(loop.run_in_executor(ocr_executor, ocr_text, round_banner_crop))
             if timer_crop is not None:
                 ocr_tasks.append(loop.run_in_executor(ocr_executor, ocr_round_timer, timer_crop))
             results = await asyncio.gather(*ocr_tasks)
@@ -1065,19 +1097,37 @@ async def ocr_loop():
             if announcement_crop is not None:
                 announcement_raw_text = results[idx]
                 idx += 1
+            round_banner_raw_text = None
+            if round_banner_crop is not None:
+                round_banner_raw_text = results[idx]
+                idx += 1
             timer_seconds = results[idx] if timer_crop is not None else None
 
+            # Concatenated, not read separately -- "SPIKE DEFUSED"/"BUY
+            # PHASE" said in either region counts the same either way (see
+            # ROUND_BANNER_REGION_KEY above for why there are two regions
+            # at all).
+            combined_announcement_text = " ".join(
+                t for t in (announcement_raw_text, round_banner_raw_text) if t
+            )
+
             changed = False
-            if process_plant_defuse_reading(announcement_raw_text, int(time.time() * 1000)):
+            if process_plant_defuse_reading(combined_announcement_text, int(time.time() * 1000)):
                 changed = True
 
             # Spike icon in the round-timer box -- see detect_spike_icon
-            # above. Run through confirm_trigger() same as the OCR-text
-            # triggers in process_plant_defuse_reading, so a single stray
-            # red-pixel-ratio blip can't pop the badge on its own -- only
-            # acts once confirmed AND it'd actually flip the mode.
+            # above. Requires BOTH some red color present AND no M:SS
+            # digits parsed from the very same crop this frame -- real
+            # countdown digits always parse fine, so pairing "digits
+            # failed" with "red present" is what makes a forgiving color
+            # threshold safe (see detect_spike_icon's comment). Then run
+            # through confirm_trigger() same as the OCR-text triggers in
+            # process_plant_defuse_reading, so a single stray frame can't
+            # pop the badge on its own -- only acts once confirmed AND it'd
+            # actually flip the mode.
             icon_confirmed = confirm_trigger(
-                "spike_icon", timer_crop is not None and detect_spike_icon(timer_crop),
+                "spike_icon",
+                timer_crop is not None and timer_seconds is None and detect_spike_icon(timer_crop),
             )
             if icon_confirmed and server_state["spikeBadge"]["mode"] != "planted":
                 server_state["spikeBadge"]["mode"] = "planted"
@@ -1101,13 +1151,27 @@ async def ocr_loop():
                             "type": "crop_preview", "region": ANNOUNCEMENT_REGION_KEY,
                             "image": data_url, "text": announcement_raw_text or "",
                         })
+                if round_banner_crop is not None:
+                    data_url = crop_to_data_url(round_banner_crop)
+                    if data_url:
+                        await broadcast({
+                            "type": "crop_preview", "region": ROUND_BANNER_REGION_KEY,
+                            "image": data_url, "text": round_banner_raw_text or "",
+                        })
                 if timer_crop is not None:
                     data_url = crop_to_data_url(timer_crop)
                     if data_url:
+                        # When digits parsed, show them; otherwise show the
+                        # spike-icon red-ratio reading instead of leaving
+                        # this blank -- lets SPIKE_ICON_RED_RATIO get tuned
+                        # against a real number instead of guessed blind.
+                        if timer_seconds is not None:
+                            timer_debug_text = f"{timer_seconds}s"
+                        else:
+                            timer_debug_text = f"no digits (red={spike_icon_red_ratio(timer_crop):.2f})"
                         await broadcast({
                             "type": "crop_preview", "region": ROUND_TIMER_KEY,
-                            "image": data_url,
-                            "text": f"{timer_seconds}s" if timer_seconds is not None else "",
+                            "image": data_url, "text": timer_debug_text,
                         })
 
             if changed:

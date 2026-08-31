@@ -2,15 +2,22 @@
 Interactive calibration tool for Valorant's live HUD, organized into three
 categories you can run independently:
 
-  valo-ingame     The "SPIKE PLANTED" / "SPIKE DEFUSED" announcement banner
-                   zone (draw it generously, wider/taller than the text
-                   itself -- same reasoning as MOBA's turtle_announcement
-                   calibration, the banner can shift slightly) + the round
-                   timer itself (the M:SS clock between the two scores,
-                   cropped tight to just the digits) -- that one isn't
-                   shown anywhere, it's purely a safety net so the spike
-                   badge auto-clears itself once the round moves on, even
-                   if the exact end-of-round banner text isn't recognized.
+  valo-ingame     The SMALL "SPIKE PLANTED" / "SPIKE DEFUSED" toast zone
+                   (draw it generously, wider/taller than the text itself --
+                   same reasoning as MOBA's turtle_announcement calibration,
+                   the banner can shift slightly) + the round timer itself
+                   (the M:SS clock between the two scores, cropped tight to
+                   just the digits) -- that one isn't shown anywhere, it's
+                   purely a safety net so the spike badge auto-clears itself
+                   once the round moves on, even if the exact end-of-round
+                   banner text isn't recognized -- + the BIG center-screen
+                   round-transition banner (confirmed against real clips: a
+                   large "ATTACKERS WON"/"DEFENDERS WON" + "Spike Defused"
+                   result screen, later replaced in that SAME spot by "BUY
+                   PHASE") -- a completely different position/size from the
+                   small toast above, draw it generously around that whole
+                   center banner area so both the result text and "BUY
+                   PHASE" get caught by the same box.
                    Round score itself is NOT calibrated here anymore --
                    an explicit request, OCR on it wasn't reliable enough
                    to be worth it, it's manual-only from the dashboard now.
@@ -84,7 +91,7 @@ POSTMATCH_KEYS = [
 ]
 
 CATEGORIES = {
-    "valo-ingame": ["valorant_announcement", "valorant_round_timer"],
+    "valo-ingame": ["valorant_announcement", "valorant_round_timer", "valorant_round_banner"],
     "valo-character": CHARSELECT_KEYS,
     "valo-postmatch": POSTMATCH_KEYS,
 }
@@ -98,8 +105,9 @@ for _cat, _keys in CATEGORIES.items():
         KEY_TO_CATEGORY[_key] = _cat
 
 LABELS = {
-    "valorant_announcement": "SPIKE PLANTED / SPIKE DEFUSED banner zone - draw it generously, wider/taller than the text itself",
+    "valorant_announcement": "SPIKE PLANTED / SPIKE DEFUSED small toast zone - draw it generously, wider/taller than the text itself",
     "valorant_round_timer": "ROUND TIMER (the M:SS clock between the two scores) - crop tight to just the digits, used only as a spike-badge safety net, not displayed anywhere",
+    "valorant_round_banner": "BIG CENTER-SCREEN round-end result banner (\"ATTACKERS/DEFENDERS WON\" + reason) AND \"BUY PHASE\" (same spot, different time) - draw it generously around the whole banner area",
 }
 for i in range(5):
     LABELS[f"valorant_charselect_team1_{i}"] = f"CHAR-SELECT - Team 1 (defenders/left) Player {i+1} - crop tight to just the agent art"
