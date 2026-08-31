@@ -781,6 +781,22 @@ async def broadcast(message):
     await asyncio.gather(*[c.send(data) for c in connected_clients], return_exceptions=True)
 
 
+async def broadcast_to_page(page, message):
+    """Same as broadcast(), but only to clients connected as `page` (see
+    connected_pages, populated from the ?page= query param each client
+    connects with). Crop previews (base64 PNG images, several per OCR poll)
+    are only ever read by dashboard.html's own crop_preview handler -- no
+    OBS overlay HUD page, and no cloud relay hop, has any use for them, so
+    sending them to every connected_clients socket (broadcast()'s default)
+    was pure wasted bandwidth on every one of those. This is an explicit
+    fix for that -- an operator reported high data usage."""
+    targets = [c for c, p in connected_pages.items() if p == page]
+    if not targets:
+        return
+    data = json.dumps(message)
+    await asyncio.gather(*[c.send(data) for c in targets], return_exceptions=True)
+
+
 def presence_counts():
     counts = {}
     for page in connected_pages.values():
@@ -1163,18 +1179,29 @@ async def ocr_loop():
                 server_state["bugBanner"]["mode"] = "hidden"
                 changed = True
 
-            if frame_counter % 2 == 0:
+            # Crop previews (base64 PNG images) are ONLY read by the
+            # dashboard's own calibration UI -- no OBS overlay page, and no
+            # cloud relay hop, ever does anything with them. Skipping the
+            # whole block (no encoding work, no send) whenever no dashboard
+            # tab is connected, and sending what IS generated only to
+            # dashboard sockets (broadcast_to_page, not broadcast), was an
+            # explicit fix for high data usage -- these were going out to
+            # every connected client (every OBS source, plus over the
+            # internet on any relay connection) for no reason. Also dropped
+            # to every 6th frame (was every 2nd) -- calibration preview
+            # doesn't need to be smoother than that.
+            if frame_counter % 6 == 0 and "valorant_dashboard" in connected_pages.values():
                 if announcement_crop is not None:
                     data_url = crop_to_data_url(announcement_crop)
                     if data_url:
-                        await broadcast({
+                        await broadcast_to_page("valorant_dashboard", {
                             "type": "crop_preview", "region": ANNOUNCEMENT_REGION_KEY,
                             "image": data_url, "text": announcement_raw_text or "",
                         })
                 if round_banner_crop is not None:
                     data_url = crop_to_data_url(round_banner_crop)
                     if data_url:
-                        await broadcast({
+                        await broadcast_to_page("valorant_dashboard", {
                             "type": "crop_preview", "region": ROUND_BANNER_REGION_KEY,
                             "image": data_url, "text": round_banner_raw_text or "",
                         })
@@ -1189,7 +1216,7 @@ async def ocr_loop():
                             timer_debug_text = f"{timer_seconds}s"
                         else:
                             timer_debug_text = f"no digits (red={spike_icon_red_ratio(timer_crop):.2f})"
-                        await broadcast({
+                        await broadcast_to_page("valorant_dashboard", {
                             "type": "crop_preview", "region": ROUND_TIMER_KEY,
                             "image": data_url, "text": timer_debug_text,
                         })
