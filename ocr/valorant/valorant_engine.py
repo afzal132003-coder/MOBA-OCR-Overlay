@@ -396,6 +396,28 @@ def ocr_round_timer(img_bgr):
     return minutes * 60 + seconds
 
 
+# Once the spike is planted, Valorant swaps the M:SS countdown in this SAME
+# box for a solid red hexagonal spike icon (confirmed against a real clip)
+# -- no digits left for ocr_round_timer to read at all. Detecting that icon
+# by color instead (a plain red-pixel-ratio check, same "match by color, not
+# literal pixels" reasoning as match_agent_by_color, just simpler since this
+# is one solid, distinctive color rather than 25+ portraits to tell apart)
+# is a fast, purely-visual THIRD trigger for the spike badge/bug, on top of
+# the "planting" text trigger and the full "SPIKE PLANTED" banner -- reuses
+# the round timer's existing calibration, nothing new to set up.
+SPIKE_ICON_RED_RATIO = 0.12  # fraction of pixels that must look "red enough"
+
+
+def detect_spike_icon(img_bgr):
+    """Returns True if this round-timer crop looks like the red spike icon
+    rather than plain white/gray countdown digits."""
+    b = img_bgr[:, :, 0].astype(np.int16)
+    g = img_bgr[:, :, 1].astype(np.int16)
+    r = img_bgr[:, :, 2].astype(np.int16)
+    red_mask = (r > 100) & (r > g + 40) & (r > b + 40)
+    return bool(red_mask.mean() >= SPIKE_ICON_RED_RATIO)
+
+
 MAX_OCR_DIMENSION = 1920
 
 
@@ -1009,6 +1031,17 @@ async def ocr_loop():
 
             changed = False
             if process_plant_defuse_reading(announcement_raw_text, int(time.time() * 1000)):
+                changed = True
+
+            # Spike icon in the round-timer box -- see detect_spike_icon
+            # above. Checked every frame regardless of announcement text,
+            # same guard style as the "planting"/"BUY PHASE" text triggers
+            # in process_plant_defuse_reading: only acts when it'd actually
+            # flip the mode, so it doesn't spam broadcasts every frame the
+            # icon stays on screen.
+            if timer_crop is not None and detect_spike_icon(timer_crop) and server_state["spikeBadge"]["mode"] != "planted":
+                server_state["spikeBadge"]["mode"] = "planted"
+                server_state["bugBanner"]["mode"] = "planted"
                 changed = True
 
             # Spike badge safety net -- see ROUND_TIMER_KEY/track_round_timer
