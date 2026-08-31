@@ -1032,23 +1032,30 @@
 
     <div class="card">
       <h2>Round Score</h2>
-      <p class="hint">The two small numbers either side of the round timer, top-center. First time only, calibrate
-        (this also picks up the round timer itself, valorant_round_timer -- not shown anywhere, it's only read as a
-        safety net so the spike badge automatically clears once a round ends, even if OCR misses the exact
-        "defused"/"planted" banner text):</p>
-      <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-        cd ocr/valorant &amp;&amp; python calibrate_valorant.py valo-ingame
+      <p class="hint">Fully manual -- no OCR involved. Enter the two numbers shown either side of the round timer,
+        top-center.</p>
+      <div class="row">
+        <div class="team-form">
+          <label>Team 1 Round Score</label>
+          <input type="number" id="val_round_t1" value="0">
+        </div>
+        <div class="team-form">
+          <label>Team 2 Round Score</label>
+          <input type="number" id="val_round_t2" value="0">
+        </div>
       </div>
-      <div class="stat-grid" id="val_scoreGrid"></div>
+      <button id="val_saveRoundScore">Save</button>
     </div>
 
     <div class="card">
       <h2>Plant / Defuse Popup</h2>
       <p class="hint">Auto-detects the "SPIKE PLANTED" / "SPIKE DEFUSED" on-screen banner (top-center, below the
         round score) — team is derived from Attacking Side above, not read off the banner. First time only, calibrate
-        generously (wider/taller than the banner, it can shift slightly):</p>
+        both the banner (generously -- wider/taller than the text, it can shift slightly) and the round timer next to
+        it (crop tight to just the digits) -- the timer isn't shown anywhere, it's only read as a safety net so the
+        spike badge automatically clears once a round ends, even if OCR misses the exact "defused"/"planted" text:</p>
       <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-        cd ocr/valorant &amp;&amp; python calibrate_valorant.py valorant_announcement
+        cd ocr/valorant &amp;&amp; python calibrate_valorant.py valo-ingame
       </div>
       <div class="row">
         <div class="crop-box" style="max-width:220px;">
@@ -1067,6 +1074,12 @@
         <button id="val_manualPlant">Show Plant Popup</button>
         <button id="val_manualDefuse">Show Defuse Popup</button>
         <button class="secondary" id="val_manualHide">Hide Popup</button>
+      </div>
+      <p class="hint" style="margin-top:14px;">Quick combo — one click for the spike badge AND the matching bug
+        banner together (same effect as clicking one button from each row below):</p>
+      <div class="row">
+        <button id="val_spikeComboUp">Spike Bug + Badge Up</button>
+        <button class="secondary" id="val_spikeComboDown">Spike Defused + Badge Down</button>
       </div>
       <p class="hint" style="margin-top:14px;">The spike badge on the In-Game HUD is different from the popup above
         — it's PERSISTENT (stays up for the rest of the round, doesn't auto-hide after a few seconds), driven by the
@@ -4973,60 +4986,22 @@ document.getElementById("val_saveContext").addEventListener("click", () => {
 });
 
 /* ---------- Live Ops: Round Score ---------- */
-const VAL_SCORE_FIELDS = [
-  { key: "t1", team: "team1", label: "Team 1 Round Score", cropKey: "valorant_team1_score" },
-  { key: "t2", team: "team2", label: "Team 2 Round Score", cropKey: "valorant_team2_score" },
-];
-function valBuildScoreGrid(){
-  const grid = document.getElementById("val_scoreGrid");
-  grid.innerHTML = "";
-  VAL_SCORE_FIELDS.forEach(f => {
-    const card = document.createElement("div");
-    card.className = "stat-card";
-    card.innerHTML = `
-      <div class="stat-main">
-        <div class="label">${f.label}</div>
-        <div class="live-value" id="val-live-${f.key}">0</div>
-        <div class="override-row">
-          <label style="margin:0;display:inline-block;"><input type="checkbox" id="val-lock-${f.key}"> Override</label>
-        </div>
-        <div class="override-row">
-          <input type="number" id="val-input-${f.key}" disabled>
-          <button data-key="${f.key}" class="val-apply-btn">Apply</button>
-        </div>
-      </div>
-      <div class="stat-crop">
-        <img id="crop-${f.cropKey}">
-        <div class="crop-caption">live OCR</div>
-      </div>
-    `;
-    grid.appendChild(card);
+// Fully manual, no OCR -- liveScore is set entirely through this Save
+// button, same as seriesScore. No lock/override needed since nothing else
+// (no OCR loop) ever writes to it out from under the operator.
+document.getElementById("val_saveRoundScore").addEventListener("click", () => {
+  valSendManualUpdate({
+    liveScore: {
+      team1: Number(document.getElementById("val_round_t1").value) || 0,
+      team2: Number(document.getElementById("val_round_t2").value) || 0,
+    },
   });
-  grid.querySelectorAll(".val-apply-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const f = VAL_SCORE_FIELDS.find(x => x.key === btn.dataset.key);
-      const val = Number(document.getElementById(`val-input-${f.key}`).value || 0);
-      valSendManualUpdate({ liveScore: { [f.team]: val } }, [`liveScore.${f.team}`], []);
-    });
-  });
-  VAL_SCORE_FIELDS.forEach(f => {
-    document.getElementById(`val-lock-${f.key}`).addEventListener("change", (e) => {
-      document.getElementById(`val-input-${f.key}`).disabled = !e.target.checked;
-      if(!e.target.checked) valSendManualUpdate({}, [], [`liveScore.${f.team}`]);
-    });
-  });
-}
+});
 function valRenderScoreGrid(state){
-  VAL_SCORE_FIELDS.forEach(f => {
-    const value = state.liveScore[f.team];
-    const liveEl = document.getElementById(`val-live-${f.key}`);
-    if(liveEl) liveEl.textContent = value;
-    const isLocked = valLockedFields.has(`liveScore.${f.team}`);
-    document.getElementById(`val-lock-${f.key}`).checked = isLocked;
-    const input = document.getElementById(`val-input-${f.key}`);
-    input.disabled = !isLocked;
-    if(document.activeElement !== input) input.value = value;
-  });
+  const t1 = document.getElementById("val_round_t1");
+  const t2 = document.getElementById("val_round_t2");
+  if(document.activeElement !== t1) t1.value = state.liveScore.team1;
+  if(document.activeElement !== t2) t2.value = state.liveScore.team2;
 }
 
 /* ---------- Live Ops: Attacking Side ---------- */
@@ -5055,6 +5030,18 @@ document.getElementById("val_manualDefuse").addEventListener("click", () => {
 });
 document.getElementById("val_manualHide").addEventListener("click", () => {
   if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"plant_defuse_hide"}));
+});
+document.getElementById("val_spikeComboUp").addEventListener("click", () => {
+  if(valWs && valWs.readyState === WebSocket.OPEN){
+    valWs.send(JSON.stringify({type:"spike_badge_show"}));
+    valWs.send(JSON.stringify({type:"bug_banner_show_planted"}));
+  }
+});
+document.getElementById("val_spikeComboDown").addEventListener("click", () => {
+  if(valWs && valWs.readyState === WebSocket.OPEN){
+    valWs.send(JSON.stringify({type:"spike_badge_hide"}));
+    valWs.send(JSON.stringify({type:"bug_banner_show_defused"}));
+  }
 });
 document.getElementById("val_spikeBadgePush").addEventListener("click", () => {
   if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"spike_badge_show"}));
@@ -5454,7 +5441,6 @@ function valApplyState(state){
 
 valBuildPlayerInputs("val_team1PlayerInputs", "team1");
 valBuildPlayerInputs("val_team2PlayerInputs", "team2");
-valBuildScoreGrid();
 valBuildPostMatchRows("val_pom_players_team1", "team1");
 valBuildPostMatchRows("val_pom_players_team2", "team2");
 
