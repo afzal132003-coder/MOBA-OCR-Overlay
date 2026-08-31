@@ -338,6 +338,31 @@ def track_round_timer(seconds):
     return False
 
 
+# Debounce for the badge/bug's OCR-text and color triggers -- an explicit
+# fix after the badge started popping up "unnecessarily": a single bad
+# frame (an OCR misread that happens to contain "planting"/"buy phase", or
+# a stray red-pixel-ratio blip in the timer crop) is enough to flip a
+# one-shot check, so each trigger now has to see the SAME condition true on
+# TRIGGER_CONFIRM_FRAMES consecutive polls before it's trusted -- same
+# "don't trust a single frame" reasoning as track_round_timer above, just
+# per-condition instead of one frozen baseline.
+_trigger_streaks = {}
+TRIGGER_CONFIRM_FRAMES = 3
+
+
+def confirm_trigger(name, condition):
+    """condition is this frame's raw (unconfirmed) True/False reading for
+    trigger `name`. Returns True only once the same True has been seen
+    TRIGGER_CONFIRM_FRAMES times in a row; any False resets that streak to
+    zero immediately, so a real, sustained state (the banner/icon actually
+    on screen for more than a couple frames) still confirms quickly, but an
+    isolated misread can't."""
+    streak = _trigger_streaks.get(name, 0)
+    streak = streak + 1 if condition else 0
+    _trigger_streaks[name] = streak
+    return streak >= TRIGGER_CONFIRM_FRAMES
+
+
 def preprocess(img_bgr, upscale=4):
     """Same digit-tuned pipeline as ocr_engine.py's preprocess() -- see
     that file for the reasoning behind each step (border padding, upscale,
@@ -405,7 +430,13 @@ def ocr_round_timer(img_bgr):
 # is a fast, purely-visual THIRD trigger for the spike badge/bug, on top of
 # the "planting" text trigger and the full "SPIKE PLANTED" banner -- reuses
 # the round timer's existing calibration, nothing new to set up.
-SPIKE_ICON_RED_RATIO = 0.12  # fraction of pixels that must look "red enough"
+# Raised from an initial 0.12 -- that was loose enough to false-positive on
+# ordinary HUD red (attacking-side accents, anti-aliased digit edges) and
+# was popping the badge up with no spike actually planted. The icon fills
+# most of a tightly-calibrated timer crop, so demanding a clear majority of
+# strongly-saturated red pixels is still comfortably met by the real icon
+# while rejecting a crop that's merely got some red in it somewhere.
+SPIKE_ICON_RED_RATIO = 0.40  # fraction of pixels that must look "red enough"
 
 
 def detect_spike_icon(img_bgr):
@@ -414,7 +445,7 @@ def detect_spike_icon(img_bgr):
     b = img_bgr[:, :, 0].astype(np.int16)
     g = img_bgr[:, :, 1].astype(np.int16)
     r = img_bgr[:, :, 2].astype(np.int16)
-    red_mask = (r > 100) & (r > g + 40) & (r > b + 40)
+    red_mask = (r > 110) & (r > g + 60) & (r > b + 60)
     return bool(red_mask.mean() >= SPIKE_ICON_RED_RATIO)
 
 
@@ -778,7 +809,10 @@ def process_plant_defuse_reading(text, now_ms):
     banner doesn't re-trigger every frame it stays on screen. Team is
     derived from event type + attackingTeam (a real game mechanic: only
     attackers plant, only defenders defuse), not read from the OCR text.
-    Returns True if server_state changed."""
+    Every OCR-text condition below is run through confirm_trigger() (see
+    above) -- called unconditionally, every frame, so its streak keeps
+    building even while the toast is "shown" and this function isn't
+    acting on it yet. Returns True if server_state changed."""
     pd = server_state["plantDefuse"]
     changed = False
 
@@ -787,14 +821,19 @@ def process_plant_defuse_reading(text, now_ms):
         pd["shownUntil"] = None
         changed = True
 
-    if pd["status"] == "idle" and text:
+    defused_confirmed = confirm_trigger("spike_defused_banner", bool(text) and SPIKE_DEFUSED_REGEX.search(text) is not None)
+    planted_confirmed = confirm_trigger("spike_planted_banner", bool(text) and SPIKE_PLANTED_REGEX.search(text) is not None)
+    planting_confirmed = confirm_trigger("planting", bool(text) and SPIKE_PLANTING_REGEX.search(text) is not None)
+    buy_phase_confirmed = confirm_trigger("buy_phase", bool(text) and BUY_PHASE_REGEX.search(text) is not None)
+
+    if pd["status"] == "idle":
         attacking = server_state.get("attackingTeam", "team1")
         defending = "team2" if attacking == "team1" else "team1"
         event_type = None
         team = None
-        if SPIKE_DEFUSED_REGEX.search(text):
+        if defused_confirmed:
             event_type, team = "defuse", defending
-        elif SPIKE_PLANTED_REGEX.search(text):
+        elif planted_confirmed:
             event_type, team = "plant", attacking
         if event_type:
             pd["status"] = "shown"
@@ -817,15 +856,14 @@ def process_plant_defuse_reading(text, now_ms):
     # only acts if it'd actually change something, both to avoid spamming
     # state_sync broadcasts every frame the text stays on screen, and so
     # BUY PHASE doesn't stomp an operator's explicit "hidden" override.
-    if text:
-        if SPIKE_PLANTING_REGEX.search(text) and server_state["spikeBadge"]["mode"] != "planted":
-            server_state["spikeBadge"]["mode"] = "planted"
-            server_state["bugBanner"]["mode"] = "planted"
-            changed = True
-        elif BUY_PHASE_REGEX.search(text) and server_state["spikeBadge"]["mode"] == "planted":
-            server_state["spikeBadge"]["mode"] = "idle"
-            server_state["bugBanner"]["mode"] = "hidden"
-            changed = True
+    if planting_confirmed and server_state["spikeBadge"]["mode"] != "planted":
+        server_state["spikeBadge"]["mode"] = "planted"
+        server_state["bugBanner"]["mode"] = "planted"
+        changed = True
+    elif buy_phase_confirmed and server_state["spikeBadge"]["mode"] == "planted":
+        server_state["spikeBadge"]["mode"] = "idle"
+        server_state["bugBanner"]["mode"] = "hidden"
+        changed = True
 
     return changed
 
@@ -1034,12 +1072,14 @@ async def ocr_loop():
                 changed = True
 
             # Spike icon in the round-timer box -- see detect_spike_icon
-            # above. Checked every frame regardless of announcement text,
-            # same guard style as the "planting"/"BUY PHASE" text triggers
-            # in process_plant_defuse_reading: only acts when it'd actually
-            # flip the mode, so it doesn't spam broadcasts every frame the
-            # icon stays on screen.
-            if timer_crop is not None and detect_spike_icon(timer_crop) and server_state["spikeBadge"]["mode"] != "planted":
+            # above. Run through confirm_trigger() same as the OCR-text
+            # triggers in process_plant_defuse_reading, so a single stray
+            # red-pixel-ratio blip can't pop the badge on its own -- only
+            # acts once confirmed AND it'd actually flip the mode.
+            icon_confirmed = confirm_trigger(
+                "spike_icon", timer_crop is not None and detect_spike_icon(timer_crop),
+            )
+            if icon_confirmed and server_state["spikeBadge"]["mode"] != "planted":
                 server_state["spikeBadge"]["mode"] = "planted"
                 server_state["bugBanner"]["mode"] = "planted"
                 changed = True
