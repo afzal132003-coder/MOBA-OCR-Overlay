@@ -452,7 +452,21 @@ def ocr_round_timer(img_bgr):
 # parse fine, so "digits failed to parse" + "some red present" together is
 # a much more specific icon signal than either alone, and lets the color
 # side of the check use a lower, more forgiving ratio.
-SPIKE_ICON_RED_RATIO = 0.15  # fraction of pixels that must look "red enough"
+# Loosened again -- 0.15 at r>110/g+60/b+60 was still missing the real icon
+# on a real clip. The icon is a red RING/badge shape around a light center
+# glyph, not a solid red disc, so even a generously-drawn crop is a lot of
+# non-red pixels (badge interior, dark stone background behind it) no
+# matter how the color match itself is tuned -- demanding a big fraction of
+# the WHOLE crop be red was the wrong shape of check. Lowered the ratio
+# and loosened the color match to catch darker/desaturated reds too
+# (compression artifacts, HUD transparency).
+SPIKE_ICON_RED_RATIO = 0.06  # fraction of pixels that must look "red enough"
+# Any crop clearing THIS ratio is red enough to trust on its own, no matter
+# what ocr_round_timer() thinks it read -- a real M:SS reading essentially
+# never has this much red in it, so this is a safety valve in case the
+# "digits failed to parse" gate (see detect_spike_icon's caller in
+# ocr_loop) is ever wrong about a frame that's obviously the icon.
+SPIKE_ICON_RED_RATIO_OVERRIDE = 0.30
 
 
 def spike_icon_red_ratio(img_bgr):
@@ -464,7 +478,7 @@ def spike_icon_red_ratio(img_bgr):
     b = img_bgr[:, :, 0].astype(np.int16)
     g = img_bgr[:, :, 1].astype(np.int16)
     r = img_bgr[:, :, 2].astype(np.int16)
-    red_mask = (r > 110) & (r > g + 60) & (r > b + 60)
+    red_mask = (r > 80) & (r > g + 30) & (r > b + 30)
     return float(red_mask.mean())
 
 
@@ -1116,19 +1130,25 @@ async def ocr_loop():
                 changed = True
 
             # Spike icon in the round-timer box -- see detect_spike_icon
-            # above. Requires BOTH some red color present AND no M:SS
-            # digits parsed from the very same crop this frame -- real
+            # above. Normally requires BOTH some red color present AND no
+            # M:SS digits parsed from the very same crop this frame -- real
             # countdown digits always parse fine, so pairing "digits
             # failed" with "red present" is what makes a forgiving color
-            # threshold safe (see detect_spike_icon's comment). Then run
-            # through confirm_trigger() same as the OCR-text triggers in
-            # process_plant_defuse_reading, so a single stray frame can't
-            # pop the badge on its own -- only acts once confirmed AND it'd
-            # actually flip the mode.
-            icon_confirmed = confirm_trigger(
-                "spike_icon",
-                timer_crop is not None and timer_seconds is None and detect_spike_icon(timer_crop),
-            )
+            # threshold safe. An overwhelming red ratio (SPIKE_ICON_RED_
+            # RATIO_OVERRIDE) skips that gate entirely -- a safety valve in
+            # case the digit-parse check is ever wrong about an obviously-
+            # icon frame. Then run through confirm_trigger() same as the
+            # OCR-text triggers in process_plant_defuse_reading, so a
+            # single stray frame can't pop the badge on its own -- only
+            # acts once confirmed AND it'd actually flip the mode.
+            icon_seen = False
+            if timer_crop is not None:
+                red_ratio = spike_icon_red_ratio(timer_crop)
+                icon_seen = (
+                    red_ratio >= SPIKE_ICON_RED_RATIO_OVERRIDE
+                    or (timer_seconds is None and red_ratio >= SPIKE_ICON_RED_RATIO)
+                )
+            icon_confirmed = confirm_trigger("spike_icon", icon_seen)
             if icon_confirmed and server_state["spikeBadge"]["mode"] != "planted":
                 server_state["spikeBadge"]["mode"] = "planted"
                 server_state["bugBanner"]["mode"] = "planted"
