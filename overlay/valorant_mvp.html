@@ -136,12 +136,19 @@
   }
 
   /* ---- Head to Head (assets/headtohead.png) ---- */
+  /* Team logo sits OUTSIDE the name on each side -- left player's logo to
+     the left of their IGN, right player's logo to the right of theirs
+     (mirrored), per an explicit request. */
+  .h2h-logo{ position:absolute; top:35px; width:50px; height:50px; object-fit:contain; display:none; }
+  #h2h-team1-logo{ left:20px; }
+  #h2h-team2-logo{ left:1850px; }
+
   .h2h-name{
-    position:absolute; top:35px; width:660px; height:50px;
+    position:absolute; top:35px; width:600px; height:50px;
     color:#f2c14e; font-weight:900; font-style:italic; font-size:32px;
     text-transform:uppercase; white-space:nowrap; overflow:hidden;
   }
-  #h2h-team1-name{ left:20px; text-align:right; }
+  #h2h-team1-name{ left:80px; text-align:right; }
   #h2h-team2-name{ left:1240px; text-align:left; }
 
   .h2h-stat{
@@ -155,6 +162,14 @@
   #h2h-p1-deaths, #h2h-p2-deaths{ top:432px; }
   #h2h-p1-assists, #h2h-p2-assists{ top:547px; }
   #h2h-p1-firstbloods, #h2h-p2-firstbloods{ top:667px; }
+
+  /* Picked agent portrait, framed within each side's gold chevron cluster
+     -- "character pick" per an explicit request, same cropped headshot
+     asset Character Pick/Team Chemistry Stats use (Valorant Agents/
+     Portraits/), not the full-body art MVP's own big art area uses. */
+  .h2h-portrait{ position:absolute; top:182px; width:380px; height:447px; object-fit:cover; display:none; }
+  #h2h-p1-portrait{ left:80px; }
+  #h2h-p2-portrait{ left:1460px; }
 </style>
 </head>
 <body>
@@ -182,8 +197,13 @@
   <div id="h2h-content" class="screen-content">
     <img class="bg-frame" src="assets/headtohead.png" alt="">
 
+    <img class="h2h-portrait" id="h2h-p1-portrait" alt="">
+    <img class="h2h-portrait" id="h2h-p2-portrait" alt="">
+
+    <img class="h2h-logo" id="h2h-team1-logo" alt="">
     <div class="h2h-name" id="h2h-team1-name"></div>
     <div class="h2h-name" id="h2h-team2-name"></div>
+    <img class="h2h-logo" id="h2h-team2-logo" alt="">
 
     <div class="h2h-stat p1" id="h2h-p1-kills">0</div>
     <div class="h2h-stat p1" id="h2h-p1-deaths">0</div>
@@ -254,7 +274,7 @@ function setWrappedImg(wrapId, imgId, src){
 }
 
 const GFX_ELEMENT_IDS = ["sponsor-branding","team-logo","team-name","player-name","stat-kills","stat-deaths","stat-assists","stat-firstbloods","agent-portrait"];
-const H2H_GFX_ELEMENT_IDS = ["h2h-team1-name","h2h-team2-name","h2h-p1-kills","h2h-p1-deaths","h2h-p1-assists","h2h-p1-firstbloods","h2h-p2-kills","h2h-p2-deaths","h2h-p2-assists","h2h-p2-firstbloods"];
+const H2H_GFX_ELEMENT_IDS = ["h2h-team1-logo","h2h-team1-name","h2h-team2-name","h2h-team2-logo","h2h-p1-portrait","h2h-p2-portrait","h2h-p1-kills","h2h-p1-deaths","h2h-p1-assists","h2h-p1-firstbloods","h2h-p2-kills","h2h-p2-deaths","h2h-p2-assists","h2h-p2-firstbloods"];
 
 function applyGraphicOverridesTo(ids, overrides){
   ids.forEach(id => {
@@ -267,6 +287,34 @@ function applyGraphicOverridesTo(ids, overrides){
   });
 }
 
+// Sequenced, not a simultaneous cross-fade -- an explicit request: the
+// outgoing screen goes off COMPLETELY first, then the incoming one
+// appears, rather than both fading through each other at once. Matches
+// the .screen-content CSS transition duration (0.5s) plus a small buffer.
+let mvpCurrentScreenMode = null;
+const MVP_TRANSITION_MS = 550;
+
+function mvpSetScreenMode(mode){
+  const mvpEl = document.getElementById("mvp-content");
+  const h2hEl = document.getElementById("h2h-content");
+  if(mvpCurrentScreenMode === null){
+    // First state_sync after page load -- show directly, no off/on dance.
+    mvpCurrentScreenMode = mode;
+    mvpEl.classList.toggle("visible", mode === "mvp");
+    h2hEl.classList.toggle("visible", mode === "headtohead");
+    return;
+  }
+  if(mode === mvpCurrentScreenMode) return;
+  mvpCurrentScreenMode = mode;
+  mvpEl.classList.remove("visible");
+  h2hEl.classList.remove("visible");
+  setTimeout(() => {
+    if(mvpCurrentScreenMode !== mode) return; // superseded by a newer change
+    if(mode === "mvp") mvpEl.classList.add("visible");
+    else if(mode === "headtohead") h2hEl.classList.add("visible");
+  }, MVP_TRANSITION_MS);
+}
+
 function h2hPlayerStats(state, team, idx){
   const hasSelection = (team === "team1" || team === "team2") && idx !== null && idx !== undefined;
   const teamState = hasSelection ? state[team] : null;
@@ -274,6 +322,8 @@ function h2hPlayerStats(state, team, idx){
     state.postMatch.players[team] && state.postMatch.players[team][idx];
   return {
     name: (teamState && teamState.players && teamState.players[idx]) || "",
+    logo: teamState && teamState.logo,
+    agent: playerStats && playerStats.agent,
     kills: (playerStats && playerStats.kills) || 0,
     deaths: (playerStats && playerStats.deaths) || 0,
     assists: (playerStats && playerStats.assists) || 0,
@@ -308,6 +358,10 @@ function applyState(state){
   const p2 = h2hPlayerStats(state, "team2", h2h.team2 && h2h.team2.playerIndex);
   document.getElementById("h2h-team1-name").textContent = p1.name;
   document.getElementById("h2h-team2-name").textContent = p2.name;
+  setImg("h2h-team1-logo", p1.logo);
+  setImg("h2h-team2-logo", p2.logo);
+  setImg("h2h-p1-portrait", agentPortraitUrl(p1.agent));
+  setImg("h2h-p2-portrait", agentPortraitUrl(p2.agent));
   document.getElementById("h2h-p1-kills").textContent = p1.kills;
   document.getElementById("h2h-p1-deaths").textContent = p1.deaths;
   document.getElementById("h2h-p1-assists").textContent = p1.assists;
@@ -319,9 +373,7 @@ function applyState(state){
 
   applyGraphicOverridesTo(H2H_GFX_ELEMENT_IDS, state.graphicOverrides && state.graphicOverrides.headtohead);
 
-  const screenMode = state.mvpScreenMode || "mvp";
-  document.getElementById("mvp-content").classList.toggle("visible", screenMode === "mvp");
-  document.getElementById("h2h-content").classList.toggle("visible", screenMode === "headtohead");
+  mvpSetScreenMode(state.mvpScreenMode || "mvp");
 }
 
 connect();

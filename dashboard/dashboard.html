@@ -1172,6 +1172,8 @@
       </div>
       <button id="val_h2h_push">Push Head-to-Head to Overlay</button>
       <div id="val_h2h_status" class="hint"></div>
+      <p class="hint" style="margin-top:14px;">Pull both off screen entirely (sponsor branding stays put):</p>
+      <button class="secondary" id="val_mvpScreen_hide">Hide MVP / Head-to-Head</button>
     </div>
   </div>
 
@@ -1233,10 +1235,22 @@
         up with another box or the canvas center/edges — drag onto one to snap to it. Ctrl/Cmd+click to select
         multiple boxes and move them together with arrow keys or by dragging any one of them. Ctrl+Z
         undoes the last drag/resize/nudge/reset on this page, Ctrl+S saves.</p>
-      <div id="valgfx_stage_wrap" style="position:relative;width:960px;height:540px;background:#000;border:1px solid #332b52;border-radius:6px;overflow:hidden;">
-        <img id="valgfx_bg" style="position:absolute;top:0;left:0;width:960px;height:540px;object-fit:cover;" alt="">
-        <div id="valgfx_stage" style="position:absolute;top:0;left:0;width:960px;height:540px;"></div>
-        <div id="valgfx_guides" style="position:absolute;top:0;left:0;width:960px;height:540px;pointer-events:none;z-index:50;"></div>
+      <div class="row" style="gap:8px;margin-bottom:10px;align-items:center;" id="valgfx_stage_toolbar">
+        <span class="hint" style="margin:0;">Zoom:</span>
+        <button class="secondary" data-valgfx-zoom="0.5">50%</button>
+        <button class="secondary" data-valgfx-zoom="0.75">75%</button>
+        <button class="secondary" data-valgfx-zoom="1">100% (true size)</button>
+        <label class="hint" style="margin:0 0 0 12px;cursor:pointer;">
+          <input type="checkbox" id="valgfx_grid_toggle"> Show alignment grid (100px)
+        </label>
+      </div>
+      <div id="valgfx_stage_scroll" style="max-width:100%;max-height:640px;overflow:auto;border:1px solid #332b52;border-radius:6px;">
+        <div id="valgfx_stage_wrap" style="position:relative;width:960px;height:540px;background:#000;">
+          <img id="valgfx_bg" style="position:absolute;top:0;left:0;width:960px;height:540px;object-fit:cover;" alt="">
+          <div id="valgfx_stage" style="position:absolute;top:0;left:0;width:960px;height:540px;"></div>
+          <div id="valgfx_guides" style="position:absolute;top:0;left:0;width:960px;height:540px;pointer-events:none;z-index:50;"></div>
+          <div id="valgfx_grid" style="position:absolute;top:0;left:0;width:960px;height:540px;pointer-events:none;z-index:40;display:none;"></div>
+        </div>
       </div>
       <div class="row" style="margin-top:14px;gap:10px;align-items:center;" id="valgfx_stage_controls">
         <button id="valgfx_save">Save Positions</button>
@@ -5352,6 +5366,11 @@ document.getElementById("val_h2h_push").addEventListener("click", () => {
     "Pushed — the MVP screen transitions to Head-to-Head now (same overlay source, sponsor branding stays put).";
 });
 
+document.getElementById("val_mvpScreen_hide").addEventListener("click", () => {
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"mvp_screen_hide"}));
+  document.getElementById("val_h2h_status").textContent = "Pulled off — sponsor branding is still showing.";
+});
+
 // Runs on EVERY state_sync, not just once -- so Swap Sides (or any other
 // server-side change to team1/team2 identity) shows up immediately
 // instead of needing a page refresh. Each editable input is individually
@@ -5493,8 +5512,12 @@ const VAL_GRAPHIC_PAGES = {
     // file/OBS source as MVP (a cross-fade toggle, not a separate page).
     label: "Head to Head", background: "../overlay/assets/headtohead.png",
     elements: {
-      "h2h-team1-name": { left:20, top:35, width:660, height:50, kind:"box", label:"Player 1 Name" },
-      "h2h-team2-name": { left:1240, top:35, width:660, height:50, kind:"box", label:"Player 2 Name" },
+      "h2h-team1-logo": { left:20, top:35, width:50, height:50, kind:"box", label:"Player 1 Team Logo (left of name)" },
+      "h2h-team1-name": { left:80, top:35, width:600, height:50, kind:"box", label:"Player 1 Name" },
+      "h2h-team2-name": { left:1240, top:35, width:600, height:50, kind:"box", label:"Player 2 Name" },
+      "h2h-team2-logo": { left:1850, top:35, width:50, height:50, kind:"box", label:"Player 2 Team Logo (right of name)" },
+      "h2h-p1-portrait": { left:80, top:182, width:380, height:447, kind:"box", label:"Player 1 Agent Portrait" },
+      "h2h-p2-portrait": { left:1460, top:182, width:380, height:447, kind:"box", label:"Player 2 Agent Portrait" },
       "h2h-p1-kills": { left:930, top:312, width:150, height:40, kind:"box", label:"Player 1 Kills" },
       "h2h-p1-deaths": { left:930, top:432, width:150, height:40, kind:"box", label:"Player 1 Deaths" },
       "h2h-p1-assists": { left:930, top:547, width:150, height:40, kind:"box", label:"Player 1 Assists" },
@@ -5568,8 +5591,8 @@ const VAL_GRAPHIC_PAGES = {
   });
 })();
 
-const VALGFX_SCALE = 0.5;
-const VALGFX_STAGE_W = 960, VALGFX_STAGE_H = 540;
+let VALGFX_SCALE = 0.5;
+let VALGFX_STAGE_W = 960, VALGFX_STAGE_H = 540;
 const VALGFX_SNAP_THRESHOLD = 4;
 
 let valgfxCurrentPage = "ingame";
@@ -5798,6 +5821,58 @@ document.getElementById("valgfx_stage_wrap").addEventListener("mousedown", (e) =
   }
 });
 
+// Zoom + alignment grid -- VALGFX_SCALE/STAGE_W/STAGE_H drive every drag/
+// resize/snap calculation above, so changing zoom just means: update those
+// three, resize the 4 stacked stage layers to match, and re-run
+// valgfxPositionBox for every box currently on screen (same box geometry,
+// just at the new pixel scale). The 1920x1080-canvas-worth of stage is
+// wrapped in a scrollable container (#valgfx_stage_scroll) since 100% zoom
+// doesn't fit most dashboard viewports.
+function valgfxRenderGrid(){
+  const gridEl = document.getElementById("valgfx_grid");
+  const step = 100 * VALGFX_SCALE; // gridlines every 100 real canvas px
+  gridEl.style.backgroundImage =
+    "linear-gradient(to right, rgba(255,255,255,0.22) 1px, transparent 1px)," +
+    "linear-gradient(to bottom, rgba(255,255,255,0.22) 1px, transparent 1px)";
+  gridEl.style.backgroundSize = `${step}px ${step}px`;
+}
+
+function valgfxApplyStageSize(){
+  const w = Math.round(1920 * VALGFX_SCALE), h = Math.round(1080 * VALGFX_SCALE);
+  ["valgfx_stage_wrap", "valgfx_bg", "valgfx_stage", "valgfx_guides", "valgfx_grid"].forEach(id => {
+    const el = document.getElementById(id);
+    el.style.width = w + "px";
+    el.style.height = h + "px";
+  });
+  valgfxRenderGrid();
+}
+
+function valgfxSetZoom(scale){
+  VALGFX_SCALE = scale;
+  VALGFX_STAGE_W = Math.round(1920 * scale);
+  VALGFX_STAGE_H = Math.round(1080 * scale);
+  valgfxApplyStageSize();
+  document.querySelectorAll("[data-valgfx-zoom]").forEach(btn => {
+    const active = Number(btn.dataset.valgfxZoom) === scale;
+    btn.style.background = active ? "#8b5cf6" : "";
+    btn.style.color = active ? "#0c0a17" : "";
+  });
+  const pageDef = VAL_GRAPHIC_PAGES[valgfxCurrentPage];
+  if(pageDef){
+    document.querySelectorAll("#valgfx_stage .gfx-box").forEach(box => {
+      valgfxPositionBox(box, pageDef.elements[box.dataset.id]);
+    });
+  }
+}
+
+document.querySelectorAll("[data-valgfx-zoom]").forEach(btn => {
+  btn.addEventListener("click", () => valgfxSetZoom(Number(btn.dataset.valgfxZoom)));
+});
+document.getElementById("valgfx_grid_toggle").addEventListener("change", (e) => {
+  document.getElementById("valgfx_grid").style.display = e.target.checked ? "block" : "none";
+});
+valgfxSetZoom(0.5);
+
 function valgfxLoadPage(pageKey){
   valgfxCurrentPage = pageKey;
   valgfxSelectedIds = new Set();
@@ -5976,17 +6051,24 @@ document.getElementById("valcf_save").addEventListener("click", () => {
 valcfBuildAgentOptions();
 
 function valgfxShowStagePage(pageKey){
-  document.getElementById("valgfx_stage_wrap").style.display = "";
+  document.getElementById("valgfx_stage_scroll").style.display = "";
+  document.getElementById("valgfx_stage_toolbar").style.display = "";
   document.getElementById("valgfx_stage_controls").style.display = "";
   document.getElementById("valgfx_stage_hint").style.display = "";
   document.getElementById("valgfx_characterfixing_panel").style.display = "none";
   const cfBtn = document.getElementById("valgfx_page_characterfixing");
   if(cfBtn){ cfBtn.style.background = ""; cfBtn.style.color = ""; }
   valgfxLoadPage(pageKey);
+  document.querySelectorAll("[data-valgfx-zoom]").forEach(btn => {
+    const active = Number(btn.dataset.valgfxZoom) === VALGFX_SCALE;
+    btn.style.background = active ? "#8b5cf6" : "";
+    btn.style.color = active ? "#0c0a17" : "";
+  });
 }
 
 function valgfxShowCharacterFixingPanel(){
-  document.getElementById("valgfx_stage_wrap").style.display = "none";
+  document.getElementById("valgfx_stage_scroll").style.display = "none";
+  document.getElementById("valgfx_stage_toolbar").style.display = "none";
   document.getElementById("valgfx_stage_controls").style.display = "none";
   document.getElementById("valgfx_stage_hint").style.display = "none";
   document.getElementById("valgfx_characterfixing_panel").style.display = "block";

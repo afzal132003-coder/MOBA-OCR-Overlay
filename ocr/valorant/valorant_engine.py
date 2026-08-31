@@ -203,8 +203,9 @@ def default_state():
         # live in the SAME overlay page/OBS source (an explicit request --
         # the sponsor branding strip stays on screen through the
         # transition instead of the whole source swapping), so this just
-        # picks which content is currently animated in. Resets to "mvp" on
-        # load, same as every other "currently showing" toggle.
+        # picks which content is currently animated in. "hidden" pulls
+        # both off screen (sponsor branding still stays visible). Resets
+        # to "mvp" on load, same as every other "currently showing" toggle.
         "mvpScreenMode": "mvp",
 
         "graphicOverrides": {},
@@ -832,6 +833,11 @@ async def handle_client(websocket, path=None):
 
             elif msg_type == "mvp_screen_show_mvp":
                 server_state["mvpScreenMode"] = "mvp"
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
+            elif msg_type == "mvp_screen_hide":
+                server_state["mvpScreenMode"] = "hidden"
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
 

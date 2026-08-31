@@ -170,7 +170,7 @@ const VAL_MAP_MAP = {};
 [
   "Ascent","Bind","Haven","Split","Icebox","Breeze",
   "Fracture","Pearl","Lotus","Sunset","Abyss","Corrode",
-].forEach(name => { VAL_MAP_MAP[name.toLowerCase()] = `${name}.webp`; });
+].forEach(name => { VAL_MAP_MAP[name.toLowerCase()] = `${name.toLowerCase()}.png`; });
 
 function mapThumbUrl(mapName){
   const file = VAL_MAP_MAP[(mapName || "").toLowerCase()];
