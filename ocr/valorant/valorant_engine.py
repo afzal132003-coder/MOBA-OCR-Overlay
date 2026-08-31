@@ -44,10 +44,26 @@ import websockets
 CONFIG_PATH = Path(__file__).parent / "valorant_config.json"
 STATE_PATH = Path(__file__).parent / "valorant_state.json"
 
+# Calibration regions live in three separate files, one per category, so
+# recalibrating post-match doesn't touch the in-game/char-select data and
+# vice versa -- calibrate_valorant.py writes each category to its own file.
+REGION_FILES = {
+    "ingame": Path(__file__).parent / "valorant_regions_ingame.json",
+    "character": Path(__file__).parent / "valorant_regions_character.json",
+    "postmatch": Path(__file__).parent / "valorant_regions_postmatch.json",
+}
+
 
 def load_config():
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+        cfg = json.load(f)
+    regions = {}
+    for path in REGION_FILES.values():
+        if path.exists():
+            with open(path, "r", encoding="utf-8") as f:
+                regions.update(json.load(f))
+    cfg["regions"] = regions
+    return cfg
 
 
 def deep_merge_defaults(loaded, defaults):

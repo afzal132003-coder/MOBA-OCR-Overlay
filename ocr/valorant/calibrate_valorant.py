@@ -31,9 +31,13 @@ categories you can run independently:
                    drag-one-box-per-key loop like the other two categories.
 
 Have Valorant's in-game HUD (or a paused frame with the relevant screen
-visible) on screen when you run this. Writes into valorant_config.json for
-valorant_engine.py to use -- separate from config.json (MOBA) and
-freefire_config.json, since this is a third, independent engine.
+visible) on screen when you run this. Region coordinates are written into
+THREE separate files, one per category (valorant_regions_ingame.json,
+valorant_regions_character.json, valorant_regions_postmatch.json) --
+recalibrating one category never touches another's data. Engine settings
+(monitor, tesseract path, etc.) stay in valorant_config.json, separate from
+config.json (MOBA) and freefire_config.json, since this is a third,
+independent engine.
 
 Usage:
     python calibrate_valorant.py                  # all 3 categories, in order
@@ -53,6 +57,12 @@ import numpy as np
 
 CONFIG_PATH = Path(__file__).parent / "valorant_config.json"
 
+REGION_FILES = {
+    "valo-ingame": Path(__file__).parent / "valorant_regions_ingame.json",
+    "valo-character": Path(__file__).parent / "valorant_regions_character.json",
+    "valo-postmatch": Path(__file__).parent / "valorant_regions_postmatch.json",
+}
+
 CHARSELECT_KEYS = [f"valorant_charselect_team1_{i}" for i in range(5)] + \
                   [f"valorant_charselect_team2_{i}" for i in range(5)]
 
@@ -63,8 +73,13 @@ CATEGORIES = {
 }
 
 # All individually-addressable single-box keys (everything except the
-# postmatch grid, which isn't one box).
+# postmatch grid, which isn't one box), mapped back to which category (and
+# therefore which file) each belongs to.
 REGION_ORDER = CATEGORIES["valo-ingame"] + CATEGORIES["valo-character"]
+KEY_TO_CATEGORY = {}
+for _cat in ("valo-ingame", "valo-character"):
+    for _key in CATEGORIES[_cat]:
+        KEY_TO_CATEGORY[_key] = _cat
 
 LABELS = {
     "valorant_team1_score": "TEAM 1 (left/attacker side) - ROUND SCORE",
@@ -85,9 +100,17 @@ def load_config():
         return json.load(f)
 
 
-def save_config(cfg):
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2)
+def load_regions(category):
+    path = REGION_FILES[category]
+    if not path.exists():
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_regions(category, regions):
+    with open(REGION_FILES[category], "w", encoding="utf-8") as f:
+        json.dump(regions, f, indent=2)
 
 
 def calibrate_single_box(frame, monitor, key):
@@ -112,11 +135,13 @@ def calibrate_postmatch_grid(frame, monitor):
          edge of the K/D/A column to the right edge of the Plants column,
          top of row 1 to bottom of row 10. Do NOT include the player name
          column -- names aren't calibrated here.
-      2. Drag 4 vertical divider lines (shown on an upscaled crop of that
-         box) so they land exactly on the real column boundaries. Rows are
-         assumed evenly spaced top-to-bottom across the box from step 1 --
-         true for every real scoreboard table, so there's no separate row
-         adjustment step.
+      2. Drag 4 CYAN vertical divider lines (shown on an upscaled crop of
+         that box) onto the real column boundaries, AND 9 ORANGE horizontal
+         divider lines onto the real row boundaries -- both start evenly
+         spaced and are independently draggable, so rows don't have to be
+         perfectly even if the real table isn't. Click near a line to grab
+         it (nearest one wins, whichever axis is closer); R resets both
+         sets back to even spacing.
       3. A final confirmation window draws all 50 computed cells as green
          grid lines over the FULL frame -- press ENTER to save, R to redo
          from step 1, or ESC to cancel.
@@ -138,39 +163,56 @@ def calibrate_postmatch_grid(frame, monitor):
     disp = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
     disp_h, disp_w = disp.shape[:2]
 
-    def even_dividers():
+    def even_col_dividers():
         return [disp_w * i / n_cols for i in range(1, n_cols)]
 
-    dividers = even_dividers()
-    dragging = {"idx": None}
+    def even_row_dividers():
+        return [disp_h * i / POSTMATCH_ROWS for i in range(1, POSTMATCH_ROWS)]
 
-    def nearest_divider(px):
-        if not dividers:
+    col_dividers = even_col_dividers()
+    row_dividers = even_row_dividers()
+    dragging = {"kind": None, "idx": None}
+
+    def nearest(divs, p):
+        if not divs:
             return None
-        idx = min(range(len(dividers)), key=lambda i: abs(dividers[i] - px))
-        return idx if abs(dividers[idx] - px) < 14 else None
+        idx = min(range(len(divs)), key=lambda i: abs(divs[i] - p))
+        return idx if abs(divs[idx] - p) < 14 else None
 
     def on_mouse(event, mx, my, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
-            dragging["idx"] = nearest_divider(mx)
-        elif event == cv2.EVENT_MOUSEMOVE and dragging["idx"] is not None:
-            dividers[dragging["idx"]] = float(max(4, min(disp_w - 4, mx)))
+            col_idx = nearest(col_dividers, mx)
+            row_idx = nearest(row_dividers, my)
+            col_dist = abs(col_dividers[col_idx] - mx) if col_idx is not None else 1e9
+            row_dist = abs(row_dividers[row_idx] - my) if row_idx is not None else 1e9
+            if col_idx is None and row_idx is None:
+                dragging["kind"], dragging["idx"] = None, None
+            elif col_dist <= row_dist:
+                dragging["kind"], dragging["idx"] = "col", col_idx
+            else:
+                dragging["kind"], dragging["idx"] = "row", row_idx
+        elif event == cv2.EVENT_MOUSEMOVE and dragging["kind"] is not None:
+            if dragging["kind"] == "col":
+                col_dividers[dragging["idx"]] = float(max(4, min(disp_w - 4, mx)))
+            else:
+                row_dividers[dragging["idx"]] = float(max(4, min(disp_h - 4, my)))
         elif event == cv2.EVENT_LBUTTONUP:
-            dragging["idx"] = None
+            dragging["kind"], dragging["idx"] = None, None
 
-    win2 = ("Drag the 4 orange lines onto the real column edges: " +
+    win2 = ("Drag orange lines onto column edges (" +
             " | ".join(POSTMATCH_COL_LABELS[c] for c in POSTMATCH_COLS) +
-            "   ENTER=confirm  R=reset  ESC=cancel")
+            "), drag cyan lines onto each of the 10 row edges.   "
+            "ENTER=confirm  R=reset  ESC=cancel")
     cv2.namedWindow(win2)
     cv2.setMouseCallback(win2, on_mouse)
 
     cancelled = False
     while True:
         canvas = disp.copy()
-        for r in range(1, POSTMATCH_ROWS):
-            ry = int(disp_h * r / POSTMATCH_ROWS)
-            cv2.line(canvas, (0, ry), (disp_w, ry), (90, 90, 90), 1)
-        for dx in dividers:
+        for ry in row_dividers:
+            ryi = int(ry)
+            cv2.line(canvas, (0, ryi), (disp_w, ryi), (255, 210, 0), 2)
+        for dx in col_dividers:
             dxi = int(dx)
             cv2.line(canvas, (dxi, 0), (dxi, disp_h), (0, 200, 255), 2)
         cv2.imshow(win2, canvas)
@@ -178,7 +220,8 @@ def calibrate_postmatch_grid(frame, monitor):
         if key in (13, 32):  # ENTER / SPACE
             break
         if key == ord('r'):
-            dividers = even_dividers()
+            col_dividers = even_col_dividers()
+            row_dividers = even_row_dividers()
         if key == 27:  # ESC
             cancelled = True
             break
@@ -186,14 +229,15 @@ def calibrate_postmatch_grid(frame, monitor):
     if cancelled:
         return None
 
-    col_bounds_disp = [0.0] + sorted(dividers) + [float(disp_w)]
+    col_bounds_disp = [0.0] + sorted(col_dividers) + [float(disp_w)]
     col_bounds = [b / scale for b in col_bounds_disp]  # back to crop-local px
-    row_h = h / POSTMATCH_ROWS
+    row_bounds_disp = [0.0] + sorted(row_dividers) + [float(disp_h)]
+    row_bounds = [b / scale for b in row_bounds_disp]
 
     regions = {}
     for r in range(POSTMATCH_ROWS):
-        y0 = y + monitor["top"] + r * row_h
-        y1 = y0 + row_h
+        y0 = y + monitor["top"] + row_bounds[r]
+        y1 = y + monitor["top"] + row_bounds[r + 1]
         for c, col_name in enumerate(POSTMATCH_COLS):
             x0 = x + monitor["left"] + col_bounds[c]
             x1 = x + monitor["left"] + col_bounds[c + 1]
@@ -225,7 +269,6 @@ def calibrate_postmatch_grid(frame, monitor):
 def main():
     cfg = load_config()
     monitor_index = cfg.get("monitor", 1)
-    regions = cfg.get("regions", {})
 
     requested = sys.argv[1:]
     if not requested:
@@ -256,15 +299,26 @@ def main():
     print(f"\nUsing monitor index {monitor_index}: {monitor}")
     print("A screenshot window will open for each region. Press 'c' to skip one (keeps its previous value).\n")
 
+    # Individual keys: group by category so each category's file is loaded
+    # and saved once, not once per key.
+    keys_by_category = {}
     for key in run_keys:
-        result = calibrate_single_box(frame, monitor, key)
-        if result:
-            regions[key] = result
-            print(f"Saved {key}: {result}")
-        else:
-            print(f"Skipped {key} (kept previous value if any)")
+        keys_by_category.setdefault(KEY_TO_CATEGORY[key], []).append(key)
+
+    for cat, keys in keys_by_category.items():
+        regions = load_regions(cat)
+        for key in keys:
+            result = calibrate_single_box(frame, monitor, key)
+            if result:
+                regions[key] = result
+                print(f"Saved {key}: {result}")
+            else:
+                print(f"Skipped {key} (kept previous value if any)")
+        save_regions(cat, regions)
+        print(f"-> {len(regions)} regions saved to {REGION_FILES[cat].name}")
 
     for cat in run_categories:
+        regions = load_regions(cat)
         if cat == "valo-postmatch":
             print("\n--- valo-postmatch: 10-row x 5-column stat grid ---")
             new_regions = calibrate_postmatch_grid(frame, monitor)
@@ -282,10 +336,11 @@ def main():
                     print(f"Saved {key}: {result}")
                 else:
                     print(f"Skipped {key} (kept previous value if any)")
+        save_regions(cat, regions)
+        print(f"-> {len(regions)} regions saved to {REGION_FILES[cat].name}")
 
-    cfg["regions"] = regions
-    save_config(cfg)
-    print("\nAll regions saved to valorant_config.json. Re-run this script any time to recalibrate.")
+    print("\nDone. Each category's regions live in their own file -- recalibrating one "
+          "never touches another's data. Re-run this script any time to recalibrate.")
 
 
 if __name__ == "__main__":

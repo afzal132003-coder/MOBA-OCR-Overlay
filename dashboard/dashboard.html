@@ -1185,8 +1185,9 @@
         sorted by ACS — not two separate 5-player columns like MOBA's screens, and there's no reliable way to read
         WHO a row belongs to automatically. So this reads the 10 rows' stats directly off a calibrated grid, in
         on-screen top-to-bottom order, and lists them below for you to assign: pick each row's player from its
-        dropdown, and use the arrows if a row needs to trade places with its neighbor — the player and all their
-        stats move together.</p>
+        dropdown, or use the arrows to move a player's assignment up/down — the stats themselves stay put on their
+        own grid row (that's the actual reading from that exact spot on screen), only WHO that row is credited to
+        moves, like a lookup rather than a swap.</p>
       <p class="hint">Have the post-match "Individually Sorted" screen up on your monitor, then hit Capture — this
         reads straight off the screen, no screenshot/upload needed. First time only, calibrate the 10x5 stat grid
         (K/D/A, ACS, K/D, First Bloods, Plants per row — an interactive multi-step tool, follow its on-screen
@@ -5232,8 +5233,8 @@ function valRenderImportTable(){
     tr.innerHTML = `
       <td style="padding:6px;">
         <div class="reorder-btns">
-          <button type="button" class="reorder-btn val-import-reorder" data-dir="up" data-i="${i}" title="Move this player's row up" ${i===0?"disabled":""}>&#9650;</button>
-          <button type="button" class="reorder-btn val-import-reorder" data-dir="down" data-i="${i}" title="Move this player's row down" ${i===valImportRows.length-1?"disabled":""}>&#9660;</button>
+          <button type="button" class="reorder-btn val-import-reorder" data-dir="up" data-i="${i}" title="Move this player's name/assignment up -- the stats stay on this grid row" ${i===0?"disabled":""}>&#9650;</button>
+          <button type="button" class="reorder-btn val-import-reorder" data-dir="down" data-i="${i}" title="Move this player's name/assignment down -- the stats stay on this grid row" ${i===valImportRows.length-1?"disabled":""}>&#9660;</button>
         </div>
       </td>
       <td style="padding:6px;"><select id="val_import_${i}_who" class="import-who-select val-import-who" style="width:170px;">${valImportWhoOptionsHtml(row.team, row.playerIndex)}</select></td>
@@ -5261,7 +5262,16 @@ function valRenderImportTable(){
       if(j < 0 || j >= valImportRows.length) return;
       valReadImportRowFromDom(i);
       valReadImportRowFromDom(j);
-      const tmp = valImportRows[i]; valImportRows[i] = valImportRows[j]; valImportRows[j] = tmp;
+      // Swap only WHO is assigned to this row -- the stats themselves stay
+      // put on their own grid row (screen position). Assigning a player to
+      // a row is a lookup, not a move: the row's numbers came straight off
+      // that exact spot on the post-match screen, so they shouldn't travel
+      // when the operator picks a different player for it.
+      const tmpTeam = valImportRows[i].team, tmpIdx = valImportRows[i].playerIndex;
+      valImportRows[i].team = valImportRows[j].team;
+      valImportRows[i].playerIndex = valImportRows[j].playerIndex;
+      valImportRows[j].team = tmpTeam;
+      valImportRows[j].playerIndex = tmpIdx;
       valRenderImportTable();
     });
   });

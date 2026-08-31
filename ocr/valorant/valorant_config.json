@@ -5,7 +5,6 @@
   "debounce_frames": 7,
   "server_host": "localhost",
   "server_port": 8765,
-  "regions": {},
   "relay": {
     "enabled": true,
     "url": "wss://moba-ocr-overlay-production.up.railway.app",
