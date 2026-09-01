@@ -119,7 +119,8 @@
   }
 
   /* Two complete pre-made banner graphics (SPIKEPLANTED_BUG.png /
-     BOMBDEFUSED_BUG.png) supplied as full 1920x1080 canvases with the
+     spikedefused.png -- the latter replaced BOMBDEFUSED_BUG.png, an
+     explicit asset update) supplied as full 1920x1080 canvases with the
      ribbon art at the same spot on both -- cropped down to just that
      ribbon (was 1920x1080, now 356x54 at the crop's original on-canvas
      position) so this element's own size matches every other Graphic
@@ -196,7 +197,7 @@ function setBugBanner(mode){
     el.src = "assets/SPIKEPLANTED_BUG.png";
     el.classList.add("visible");
   } else if(mode === "defused"){
-    el.src = "assets/BOMBDEFUSED_BUG.png";
+    el.src = "assets/spikedefused.png";
     el.classList.add("visible");
   } else {
     el.classList.remove("visible");

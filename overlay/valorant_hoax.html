@@ -23,8 +23,29 @@
     (overlay/valorant_ingame.html) -- moved there per explicit request, so
     it isn't duplicated here too (both would react to the same Push Spike
     Badge Up/Down buttons, showing two badges at once if this page and the
-    main HUD were both live in OBS simultaneously). This page is just team
-    plates + score.
+    main HUD were both live in OBS simultaneously). This page is team
+    plates + score, PLUS the map veto banner below (added later, still the
+    same OBS source/file, its own independent push/pull toggle).
+
+    Score here reads state.ocrRoundScore, NOT state.liveScore -- an
+    explicit request. liveScore is the main In-Game HUD's own manual/
+    editorial round score; this overlay is meant to track the real
+    on-screen score instead, fed by a separate, reintroduced OCR reading
+    (see OCR_SCORE_TEAM1_KEY/OCR_SCORE_TEAM2_KEY in valorant_engine.py).
+
+    Map veto banner (assets/mapcurrentnextdecider.png) -- CURRENT:/NEXT:/
+    DECIDER: labels and the trapezoid/sponsor art are baked into that flat
+    1920x1080 PNG already (confirmed via its own alpha channel: real
+    content only occupies a thin y:0-28px strip, x:370-1541px -- everything
+    else on the canvas is transparent), only the map NAME text and the
+    picking team's LOGO per slot are dynamic here. Positions for those six
+    dynamic elements are a rough estimate from that same alpha-channel
+    analysis (no PSD, no annotated reference coordinates were available) --
+    nudge with Graphic Fixing -> Hoax Overlay as needed, same as everything
+    else on this page. Independent visibility (#veto-stage.visible) from
+    #stage above -- an explicit request, since the two are pushed at
+    different points in a broadcast (map veto vs mid-match score) even
+    though they live on the same OBS source.
   */
 
   @font-face {
@@ -89,6 +110,33 @@
   }
   #team1-score{ left:797px; }
   #team2-score{ left:1063px; }
+
+  /* ---- Map Veto banner (assets/mapcurrentnextdecider.png) ---- */
+  #veto-stage{
+    position:absolute; top:0; left:0; width:1920px; height:1080px;
+    opacity:0; pointer-events:none;
+    transition:opacity 0.4s ease;
+  }
+  #veto-stage.visible{ opacity:1; }
+
+  .veto-map-name{
+    position:absolute; top:4px; height:20px;
+    display:flex; align-items:center;
+    color:#ffffff; font-weight:800; font-style:italic;
+    font-size:12px; letter-spacing:0.3px; text-transform:uppercase;
+    white-space:nowrap; overflow:hidden;
+  }
+  #veto-current-map{ left:452px; width:65px; }
+  #veto-next-map{ left:589px; width:70px; }
+  #veto-decider-map{ left:750px; width:55px; }
+
+  .veto-team-logo{
+    position:absolute; top:5px; width:18px; height:18px;
+    object-fit:contain; display:none;
+  }
+  #veto-current-logo{ left:522px; }
+  #veto-next-logo{ left:664px; }
+  #veto-decider-logo{ left:810px; }
 </style>
 </head>
 <body>
@@ -103,6 +151,19 @@
   <div class="team-score" id="team2-score">0</div>
   <div class="team-name" id="team2-name"></div>
   <img class="team-logo" id="team2-logo" alt="">
+</div>
+
+<div id="veto-stage">
+  <img class="bg-frame" src="assets/mapcurrentnextdecider.png" alt="">
+
+  <div class="veto-map-name" id="veto-current-map"></div>
+  <img class="veto-team-logo" id="veto-current-logo" alt="">
+
+  <div class="veto-map-name" id="veto-next-map"></div>
+  <img class="veto-team-logo" id="veto-next-logo" alt="">
+
+  <div class="veto-map-name" id="veto-decider-map"></div>
+  <img class="veto-team-logo" id="veto-decider-logo" alt="">
 </div>
 
 <script>
@@ -132,7 +193,10 @@ function setImg(id, src){
   else { el.style.display = "none"; }
 }
 
-const GFX_ELEMENT_IDS = ["team1-logo","team1-name","team1-score","team2-logo","team2-name","team2-score"];
+const GFX_ELEMENT_IDS = [
+  "team1-logo","team1-name","team1-score","team2-logo","team2-name","team2-score",
+  "veto-current-map","veto-current-logo","veto-next-map","veto-next-logo","veto-decider-map","veto-decider-logo",
+];
 
 function applyGraphicOverrides(overrides){
   GFX_ELEMENT_IDS.forEach(id => {
@@ -154,8 +218,22 @@ function applyState(state){
   document.getElementById("team2-name").textContent = state.team2.name || "";
   setImg("team1-logo", state.team1.logo);
   setImg("team2-logo", state.team2.logo);
-  document.getElementById("team1-score").textContent = state.liveScore.team1;
-  document.getElementById("team2-score").textContent = state.liveScore.team2;
+  // ocrRoundScore, NOT liveScore -- see the file-level comment above for
+  // why this overlay tracks a separate, OCR-fed score.
+  const ocrScore = state.ocrRoundScore || { team1: 0, team2: 0 };
+  document.getElementById("team1-score").textContent = ocrScore.team1;
+  document.getElementById("team2-score").textContent = ocrScore.team2;
+
+  document.getElementById("veto-stage").classList.toggle(
+    "visible", !!(state.mapVetoOverlay && state.mapVetoOverlay.visible)
+  );
+  const veto = state.mapVeto || {};
+  ["current", "next", "decider"].forEach(slotName => {
+    const slot = veto[slotName] || {};
+    document.getElementById(`veto-${slotName}-map`).textContent = slot.map || "";
+    const teamData = slot.team === "team1" ? state.team1 : slot.team === "team2" ? state.team2 : null;
+    setImg(`veto-${slotName}-logo`, teamData ? teamData.logo : "");
+  });
 
   applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.hoax);
 }

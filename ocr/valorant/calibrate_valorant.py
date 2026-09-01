@@ -18,9 +18,14 @@ categories you can run independently:
                    small toast above, draw it generously around that whole
                    center banner area so both the result text and "BUY
                    PHASE" get caught by the same box.
-                   Round score itself is NOT calibrated here anymore --
-                   an explicit request, OCR on it wasn't reliable enough
-                   to be worth it, it's manual-only from the dashboard now.
+                   The main In-Game HUD's own round score is NOT calibrated
+                   here -- an explicit request, OCR on it wasn't reliable
+                   enough to be worth it, that one's manual-only from the
+                   dashboard. A SEPARATE pair of digit boxes IS calibrated
+                   here though (valorant_ocr_team1_score/valorant_ocr_
+                   team2_score) -- a reintroduced OCR round-score reading
+                   for the Hoax Overlay specifically, an explicit later
+                   request, kept independent of the manual one above.
 
   valo-character   Ten character-select slot regions (5 defenders/left, 5
                    attackers/right) -- FIXED per-slot boxes on purpose: the
@@ -91,7 +96,10 @@ POSTMATCH_KEYS = [
 ]
 
 CATEGORIES = {
-    "valo-ingame": ["valorant_announcement", "valorant_round_timer", "valorant_round_banner"],
+    "valo-ingame": [
+        "valorant_announcement", "valorant_round_timer", "valorant_round_banner",
+        "valorant_ocr_team1_score", "valorant_ocr_team2_score",
+    ],
     "valo-character": CHARSELECT_KEYS,
     "valo-postmatch": POSTMATCH_KEYS,
 }
@@ -108,6 +116,8 @@ LABELS = {
     "valorant_announcement": "SPIKE PLANTED / SPIKE DEFUSED small toast zone - draw it generously, wider/taller than the text itself",
     "valorant_round_timer": "ROUND TIMER (the M:SS clock between the two scores) - crop tight to just the digits, used only as a spike-badge safety net, not displayed anywhere",
     "valorant_round_banner": "BIG CENTER-SCREEN round-end result banner (\"ATTACKERS/DEFENDERS WON\" + reason) AND \"BUY PHASE\" (same spot, different time) - draw it generously around the whole banner area",
+    "valorant_ocr_team1_score": "TEAM 1 (left/attacker side) - OCR ROUND SCORE (feeds the Hoax Overlay ONLY, separate from the manual Round Score used by the main In-Game HUD) - crop tight to just the digit",
+    "valorant_ocr_team2_score": "TEAM 2 (right/defender side) - OCR ROUND SCORE (feeds the Hoax Overlay ONLY, separate from the manual Round Score used by the main In-Game HUD) - crop tight to just the digit",
 }
 for i in range(5):
     LABELS[f"valorant_charselect_team1_{i}"] = f"CHAR-SELECT - Team 1 (defenders/left) Player {i+1} - crop tight to just the agent art"

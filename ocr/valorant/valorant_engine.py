@@ -85,10 +85,21 @@ config = load_config()
 if config.get("tesseract_path"):
     pytesseract.pytesseract.tesseract_cmd = config["tesseract_path"]
 
-# Round score is manual-only (an explicit request -- OCR on it wasn't
-# reliable enough to be worth it) -- liveScore is set entirely through
-# valSendManualUpdate from the dashboard, same as seriesScore always was.
-# No calibrated region, no polling, no debounce for it at all anymore.
+# liveScore (the main In-Game HUD's own round score) stays fully manual --
+# an explicit request, OCR on it wasn't reliable enough to be worth it, set
+# entirely through valSendManualUpdate from the dashboard, same as
+# seriesScore always was.
+#
+# ocrRoundScore is a SEPARATE, reintroduced OCR reading -- an explicit
+# request specifically for the Hoax Overlay, which wants to track the real
+# on-screen score independently of whatever liveScore is editorially set
+# to. Same two-digit-region-either-side-of-the-timer idea the original
+# (removed) round-score OCR used, same digit pipeline as MOBA's kills/gold
+# (ocr_number/parse_int), just under new region keys and feeding a
+# different state field so it can't collide with liveScore's manual-only
+# guarantee above.
+OCR_SCORE_TEAM1_KEY = "valorant_ocr_team1_score"
+OCR_SCORE_TEAM2_KEY = "valorant_ocr_team2_score"
 
 # The round timer (e.g. "0:04", top-center between the two scores) --
 # read purely as a SAFETY NET for the spike badge, not displayed anywhere
@@ -173,10 +184,23 @@ def default_state():
             "map": "",
         },
 
-        # OCR-fed once the two score regions are calibrated -- same
-        # digit-crop pipeline as MOBA's kills/gold. Round score (or map
-        # score), not series score (see seriesScore above for that).
+        # Fully manual -- an explicit request, OCR on it wasn't reliable
+        # enough to be worth it. Set from the dashboard's Round Score card
+        # only; can be a deliberately DIFFERENT number from the real game
+        # score for creative/broadcast reasons, which is why it's kept
+        # separate from ocrRoundScore below rather than reusing one field
+        # for both. Drives the Round Score on the main In-Game HUD.
         "liveScore": {"team1": 0, "team2": 0},
+
+        # A SECOND, independent round-score reading -- OCR-fed (same
+        # digit-crop pipeline as MOBA's kills/gold), explicitly kept
+        # separate from liveScore above because that one is deliberately
+        # manual/editorial and this one is meant to track the real on-
+        # screen score. Currently only consumed by the Hoax Overlay (see
+        # overlay/valorant_hoax.html) -- liveScore, not this, still drives
+        # the main In-Game HUD. Calibrate via valo-ingame
+        # (valorant_ocr_team1_score/valorant_ocr_team2_score).
+        "ocrRoundScore": {"team1": 0, "team2": 0},
 
         # The spike can only be planted by the attacking side and defused
         # by the defending side, and those swap at halftime -- a real game
@@ -233,6 +257,22 @@ def default_state():
         # own idle/planted color+animation *within* this overlay once it's
         # visible.
         "hoaxOverlay": {"visible": False},
+
+        # Map veto banner (assets/mapcurrentnextdecider.png -- CURRENT/NEXT/
+        # DECIDER labels baked into that art, only the map name + picking
+        # team's logo per slot are dynamic) -- lives on the SAME Hoax
+        # Overlay page/OBS source as hoaxOverlay above but with its OWN
+        # independent push/pull toggle (mapVetoOverlay.visible), an
+        # explicit request, since the two are shown at different points in
+        # a broadcast (map veto vs mid-match score) even though they share
+        # a page. team is "team1"/"team2"/None (None = no logo shown, e.g.
+        # for a decider neither side picked).
+        "mapVeto": {
+            "current": {"map": "", "team": None},
+            "next": {"map": "", "team": None},
+            "decider": {"map": "", "team": None},
+        },
+        "mapVetoOverlay": {"visible": False},
 
         "postMatch": {
             "duration": "", "date": "",
@@ -300,6 +340,7 @@ def load_state():
             state["bugBanner"] = default_state()["bugBanner"]
             state["mvpScreenMode"] = default_state()["mvpScreenMode"]
             state["hoaxOverlay"] = default_state()["hoaxOverlay"]
+            state["mapVetoOverlay"] = default_state()["mapVetoOverlay"]
             return state
         except (json.JSONDecodeError, OSError):
             pass
@@ -384,6 +425,30 @@ def confirm_trigger(name, condition):
     streak = streak + 1 if condition else 0
     _trigger_streaks[name] = streak
     return streak >= TRIGGER_CONFIRM_FRAMES
+
+
+# Debounce for ocrRoundScore (see OCR_SCORE_TEAM1_KEY/OCR_SCORE_TEAM2_KEY
+# above) -- same "don't trust a single frame" idea as confirm_trigger, but
+# for a numeric reading rather than a yes/no condition: the SAME digit
+# value has to be read on VALUE_CONFIRM_FRAMES consecutive polls before
+# it's accepted, so one misread frame (OCR briefly reading "8" as "3", say)
+# can't flicker the displayed score.
+_value_streaks = {}
+VALUE_CONFIRM_FRAMES = 3
+
+
+def confirm_value(name, value):
+    """value is this frame's raw (unconfirmed) reading for `name`, or None
+    if unreadable this frame. Returns the confirmed value once the same
+    reading has been seen VALUE_CONFIRM_FRAMES times in a row, else None
+    (nothing to act on yet this frame)."""
+    prev_value, streak = _value_streaks.get(name, (None, 0))
+    if value is None:
+        _value_streaks[name] = (None, 0)
+        return None
+    streak = streak + 1 if value == prev_value else 1
+    _value_streaks[name] = (value, streak)
+    return value if streak >= VALUE_CONFIRM_FRAMES else None
 
 
 def preprocess(img_bgr, upscale=4):
@@ -834,7 +899,14 @@ def swap_team_sides():
     s["liveScore"]["team1"], s["liveScore"]["team2"] = (
         s["liveScore"]["team2"], s["liveScore"]["team1"],
     )
+    s["ocrRoundScore"]["team1"], s["ocrRoundScore"]["team2"] = (
+        s["ocrRoundScore"]["team2"], s["ocrRoundScore"]["team1"],
+    )
     s["attackingTeam"] = "team2" if s.get("attackingTeam") == "team1" else "team1"
+
+    for slot in s.get("mapVeto", {}).values():
+        if slot.get("team") in ("team1", "team2"):
+            slot["team"] = "team2" if slot["team"] == "team1" else "team1"
 
     pd = s.get("plantDefuse")
     if pd and pd.get("team") in ("team1", "team2"):
@@ -862,6 +934,10 @@ def swap_team_sides():
             renamed.add("liveScore.team2" + f[len("liveScore.team1"):])
         elif f.startswith("liveScore.team2"):
             renamed.add("liveScore.team1" + f[len("liveScore.team2"):])
+        elif f.startswith("ocrRoundScore.team1"):
+            renamed.add("ocrRoundScore.team2" + f[len("ocrRoundScore.team1"):])
+        elif f.startswith("ocrRoundScore.team2"):
+            renamed.add("ocrRoundScore.team1" + f[len("ocrRoundScore.team2"):])
         else:
             renamed.add(f)
     locked_fields.clear()
@@ -908,7 +984,7 @@ def process_plant_defuse_reading(text, now_ms):
             pd["team"] = team
             pd["type"] = event_type
             server_state["spikeBadge"]["mode"] = "planted" if event_type == "plant" else "idle"
-            # The bug banner (SPIKEPLANTED_BUG / BOMBDEFUSED_BUG art) now
+            # The bug banner (SPIKEPLANTED_BUG / spikedefused.png art) now
             # follows the same OCR trigger as the spike badge, an explicit
             # request -- no separate manual push needed for the common
             # case, the dashboard buttons stay as an override for when OCR
@@ -975,6 +1051,8 @@ async def handle_client(websocket, path=None):
                     server_state["mvp"] = data["mvp"]
                 if "headToHead" in data:
                     server_state["headToHead"] = data["headToHead"]
+                if "mapVeto" in data:
+                    server_state["mapVeto"] = data["mapVeto"]
                 if "graphicOverrides" in data:
                     server_state["graphicOverrides"] = data["graphicOverrides"]
                 if "characterFraming" in data:
@@ -1057,6 +1135,16 @@ async def handle_client(websocket, path=None):
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
 
+            elif msg_type == "map_veto_show":
+                server_state["mapVetoOverlay"]["visible"] = True
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
+            elif msg_type == "map_veto_hide":
+                server_state["mapVetoOverlay"]["visible"] = False
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
             elif msg_type == "swap_sides":
                 swap_team_sides()
                 save_state()
@@ -1108,6 +1196,41 @@ async def ocr_loop():
     with mss.mss() as sct:
         frame_counter = 0
         while True:
+            regions = config.get("regions", {})
+            changed = False
+
+            # ocrRoundScore -- see OCR_SCORE_TEAM1_KEY/OCR_SCORE_TEAM2_KEY
+            # and confirm_value() above. Runs unconditionally (NOT gated
+            # behind PLANT_DEFUSE_AUTO_DETECT below -- this is a separate
+            # feature, independent of the plant/defuse pipeline). Respects
+            # an operator lock the same way the old apply_live_score() did,
+            # via the shared locked_fields set. score_crops keeps each
+            # crop+raw reading around for the dashboard preview broadcast
+            # further down, same pattern as timer_crop/timer_seconds.
+            score_crops = {}
+            for team, key in (("team1", OCR_SCORE_TEAM1_KEY), ("team2", OCR_SCORE_TEAM2_KEY)):
+                region = regions.get(key)
+                if not region or region.get("w", 0) <= 0 or region.get("h", 0) <= 0:
+                    continue
+                crop = crop_to_bgr(sct, region)
+                raw_value = parse_int(await loop.run_in_executor(ocr_executor, ocr_number, crop))
+                score_crops[key] = (crop, raw_value)
+                confirmed = confirm_value(key, raw_value)
+                if confirmed is None or f"ocrRoundScore.{team}" in locked_fields:
+                    continue
+                if server_state["ocrRoundScore"][team] != confirmed:
+                    server_state["ocrRoundScore"][team] = confirmed
+                    changed = True
+
+            if frame_counter % 6 == 0 and "valorant_dashboard" in connected_pages.values():
+                for key, (crop, raw_value) in score_crops.items():
+                    data_url = crop_to_data_url(crop)
+                    if data_url:
+                        await broadcast_to_page("valorant_dashboard", {
+                            "type": "crop_preview", "region": key,
+                            "image": data_url, "text": str(raw_value) if raw_value is not None else "",
+                        })
+
             if not PLANT_DEFUSE_AUTO_DETECT:
                 # Whole plant/defuse/spike-badge OCR pipeline switched off
                 # -- explicit request after several tuning passes still
@@ -1117,11 +1240,12 @@ async def ocr_loop():
                 # buttons); this just stops OCR from reading/deciding
                 # anything for them. Flip PLANT_DEFUSE_AUTO_DETECT back to
                 # True above once the detection logic gets revisited.
+                if changed:
+                    save_state()
+                    await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
                 frame_counter += 1
                 await asyncio.sleep(interval)
                 continue
-
-            regions = config.get("regions", {})
 
             announcement_region = regions.get(ANNOUNCEMENT_REGION_KEY)
             announcement_crop = None
@@ -1166,7 +1290,6 @@ async def ocr_loop():
                 t for t in (announcement_raw_text, round_banner_raw_text) if t
             )
 
-            changed = False
             if process_plant_defuse_reading(combined_announcement_text, int(time.time() * 1000)):
                 changed = True
 

@@ -1138,7 +1138,7 @@
         <button class="secondary" id="val_spikeBadgeDisappear">Hide Spike Badge Completely</button>
       </div>
       <p class="hint" style="margin-top:14px;">Bug Banner — a separate, fully manual ribbon graphic (SPIKEPLANTED_BUG /
-        BOMBDEFUSED_BUG), on the In-Game HUD only. No OCR involved at all — push it up or pull it down entirely by
+        spikedefused.png), on the In-Game HUD only. No OCR involved at all — push it up or pull it down entirely by
         hand. Position is adjustable in Graphic Fixing → In-Game HUD.</p>
       <div class="row">
         <button id="val_bugBannerPlanted">Show "Spike Planted" Bug</button>
@@ -1151,10 +1151,35 @@
       <h2>Hoax Overlay</h2>
       <p class="hint">A separate on-demand overlay (its own OBS Browser Source) — team plates + score, styled from
         hoax-overlay.png. Independent of the main In-Game HUD; push it up when you want it on screen, pull it down
-        to hide it again.</p>
+        to hide it again. Score here is the SEPARATE OCR Round Score below, not the manual Round Score above.</p>
       <div class="row">
         <button id="val_hoaxOverlayPush">Push Hoax Overlay Up</button>
         <button class="secondary" id="val_hoaxOverlayPushDown">Pull Hoax Overlay Down</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>OCR Round Score (Hoax Overlay only)</h2>
+      <p class="hint">A SEPARATE round-score reading from the manual Round Score card above -- this one is OCR-fed
+        and only drives the Hoax Overlay's score, not the main In-Game HUD (which stays fully manual/editorial on
+        purpose). First time only, calibrate:</p>
+      <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+        cd ocr/valorant &amp;&amp; python calibrate_valorant.py valo-ingame
+      </div>
+      <div class="stat-grid" id="val_ocrScoreGrid"></div>
+    </div>
+
+    <div class="card">
+      <h2>Map Veto — Current / Next / Decider</h2>
+      <p class="hint">Lives on the SAME Hoax Overlay OBS source, with its OWN independent push/pull -- shown at a
+        different point in the broadcast (map veto) than the score plates above. Pick each slot's map and which
+        team picked it (logo shown beside it on the graphic; leave Team as "—" for no logo, e.g. a decider neither
+        side picked).</p>
+      <div class="row" id="val_mapVetoRows"></div>
+      <div class="row" style="margin-top:10px;">
+        <button id="val_mapVetoSave">Save</button>
+        <button id="val_mapVetoPush">Push Map Veto Banner Up</button>
+        <button class="secondary" id="val_mapVetoPushDown">Pull Map Veto Banner Down</button>
       </div>
     </div>
   </div>
@@ -4706,6 +4731,8 @@ function valConnect(){
       valApplyState(valState);
       valCheckSaveTeamInfoConfirmed(valState);
       valRenderScoreGrid(valState);
+      valRenderOcrScoreGrid(valState);
+      valRenderMapVetoRows(valState);
       valRenderPlantDefuseStatus(valState);
       valBuildMvpDropdown(valState);
       valBuildH2HDropdowns(valState);
@@ -5054,6 +5081,119 @@ function valRenderScoreGrid(state){
   if(document.activeElement !== t1) t1.value = state.liveScore.team1;
   if(document.activeElement !== t2) t2.value = state.liveScore.team2;
 }
+
+/* ---------- Live Ops: OCR Round Score (Hoax Overlay only) ----------
+ * Separate field (ocrRoundScore) from the manual liveScore above -- same
+ * live-value/override-lock/crop-preview stat-card pattern the old (now
+ * removed) round-score OCR grid used, rebuilt here for this new,
+ * independent OCR reading. See valorant_engine.py's OCR_SCORE_TEAM1_KEY/
+ * OCR_SCORE_TEAM2_KEY. */
+const VAL_OCR_SCORE_FIELDS = [
+  { key: "t1", team: "team1", label: "Team 1 OCR Round Score", cropKey: "valorant_ocr_team1_score" },
+  { key: "t2", team: "team2", label: "Team 2 OCR Round Score", cropKey: "valorant_ocr_team2_score" },
+];
+function valBuildOcrScoreGrid(){
+  const grid = document.getElementById("val_ocrScoreGrid");
+  grid.innerHTML = "";
+  VAL_OCR_SCORE_FIELDS.forEach(f => {
+    const card = document.createElement("div");
+    card.className = "stat-card";
+    card.innerHTML = `
+      <div class="stat-main">
+        <div class="label">${f.label}</div>
+        <div class="live-value" id="val-ocr-live-${f.key}">0</div>
+        <div class="override-row">
+          <label style="margin:0;display:inline-block;"><input type="checkbox" id="val-ocr-lock-${f.key}"> Override</label>
+        </div>
+        <div class="override-row">
+          <input type="number" id="val-ocr-input-${f.key}" disabled>
+          <button data-key="${f.key}" class="val-ocr-apply-btn">Apply</button>
+        </div>
+      </div>
+      <div class="stat-crop">
+        <img id="crop-${f.cropKey}">
+        <div class="crop-caption">live OCR</div>
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+  grid.querySelectorAll(".val-ocr-apply-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const f = VAL_OCR_SCORE_FIELDS.find(x => x.key === btn.dataset.key);
+      const val = Number(document.getElementById(`val-ocr-input-${f.key}`).value || 0);
+      valSendManualUpdate({ ocrRoundScore: { [f.team]: val } }, [`ocrRoundScore.${f.team}`], []);
+    });
+  });
+  VAL_OCR_SCORE_FIELDS.forEach(f => {
+    document.getElementById(`val-ocr-lock-${f.key}`).addEventListener("change", (e) => {
+      document.getElementById(`val-ocr-input-${f.key}`).disabled = !e.target.checked;
+      if(!e.target.checked) valSendManualUpdate({}, [], [`ocrRoundScore.${f.team}`]);
+    });
+  });
+}
+function valRenderOcrScoreGrid(state){
+  const score = state.ocrRoundScore || { team1: 0, team2: 0 };
+  VAL_OCR_SCORE_FIELDS.forEach(f => {
+    const value = score[f.team];
+    const liveEl = document.getElementById(`val-ocr-live-${f.key}`);
+    if(liveEl) liveEl.textContent = value;
+    const isLocked = valLockedFields.has(`ocrRoundScore.${f.team}`);
+    document.getElementById(`val-ocr-lock-${f.key}`).checked = isLocked;
+    const input = document.getElementById(`val-ocr-input-${f.key}`);
+    input.disabled = !isLocked;
+    if(document.activeElement !== input) input.value = value;
+  });
+}
+
+/* ---------- Live Ops: Map Veto (Current/Next/Decider) ---------- */
+const VAL_MAP_VETO_SLOTS = ["current", "next", "decider"];
+function valBuildMapVetoRows(){
+  const container = document.getElementById("val_mapVetoRows");
+  container.innerHTML = "";
+  VAL_MAP_VETO_SLOTS.forEach(slot => {
+    const col = document.createElement("div");
+    col.className = "team-form";
+    const mapOptions = `<option value="">(not set)</option>` +
+      VAL_MAP_LIST.map(name => `<option value="${name}">${name}</option>`).join("");
+    col.innerHTML = `
+      <label>${slot[0].toUpperCase()}${slot.slice(1)} Map</label>
+      <select id="val_veto_${slot}_map">${mapOptions}</select>
+      <label style="margin-top:8px;">${slot[0].toUpperCase()}${slot.slice(1)} Team (logo shown)</label>
+      <select id="val_veto_${slot}_team">
+        <option value="">— (no logo)</option>
+        <option value="team1">Team 1</option>
+        <option value="team2">Team 2</option>
+      </select>
+    `;
+    container.appendChild(col);
+  });
+}
+function valRenderMapVetoRows(state){
+  const veto = state.mapVeto || {};
+  VAL_MAP_VETO_SLOTS.forEach(slot => {
+    const data = veto[slot] || {};
+    const mapSel = document.getElementById(`val_veto_${slot}_map`);
+    const teamSel = document.getElementById(`val_veto_${slot}_team`);
+    if(document.activeElement !== mapSel) mapSel.value = data.map || "";
+    if(document.activeElement !== teamSel) teamSel.value = data.team || "";
+  });
+}
+document.getElementById("val_mapVetoSave").addEventListener("click", () => {
+  const mapVeto = {};
+  VAL_MAP_VETO_SLOTS.forEach(slot => {
+    mapVeto[slot] = {
+      map: document.getElementById(`val_veto_${slot}_map`).value,
+      team: document.getElementById(`val_veto_${slot}_team`).value || null,
+    };
+  });
+  valSendManualUpdate({ mapVeto });
+});
+document.getElementById("val_mapVetoPush").addEventListener("click", () => {
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"map_veto_show"}));
+});
+document.getElementById("val_mapVetoPushDown").addEventListener("click", () => {
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"map_veto_hide"}));
+});
 
 /* ---------- Live Ops: Attacking Side ---------- */
 document.querySelectorAll('input[name="val_attackingTeam"]').forEach(radio => {
@@ -5492,6 +5632,8 @@ function valApplyState(state){
 
 valBuildPlayerInputs("val_team1PlayerInputs", "team1");
 valBuildPlayerInputs("val_team2PlayerInputs", "team2");
+valBuildOcrScoreGrid();
+valBuildMapVetoRows();
 valBuildPostMatchRows("val_pom_players_team1", "team1");
 valBuildPostMatchRows("val_pom_players_team2", "team2");
 
@@ -5594,10 +5736,19 @@ const VAL_GRAPHIC_PAGES = {
     elements: {
       "team1-logo": { left:635, top:3, width:60, height:55, kind:"logo", team:"team1" },
       "team1-name": { left:700, top:12, width:100, height:34, kind:"name", team:"team1" },
-      "team1-score": { left:797, top:2, width:60, height:50, kind:"box", label:"Team 1 Round Score" },
-      "team2-score": { left:1063, top:2, width:60, height:50, kind:"box", label:"Team 2 Round Score" },
+      "team1-score": { left:797, top:2, width:60, height:50, kind:"box", label:"Team 1 OCR Round Score" },
+      "team2-score": { left:1063, top:2, width:60, height:50, kind:"box", label:"Team 2 OCR Round Score" },
       "team2-name": { left:1120, top:12, width:100, height:34, kind:"name", team:"team2" },
       "team2-logo": { left:1225, top:3, width:60, height:55, kind:"logo", team:"team2" },
+      // Map Veto banner -- positions are a rough estimate from the flat
+      // mapcurrentnextdecider.png's own alpha channel (no PSD/annotated
+      // reference was available), expect to nudge these once it's live.
+      "veto-current-map": { left:452, top:4, width:65, height:20, kind:"box", label:"Map Veto: Current Map Name" },
+      "veto-current-logo": { left:522, top:5, width:18, height:18, kind:"box", label:"Map Veto: Current Pick Team Logo" },
+      "veto-next-map": { left:589, top:4, width:70, height:20, kind:"box", label:"Map Veto: Next Map Name" },
+      "veto-next-logo": { left:664, top:5, width:18, height:18, kind:"box", label:"Map Veto: Next Pick Team Logo" },
+      "veto-decider-map": { left:750, top:4, width:55, height:20, kind:"box", label:"Map Veto: Decider Map Name" },
+      "veto-decider-logo": { left:810, top:5, width:18, height:18, kind:"box", label:"Map Veto: Decider Team Logo" },
     },
   },
 };
