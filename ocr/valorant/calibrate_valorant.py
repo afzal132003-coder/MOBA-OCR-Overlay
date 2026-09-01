@@ -50,19 +50,35 @@ categories you can run independently:
                    at all -- the dashboard's Import Stats table lets you
                    assign each row to a player and reorder rows manually.
 
+  valo-livestats   A COMPLETELY DIFFERENT screen from valo-postmatch above:
+                   the LIVE in-game Tab-held scoreboard (needs Tab held
+                   continuously, e.g. by a dedicated observer PC -- see
+                   tools/valorant_tab_hold.ahk), read continuously
+                   throughout the match rather than captured once at the
+                   end. Team-grouped (5 rows left/Team 1, 5 rows right/
+                   Team 2), NOT one mixed ACS-sorted list like the post-
+                   match screen -- so this calibrates 2 teams x 5 rows x 4
+                   stat columns (Kills, Deaths, Assists, Coins/economy),
+                   40 INDIVIDUALLY drag-one-box cells, same plain flow as
+                   valo-postmatch. Player identity isn't calibrated here
+                   either -- the dashboard's Player Stats card lets you
+                   assign each physical row to a roster player, correctable
+                   any time the live scoreboard's own order shifts.
+
 Have Valorant's in-game HUD (or a paused frame with the relevant screen
 visible) on screen when you run this. Region coordinates are written into
-THREE separate files, one per category (valorant_regions_ingame.json,
-valorant_regions_character.json, valorant_regions_postmatch.json) --
-recalibrating one category never touches another's data. Engine settings
-(monitor, tesseract path, etc.) stay in valorant_config.json, separate from
-config.json (MOBA) and freefire_config.json, since this is a third,
-independent engine.
+separate files, one per category (valorant_regions_ingame.json,
+valorant_regions_character.json, valorant_regions_postmatch.json,
+valorant_regions_livestats.json) -- recalibrating one category never
+touches another's data. Engine settings (monitor, tesseract path, etc.)
+stay in valorant_config.json, separate from config.json (MOBA) and
+freefire_config.json, since this is a third, independent engine.
 
 Usage:
-    python calibrate_valorant.py                  # all 3 categories, in order
+    python calibrate_valorant.py                  # all 4 categories, in order
     python calibrate_valorant.py valo-ingame       # just that category
-    python calibrate_valorant.py valo-postmatch    # just the 50-cell scoreboard
+    python calibrate_valorant.py valo-postmatch    # just the 50-cell post-match scoreboard
+    python calibrate_valorant.py valo-livestats    # just the 40-cell live scoreboard
     python calibrate_valorant.py valorant_announcement   # one individual box
 Run again any time your game window moves or resizes.
 """
@@ -81,6 +97,7 @@ REGION_FILES = {
     "valo-ingame": Path(__file__).parent / "valorant_regions_ingame.json",
     "valo-character": Path(__file__).parent / "valorant_regions_character.json",
     "valo-postmatch": Path(__file__).parent / "valorant_regions_postmatch.json",
+    "valo-livestats": Path(__file__).parent / "valorant_regions_livestats.json",
 }
 
 CHARSELECT_KEYS = [f"valorant_charselect_team1_{i}" for i in range(5)] + \
@@ -95,6 +112,21 @@ POSTMATCH_KEYS = [
     for col in POSTMATCH_COLS
 ]
 
+# Live in-game Tab-held scoreboard -- team-grouped (unlike valo-postmatch's
+# single mixed list), so this is 2 teams x 5 rows x 4 fields, not one flat
+# 10-row list. Kept in sync manually with LIVESTATS_TEAMS/_ROWS/_FIELDS in
+# valorant_engine.py.
+LIVESTATS_TEAMS = ["team1", "team2"]
+LIVESTATS_COLS = ["kills", "deaths", "assists", "coins"]
+LIVESTATS_COL_LABELS = {"kills": "Kills", "deaths": "Deaths", "assists": "Assists", "coins": "Coins/Economy"}
+LIVESTATS_ROWS = 5
+LIVESTATS_KEYS = [
+    f"valorant_livestats_{team}_row{r}_{col}"
+    for team in LIVESTATS_TEAMS
+    for r in range(LIVESTATS_ROWS)
+    for col in LIVESTATS_COLS
+]
+
 CATEGORIES = {
     "valo-ingame": [
         "valorant_announcement", "valorant_round_timer", "valorant_round_banner",
@@ -102,11 +134,15 @@ CATEGORIES = {
     ],
     "valo-character": CHARSELECT_KEYS,
     "valo-postmatch": POSTMATCH_KEYS,
+    "valo-livestats": LIVESTATS_KEYS,
 }
 
 # Every individually-addressable box, mapped back to which category (and
 # therefore which file) each belongs to.
-REGION_ORDER = CATEGORIES["valo-ingame"] + CATEGORIES["valo-character"] + CATEGORIES["valo-postmatch"]
+REGION_ORDER = (
+    CATEGORIES["valo-ingame"] + CATEGORIES["valo-character"]
+    + CATEGORIES["valo-postmatch"] + CATEGORIES["valo-livestats"]
+)
 KEY_TO_CATEGORY = {}
 for _cat, _keys in CATEGORIES.items():
     for _key in _keys:
@@ -128,6 +164,15 @@ for r in range(POSTMATCH_ROWS):
             f"POST-MATCH - Row {r+1} (on-screen top-to-bottom position, NOT a fixed "
             f"player) - {POSTMATCH_COL_LABELS[col]}"
         )
+for _team in LIVESTATS_TEAMS:
+    _team_label = "Team 1 (left)" if _team == "team1" else "Team 2 (right)"
+    for r in range(LIVESTATS_ROWS):
+        for col in LIVESTATS_COLS:
+            LABELS[f"valorant_livestats_{_team}_row{r}_{col}"] = (
+                f"LIVE SCOREBOARD - {_team_label} Row {r+1} (on-screen top-to-bottom "
+                f"position, NOT a fixed player -- assign identity from the dashboard's "
+                f"Player Stats card) - {LIVESTATS_COL_LABELS[col]}"
+            )
 
 
 def load_config():

@@ -43,13 +43,14 @@ import websockets
 CONFIG_PATH = Path(__file__).parent / "valorant_config.json"
 STATE_PATH = Path(__file__).parent / "valorant_state.json"
 
-# Calibration regions live in three separate files, one per category, so
+# Calibration regions live in separate files, one per category, so
 # recalibrating post-match doesn't touch the in-game/char-select data and
 # vice versa -- calibrate_valorant.py writes each category to its own file.
 REGION_FILES = {
     "ingame": Path(__file__).parent / "valorant_regions_ingame.json",
     "character": Path(__file__).parent / "valorant_regions_character.json",
     "postmatch": Path(__file__).parent / "valorant_regions_postmatch.json",
+    "livestats": Path(__file__).parent / "valorant_regions_livestats.json",
 }
 
 
@@ -163,7 +164,31 @@ PLANT_DEFUSE_AUTO_DETECT = False
 
 connected_clients = set()
 connected_pages = {}
-ocr_executor = ThreadPoolExecutor(max_workers=4)
+# Raised from 4 -- the Live Player Stats panel (LIVESTATS_* below) reads
+# 40 individual cells (2 teams x 5 rows x 4 fields), well beyond what 4
+# workers can keep up with on the fast main-loop cadence the rest of this
+# module uses. Still runs on its own slower cadence (see ocr_loop), not
+# every poll, but needs more parallelism to finish that batch quickly
+# when it does run.
+ocr_executor = ThreadPoolExecutor(max_workers=8)
+
+# Live Player Stats panel -- see the "liveStats" comment in default_state()
+# above for the row/assignment split. TEAMS/ROWS/FIELDS describe the 40
+# calibrated cells (valorant_livestats_team{1,2}_row{0-4}_{field}), same
+# per-cell-box calibration flow as the post-match grid (calibrate_
+# valorant.py's valo-postmatch), just a new category (valo-livestats)
+# since this reads a completely different screen (the live Tab-held
+# scoreboard, not the post-match "Individually Sorted" list).
+LIVESTATS_TEAMS = ("team1", "team2")
+LIVESTATS_ROWS = 5
+LIVESTATS_FIELDS = ("kills", "deaths", "assists", "coins")
+# How often (in ocr_loop iterations) the 40-cell livestats batch runs --
+# NOT every frame like the round timer/spike checks. At the default
+# poll_interval_seconds (0.15s) this is roughly a 1.5s cadence, plenty
+# fresh for K/D/A/economy numbers that only change between rounds/kills,
+# while keeping the fast, latency-sensitive checks (spike icon, round
+# timer) running at their own full speed every frame regardless.
+LIVESTATS_POLL_EVERY_N_FRAMES = 10
 
 
 def default_player_stat_row():
@@ -171,6 +196,10 @@ def default_player_stat_row():
         "agent": "", "acs": 0, "kills": 0, "deaths": 0, "assists": 0,
         "econ": 0, "firstBloods": 0, "plants": 0, "defuses": 0,
     }
+
+
+def default_live_stat_row():
+    return {"kills": 0, "deaths": 0, "assists": 0, "coins": 0}
 
 
 def default_state():
@@ -290,6 +319,39 @@ def default_state():
         },
         "mapVetoOverlay": {"visible": False},
 
+        # Live Player Stats panel -- own separate OBS source (overlay/
+        # valorant_playerstats.html), own push/pull (liveStatsOverlay.
+        # visible). Continuously OCR-fed (LIVESTATS_TEAMS/_ROWS/_FIELDS
+        # below) off the in-game Tab-held scoreboard, which an observer's
+        # PC keeps held throughout the match -- a genuinely different
+        # source screen from the post-match "Individually Sorted" list
+        # (see extract_postmatch_grid), so it gets its own calibration
+        # category (valo-livestats) and its own state, not reused postMatch
+        # data (though agent/name identity below IS still pulled from the
+        # shared team1/team2.players and postMatch.players[..].agent, same
+        # single-source-of-truth as every other overlay).
+        #
+        # liveStats[team][row] holds the raw OCR reading for whichever
+        # PHYSICAL row position (0-4, top to bottom on screen) that is --
+        # NOT necessarily roster player `row`, since the live scoreboard
+        # can re-sort/shift position as a match goes on. liveStatsAssign
+        # [team][row] says which roster player index (0-4) is CURRENTLY
+        # sitting at that physical row -- an explicit manual mapping the
+        # operator corrects from the dashboard when the in-game order
+        # changes, same "read the numbers, you tell us who" split as
+        # postMatch's own Import Stats table, just persistent/live instead
+        # of a one-shot capture. Defaults to identity (row i -> player i)
+        # as a reasonable starting guess.
+        "liveStats": {
+            "team1": [default_live_stat_row() for _ in range(5)],
+            "team2": [default_live_stat_row() for _ in range(5)],
+        },
+        "liveStatsAssign": {
+            "team1": [0, 1, 2, 3, 4],
+            "team2": [0, 1, 2, 3, 4],
+        },
+        "liveStatsOverlay": {"visible": False},
+
         "postMatch": {
             "duration": "", "date": "",
             "result": {"team1": "victory", "team2": "defeat"},
@@ -361,6 +423,10 @@ def load_state():
             # other saved setting, not silently snap back to "attacker".
             state["hoaxOverlay"]["visible"] = False
             state["mapVetoOverlay"] = default_state()["mapVetoOverlay"]
+            # liveStatsAssign (the row->roster mapping) is a real operator
+            # setting too, same reasoning as leftSide above -- only visible
+            # resets.
+            state["liveStatsOverlay"]["visible"] = False
             return state
         except (json.JSONDecodeError, OSError):
             pass
@@ -928,6 +994,13 @@ def swap_team_sides():
         if slot.get("team") in ("team1", "team2"):
             slot["team"] = "team2" if slot["team"] == "team1" else "team1"
 
+    live = s.get("liveStats")
+    if live:
+        live["team1"], live["team2"] = live["team2"], live["team1"]
+    assign = s.get("liveStatsAssign")
+    if assign:
+        assign["team1"], assign["team2"] = assign["team2"], assign["team1"]
+
     pd = s.get("plantDefuse")
     if pd and pd.get("team") in ("team1", "team2"):
         pd["team"] = "team2" if pd["team"] == "team1" else "team1"
@@ -1172,6 +1245,33 @@ async def handle_client(websocket, path=None):
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
 
+            elif msg_type == "livestats_overlay_show":
+                server_state["liveStatsOverlay"]["visible"] = True
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
+            elif msg_type == "livestats_overlay_hide":
+                server_state["liveStatsOverlay"]["visible"] = False
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
+            elif msg_type == "livestats_set_assign":
+                # {team, row, playerIndex} -- which roster player (0-4) is
+                # currently sitting at physical scoreboard row `row` (0-4)
+                # for `team`. Operator correction for when the live
+                # scoreboard's own order shifts mid-match.
+                team = payload.get("team")
+                row = payload.get("row")
+                player_index = payload.get("playerIndex")
+                if (
+                    team in LIVESTATS_TEAMS
+                    and isinstance(row, int) and 0 <= row < LIVESTATS_ROWS
+                    and isinstance(player_index, int) and 0 <= player_index < 5
+                ):
+                    server_state["liveStatsAssign"][team][row] = player_index
+                    save_state()
+                    await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
             elif msg_type == "swap_sides":
                 swap_team_sides()
                 save_state()
@@ -1257,6 +1357,39 @@ async def ocr_loop():
                             "type": "crop_preview", "region": key,
                             "image": data_url, "text": str(raw_value) if raw_value is not None else "",
                         })
+
+            # Live Player Stats -- see LIVESTATS_TEAMS/_ROWS/_FIELDS above.
+            # Runs on its own slower cadence (LIVESTATS_POLL_EVERY_N_FRAMES),
+            # independent of PLANT_DEFUSE_AUTO_DETECT below (a separate
+            # feature). All 40 cells are captured then OCR'd in parallel via
+            # ocr_executor/asyncio.gather in one batch -- a sequential pass
+            # at this cell count would be far too slow to be worth running
+            # at all. confirm_value() debounces each cell same as
+            # ocrRoundScore above, so one misread frame can't flicker a
+            # displayed stat.
+            if frame_counter % LIVESTATS_POLL_EVERY_N_FRAMES == 0:
+                cell_keys = []
+                crops = []
+                for team in LIVESTATS_TEAMS:
+                    for row in range(LIVESTATS_ROWS):
+                        for field in LIVESTATS_FIELDS:
+                            key = f"valorant_livestats_{team}_row{row}_{field}"
+                            region = regions.get(key)
+                            if not region or region.get("w", 0) <= 0 or region.get("h", 0) <= 0:
+                                continue
+                            cell_keys.append((team, row, field, key))
+                            crops.append(crop_to_bgr(sct, region))
+                if cell_keys:
+                    texts = await asyncio.gather(*[
+                        loop.run_in_executor(ocr_executor, ocr_number, c) for c in crops
+                    ])
+                    for (team, row, field, key), text in zip(cell_keys, texts):
+                        confirmed = confirm_value(key, parse_int(text))
+                        if confirmed is None:
+                            continue
+                        if server_state["liveStats"][team][row][field] != confirmed:
+                            server_state["liveStats"][team][row][field] = confirmed
+                            changed = True
 
             if not PLANT_DEFUSE_AUTO_DETECT:
                 # Whole plant/defuse/spike-badge OCR pipeline switched off

@@ -1190,6 +1190,28 @@
         <button class="secondary" id="val_mapVetoPushDown">Pull Map Veto Banner Down</button>
       </div>
     </div>
+
+    <div class="card">
+      <h2>Player Stats (Live)</h2>
+      <p class="hint">A SEPARATE OBS Browser Source (overlay/valorant_playerstats.html) -- 5 players per side, each
+        row's Kills/Deaths/Assists/Coins read continuously off the in-game Tab-held scoreboard (needs Tab held the
+        whole match, e.g. by a dedicated observer PC — see tools/valorant_tab_hold.ahk). Name and agent portrait come
+        from your roster/Agent Pick, not OCR. First time only, calibrate the 40 stat cells:</p>
+      <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+        cd ocr/valorant &amp;&amp; python calibrate_valorant.py valo-livestats
+      </div>
+      <p class="hint" style="margin-top:10px;">Row → Player — the live scoreboard can re-sort as the match goes on;
+        use these to say which roster player is CURRENTLY sitting at each on-screen row position. Correct any time
+        the order changes:</p>
+      <div class="row">
+        <div class="team-form" id="val_liveStatsAssignTeam1"></div>
+        <div class="team-form" id="val_liveStatsAssignTeam2"></div>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <button id="val_liveStatsPush">Push Player Stats Up</button>
+        <button class="secondary" id="val_liveStatsPushDown">Pull Player Stats Down</button>
+      </div>
+    </div>
   </div>
 
   <!-- ===================== POST-MATCH ===================== -->
@@ -4741,6 +4763,7 @@ function valConnect(){
       valRenderScoreGrid(valState);
       valRenderOcrScoreGrid(valState);
       valRenderMapVetoRows(valState);
+      valRenderLiveStatsAssignRows(valState);
       valRenderPlantDefuseStatus(valState);
       valRenderHoaxLeftSideStatus(valState);
       valBuildMvpDropdown(valState);
@@ -5202,6 +5225,47 @@ document.getElementById("val_mapVetoPush").addEventListener("click", () => {
 });
 document.getElementById("val_mapVetoPushDown").addEventListener("click", () => {
   if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"map_veto_hide"}));
+});
+
+/* ---------- Live Ops: Player Stats (Live) -- row-to-player assignment ---------- */
+function valBuildLiveStatsAssignRows(team){
+  const container = document.getElementById(`val_liveStatsAssignTeam${team.slice(-1)}`);
+  container.innerHTML = `<label>${team === "team1" ? "Team 1" : "Team 2"} — Row → Player</label>`;
+  for (let row = 0; row < 5; row++) {
+    const sel = document.createElement("select");
+    sel.id = `val_liveStatsAssign_${team}_row${row}`;
+    sel.style.marginBottom = "6px";
+    sel.addEventListener("change", () => {
+      if(!(valWs && valWs.readyState === WebSocket.OPEN)) return;
+      valWs.send(JSON.stringify({
+        type: "livestats_set_assign", team, row, playerIndex: Number(sel.value),
+      }));
+    });
+    container.appendChild(sel);
+  }
+}
+function valRenderLiveStatsAssignRows(state){
+  ["team1", "team2"].forEach(team => {
+    const roster = (state[team] && state[team].players) || ["","","","",""];
+    const assign = (state.liveStatsAssign && state.liveStatsAssign[team]) || [0,1,2,3,4];
+    for (let row = 0; row < 5; row++) {
+      const sel = document.getElementById(`val_liveStatsAssign_${team}_row${row}`);
+      if(!sel || document.activeElement === sel) continue;
+      sel.innerHTML = roster.map((name, i) =>
+        `<option value="${i}">Row ${row+1}: ${name || `Player ${i+1}`}</option>`
+      ).join("");
+      sel.value = assign[row];
+    }
+  });
+}
+valBuildLiveStatsAssignRows("team1");
+valBuildLiveStatsAssignRows("team2");
+
+document.getElementById("val_liveStatsPush").addEventListener("click", () => {
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"livestats_overlay_show"}));
+});
+document.getElementById("val_liveStatsPushDown").addEventListener("click", () => {
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"livestats_overlay_hide"}));
 });
 
 /* ---------- Live Ops: Attacking Side ---------- */
@@ -5670,6 +5734,38 @@ valConnect();
  * SAME .gfx-box/.gfx-handle/.gfx-ghost CSS classes (those aren't
  * ID-scoped) against a separate #valgfx_stage container, so the two
  * systems can't cross-select or cross-drag each other's elements. */
+// Player Stats has 60 individual elements (2 teams x 5 rows x 6 fields --
+// name, portrait, kills, deaths, assists, coins) -- generated here from
+// the SAME base geometry constants as overlay/valorant_playerstats.html
+// itself (measured off playerstatsdemo.png's own pixels), rather than
+// hand-transcribed, so the two files can't drift out of sync with each
+// other over time.
+const PLAYERSTATS_ROW_TOP0 = 455;
+const PLAYERSTATS_ROW_HEIGHT = 66;
+const PLAYERSTATS_TEAM_BLOCK_X = { team1: 0, team2: 1722 };
+const PLAYERSTATS_FIELD_RECT = {
+  name:    { left:29,  top:8,  width:90, height:20, label:"Player Name" },
+  portrait:{ left:130, top:0,  width:65, height:36, label:"Agent Portrait" },
+  coins:   { left:26,  top:41, width:44, height:20, label:"Coins" },
+  kills:   { left:80,  top:41, width:24, height:20, label:"Kills" },
+  deaths:  { left:117, top:41, width:24, height:20, label:"Deaths" },
+  assists: { left:157, top:41, width:24, height:20, label:"Assists" },
+};
+const PLAYERSTATS_ELEMENTS = {};
+["team1", "team2"].forEach(team => {
+  for (let row = 0; row < 5; row++) {
+    const rowTop = PLAYERSTATS_ROW_TOP0 + row * PLAYERSTATS_ROW_HEIGHT;
+    const blockX = PLAYERSTATS_TEAM_BLOCK_X[team];
+    Object.entries(PLAYERSTATS_FIELD_RECT).forEach(([field, rect]) => {
+      PLAYERSTATS_ELEMENTS[`livestats-${team}-row${row}-${field}`] = {
+        left: blockX + rect.left, top: rowTop + rect.top,
+        width: rect.width, height: rect.height,
+        kind: "box", label: `${team === "team1" ? "Team 1" : "Team 2"} Row ${row + 1}: ${rect.label}`,
+      };
+    });
+  }
+});
+
 const VAL_GRAPHIC_PAGES = {
   ingame: {
     label: "In-Game HUD", background: "../overlay/assets/valorant_ingame_blank.png",
@@ -5786,6 +5882,10 @@ const VAL_GRAPHIC_PAGES = {
       "veto-decider-map": { left:404, top:69, width:55, height:20, kind:"box", label:"Map Veto: Decider Map Name" },
       "veto-decider-logo": { left:464, top:70, width:18, height:18, kind:"box", label:"Map Veto: Decider Team Logo" },
     },
+  },
+  playerstats: {
+    label: "Player Stats (Live)", background: "../overlay/assets/playerstats.png",
+    elements: PLAYERSTATS_ELEMENTS,
   },
 };
 // Same ROW_DEFS/COLS math as overlay/valorant_teamchemistry.html, kept in
@@ -6348,6 +6448,7 @@ const OVERLAY_LINKS = [
   {game:"Valorant", name:"Team Chemistry Stats (Post-Match)", file:"overlay/valorant_teamchemistry.html"},
   {game:"Valorant", name:"MVP", file:"overlay/valorant_mvp.html"},
   {game:"Valorant", name:"Character Pick", file:"overlay/valorant_characterpick.html"},
+  {game:"Valorant", name:"Player Stats (Live)", file:"overlay/valorant_playerstats.html"},
 ];
 
 function buildOverlayLinksTable(){

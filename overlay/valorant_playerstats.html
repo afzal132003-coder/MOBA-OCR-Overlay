@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Valorant Live Player Stats</title>
+<style>
+  /*
+    A SEPARATE OBS Browser Source from valorant_ingame.html -- an explicit
+    request, meant to sit on screen ALONGSIDE whichever of that file's own
+    screens (main HUD / Hoax Overlay) is currently showing, not swap with
+    them, so it isn't merged in like Map Veto was.
+
+    Background is assets/playerstats.png (1920x1080, K/D/A column labels
+    baked in, everything else -- name, agent portrait, the actual K/D/A/
+    coins values -- drawn live on top). Two 5-row blocks, Team 1 on the
+    left (x:0-195) and Team 2 on the right (x:1722-1918), each row ~66px
+    tall: a name+portrait half on top, a coins/K/D/A half below. Geometry
+    below was measured directly off playerstatsdemo.png's own pixels (not
+    guessed) -- nudge with Graphic Fixing -> Player Stats if it's still off
+    once live.
+
+    Fed by liveStats[team][row] (see valorant_engine.py's LIVESTATS_*
+    constants) -- OCR'd continuously off the in-game Tab-held scoreboard,
+    NOT the post-match screen. `row` here is the PHYSICAL on-screen
+    position (0-4, top to bottom), not a fixed roster player -- the live
+    scoreboard can re-sort as a match goes on, so liveStatsAssign[team]
+    [row] (set from the dashboard's Player Stats card) says which roster
+    player is CURRENTLY sitting at that row; name/agent are pulled from
+    that roster player (team1/team2.players + postMatch.players[..].agent,
+    same single source of truth as every other overlay), not read via OCR.
+  */
+
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Bold.ttf') format('truetype');
+    font-weight: 700; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');
+    font-weight: 800; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
+    font-weight: 900; font-style: normal;
+  }
+
+  :root{ --font-display: 'TT Supermolot Neue Trial', 'Arial Narrow', Arial, sans-serif; }
+
+  html, body{
+    margin:0; padding:0; background:transparent; overflow:hidden;
+    width:1920px; height:1080px;
+    font-family: var(--font-display);
+  }
+
+  #stage{
+    position:relative; width:1920px; height:1080px;
+    opacity:0;
+    transition:opacity 0.4s ease;
+  }
+  #stage.visible{ opacity:1; }
+
+  .bg-frame{ position:absolute; top:0; left:0; width:1920px; height:1080px; pointer-events:none; }
+
+  .ps-name{
+    position:absolute;
+    display:flex; align-items:center;
+    color:#ffffff; font-weight:800; font-style:italic;
+    font-size:13px; letter-spacing:0.3px; text-transform:uppercase;
+    white-space:nowrap; overflow:hidden;
+  }
+  .ps-portrait{ position:absolute; object-fit:cover; object-position:center top; display:none; }
+  .ps-stat{
+    position:absolute;
+    display:flex; align-items:center; justify-content:center;
+    color:#ffffff; font-weight:900; font-size:13px;
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <img class="bg-frame" src="assets/playerstats.png" alt="">
+</div>
+
+<script>
+const _params = new URLSearchParams(location.search);
+if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
+if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=valorant_playerstats"
+  : "ws://localhost:8765?page=valorant_playerstats";
+let ws;
+
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync") applyState(msg.data);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+
+// Same agent name -> filename table as valorant_mvp.html/dashboard.html's
+// Agent Pick -- duplicated per standalone-file convention.
+const VAL_AGENT_MAP = {};
+[
+  ["Astra","Astra.png"], ["Breach","Breach.png"], ["Brimstone","Brimstone.png"],
+  ["Chamber","Chamber.png"], ["Fade","Fade.png"], ["Harbor","Harbor.png"],
+  ["Jett","Jett.png"], ["KAY/O","Kayo.png"], ["Killjoy","KillJoy.png"],
+  ["Neon","Neon.png"], ["Omen","Omen.png"], ["Phoenix","Phoenix.png"],
+  ["Raze","Raze.png"], ["Reyna","Reyna.png"], ["Sage","Sage.png"],
+  ["Skye","Skye.png"], ["Sova","Sova.png"], ["Cypher","Sypher.png"],
+  ["Viper","Viper.png"], ["Yoru","Yoru.png"],
+  ["Iso","Iso.png"], ["Waylay","Waylay.png"], ["Gekko","Gekko.png"], ["Tejo","Tejo.png"],
+  ["Clove","Clove.png"], ["Deadlock","Deadlock.png"], ["Vyse","Vyse.png"],
+].forEach(([name, file]) => { VAL_AGENT_MAP[name.toLowerCase()] = file; });
+
+function agentPortraitUrl(agentName){
+  const file = VAL_AGENT_MAP[(agentName || "").toLowerCase()];
+  return file ? `assets/Valorant Agents/${file}` : "";
+}
+
+// Base (un-nudged) geometry -- measured directly off playerstatsdemo.png's
+// own pixels. ROW_TOP0/ROW_HEIGHT/TEAM_BLOCK_X place each row; FIELD_RECT
+// gives each field's position relative to its row's own top-left corner.
+const ROW_TOP0 = 455;
+const ROW_HEIGHT = 66;
+const TEAM_BLOCK_X = { team1: 0, team2: 1722 };
+const FIELD_RECT = {
+  name:    { left:29,  top:8,  width:90, height:20 },
+  portrait:{ left:130, top:0,  width:65, height:36 },
+  coins:   { left:26,  top:41, width:44, height:20 },
+  kills:   { left:80,  top:41, width:24, height:20 },
+  deaths:  { left:117, top:41, width:24, height:20 },
+  assists: { left:157, top:41, width:24, height:20 },
+};
+const TEAMS = ["team1", "team2"];
+const ROWS = 5;
+
+// One-time DOM build -- 5 rows x 2 teams x 6 fields, ids like
+// "livestats-team1-row0-name". Built programmatically (not hand-written
+// HTML/CSS per element) since there are 60 of them; base position is set
+// directly as inline left/top/width/height, Graphic Fixing overrides then
+// apply a transform on top of that, same layered approach as every other
+// page's applyGraphicOverridesTo().
+const GFX_ELEMENT_IDS = [];
+const stage = document.getElementById("stage");
+TEAMS.forEach(team => {
+  for (let row = 0; row < ROWS; row++) {
+    const rowTop = ROW_TOP0 + row * ROW_HEIGHT;
+    const blockX = TEAM_BLOCK_X[team];
+    Object.entries(FIELD_RECT).forEach(([field, rect]) => {
+      const id = `livestats-${team}-row${row}-${field}`;
+      const el = document.createElement(field === "portrait" ? "img" : "div");
+      el.id = id;
+      el.className = field === "portrait" ? "ps-portrait" : (field === "name" ? "ps-name" : "ps-stat");
+      el.style.left = (blockX + rect.left) + "px";
+      el.style.top = (rowTop + rect.top) + "px";
+      el.style.width = rect.width + "px";
+      el.style.height = rect.height + "px";
+      stage.appendChild(el);
+      GFX_ELEMENT_IDS.push(id);
+    });
+  }
+});
+
+function applyGraphicOverridesTo(ids, overrides){
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    const o = (overrides && overrides[id]) || {};
+    const dx = o.dx || 0, dy = o.dy || 0, scale = o.scale || 1;
+    el.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+    el.style.transformOrigin = "top left";
+  });
+}
+
+function applyState(state){
+  document.getElementById("stage").classList.toggle(
+    "visible", !!(state.liveStatsOverlay && state.liveStatsOverlay.visible)
+  );
+
+  const liveStats = state.liveStats || { team1: [], team2: [] };
+  const assign = state.liveStatsAssign || { team1: [0,1,2,3,4], team2: [0,1,2,3,4] };
+  const postMatchPlayers = (state.postMatch && state.postMatch.players) || { team1: [], team2: [] };
+
+  TEAMS.forEach(team => {
+    const roster = (state[team] && state[team].players) || [];
+    for (let row = 0; row < ROWS; row++) {
+      const rosterIndex = (assign[team] && assign[team][row] != null) ? assign[team][row] : row;
+      const name = roster[rosterIndex] || "";
+      const agent = (postMatchPlayers[team] && postMatchPlayers[team][rosterIndex] && postMatchPlayers[team][rosterIndex].agent) || "";
+      const stats = (liveStats[team] && liveStats[team][row]) || { kills:0, deaths:0, assists:0, coins:0 };
+
+      document.getElementById(`livestats-${team}-row${row}-name`).textContent = name;
+      const portraitEl = document.getElementById(`livestats-${team}-row${row}-portrait`);
+      const portraitUrl = agentPortraitUrl(agent);
+      if(portraitUrl){ portraitEl.src = portraitUrl; portraitEl.style.display = "block"; }
+      else { portraitEl.style.display = "none"; }
+
+      document.getElementById(`livestats-${team}-row${row}-kills`).textContent = stats.kills;
+      document.getElementById(`livestats-${team}-row${row}-deaths`).textContent = stats.deaths;
+      document.getElementById(`livestats-${team}-row${row}-assists`).textContent = stats.assists;
+      document.getElementById(`livestats-${team}-row${row}-coins`).textContent = stats.coins;
+    }
+  });
+
+  applyGraphicOverridesTo(GFX_ELEMENT_IDS, state.graphicOverrides && state.graphicOverrides.playerstats);
+}
+
+connect();
+</script>
+</body>
+</html>
