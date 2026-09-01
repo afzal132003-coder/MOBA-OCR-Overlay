@@ -14,6 +14,17 @@
     (valo-overlay.png doesn't have real layers for name/logo/score to
     measure against) -- nudge with the Valorant Graphic Fixing tab as
     needed, same workflow as MOBA's overlay.
+
+    This file is now BOTH the main In-Game HUD AND the Hoax Overlay (team
+    plates + score + Map Veto banner, formerly valorant_hoax.html) -- an
+    explicit request to merge them into a SINGLE OBS Browser Source, since
+    the two are mutually exclusive during a broadcast (only one is ever on
+    screen at once, see #stage/#hoax-stage below) and there was no reason
+    to make the operator manage two separate sources for that. Same
+    same-file/cross-fade approach valorant_mvp.html already uses for its
+    own MVP/Head-to-Head modes. valorant_hoax.html has been deleted --
+    remove that Browser Source from OBS if you still have it added, this
+    file covers everything now.
   */
 
   @font-face {
@@ -42,16 +53,13 @@
     font-family: var(--font-display);
   }
 
-  /* Visibility is now tied to the Hoax Overlay's own push/pull -- an
-     explicit request, the two are meant to be mutually exclusive (pushing
-     Hoax Overlay up should pull this main HUD off, not stack on top of
-     it), not independently toggleable. See applyState()'s use of
-     state.hoaxOverlay.visible below -- no separate state field of its own
-     needed for that. Kept the same fade+slide entrance feel as the old
-     one-shot keyframe version, just as a toggleable transition instead so
-     it can also play in reverse when pulled back off. */
+  /* Visibility is tied directly to the Hoax Overlay's own push/pull --
+     an explicit request, the two are mutually exclusive (pushing Hoax
+     Overlay up pulls this main HUD off, not stack on top of it). See
+     applyState()'s use of state.hoaxOverlay.visible below -- no separate
+     state field of its own needed for that. */
   #stage{
-    position:relative; width:1920px; height:1080px;
+    position:absolute; top:0; left:0; width:1920px; height:1080px;
     opacity:0; transform:translateY(-16px);
     transition:opacity 0.4s ease, transform 0.4s ease;
   }
@@ -141,6 +149,80 @@
     opacity:0; pointer-events:none; transition:opacity 0.3s ease;
   }
   #bug-banner.visible{ opacity:1; }
+
+  /* ---- Hoax Overlay (assets/valorant_hoax_blank.png) -- formerly its
+     own file/OBS source, now merged into this one (see the file-level
+     comment above). All ids prefixed hoax- to avoid colliding with the
+     main HUD's own team1-logo/team1-name/etc. above. Score here reads
+     state.ocrRoundScore, NOT state.liveScore -- liveScore is the main
+     HUD's own manual/editorial round score; this overlay tracks the real
+     on-screen score instead, fed by a separate OCR reading (see
+     OCR_SCORE_TEAM1_KEY/OCR_SCORE_TEAM2_KEY in valorant_engine.py). ---- */
+  #hoax-stage{
+    position:absolute; top:0; left:0; width:1920px; height:1080px;
+    opacity:0;
+    transition:opacity 0.4s ease;
+  }
+  #hoax-stage.visible{ opacity:1; }
+
+  .hoax-team-logo{ position:absolute; top:3px; width:60px; height:55px; object-fit:contain; display:none; }
+  #hoax-team1-logo{ left:635px; }
+  #hoax-team2-logo{ left:1225px; }
+
+  /* This flat PNG has no PSD/layers, so "TEAM"/"0" are permanently baked
+     into the art with no way to remove them -- these get a solid navy
+     backdrop (sampled from the plate's own fill color) sized to fully
+     cover the baked placeholder before the real text draws on top,
+     instead of the two visibly overlapping. */
+  .hoax-team-name{
+    position:absolute; top:12px; width:100px; height:34px;
+    display:flex; align-items:center;
+    background:#06133a;
+    color:#ffffff; font-weight:800; font-style:italic;
+    font-size:15px; letter-spacing:0.3px; text-transform:uppercase;
+    white-space:nowrap; overflow:hidden;
+  }
+  #hoax-team1-name{ left:700px; justify-content:flex-start; padding-left:4px; }
+  #hoax-team2-name{ left:1120px; justify-content:flex-end; padding-right:4px; }
+
+  .hoax-team-score{
+    position:absolute; top:2px; width:60px; height:50px;
+    display:flex; align-items:center; justify-content:center;
+    background:#06133a;
+    color:#ffffff; font-weight:900; font-style:italic; font-size:26px;
+  }
+  #hoax-team1-score{ left:797px; }
+  #hoax-team2-score{ left:1063px; }
+
+  /* ---- Map Veto banner (assets/mapcurrentnextdecider.png) -- lives on
+     this same page too, its OWN independent push/pull (mapVetoOverlay.
+     visible) separate from hoaxOverlay.visible above, since the two show
+     at different points in a broadcast even though they share this file. */
+  #veto-stage{
+    position:absolute; top:0; left:0; width:1920px; height:1080px;
+    opacity:0; pointer-events:none;
+    transition:opacity 0.4s ease;
+  }
+  #veto-stage.visible{ opacity:1; }
+
+  .veto-map-name{
+    position:absolute; top:4px; height:20px;
+    display:flex; align-items:center;
+    color:#ffffff; font-weight:800; font-style:italic;
+    font-size:12px; letter-spacing:0.3px; text-transform:uppercase;
+    white-space:nowrap; overflow:hidden;
+  }
+  #veto-current-map{ left:452px; width:65px; }
+  #veto-next-map{ left:589px; width:70px; }
+  #veto-decider-map{ left:750px; width:55px; }
+
+  .veto-team-logo{
+    position:absolute; top:5px; width:18px; height:18px;
+    object-fit:contain; display:none;
+  }
+  #veto-current-logo{ left:522px; }
+  #veto-next-logo{ left:664px; }
+  #veto-decider-logo{ left:810px; }
 </style>
 </head>
 <body>
@@ -168,6 +250,31 @@
   <img id="spike-badge" src="assets/spikebadge.png" alt="">
 
   <img id="bug-banner" alt="">
+</div>
+
+<div id="hoax-stage">
+  <img class="bg-frame" src="assets/valorant_hoax_blank.png" alt="">
+
+  <img class="hoax-team-logo" id="hoax-team1-logo" alt="">
+  <div class="hoax-team-name" id="hoax-team1-name"></div>
+  <div class="hoax-team-score" id="hoax-team1-score">0</div>
+
+  <div class="hoax-team-score" id="hoax-team2-score">0</div>
+  <div class="hoax-team-name" id="hoax-team2-name"></div>
+  <img class="hoax-team-logo" id="hoax-team2-logo" alt="">
+</div>
+
+<div id="veto-stage">
+  <img class="bg-frame" src="assets/mapcurrentnextdecider.png" alt="">
+
+  <div class="veto-map-name" id="veto-current-map"></div>
+  <img class="veto-team-logo" id="veto-current-logo" alt="">
+
+  <div class="veto-map-name" id="veto-next-map"></div>
+  <img class="veto-team-logo" id="veto-next-logo" alt="">
+
+  <div class="veto-map-name" id="veto-decider-map"></div>
+  <img class="veto-team-logo" id="veto-decider-logo" alt="">
 </div>
 
 <script>
@@ -198,6 +305,10 @@ function setLogo(id, src){
 }
 
 const GFX_ELEMENT_IDS = ["team1-logo","team1-name","team1-score","team2-logo","team2-name","team2-score","context-text","bug-banner"];
+const HOAX_GFX_ELEMENT_IDS = [
+  "hoax-team1-logo","hoax-team1-name","hoax-team1-score","hoax-team2-logo","hoax-team2-name","hoax-team2-score",
+  "veto-current-map","veto-current-logo","veto-next-map","veto-next-logo","veto-decider-map","veto-decider-logo",
+];
 
 function setBugBanner(mode){
   const el = document.getElementById("bug-banner");
@@ -232,8 +343,8 @@ function effectiveBadgeRect(base, overrides, id){
   };
 }
 
-function applyGraphicOverrides(overrides){
-  GFX_ELEMENT_IDS.forEach(id => {
+function applyGraphicOverridesTo(ids, overrides){
+  ids.forEach(id => {
     const el = document.getElementById(id);
     if(!el) return;
     const o = (overrides && overrides[id]) || {};
@@ -246,9 +357,9 @@ function applyGraphicOverrides(overrides){
 function applyState(state){
   // Mutually exclusive with the Hoax Overlay -- pushing that up pulls
   // this main HUD off, not a separate independent toggle.
-  document.getElementById("stage").classList.toggle(
-    "visible", !(state.hoaxOverlay && state.hoaxOverlay.visible)
-  );
+  const hoaxVisible = !!(state.hoaxOverlay && state.hoaxOverlay.visible);
+  document.getElementById("stage").classList.toggle("visible", !hoaxVisible);
+  document.getElementById("hoax-stage").classList.toggle("visible", hoaxVisible);
 
   document.getElementById("team1-name").textContent = state.team1.name || "";
   document.getElementById("team2-name").textContent = state.team2.name || "";
@@ -280,7 +391,31 @@ function applyState(state){
 
   setBugBanner((state.bugBanner && state.bugBanner.mode) || "hidden");
 
-  applyGraphicOverrides(overrides);
+  applyGraphicOverridesTo(GFX_ELEMENT_IDS, overrides);
+
+  // ---- Hoax Overlay + Map Veto ----
+  document.getElementById("hoax-team1-name").textContent = state.team1.name || "";
+  document.getElementById("hoax-team2-name").textContent = state.team2.name || "";
+  setLogo("hoax-team1-logo", state.team1.logo);
+  setLogo("hoax-team2-logo", state.team2.logo);
+  // ocrRoundScore, NOT liveScore -- see the CSS comment above for why this
+  // overlay tracks a separate, OCR-fed score.
+  const ocrScore = state.ocrRoundScore || { team1: 0, team2: 0 };
+  document.getElementById("hoax-team1-score").textContent = ocrScore.team1;
+  document.getElementById("hoax-team2-score").textContent = ocrScore.team2;
+
+  document.getElementById("veto-stage").classList.toggle(
+    "visible", !!(state.mapVetoOverlay && state.mapVetoOverlay.visible)
+  );
+  const veto = state.mapVeto || {};
+  ["current", "next", "decider"].forEach(slotName => {
+    const slot = veto[slotName] || {};
+    document.getElementById(`veto-${slotName}-map`).textContent = slot.map || "";
+    const teamData = slot.team === "team1" ? state.team1 : slot.team === "team2" ? state.team2 : null;
+    setLogo(`veto-${slotName}-logo`, teamData ? teamData.logo : "");
+  });
+
+  applyGraphicOverridesTo(HOAX_GFX_ELEMENT_IDS, state.graphicOverrides && state.graphicOverrides.hoax);
 }
 
 connect();

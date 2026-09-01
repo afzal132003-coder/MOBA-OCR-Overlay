@@ -196,10 +196,12 @@ def default_state():
         # digit-crop pipeline as MOBA's kills/gold), explicitly kept
         # separate from liveScore above because that one is deliberately
         # manual/editorial and this one is meant to track the real on-
-        # screen score. Currently only consumed by the Hoax Overlay (see
-        # overlay/valorant_hoax.html) -- liveScore, not this, still drives
-        # the main In-Game HUD. Calibrate via valo-ingame
-        # (valorant_ocr_team1_score/valorant_ocr_team2_score).
+        # screen score. Currently only consumed by the Hoax Overlay screen
+        # within overlay/valorant_ingame.html (own file until merged into
+        # the main HUD's file, see that file's own header comment) --
+        # liveScore, not this, still drives the main In-Game HUD screen.
+        # Calibrate via valo-ingame (valorant_ocr_team1_score/valorant_ocr_
+        # team2_score).
         "ocrRoundScore": {"team1": 0, "team2": 0},
 
         # The spike can only be planted by the attacking side and defused
@@ -240,22 +242,25 @@ def default_state():
         "spikeBadge": {"mode": "idle"},
 
         # A separate, fully-manual banner from spikeBadge above -- two
-        # complete pre-made graphics (SPIKEPLANTED_BUG.png / BOMBDEFUSED_
-        # BUG.png, both 1920x1080 with the ribbon art pre-positioned at the
+        # complete pre-made graphics (SPIKEPLANTED_BUG.png / spikedefused.
+        # png, both 1920x1080 with the ribbon art pre-positioned at the
         # same spot on that canvas) toggled entirely by the operator, no
-        # OCR involved at all. Lives on the main In-Game HUD only (not a
-        # separate page). Resets to hidden on load, same as every other
-        # "currently showing" manual overlay toggle in this project.
+        # OCR involved at all. Lives on the main In-Game HUD screen only.
+        # Resets to hidden on load, same as every other "currently showing"
+        # manual overlay toggle in this project.
         "bugBanner": {"mode": "hidden"},
 
-        # The full hoax-overlay.png-styled bar (own team plates + score +
-        # the spike badge) is a SEPARATE, independent overlay page from the
-        # main In-Game HUD above, not merged into it -- shown/hidden as a
-        # whole on the operator's own call (hoax_overlay_show/hide), same
-        # push/pull relationship as any other manual overlay toggle in this
-        # project. spikeBadge above still separately controls the badge's
-        # own idle/planted color+animation *within* this overlay once it's
-        # visible.
+        # The full hoax-overlay.png-styled bar (own team plates + score) --
+        # lives on the SAME overlay/valorant_ingame.html file as the main
+        # HUD (merged into it, an explicit request -- was its own separate
+        # OBS source/file until then), but MUTUALLY EXCLUSIVE with it:
+        # pushing this up (hoax_overlay_show/hide) pulls the main HUD
+        # screen off, not stacked on top of it -- see that file's own
+        # applyState(), which reads this field directly for both screens'
+        # visibility, no separate "which screen is showing" field needed.
+        # spikeBadge above still separately controls the badge's own idle/
+        # planted color+animation, but that badge only ever renders on the
+        # main HUD screen, not this one.
         "hoaxOverlay": {"visible": False},
 
         # Map veto banner (assets/mapcurrentnextdecider.png -- CURRENT/NEXT/
