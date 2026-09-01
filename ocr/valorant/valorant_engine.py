@@ -261,7 +261,15 @@ def default_state():
         # spikeBadge above still separately controls the badge's own idle/
         # planted color+animation, but that badge only ever renders on the
         # main HUD screen, not this one.
-        "hoaxOverlay": {"visible": False},
+        #
+        # leftSide picks WHICH of two full background graphics is drawn --
+        # assets/leftattacker.png (left/team1 plate red, right/team2 plate
+        # teal) or assets/leftdefender.png (colors swapped the other way,
+        # left/team1 teal, right/team2 red). Deliberately a manual
+        # operator toggle, NOT tied to attackingTeam above -- an explicit
+        # request, this is a pure visual/color choice made by hand, not
+        # inferred from game state.
+        "hoaxOverlay": {"visible": False, "leftSide": "attacker"},
 
         # Map veto banner (assets/mapcurrentnextdecider_left.png +
         # _right.png -- CURRENT/NEXT/DECIDER and BHARAT GAMING MASTERS
@@ -347,7 +355,11 @@ def load_state():
             state["spikeBadge"] = default_state()["spikeBadge"]
             state["bugBanner"] = default_state()["bugBanner"]
             state["mvpScreenMode"] = default_state()["mvpScreenMode"]
-            state["hoaxOverlay"] = default_state()["hoaxOverlay"]
+            # Only "visible" resets -- leftSide is a real operator setting
+            # (which side is colored attacker/defender), not a "currently
+            # showing" toggle, so it should survive a restart same as any
+            # other saved setting, not silently snap back to "attacker".
+            state["hoaxOverlay"]["visible"] = False
             state["mapVetoOverlay"] = default_state()["mapVetoOverlay"]
             return state
         except (json.JSONDecodeError, OSError):
@@ -1142,6 +1154,13 @@ async def handle_client(websocket, path=None):
                 server_state["hoaxOverlay"]["visible"] = False
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
+            elif msg_type == "hoax_set_left_side":
+                side = payload.get("side")
+                if side in ("attacker", "defender"):
+                    server_state["hoaxOverlay"]["leftSide"] = side
+                    save_state()
+                    await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
 
             elif msg_type == "map_veto_show":
                 server_state["mapVetoOverlay"]["visible"] = True

@@ -150,14 +150,24 @@
   }
   #bug-banner.visible{ opacity:1; }
 
-  /* ---- Hoax Overlay (assets/valorant_hoax_blank.png) -- formerly its
-     own file/OBS source, now merged into this one (see the file-level
-     comment above). All ids prefixed hoax- to avoid colliding with the
-     main HUD's own team1-logo/team1-name/etc. above. Score here reads
-     state.ocrRoundScore, NOT state.liveScore -- liveScore is the main
-     HUD's own manual/editorial round score; this overlay tracks the real
-     on-screen score instead, fed by a separate OCR reading (see
-     OCR_SCORE_TEAM1_KEY/OCR_SCORE_TEAM2_KEY in valorant_engine.py). ---- */
+  /* ---- Hoax Overlay -- formerly its own file/OBS source, now merged
+     into this one (see the file-level comment above). All ids prefixed
+     hoax- to avoid colliding with the main HUD's own team1-logo/team1-
+     name/etc. above. Score here reads state.ocrRoundScore, NOT state.
+     liveScore -- liveScore is the main HUD's own manual/editorial round
+     score; this overlay tracks the real on-screen score instead, fed by a
+     separate OCR reading (see OCR_SCORE_TEAM1_KEY/OCR_SCORE_TEAM2_KEY in
+     valorant_engine.py).
+
+     Background is one of TWO full-canvas graphics -- assets/leftattacker.
+     png (left/team1 plate red, right/team2 plate teal) or assets/
+     leftdefender.png (colors swapped the other way) -- picked by the
+     operator's own manual leftSide toggle (hoaxOverlay.leftSide), NOT
+     derived from attackingTeam. Both are pixel-identical aside from that
+     color swap (leftattacker.png is leftdefender.png flipped
+     horizontally) so team plate positions are the same regardless of
+     which is showing -- only #hoax-bg's src changes, see applyState().
+     ---- */
   #hoax-stage{
     position:absolute; top:0; left:0; width:1920px; height:1080px;
     opacity:0;
@@ -169,15 +179,12 @@
   #hoax-team1-logo{ left:635px; }
   #hoax-team2-logo{ left:1225px; }
 
-  /* This flat PNG has no PSD/layers, so "TEAM"/"0" are permanently baked
-     into the art with no way to remove them -- these get a solid navy
-     backdrop (sampled from the plate's own fill color) sized to fully
-     cover the baked placeholder before the real text draws on top,
-     instead of the two visibly overlapping. */
+  /* No covering backdrop needed here (unlike the old valorant_hoax_blank.
+     png) -- leftattacker.png/leftdefender.png are clean, nothing baked in
+     to hide, draw text directly. */
   .hoax-team-name{
     position:absolute; top:12px; width:100px; height:34px;
     display:flex; align-items:center;
-    background:#06133a;
     color:#ffffff; font-weight:800; font-style:italic;
     font-size:15px; letter-spacing:0.3px; text-transform:uppercase;
     white-space:nowrap; overflow:hidden;
@@ -188,7 +195,6 @@
   .hoax-team-score{
     position:absolute; top:2px; width:60px; height:50px;
     display:flex; align-items:center; justify-content:center;
-    background:#06133a;
     color:#ffffff; font-weight:900; font-style:italic; font-size:26px;
   }
   #hoax-team1-score{ left:797px; }
@@ -268,7 +274,7 @@
 </div>
 
 <div id="hoax-stage">
-  <img class="bg-frame" src="assets/valorant_hoax_blank.png" alt="">
+  <img class="bg-frame" id="hoax-bg" alt="">
 
   <img class="hoax-team-logo" id="hoax-team1-logo" alt="">
   <div class="hoax-team-name" id="hoax-team1-name"></div>
@@ -411,6 +417,11 @@ function applyState(state){
   applyGraphicOverridesTo(GFX_ELEMENT_IDS, overrides);
 
   // ---- Hoax Overlay + Map Veto ----
+  // Manual operator toggle, NOT derived from attackingTeam -- see the CSS
+  // comment above.
+  const leftSide = (state.hoaxOverlay && state.hoaxOverlay.leftSide) || "attacker";
+  document.getElementById("hoax-bg").src =
+    leftSide === "defender" ? "assets/leftdefender.png" : "assets/leftattacker.png";
   document.getElementById("hoax-team1-name").textContent = state.team1.name || "";
   document.getElementById("hoax-team2-name").textContent = state.team2.name || "";
   setLogo("hoax-team1-logo", state.team1.logo);

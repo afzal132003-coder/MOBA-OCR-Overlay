@@ -1149,13 +1149,20 @@
 
     <div class="card">
       <h2>Hoax Overlay</h2>
-      <p class="hint">A separate on-demand overlay (its own OBS Browser Source) — team plates + score, styled from
-        hoax-overlay.png. MUTUALLY EXCLUSIVE with the main In-Game HUD — pushing this up automatically pulls the
-        main HUD off (they're not meant to be on screen at the same time), and pulling this down brings the main HUD
-        back. Score here is the SEPARATE OCR Round Score below, not the manual Round Score above.</p>
+      <p class="hint">A separate on-demand overlay (lives on the same OBS source as the main HUD) — team plates +
+        score. MUTUALLY EXCLUSIVE with the main In-Game HUD — pushing this up automatically pulls the main HUD off
+        (they're not meant to be on screen at the same time), and pulling this down brings the main HUD back. Score
+        here is the SEPARATE OCR Round Score below, not the manual Round Score above.</p>
       <div class="row">
         <button id="val_hoaxOverlayPush">Push Hoax Overlay Up</button>
         <button class="secondary" id="val_hoaxOverlayPushDown">Pull Hoax Overlay Down</button>
+      </div>
+      <p class="hint" style="margin-top:14px;">Left side color — manual choice, not tied to Attacking Side above.
+        Picks which of two backgrounds is shown (colors mirrored between them). Currently:
+        <span id="val_hoaxLeftSideStatus" style="color:#9aa4c0;">attacker (red)</span></p>
+      <div class="row">
+        <button id="val_hoaxLeftAttacker">Left Side: Attacker (Red)</button>
+        <button class="secondary" id="val_hoaxLeftDefender">Left Side: Defender (Teal)</button>
       </div>
     </div>
 
@@ -4735,6 +4742,7 @@ function valConnect(){
       valRenderOcrScoreGrid(valState);
       valRenderMapVetoRows(valState);
       valRenderPlantDefuseStatus(valState);
+      valRenderHoaxLeftSideStatus(valState);
       valBuildMvpDropdown(valState);
       valBuildH2HDropdowns(valState);
       if(!valgfxHasUnsavedLocalEdits && document.getElementById("valtab-graphics").offsetParent !== null){
@@ -5210,6 +5218,11 @@ function valRenderPlantDefuseStatus(state){
   document.getElementById("val_plantDefuseStatus").textContent =
     pd.status === "shown" ? `SHOWN — ${pd.type} (${teamLabel})` : "idle";
 }
+function valRenderHoaxLeftSideStatus(state){
+  const side = (state.hoaxOverlay && state.hoaxOverlay.leftSide) || "attacker";
+  document.getElementById("val_hoaxLeftSideStatus").textContent =
+    side === "defender" ? "defender (teal)" : "attacker (red)";
+}
 document.getElementById("val_manualPlant").addEventListener("click", () => {
   if(!(valWs && valWs.readyState === WebSocket.OPEN)) return;
   const attacking = document.getElementById("val_attacking_t1").checked ? "team1" : "team2";
@@ -5258,6 +5271,12 @@ document.getElementById("val_hoaxOverlayPush").addEventListener("click", () => {
 });
 document.getElementById("val_hoaxOverlayPushDown").addEventListener("click", () => {
   if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"hoax_overlay_hide"}));
+});
+document.getElementById("val_hoaxLeftAttacker").addEventListener("click", () => {
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"hoax_set_left_side", side:"attacker"}));
+});
+document.getElementById("val_hoaxLeftDefender").addEventListener("click", () => {
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"hoax_set_left_side", side:"defender"}));
 });
 
 /* ---------- Post-Match: Overall Scoreboard ---------- */
