@@ -1150,8 +1150,9 @@
     <div class="card">
       <h2>Hoax Overlay</h2>
       <p class="hint">A separate on-demand overlay (its own OBS Browser Source) — team plates + score, styled from
-        hoax-overlay.png. Independent of the main In-Game HUD; push it up when you want it on screen, pull it down
-        to hide it again. Score here is the SEPARATE OCR Round Score below, not the manual Round Score above.</p>
+        hoax-overlay.png. MUTUALLY EXCLUSIVE with the main In-Game HUD — pushing this up automatically pulls the
+        main HUD off (they're not meant to be on screen at the same time), and pulling this down brings the main HUD
+        back. Score here is the SEPARATE OCR Round Score below, not the manual Round Score above.</p>
       <div class="row">
         <button id="val_hoaxOverlayPush">Push Hoax Overlay Up</button>
         <button class="secondary" id="val_hoaxOverlayPushDown">Pull Hoax Overlay Down</button>

@@ -6,10 +6,12 @@
 <style>
   /*
     A SEPARATE, standalone overlay from valorant_ingame.html -- not merged
-    into it. Add as its own OBS Browser Source layered above/instead of the
-    main In-Game HUD, shown/hidden on demand via the dashboard's Push/Pull
-    buttons (hoaxOverlay.visible), independent of the main HUD's own
-    visibility.
+    into it, still its own OBS Browser Source. Shown/hidden on demand via
+    the dashboard's Push/Pull buttons (hoaxOverlay.visible) -- MUTUALLY
+    EXCLUSIVE with the main In-Game HUD though, an explicit request:
+    pushing this up pulls that HUD off (see valorant_ingame.html's own
+    applyState(), which reads hoaxOverlay.visible directly rather than
+    needing a separate state field for its own visibility).
 
     Background is assets/valorant_hoax_blank.png -- chroma-keyed from
     hoax-overlay.png's own flat RGB(103,103,103) fill (no PSD/alpha channel

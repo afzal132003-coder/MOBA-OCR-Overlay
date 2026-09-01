@@ -42,12 +42,20 @@
     font-family: var(--font-display);
   }
 
+  /* Visibility is now tied to the Hoax Overlay's own push/pull -- an
+     explicit request, the two are meant to be mutually exclusive (pushing
+     Hoax Overlay up should pull this main HUD off, not stack on top of
+     it), not independently toggleable. See applyState()'s use of
+     state.hoaxOverlay.visible below -- no separate state field of its own
+     needed for that. Kept the same fade+slide entrance feel as the old
+     one-shot keyframe version, just as a toggleable transition instead so
+     it can also play in reverse when pulled back off. */
   #stage{
     position:relative; width:1920px; height:1080px;
     opacity:0; transform:translateY(-16px);
-    animation: enter 0.6s ease forwards;
+    transition:opacity 0.4s ease, transform 0.4s ease;
   }
-  @keyframes enter{ to{ opacity:1; transform:translateY(0); } }
+  #stage.visible{ opacity:1; transform:translateY(0); }
 
   .bg-frame{ position:absolute; top:0; left:0; width:1920px; height:1080px; pointer-events:none; }
 
@@ -236,6 +244,12 @@ function applyGraphicOverrides(overrides){
 }
 
 function applyState(state){
+  // Mutually exclusive with the Hoax Overlay -- pushing that up pulls
+  // this main HUD off, not a separate independent toggle.
+  document.getElementById("stage").classList.toggle(
+    "visible", !(state.hoaxOverlay && state.hoaxOverlay.visible)
+  );
+
   document.getElementById("team1-name").textContent = state.team1.name || "";
   document.getElementById("team2-name").textContent = state.team2.name || "";
   setLogo("team1-logo", state.team1.logo);
