@@ -196,10 +196,21 @@
 
   /* ---- Map Veto banner (assets/mapcurrentnextdecider.png) -- lives on
      this same page too, its OWN independent push/pull (mapVetoOverlay.
-     visible) separate from hoaxOverlay.visible above, since the two show
-     at different points in a broadcast even though they share this file. */
+     visible) separate from hoaxOverlay.visible above, shown TOGETHER with
+     the Hoax Overlay's team plates (confirmed real usage, not a
+     hypothetical). The PNG's own baked art is a thin strip natively
+     sitting at the very top of its 1920x1080 canvas (y:0-28) -- directly
+     colliding with the Hoax team plate row above (hoax-team1-logo etc,
+     y:3-58) when both are shown at once, which is what was making the
+     whole cluster look like an overlapping mess in the corner. Left
+     UNCHANGED (matches the PNG's own horizontal layout exactly, an
+     explicit instruction -- do not push this flush to the true x=0/x=1920
+     edges) -- only shifted DOWN as a whole (top:0 -> top:62px, moving the
+     bg-frame image and every dynamic child together, since they're
+     positioned absolute relative to this container) to clear the Hoax row
+     entirely and sit just below it instead of on top of it. */
   #veto-stage{
-    position:absolute; top:0; left:0; width:1920px; height:1080px;
+    position:absolute; top:62px; left:0; width:1920px; height:1080px;
     opacity:0; pointer-events:none;
     transition:opacity 0.4s ease;
   }
