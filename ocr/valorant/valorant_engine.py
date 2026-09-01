@@ -263,9 +263,12 @@ def default_state():
         # main HUD screen, not this one.
         "hoaxOverlay": {"visible": False},
 
-        # Map veto banner (assets/mapcurrentnextdecider.png -- CURRENT/NEXT/
-        # DECIDER labels baked into that art, only the map name + picking
-        # team's logo per slot are dynamic) -- lives on the SAME Hoax
+        # Map veto banner (assets/mapcurrentnextdecider_left.png +
+        # _right.png -- CURRENT/NEXT/DECIDER and BHARAT GAMING MASTERS
+        # labels baked into that art, split into two independently-
+        # positioned corner pieces per an explicit correction, only the
+        # map name + picking team's logo per slot are dynamic) -- lives on
+        # the SAME Hoax
         # Overlay page/OBS source as hoaxOverlay above but with its OWN
         # independent push/pull toggle (mapVetoOverlay.visible), an
         # explicit request, since the two are shown at different points in

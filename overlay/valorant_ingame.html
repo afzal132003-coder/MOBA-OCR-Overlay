@@ -194,46 +194,50 @@
   #hoax-team1-score{ left:797px; }
   #hoax-team2-score{ left:1063px; }
 
-  /* ---- Map Veto banner (assets/mapcurrentnextdecider.png) -- lives on
-     this same page too, its OWN independent push/pull (mapVetoOverlay.
-     visible) separate from hoaxOverlay.visible above, shown TOGETHER with
-     the Hoax Overlay's team plates (confirmed real usage, not a
-     hypothetical). The PNG's own baked art is a thin strip natively
-     sitting at the very top of its 1920x1080 canvas (y:0-28) -- directly
-     colliding with the Hoax team plate row above (hoax-team1-logo etc,
-     y:3-58) when both are shown at once, which is what was making the
-     whole cluster look like an overlapping mess in the corner. Left
-     UNCHANGED (matches the PNG's own horizontal layout exactly, an
-     explicit instruction -- do not push this flush to the true x=0/x=1920
-     edges) -- only shifted DOWN as a whole (top:0 -> top:62px, moving the
-     bg-frame image and every dynamic child together, since they're
-     positioned absolute relative to this container) to clear the Hoax row
-     entirely and sit just below it instead of on top of it. */
+  /* ---- Map Veto banner -- lives on this same page too, its OWN
+     independent push/pull (mapVetoOverlay.visible) separate from
+     hoaxOverlay.visible above, shown TOGETHER with the Hoax Overlay's
+     team plates (confirmed real usage). An explicit correction: the
+     original single mapcurrentnextdecider.png had BOTH halves (CURRENT/
+     NEXT/DECIDER on the left, BHARAT GAMING MASTERS on the right) baked
+     into one 1920x1080 canvas at fixed positions ~370-1541px, nowhere
+     near the true corners -- split into two separately-cropped assets
+     (mapcurrentnextdecider_left.png / _right.png, each the tight alpha
+     bbox of its half, 477x28) so each piece can be positioned
+     independently flush against its own corner instead of wherever the
+     original single image happened to bake them. This also incidentally
+     clears the collision with the Hoax team plate row (hoax-team1-logo
+     etc, x:635-1290ish) that the old centered single-image version had --
+     the two pieces now sit in the corners, well outside that x-range. */
   #veto-stage{
-    position:absolute; top:62px; left:0; width:1920px; height:1080px;
+    position:absolute; top:0; left:0; width:1920px; height:1080px;
     opacity:0; pointer-events:none;
     transition:opacity 0.4s ease;
   }
   #veto-stage.visible{ opacity:1; }
 
+  .veto-banner-piece{ position:absolute; top:20px; width:477px; height:28px; }
+  #veto-banner-left{ left:24px; }
+  #veto-banner-right{ right:24px; }
+
   .veto-map-name{
-    position:absolute; top:4px; height:20px;
+    position:absolute; top:24px; height:20px;
     display:flex; align-items:center;
     color:#ffffff; font-weight:800; font-style:italic;
     font-size:12px; letter-spacing:0.3px; text-transform:uppercase;
     white-space:nowrap; overflow:hidden;
   }
-  #veto-current-map{ left:452px; width:65px; }
-  #veto-next-map{ left:589px; width:70px; }
-  #veto-decider-map{ left:750px; width:55px; }
+  #veto-current-map{ left:106px; width:65px; }
+  #veto-next-map{ left:243px; width:70px; }
+  #veto-decider-map{ left:404px; width:55px; }
 
   .veto-team-logo{
-    position:absolute; top:5px; width:18px; height:18px;
+    position:absolute; top:25px; width:18px; height:18px;
     object-fit:contain; display:none;
   }
-  #veto-current-logo{ left:522px; }
-  #veto-next-logo{ left:664px; }
-  #veto-decider-logo{ left:810px; }
+  #veto-current-logo{ left:176px; }
+  #veto-next-logo{ left:318px; }
+  #veto-decider-logo{ left:464px; }
 </style>
 </head>
 <body>
@@ -276,7 +280,8 @@
 </div>
 
 <div id="veto-stage">
-  <img class="bg-frame" src="assets/mapcurrentnextdecider.png" alt="">
+  <img class="veto-banner-piece" id="veto-banner-left" src="assets/mapcurrentnextdecider_left.png" alt="">
+  <img class="veto-banner-piece" id="veto-banner-right" src="assets/mapcurrentnextdecider_right.png" alt="">
 
   <div class="veto-map-name" id="veto-current-map"></div>
   <img class="veto-team-logo" id="veto-current-logo" alt="">
@@ -318,6 +323,7 @@ function setLogo(id, src){
 const GFX_ELEMENT_IDS = ["team1-logo","team1-name","team1-score","team2-logo","team2-name","team2-score","context-text","bug-banner"];
 const HOAX_GFX_ELEMENT_IDS = [
   "hoax-team1-logo","hoax-team1-name","hoax-team1-score","hoax-team2-logo","hoax-team2-name","hoax-team2-score",
+  "veto-banner-left","veto-banner-right",
   "veto-current-map","veto-current-logo","veto-next-map","veto-next-logo","veto-decider-map","veto-decider-logo",
 ];
 
