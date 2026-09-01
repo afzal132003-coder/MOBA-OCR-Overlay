@@ -222,12 +222,18 @@
   }
   #veto-stage.visible{ opacity:1; }
 
-  .veto-banner-piece{ position:absolute; top:20px; width:477px; height:28px; }
+  /* top:65 -- lower than the very top edge, on purpose (per a marked
+     reference screenshot): sits just below the Hoax team plate row
+     (y:2-58) instead of at the true top edge, roughly where a real
+     broadcast's own equivalent bar sits above its player-icon rows. Best
+     estimate from that reference, not a measured value -- nudge via
+     Graphic Fixing if it needs to move further. */
+  .veto-banner-piece{ position:absolute; top:65px; width:477px; height:28px; }
   #veto-banner-left{ left:24px; }
   #veto-banner-right{ right:24px; }
 
   .veto-map-name{
-    position:absolute; top:24px; height:20px;
+    position:absolute; top:69px; height:20px;
     display:flex; align-items:center;
     color:#ffffff; font-weight:800; font-style:italic;
     font-size:12px; letter-spacing:0.3px; text-transform:uppercase;
@@ -238,7 +244,7 @@
   #veto-decider-map{ left:404px; width:55px; }
 
   .veto-team-logo{
-    position:absolute; top:25px; width:18px; height:18px;
+    position:absolute; top:70px; width:18px; height:18px;
     object-fit:contain; display:none;
   }
   #veto-current-logo{ left:176px; }
