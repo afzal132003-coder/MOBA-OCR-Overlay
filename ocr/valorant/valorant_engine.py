@@ -670,7 +670,7 @@ def _bright_text_mask(img_bgr, percentile=85, max_saturation=CURRENCY_TEXT_MAX_S
     return mask
 
 
-def strip_leading_icon(img_bgr, gap_px=1):
+def strip_leading_icon(img_bgr, gap_px=1, return_cut=False):
     """Returns img_bgr with a leading icon-shaped blob cropped off, if one
     is found; otherwise returns img_bgr unchanged (safe to call on a cell
     that's already just digits -- e.g. box was calibrated tight enough, or
@@ -689,12 +689,20 @@ def strip_leading_icon(img_bgr, gap_px=1):
     needing to tell icon and digit shapes apart, which isn't reliable from
     width alone. Uses _bright_text_mask(), not OTSU, for the same noisy-
     background reason as preprocess_currency() below -- OTSU's own blob
-    boundaries were unreliable on the same cells that needed this most."""
+    boundaries were unreliable on the same cells that needed this most.
+
+    return_cut=True additionally returns the column index the crop was cut
+    at (or None if nothing was stripped) -- purely a debugging aid so the
+    dashboard preview can draw a marker showing exactly where the cut
+    landed, to tell apart "cut right after the icon" (correct) from "cut
+    into the first real digit too" (the icon+digit1 blobs merged, e.g. from
+    video compression blur bridging their gap -- see the crop_preview
+    composite built around this in ocr_loop())."""
     thresh = _bright_text_mask(img_bgr)
     col_has_ink = (thresh > 0).any(axis=0)
     xs = np.where(col_has_ink)[0]
     if len(xs) == 0:
-        return img_bgr
+        return (img_bgr, None) if return_cut else img_bgr
     blobs = []
     start = xs[0]
     prev = xs[0]
@@ -705,11 +713,15 @@ def strip_leading_icon(img_bgr, gap_px=1):
         prev = x
     blobs.append((start, prev))
     if len(blobs) < 3:
-        return img_bgr  # not enough blobs to confidently call this icon+digits
+        # not enough blobs to confidently call this icon+digits
+        return (img_bgr, None) if return_cut else img_bgr
     first_w = blobs[0][1] - blobs[0][0] + 1
     if first_w > img_bgr.shape[1] * CURRENCY_ICON_MAX_WIDTH_FRAC:
-        return img_bgr  # first blob too wide to be just the icon -- leave alone
+        # first blob too wide to be just the icon -- leave alone
+        return (img_bgr, None) if return_cut else img_bgr
     crop_start = max(0, blobs[1][0] - gap_px)
+    if return_cut:
+        return img_bgr[:, crop_start:], crop_start
     return img_bgr[:, crop_start:]
 
 
@@ -1711,10 +1723,36 @@ async def ocr_loop():
                             # instead of guessed at from the text output
                             # alone.
                             if field == "coins":
-                                # preprocess() already upscales 4x, don't
-                                # also apply crop_to_data_url's own default
-                                # 3x on top of that.
-                                preview_source = cv2.cvtColor(preprocess_currency(strip_leading_icon(crop)), cv2.COLOR_GRAY2BGR)
+                                # Composite: the RAW crop (icon + all digits,
+                                # untouched) on top with a red line marking
+                                # exactly where strip_leading_icon() cut, over
+                                # the final black/white mask Tesseract actually
+                                # reads on the bottom -- lets a bad reading's
+                                # cause be told apart at a glance: a cut that
+                                # lands right after a narrow icon-shaped glyph
+                                # is correct, one that eats into the first
+                                # digit too (icon+digit1 blobs merged, e.g.
+                                # from video compression blur bridging their
+                                # gap) shows up as the red line sitting deep
+                                # inside the visible digit string instead of
+                                # right after the icon. preprocess_currency()
+                                # already upscales 4x, don't also apply
+                                # crop_to_data_url's own default 3x on top of
+                                # that.
+                                stripped, cut_x = strip_leading_icon(crop, return_cut=True)
+                                mask_bgr = cv2.cvtColor(preprocess_currency(stripped), cv2.COLOR_GRAY2BGR)
+                                raw_marked = cv2.resize(crop, None, fx=4, fy=4, interpolation=cv2.INTER_NEAREST)
+                                if cut_x is not None:
+                                    mark_x = min(raw_marked.shape[1] - 2, cut_x * 4)
+                                    raw_marked[:, mark_x:mark_x + 2] = (0, 0, 255)
+                                raw_marked = cv2.copyMakeBorder(raw_marked, 4, 4, 10, 10, cv2.BORDER_CONSTANT, value=(60, 60, 60))
+                                target_w = max(raw_marked.shape[1], mask_bgr.shape[1])
+                                if raw_marked.shape[1] < target_w:
+                                    raw_marked = cv2.copyMakeBorder(raw_marked, 0, 0, 0, target_w - raw_marked.shape[1], cv2.BORDER_CONSTANT, value=(60, 60, 60))
+                                if mask_bgr.shape[1] < target_w:
+                                    mask_bgr = cv2.copyMakeBorder(mask_bgr, 0, 0, 0, target_w - mask_bgr.shape[1], cv2.BORDER_CONSTANT, value=(0, 0, 0))
+                                separator = np.full((2, target_w, 3), (0, 255, 255), dtype=np.uint8)
+                                preview_source = np.vstack([raw_marked, separator, mask_bgr])
                                 data_url = crop_to_data_url(preview_source, scale=1)
                             else:
                                 data_url = crop_to_data_url(crop)
