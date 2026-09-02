@@ -668,39 +668,51 @@ def ocr_number(img_bgr):
 CURRENCY_ICON_MAX_WIDTH_FRAC = 0.30
 
 
-CURRENCY_TEXT_MAX_SATURATION = 30
-
-def _bright_text_mask(img_bgr, percentile=85, max_saturation=CURRENCY_TEXT_MAX_SATURATION):
+def _bright_text_mask(img_bgr, percentile=80):
     """Binary ink=255 mask isolating the game's white Coins/Econ text,
     given the FULL COLOR crop (not grayscale -- this needs the color
     information, see below).
 
-    Two signals combined, not brightness alone:
-    1. Brightness in the top `percentile` -- same reasoning as before:
-       OTSU's automatic bimodal split falls apart on a noisy/textured
-       background (live gameplay through a semi-transparent panel),
-       percentile thresholding isolates "the brightest ~15%" directly
-       without trying to make sense of the noisy majority.
-    2. Saturation below `max_saturation` -- an explicit fix after
-       percentile-alone STILL produced heavy noise on some cells (a real
-       debug capture showed diagonal streaks/shapes surviving the
-       brightness filter, apparently bright game-world content -- a
-       weapon/hand model -- behind the panel, not just texture noise).
-       Measured directly from a real saved sample: this game's HUD panel
-       background runs saturation ~54-210 (genuinely colored, e.g. a green
-       team-color tint), while the white text itself measured saturation
-       ~2-11 -- a huge, clean gap. A bright but COLORED pixel (background
-       tint, or a colored object behind the panel) fails this check even
-       if it's plenty bright, which brightness alone could never catch.
-    Together these are far more specific than either alone: something has
-    to be BOTH bright AND essentially colorless to count as text."""
+    Ranks every pixel by score = brightness(V) - saturation(S) and keeps
+    the top `percentile` -- something bright AND essentially colorless
+    (real white text: high V, low S) scores highest; a bright but
+    COLORED pixel (a saturated background tint, or a colored object
+    behind the semi-transparent panel) scores much lower even at full
+    brightness, since its own saturation cancels it out. Confirmed
+    directly against a real capture with a bright red distractor patch
+    deliberately placed in the background: the digit glyphs stayed
+    solid while the distractor scored too low to appear in the mask.
+
+    This replaced an earlier version that computed the same two signals
+    (brightness, saturation) but as two separate HARD cutoffs -- reject
+    anything with saturation above a fixed number, THEN take a brightness
+    percentile of what's left. That worked on the one real sample it was
+    tuned against, but broke down at the actual small capture size
+    (~70-90px wide cells): anti-aliasing/video-compression blur pushes
+    almost every real text pixel's saturation up somewhat, so the hard
+    cutoff was leaving only a handful of "pure" pixels -- computing a
+    percentile from that tiny, noisy sample produced an unstable cutoff,
+    visible directly as a mask that was nearly empty even when the raw
+    crop clearly showed legible digits (e.g. a clean "750"/"1,450"/
+    "1,950" in the raw preview reading back as 100/150/8). A single
+    continuous score with one percentile rank doesn't have that
+    cliff-edge failure mode -- a pixel that's 90% of the way to "text"
+    still contributes 90% of its score instead of being discarded
+    outright, and synthetic testing at the real crop resolution (with
+    added noise/blur to mimic video compression) showed it holding a
+    stable ~450 ink pixels across noise levels where the old version
+    degraded from ~100 down to ~65 ink pixels as noise increased -- the
+    difference between solid, OCR-able glyph shapes and scattered dots.
+    A light morphological close bridges small gaps within a single
+    glyph's anti-aliased edge without merging separate glyphs (a real
+    inter-glyph gap is still several pixels wide at this scale)."""
     hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
-    sat = hsv[:, :, 1]
-    val = hsv[:, :, 2]
-    low_sat = sat <= max_saturation
-    v_candidates = val[low_sat] if low_sat.any() else val
-    cutoff = np.percentile(v_candidates, percentile)
-    mask = np.where((val >= cutoff) & low_sat, 255, 0).astype(np.uint8)
+    sat = hsv[:, :, 1].astype(np.int16)
+    val = hsv[:, :, 2].astype(np.int16)
+    score = val - sat
+    cutoff = np.percentile(score, percentile)
+    mask = np.where(score >= cutoff, 255, 0).astype(np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((2, 2), np.uint8))
     return mask
 
 
@@ -761,11 +773,16 @@ def strip_leading_icon(img_bgr, gap_px=1, return_cut=False):
 
 def preprocess_currency(img_bgr, upscale=4):
     """Coins/Econ-specific variant of preprocess() -- see
-    _bright_text_mask()'s own comment for why brightness+saturation
-    thresholding replaces OTSU here specifically. CLAHE runs on the HSV
-    value (brightness) channel specifically rather than a plain grayscale
-    convert, so the saturation channel _bright_text_mask() needs survives
-    untouched.
+    _bright_text_mask()'s own comment for why a brightness-minus-
+    saturation score replaces OTSU here specifically. No CLAHE step (the
+    shared preprocess() below still uses it) -- an explicit removal after
+    it turned out to actively hurt at this pipeline's real crop size
+    (~70-90px wide cells): CLAHE's default 8x8 tile grid means each tile
+    covers only a few pixels on a crop this small, local contrast
+    "enhancement" over that few a sample amplifies noise rather than
+    revealing real signal. _bright_text_mask()'s percentile rank already
+    adapts to each crop's own brightness distribution, making a separate
+    contrast-equalization pass redundant here.
 
     Border+upscale happen AFTER masking here, not before like preprocess()
     does it -- an explicit fix after realizing the border was hurting the
@@ -781,11 +798,7 @@ def preprocess_currency(img_bgr, upscale=4):
     crisp instead of introducing gray blending at edges) and a plain black
     border (BORDER_CONSTANT, not REPLICATE -- there's no real ink at a
     mask's edge to replicate)."""
-    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-    hsv[:, :, 2] = clahe.apply(hsv[:, :, 2])
-    enhanced_bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
-    mask = _bright_text_mask(enhanced_bgr)
+    mask = _bright_text_mask(img_bgr)
     mask = cv2.resize(mask, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_NEAREST)
     mask = cv2.medianBlur(mask, 3)
     mask = cv2.copyMakeBorder(mask, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=0)
