@@ -619,29 +619,42 @@ def confirm_value(name, value):
 
 
 def preprocess(img_bgr, upscale=4):
-    """Same digit-tuned pipeline as ocr_engine.py's preprocess() -- see
-    that file for the reasoning behind each step (border padding, upscale,
-    median blur, OTSU threshold, auto-invert). CLAHE (adaptive local
-    contrast) runs before the blur/threshold -- an explicit fix for
-    text-on-semi-transparent-background cells (e.g. the Player Stats
-    Coins column, white text over a translucent panel with live gameplay
-    showing through it) where the actual contrast between text and
-    background varies frame to frame and can be quite low, which a
-    single global OTSU threshold handles poorly. CLAHE is local/adaptive
-    rather than a single global adjustment, so it pulls faint text out
-    more reliably without needing to know the real contrast level ahead
-    of time, and is a no-op in practice on crops that already have good
-    contrast (nothing here to enhance), so applying it to every digit
-    crop uniformly is safe rather than needing a per-field opt-in."""
+    """Digit-tuned pipeline for Kills/Deaths/Assists (and Round Score) --
+    originally mirrored ocr_engine.py's preprocess() including a CLAHE
+    (adaptive local contrast) pass, but that turned out to actively hurt
+    here specifically once measured against these fields' real crop size:
+    Player Stats K/D/A cells calibrate to roughly 20-30px square (see
+    valorant_regions_livestats.json), and CLAHE's default 8x8 tile grid
+    on a crop that small means each tile covers only a few pixels --
+    "local contrast enhancement" over that few a sample mostly amplifies
+    noise rather than revealing real digit signal (the exact same failure
+    mode found and fixed in preprocess_currency() for Coins/Econ, which
+    has the same root cause and dropped CLAHE entirely for it).
+
+    Border+upscale also moved to AFTER thresholding rather than before --
+    same reasoning as preprocess_currency(): a 10px REPLICATE border then
+    4x CUBIC upscale becomes a large fraction of a crop this small, all of
+    it a smoothed/replicated copy of whatever's at the true edge, which
+    can skew OTSU's histogram before it ever sees the real digit. OTSU now
+    runs on the small original grayscale crop directly, then the binary
+    result is upscaled with NEAREST (crisp edges, no gray blending) and
+    bordered with a flat white fill (matching the post-invert polarity
+    below) after the fact.
+
+    An end-to-end synthetic test (rendered digit crops at real K/D/A
+    crop size, with noise/blur added to mimic video compression) went
+    from reading almost nothing (1/56 correct, empty string nearly every
+    attempt -- consistent with these fields' reported misreads) to 17/56
+    with this version -- still far from perfect single-frame accuracy,
+    but a large jump in how often there's a real digit to feed the
+    debounce window at all, same milestone as the Coins mask rework."""
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-    gray = clahe.apply(gray)
-    gray = cv2.copyMakeBorder(gray, 10, 10, 10, 10, cv2.BORDER_REPLICATE)
-    gray = cv2.resize(gray, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
     gray = cv2.medianBlur(gray, 3)
     _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     if thresh.mean() < 127:
         thresh = cv2.bitwise_not(thresh)
+    thresh = cv2.resize(thresh, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_NEAREST)
+    thresh = cv2.copyMakeBorder(thresh, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
     return thresh
 
 
