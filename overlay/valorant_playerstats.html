@@ -28,6 +28,16 @@
     player is CURRENTLY sitting at that row; name/agent are pulled from
     that roster player (team1/team2.players + postMatch.players[..].agent,
     same single source of truth as every other overlay), not read via OCR.
+
+    The gun icon is different from every other field here: it's NOT OCR'd
+    (no text/shape to read -- classifying it against a reference sprite
+    sheet under live video compression would be far less reliable than
+    just showing the real thing) and NOT part of liveStats/state_sync at
+    all -- the engine crops that calibrated box every cycle and pushes it
+    straight through as its own crop_preview message (see ws.onmessage
+    below), same live-picture-passthrough principle, just delivered
+    outside the normal state pipeline so 10 images a cycle don't bloat
+    state_sync's payload.
   */
 
   @font-face {
@@ -71,6 +81,7 @@
     white-space:nowrap; overflow:hidden;
   }
   .ps-portrait{ position:absolute; object-fit:cover; object-position:center top; display:none; }
+  .ps-gun{ position:absolute; object-fit:contain; display:none; }
   .ps-stat{
     position:absolute;
     display:flex; align-items:center; justify-content:center;
@@ -100,6 +111,17 @@ function connect(){
   ws.onmessage = (evt) => {
     const msg = JSON.parse(evt.data);
     if(msg.type === "state_sync") applyState(msg.data);
+    else if(msg.type === "crop_preview" && msg.region) {
+      // Gun icon only -- not OCR'd, so it never goes through
+      // server_state/state_sync (see valorant_engine.py's gun capture
+      // block); the live captured picture is forwarded straight into
+      // this row's gun <img> as its own message instead.
+      const m = msg.region.match(/^valorant_livestats_(team\d)_row(\d)_gun$/);
+      if(m){
+        const el = document.getElementById(`livestats-${m[1]}-row${m[2]}-gun`);
+        if(el){ el.src = msg.image; el.style.display = "block"; }
+      }
+    }
   };
   ws.onclose = () => setTimeout(connect, 2000);
   ws.onerror = () => ws.close();
@@ -138,6 +160,13 @@ const FIELD_RECT = {
   kills:   { left:80,  top:41, width:24, height:20 },
   deaths:  { left:117, top:41, width:24, height:20 },
   assists: { left:157, top:41, width:24, height:20 },
+  // Placeholder position, NOT measured off playerstatsdemo.png like every
+  // other field here -- that reference predates this field entirely, no
+  // gun icon slot exists in it. Nudge into the real empty spot with
+  // Graphic Fixing -> Player Stats once it's visible live. Kept in sync
+  // with dashboard.html's PLAYERSTATS_FIELD_RECT (same convention as
+  // every other field's rect).
+  gun:     { left:2,   top:20, width:24, height:24 },
 };
 const TEAMS = ["team1", "team2"];
 const ROWS = 5;
@@ -156,9 +185,10 @@ TEAMS.forEach(team => {
     const blockX = TEAM_BLOCK_X[team];
     Object.entries(FIELD_RECT).forEach(([field, rect]) => {
       const id = `livestats-${team}-row${row}-${field}`;
-      const el = document.createElement(field === "portrait" ? "img" : "div");
+      const isImg = field === "portrait" || field === "gun";
+      const el = document.createElement(isImg ? "img" : "div");
       el.id = id;
-      el.className = field === "portrait" ? "ps-portrait" : (field === "name" ? "ps-name" : "ps-stat");
+      el.className = field === "portrait" ? "ps-portrait" : field === "gun" ? "ps-gun" : (field === "name" ? "ps-name" : "ps-stat");
       el.style.left = (blockX + rect.left) + "px";
       el.style.top = (rowTop + rect.top) + "px";
       el.style.width = rect.width + "px";

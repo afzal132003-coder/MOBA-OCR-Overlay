@@ -5311,6 +5311,7 @@ function valBuildLiveStatsGrid(team){
   table.style.cssText = "width:100%;border-collapse:collapse;font-size:12px;";
   let thead = `<thead><tr style="text-align:center;color:#9aa4c0;"><th style="padding:4px;text-align:left;">${team === "team1" ? "Team 1" : "Team 2"} Row</th>`;
   VAL_LIVESTATS_FIELDS.forEach(f => { thead += `<th style="padding:4px;">${VAL_LIVESTATS_FIELD_LABELS[f]}</th>`; });
+  thead += `<th style="padding:4px;">Gun</th>`;
   thead += `</tr></thead>`;
   let tbody = "<tbody>";
   for(let row = 0; row < 5; row++){
@@ -5329,6 +5330,18 @@ function valBuildLiveStatsGrid(team){
         </td>
       `;
     });
+    // Gun -- not OCR'd, no confirm/override, just the live captured icon
+    // itself (same crop_preview delivery as every other cell here, but
+    // ALSO forwarded straight into the overlay's gun slot -- see
+    // ocr_loop()'s gun capture block in valorant_engine.py). No checkbox/
+    // input row since there's no numeric value to lock or override.
+    const gunKey = `valorant_livestats_${team}_row${row}_gun`;
+    tbody += `
+      <td style="padding:4px;text-align:center;">
+        <img id="crop-${gunKey}" style="display:block;max-width:260px;max-height:400px;margin:0 auto 3px;border:1px solid #332b52;border-radius:3px;image-rendering:pixelated;">
+        <button type="button" class="secondary val-copy-calib" data-key="${gunKey}" title="Copy the recalibration command for just this cell" style="font-size:9px;padding:2px 4px;margin-top:3px;">Copy Calib Cmd</button>
+      </td>
+    `;
     tbody += `</tr>`;
   }
   tbody += "</tbody>";
@@ -5858,8 +5871,8 @@ valConnect();
  * SAME .gfx-box/.gfx-handle/.gfx-ghost CSS classes (those aren't
  * ID-scoped) against a separate #valgfx_stage container, so the two
  * systems can't cross-select or cross-drag each other's elements. */
-// Player Stats has 60 individual elements (2 teams x 5 rows x 6 fields --
-// name, portrait, kills, deaths, assists, coins) -- generated here from
+// Player Stats has 70 individual elements (2 teams x 5 rows x 7 fields --
+// name, portrait, kills, deaths, assists, coins, gun) -- generated here from
 // the SAME base geometry constants as overlay/valorant_playerstats.html
 // itself (measured off playerstatsdemo.png's own pixels), rather than
 // hand-transcribed, so the two files can't drift out of sync with each
@@ -5874,6 +5887,11 @@ const PLAYERSTATS_FIELD_RECT = {
   kills:   { left:80,  top:41, width:24, height:20, label:"Kills" },
   deaths:  { left:117, top:41, width:24, height:20, label:"Deaths" },
   assists: { left:157, top:41, width:24, height:20, label:"Assists" },
+  // Placeholder position, NOT measured off the background art (unlike
+  // every other field here) -- playerstatsdemo.png predates this field.
+  // Nudge into the real empty spot with Graphic Fixing -> Player Stats
+  // once it's visible live.
+  gun:     { left:2,   top:20, width:24, height:24, label:"Equipped Gun Icon (live, not OCR'd)" },
 };
 const PLAYERSTATS_ELEMENTS = {};
 ["team1", "team2"].forEach(team => {

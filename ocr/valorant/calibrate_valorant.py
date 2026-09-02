@@ -117,8 +117,16 @@ POSTMATCH_KEYS = [
 # 10-row list. Kept in sync manually with LIVESTATS_TEAMS/_ROWS/_FIELDS in
 # valorant_engine.py.
 LIVESTATS_TEAMS = ["team1", "team2"]
-LIVESTATS_COLS = ["kills", "deaths", "assists", "coins"]
-LIVESTATS_COL_LABELS = {"kills": "Kills", "deaths": "Deaths", "assists": "Assists", "coins": "Coins/Economy"}
+# "gun" is NOT OCR'd -- there's no text to read, no whitelist of shapes
+# to match against. It's calibrated the same way as every other cell,
+# but the engine just crops that box and forwards the live pixels
+# straight through to the overlay's gun slot every cycle (see
+# ocr_loop()'s livestats block in valorant_engine.py) -- an explicit
+# choice over trying to classify/match the icon against a reference
+# sprite sheet, which would be far less reliable under live video
+# compression than just showing the real captured icon directly.
+LIVESTATS_COLS = ["kills", "deaths", "assists", "coins", "gun"]
+LIVESTATS_COL_LABELS = {"kills": "Kills", "deaths": "Deaths", "assists": "Assists", "coins": "Coins/Economy", "gun": "Equipped Gun Icon (no OCR -- just crop tight to the weapon icon itself, the live picture is forwarded as-is)"}
 LIVESTATS_ROWS = 5
 LIVESTATS_KEYS = [
     f"valorant_livestats_{team}_row{r}_{col}"

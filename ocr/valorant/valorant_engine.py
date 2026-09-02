@@ -1852,6 +1852,35 @@ async def ocr_loop():
                                     "image": data_url, "text": str(raw_value) if raw_value is not None else "",
                                 })
 
+                # Equipped gun icon -- NOT OCR'd, no confirm/debounce, no
+                # server_state entry at all (see LIVESTATS_COLS's comment
+                # in calibrate_valorant.py for why: forwarding the real
+                # captured icon is far more reliable than trying to
+                # classify it against a reference sprite sheet under live
+                # video compression). Captured on this same cadence and
+                # sent as a plain crop_preview straight to BOTH the
+                # dashboard (calibration visibility, reuses the same
+                # crop-<key> element every other cell uses) and the real
+                # overlay (valorant_playerstats.html renders it directly
+                # into the row's gun <img>). Deliberately NOT folded into
+                # state_sync -- embedding up to 10 PNG images in that
+                # payload every cycle would undo the earlier page-targeted
+                # broadcast bandwidth work (see broadcast_to_page's own
+                # comment) for a field nothing needs to persist or vote on.
+                for team in LIVESTATS_TEAMS:
+                    for row in range(LIVESTATS_ROWS):
+                        gun_key = f"valorant_livestats_{team}_row{row}_gun"
+                        gun_region = regions.get(gun_key)
+                        if not gun_region or gun_region.get("w", 0) <= 0 or gun_region.get("h", 0) <= 0:
+                            continue
+                        gun_crop = crop_to_bgr(sct, gun_region)
+                        gun_data_url = crop_to_data_url(gun_crop)
+                        if not gun_data_url:
+                            continue
+                        gun_message = {"type": "crop_preview", "region": gun_key, "image": gun_data_url, "text": ""}
+                        await broadcast_to_page("valorant_dashboard", gun_message)
+                        await broadcast_to_page("valorant_playerstats", gun_message)
+
             if not PLANT_DEFUSE_AUTO_DETECT:
                 # Whole plant/defuse/spike-badge OCR pipeline switched off
                 # -- explicit request after several tuning passes still
