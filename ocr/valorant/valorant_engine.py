@@ -597,24 +597,39 @@ def ocr_number(img_bgr):
 CURRENCY_ICON_MAX_WIDTH_FRAC = 0.30
 
 
-def _bright_text_mask(gray, percentile=85):
-    """Binary ink=255 mask isolating roughly the brightest (100-percentile)%
-    of pixels in `gray`, instead of OTSU's automatic bimodal split.
+CURRENCY_TEXT_MAX_SATURATION = 30
 
-    Confirmed via a real debug capture: OTSU (even after CLAHE contrast
-    boost) produced pure SPECKLE NOISE, not clean digit shapes, on Coins
-    cells with a highly textured background (live gameplay visible
-    through a semi-transparent HUD panel) -- OTSU tries to split the
-    WHOLE crop's brightness distribution into two balanced halves, which
-    falls apart when the "background" half is itself high-variance rather
-    than a flat color, instead of a clean single cutoff. Percentile
-    thresholding sidesteps that entirely: since the text is white and
-    known to occupy a small minority of the crop, isolating "the
-    brightest ~15% of pixels" directly stays robust regardless of how
-    noisy or varied everything else in the crop is -- it never tries to
-    make sense of the noisy majority at all."""
-    cutoff = np.percentile(gray, percentile)
-    mask = np.where(gray >= cutoff, 255, 0).astype(np.uint8)
+def _bright_text_mask(img_bgr, percentile=85, max_saturation=CURRENCY_TEXT_MAX_SATURATION):
+    """Binary ink=255 mask isolating the game's white Coins/Econ text,
+    given the FULL COLOR crop (not grayscale -- this needs the color
+    information, see below).
+
+    Two signals combined, not brightness alone:
+    1. Brightness in the top `percentile` -- same reasoning as before:
+       OTSU's automatic bimodal split falls apart on a noisy/textured
+       background (live gameplay through a semi-transparent panel),
+       percentile thresholding isolates "the brightest ~15%" directly
+       without trying to make sense of the noisy majority.
+    2. Saturation below `max_saturation` -- an explicit fix after
+       percentile-alone STILL produced heavy noise on some cells (a real
+       debug capture showed diagonal streaks/shapes surviving the
+       brightness filter, apparently bright game-world content -- a
+       weapon/hand model -- behind the panel, not just texture noise).
+       Measured directly from a real saved sample: this game's HUD panel
+       background runs saturation ~54-210 (genuinely colored, e.g. a green
+       team-color tint), while the white text itself measured saturation
+       ~2-11 -- a huge, clean gap. A bright but COLORED pixel (background
+       tint, or a colored object behind the panel) fails this check even
+       if it's plenty bright, which brightness alone could never catch.
+    Together these are far more specific than either alone: something has
+    to be BOTH bright AND essentially colorless to count as text."""
+    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    sat = hsv[:, :, 1]
+    val = hsv[:, :, 2]
+    low_sat = sat <= max_saturation
+    v_candidates = val[low_sat] if low_sat.any() else val
+    cutoff = np.percentile(v_candidates, percentile)
+    mask = np.where((val >= cutoff) & low_sat, 255, 0).astype(np.uint8)
     return mask
 
 
@@ -638,8 +653,7 @@ def strip_leading_icon(img_bgr, gap_px=1):
     width alone. Uses _bright_text_mask(), not OTSU, for the same noisy-
     background reason as preprocess_currency() below -- OTSU's own blob
     boundaries were unreliable on the same cells that needed this most."""
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    thresh = _bright_text_mask(gray)
+    thresh = _bright_text_mask(img_bgr)
     col_has_ink = (thresh > 0).any(axis=0)
     xs = np.where(col_has_ink)[0]
     if len(xs) == 0:
@@ -664,19 +678,22 @@ def strip_leading_icon(img_bgr, gap_px=1):
 
 def preprocess_currency(img_bgr, upscale=4):
     """Coins/Econ-specific variant of preprocess() -- see
-    _bright_text_mask()'s own comment for why percentile thresholding
-    replaces OTSU here specifically. Everything else (CLAHE, upscale,
-    border, blur) matches preprocess() exactly; only the final threshold
-    step differs, and only for these two fields -- every other digit
-    field keeps using the original OTSU-based preprocess() unchanged, so
-    this doesn't risk regressing anything that already reads fine."""
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    _bright_text_mask()'s own comment for why brightness+saturation
+    thresholding replaces OTSU here specifically. Border/upscale/blur
+    match preprocess() exactly; CLAHE runs on the HSV value (brightness)
+    channel specifically rather than a plain grayscale convert, so the
+    saturation channel _bright_text_mask() needs survives untouched --
+    only the final threshold step differs from preprocess(), and only for
+    these two fields, so this doesn't risk regressing anything that
+    already reads fine."""
+    img_bgr = cv2.copyMakeBorder(img_bgr, 10, 10, 10, 10, cv2.BORDER_REPLICATE)
+    img_bgr = cv2.resize(img_bgr, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
+    img_bgr = cv2.medianBlur(img_bgr, 3)
+    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
     clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-    gray = clahe.apply(gray)
-    gray = cv2.copyMakeBorder(gray, 10, 10, 10, 10, cv2.BORDER_REPLICATE)
-    gray = cv2.resize(gray, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
-    gray = cv2.medianBlur(gray, 3)
-    return _bright_text_mask(gray)
+    hsv[:, :, 2] = clahe.apply(hsv[:, :, 2])
+    enhanced_bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+    return _bright_text_mask(enhanced_bgr)
 
 
 def ocr_currency_number(img_bgr):
