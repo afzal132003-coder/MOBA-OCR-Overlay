@@ -555,6 +555,40 @@ VALUE_CONFIRM_WINDOW = 3
 _value_windows = {}
 _value_last_confirmed = {}
 
+# Sanity guards for Live Player Stats specifically -- added after watching
+# a real live match through the relay (see monitor script used during that
+# session) and catching two failure modes the debounce window alone still
+# let through:
+#
+# 1. Coins hit clearly impossible 5-digit readings twice in 90 seconds
+#    (e.g. raw text "92050" for a cell that was legitimately ~2050 both
+#    before and after) -- the debounce window happened to filter both out
+#    that time, but nothing guarantees a bad frame like that can't win 2
+#    of 3 in the window on a worse run. Valorant hard-caps credits at
+#    9000, so anything outside 0-9000 is categorically impossible and can
+#    be discarded before it ever enters the vote, same as a None/unreadable
+#    frame.
+# 2. Kills/Deaths/Assists are monotonically non-decreasing for the whole
+#    match (only livestats_clear, an explicit operator action, ever lowers
+#    them) -- yet the CONFIRMED, post-debounce value was observed visibly
+#    flickering down and back up over the course of one match (Deaths
+#    3->7->3, Kills 6->5, Assists 7->2 and separately 9->0), proving a
+#    misread can still win a 2-of-3 majority. A confirmed value that's
+#    LOWER than what's already showing can only be a misread and is
+#    rejected outright. A confirmed value that JUMPS UP implausibly far in
+#    one go (the same capture also caught Kills briefly "confirm" to 20
+#    for a cell that was 2 both before and after) is equally impossible
+#    for a single confirm cycle and rejected the same way -- without this
+#    half of the guard, the pure "never decreases" rule would have
+#    permanently locked that cell onto the wrong 20, since the real value
+#    of 2 could then never be accepted again (it's a decrease). Coins is
+#    deliberately excluded from this second guard -- credits legitimately
+#    DROP when a player buys, so only the absolute range check above
+#    applies there.
+COINS_MAX_CREDITS = 9000
+MONOTONIC_LIVESTATS_FIELDS = ("kills", "deaths", "assists")
+MONOTONIC_MAX_JUMP = 8
+
 
 def confirm_value(name, value):
     """value is this frame's raw (unconfirmed) reading for `name`, or None
@@ -1704,10 +1738,20 @@ async def ocr_loop():
                     send_previews = dashboard_connected()
                     for (team, row, field, key), text, crop in zip(cell_keys, texts, crops):
                         raw_value = parse_int(text)
+                        if field == "coins" and raw_value is not None and not (0 <= raw_value <= COINS_MAX_CREDITS):
+                            # Categorically impossible -- discard before it
+                            # can dilute the debounce vote at all, same as
+                            # an unreadable frame. See COINS_MAX_CREDITS.
+                            raw_value = None
                         confirmed = confirm_value(key, raw_value)
                         lock_key = f"liveStats.{team}.{row}.{field}"
                         if confirmed is not None and lock_key not in locked_fields:
-                            if server_state["liveStats"][team][row][field] != confirmed:
+                            current = server_state["liveStats"][team][row][field]
+                            if field in MONOTONIC_LIVESTATS_FIELDS and (
+                                confirmed < current or confirmed - current > MONOTONIC_MAX_JUMP
+                            ):
+                                pass  # impossible for a live match counter -- see MONOTONIC_LIVESTATS_FIELDS
+                            elif current != confirmed:
                                 server_state["liveStats"][team][row][field] = confirmed
                                 changed_pages.update(("valorant_dashboard", "valorant_playerstats"))
                         if send_previews:
