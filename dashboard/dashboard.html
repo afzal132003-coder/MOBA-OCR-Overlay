@@ -5887,11 +5887,13 @@ const PLAYERSTATS_FIELD_RECT = {
   kills:   { left:80,  top:41, width:24, height:20, label:"Kills" },
   deaths:  { left:117, top:41, width:24, height:20, label:"Deaths" },
   assists: { left:157, top:41, width:24, height:20, label:"Assists" },
-  // Placeholder position, NOT measured off the background art (unlike
-  // every other field here) -- playerstatsdemo.png predates this field.
-  // Nudge into the real empty spot with Graphic Fixing -> Player Stats
-  // once it's visible live.
-  gun:     { left:2,   top:20, width:24, height:24, label:"Equipped Gun Icon (live, not OCR'd)" },
+  // Positioned from the operator's own marked-up screenshot of the live
+  // overlay (a red box in the gap between the coins icon and the K/D/A
+  // columns) -- an estimate, not pixel-measured off the background art
+  // like every other field here (playerstatsdemo.png predates this
+  // field and has no gun slot in it). Nudge into the exact spot with
+  // Graphic Fixing -> Player Stats once it's visible live.
+  gun:     { left:44,  top:39, width:34, height:24, label:"Equipped Gun Icon (live, not OCR'd)" },
 };
 const PLAYERSTATS_ELEMENTS = {};
 ["team1", "team2"].forEach(team => {
