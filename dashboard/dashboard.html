@@ -1215,6 +1215,7 @@
       <div class="row" style="margin-top:10px;">
         <button id="val_liveStatsPush">Push Player Stats Up</button>
         <button class="secondary" id="val_liveStatsPushDown">Pull Player Stats Down</button>
+        <button class="danger" id="val_liveStatsClear">Clear Stats (Game Over)</button>
       </div>
     </div>
   </div>
@@ -5358,6 +5359,10 @@ document.getElementById("val_liveStatsPush").addEventListener("click", () => {
 });
 document.getElementById("val_liveStatsPushDown").addEventListener("click", () => {
   if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"livestats_overlay_hide"}));
+});
+document.getElementById("val_liveStatsClear").addEventListener("click", () => {
+  if(!confirm("Clear all Player Stats (Kills/Deaths/Assists/Coins) back to 0 for both teams? Use this once the game is over, before the next one starts. Row → Player assignments are kept.")) return;
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"livestats_clear"}));
 });
 
 /* ---------- Live Ops: Attacking Side ---------- */

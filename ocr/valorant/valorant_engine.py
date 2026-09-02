@@ -1297,6 +1297,26 @@ async def handle_client(websocket, path=None):
                     save_state()
                     await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
 
+            elif msg_type == "livestats_clear":
+                # Explicit request: reset all 40 cells back to 0 once a
+                # game is over, so stale numbers from the finished match
+                # don't linger into the next one before fresh OCR readings
+                # confirm. Also drops any per-cell overrides left locked
+                # from the last match -- otherwise a lock from a prior
+                # game would keep blocking real OCR updates in the next
+                # one. Row->player assignment is left alone -- that's a
+                # roster/lineup setting, not match-specific data, no
+                # reason to make the operator redo it every game.
+                server_state["liveStats"] = {
+                    "team1": [default_live_stat_row() for _ in range(LIVESTATS_ROWS)],
+                    "team2": [default_live_stat_row() for _ in range(LIVESTATS_ROWS)],
+                }
+                for f in list(locked_fields):
+                    if f.startswith("liveStats."):
+                        locked_fields.discard(f)
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
             elif msg_type == "swap_sides":
                 swap_team_sides()
                 save_state()
