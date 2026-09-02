@@ -359,7 +359,13 @@ def default_state():
             "team1": [0, 1, 2, 3, 4],
             "team2": [0, 1, 2, 3, 4],
         },
-        "liveStatsOverlay": {"visible": False},
+        # bgAnimation -- the animated background texture toggle. A real
+        # operator setting (like hoaxOverlay's leftSide), NOT a "currently
+        # showing" flag, so it deliberately does NOT get reset on restart
+        # below (only "visible" does) -- an easy rollback switch for the
+        # animation without needing a code change/redeploy if it doesn't
+        # read well once live.
+        "liveStatsOverlay": {"visible": False, "bgAnimation": True},
 
         "postMatch": {
             "duration": "", "date": "",
@@ -1578,6 +1584,11 @@ async def handle_client(websocket, path=None):
 
             elif msg_type == "livestats_overlay_hide":
                 server_state["liveStatsOverlay"]["visible"] = False
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
+            elif msg_type == "livestats_bg_animation_set":
+                server_state["liveStatsOverlay"]["bgAnimation"] = bool(payload.get("enabled", True))
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
 

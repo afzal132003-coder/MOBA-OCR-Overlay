@@ -73,6 +73,35 @@
 
   .bg-frame{ position:absolute; top:0; left:0; width:1920px; height:1080px; pointer-events:none; }
 
+  /* Animated backdrop texture -- an explicit request, matching a
+     reference image of a subtle drifting diagonal-grid pattern. Sits
+     BEHIND .bg-frame (playerstats.png), which is fully transparent
+     across most of the 1920px canvas (only the two ~195px team columns
+     at the edges have real art), so this shows through that large
+     unused middle instead of competing with the actual stat panels.
+     Pure CSS (no new image asset) -- three overlapping diagonal hatch
+     layers whose combined background-position slowly drifts via
+     bgTextureDrift, at low enough opacity to read as ambient texture,
+     not a distraction. Toggled by liveStatsOverlay.bgAnimation (see
+     applyState() below) -- an explicit rollback switch from the
+     dashboard's Player Stats card, in case it doesn't read well once
+     actually live over real gameplay. */
+  #bg-texture{
+    position:absolute; top:0; left:0; width:1920px; height:1080px;
+    background-color:#0b0e1f;
+    background-image:
+      repeating-linear-gradient(60deg, rgba(140,160,220,0.07) 0px, rgba(140,160,220,0.07) 1px, transparent 1px, transparent 46px),
+      repeating-linear-gradient(-60deg, rgba(140,160,220,0.07) 0px, rgba(140,160,220,0.07) 1px, transparent 1px, transparent 46px),
+      repeating-linear-gradient(0deg, rgba(140,160,220,0.045) 0px, rgba(140,160,220,0.045) 1px, transparent 1px, transparent 46px);
+    background-size: 92px 92px;
+    animation: bgTextureDrift 50s linear infinite;
+  }
+  #bg-texture.hidden{ display:none; }
+  @keyframes bgTextureDrift{
+    from{ background-position: 0px 0px; }
+    to{ background-position: 92px 159px; }
+  }
+
   .ps-name{
     position:absolute;
     display:flex; align-items:center;
@@ -92,6 +121,7 @@
 <body>
 
 <div id="stage">
+  <div id="bg-texture"></div>
   <img class="bg-frame" src="assets/playerstats.png" alt="">
 </div>
 
@@ -215,6 +245,9 @@ function applyGraphicOverridesTo(ids, overrides){
 function applyState(state){
   document.getElementById("stage").classList.toggle(
     "visible", !!(state.liveStatsOverlay && state.liveStatsOverlay.visible)
+  );
+  document.getElementById("bg-texture").classList.toggle(
+    "hidden", !(state.liveStatsOverlay && state.liveStatsOverlay.bgAnimation !== false)
   );
 
   const liveStats = state.liveStats || { team1: [], team2: [] };

@@ -1217,6 +1217,10 @@
         <button class="secondary" id="val_liveStatsPushDown">Pull Player Stats Down</button>
         <button class="danger" id="val_liveStatsClear">Clear Stats (Game Over)</button>
       </div>
+      <label class="row" style="margin-top:10px;align-items:center;gap:6px;">
+        <input type="checkbox" id="val_liveStatsBgAnimation" style="width:14px;height:14px;margin:0;">
+        Animated background texture (drifting grid, behind the panels) -- turn off to roll back to the plain background
+      </label>
     </div>
   </div>
 
@@ -5400,6 +5404,9 @@ document.getElementById("val_liveStatsClear").addEventListener("click", () => {
   if(!confirm("Clear all Player Stats (Kills/Deaths/Assists/Coins) back to 0 for both teams? Use this once the game is over, before the next one starts. Row → Player assignments are kept.")) return;
   if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"livestats_clear"}));
 });
+document.getElementById("val_liveStatsBgAnimation").addEventListener("change", (e) => {
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"livestats_bg_animation_set", enabled: e.target.checked}));
+});
 
 /* ---------- Live Ops: Attacking Side ---------- */
 document.querySelectorAll('input[name="val_attackingTeam"]').forEach(radio => {
@@ -5816,6 +5823,10 @@ function valApplyState(state){
       if(input && isFree(id)) input.value = name || "";
     });
   });
+  if(active !== "val_liveStatsBgAnimation") {
+    document.getElementById("val_liveStatsBgAnimation").checked =
+      !!(state.liveStatsOverlay && state.liveStatsOverlay.bgAnimation !== false);
+  }
   if(isFree("val_map")) document.getElementById("val_map").value = state.prematch.map || "";
   if(active !== "val_line1") document.getElementById("val_line1").value = state.prematch.context.line1 || "";
   if(active !== "val_line2") document.getElementById("val_line2").value = state.prematch.context.line2 || "";
