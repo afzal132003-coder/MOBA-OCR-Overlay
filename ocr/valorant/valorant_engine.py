@@ -995,6 +995,22 @@ async def broadcast_to_page(page, message):
     await asyncio.gather(*[c.send(data) for c in targets], return_exceptions=True)
 
 
+def dashboard_connected():
+    """Whether it's worth generating dashboard-only data at all (crop
+    previews) this cycle -- checked BEFORE broadcast_to_page() even gets
+    called, so it needs the same relay awareness as that function: a
+    direct local connection tagged "valorant_dashboard" is a sure thing,
+    but a relay connection's own tag is always "unknown" (see
+    broadcast_to_page's comment), so this engine has no way to confirm a
+    dashboard tab specifically is open on the far end of it -- only that
+    the relay itself is reachable. Erring toward "yes, generate it" when
+    relay is connected (even if no one's actually looking at the
+    calibration screen right now) is the safer trade -- the alternative is
+    silently never sending previews to any relay-connected dashboard at
+    all, which is the bug this exists to avoid repeating."""
+    return "valorant_dashboard" in connected_pages.values() or relay_websocket is not None
+
+
 def presence_counts():
     counts = {}
     for page in connected_pages.values():
@@ -1432,7 +1448,7 @@ async def ocr_loop():
                     server_state["ocrRoundScore"][team] = confirmed
                     changed_pages.update(("valorant_dashboard", "valorant_ingame"))
 
-            if frame_counter % 6 == 0 and "valorant_dashboard" in connected_pages.values():
+            if frame_counter % 6 == 0 and dashboard_connected():
                 for key, (crop, raw_value) in score_crops.items():
                     data_url = crop_to_data_url(crop)
                     if data_url:
@@ -1474,7 +1490,7 @@ async def ocr_loop():
                     texts = await asyncio.gather(*[
                         loop.run_in_executor(ocr_executor, ocr_number, c) for c in crops
                     ])
-                    send_previews = "valorant_dashboard" in connected_pages.values()
+                    send_previews = dashboard_connected()
                     for (team, row, field, key), text, crop in zip(cell_keys, texts, crops):
                         raw_value = parse_int(text)
                         confirmed = confirm_value(key, raw_value)
@@ -1599,7 +1615,7 @@ async def ocr_loop():
             # internet on any relay connection) for no reason. Also dropped
             # to every 6th frame (was every 2nd) -- calibration preview
             # doesn't need to be smoother than that.
-            if frame_counter % 6 == 0 and "valorant_dashboard" in connected_pages.values():
+            if frame_counter % 6 == 0 and dashboard_connected():
                 if announcement_crop is not None:
                     data_url = crop_to_data_url(announcement_crop)
                     if data_url:
