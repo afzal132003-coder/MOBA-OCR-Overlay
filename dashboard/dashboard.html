@@ -5215,6 +5215,7 @@ function valBuildMapVetoRows(){
     const col = document.createElement("div");
     col.className = "team-form";
     const mapOptions = `<option value="">(not set)</option>` +
+      `<option value="-">-</option>` +
       VAL_MAP_LIST.map(name => `<option value="${name}">${name}</option>`).join("");
     col.innerHTML = `
       <label>${slot[0].toUpperCase()}${slot.slice(1)} Map</label>
