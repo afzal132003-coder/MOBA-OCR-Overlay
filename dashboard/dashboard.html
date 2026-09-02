@@ -5135,6 +5135,20 @@ const VAL_OCR_SCORE_FIELDS = [
   { key: "t1", team: "team1", label: "Team 1 OCR Round Score", cropKey: "valorant_ocr_team1_score" },
   { key: "t2", team: "team2", label: "Team 2 OCR Round Score", cropKey: "valorant_ocr_team2_score" },
 ];
+// Copies just the recalibration command for ONE specific region/cell key
+// to the clipboard -- no visible link/text shown anywhere, the button is
+// the whole UI. Paste straight into a terminal already `cd`'d into
+// ocr/valorant (the `cd` prefix is included too in case it isn't).
+function valCopyCalibCommand(key, btn){
+  const cmd = `cd ocr/valorant && python calibrate_valorant.py ${key}`;
+  navigator.clipboard.writeText(cmd).then(() => {
+    if(!btn) return;
+    const old = btn.textContent;
+    btn.textContent = "Copied!";
+    setTimeout(() => { btn.textContent = old; }, 1200);
+  });
+}
+
 function valBuildOcrScoreGrid(){
   const grid = document.getElementById("val_ocrScoreGrid");
   grid.innerHTML = "";
@@ -5156,9 +5170,13 @@ function valBuildOcrScoreGrid(){
       <div class="stat-crop">
         <img id="crop-${f.cropKey}">
         <div class="crop-caption">live OCR</div>
+        <button type="button" class="secondary val-copy-calib" data-key="${f.cropKey}" title="Copy the recalibration command for just this cell" style="font-size:9px;padding:2px 5px;margin-top:4px;">Copy Calib Cmd</button>
       </div>
     `;
     grid.appendChild(card);
+  });
+  grid.querySelectorAll(".val-copy-calib").forEach(btn => {
+    btn.addEventListener("click", () => valCopyCalibCommand(btn.dataset.key, btn));
   });
   grid.querySelectorAll(".val-ocr-apply-btn").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -5306,6 +5324,7 @@ function valBuildLiveStatsGrid(team){
             <input type="checkbox" id="val-ls-lock-${key}" title="Override" style="width:12px;height:12px;margin:0;">
             <input type="number" id="val-ls-input-${key}" disabled style="width:44px;font-size:11px;padding:2px;">
           </div>
+          <button type="button" class="secondary val-copy-calib" data-key="${key}" title="Copy the recalibration command for just this cell" style="font-size:9px;padding:2px 4px;margin-top:3px;">Copy Calib Cmd</button>
         </td>
       `;
     });
@@ -5315,6 +5334,9 @@ function valBuildLiveStatsGrid(team){
   table.innerHTML = thead + tbody;
   container.innerHTML = "";
   container.appendChild(table);
+  container.querySelectorAll(".val-copy-calib").forEach(btn => {
+    btn.addEventListener("click", () => valCopyCalibCommand(btn.dataset.key, btn));
+  });
 
   VAL_LIVESTATS_FIELDS.forEach(f => {
     for(let row = 0; row < 5; row++){
