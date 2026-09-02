@@ -586,6 +586,12 @@ _value_last_confirmed = {}
 #    DROP when a player buys, so only the absolute range check above
 #    applies there.
 COINS_MAX_CREDITS = 9000
+# Confirmed directly by the operator watching a live match: Coins is
+# always a multiple of 50 (Valorant's own credit granularity), never an
+# arbitrary number. Every reading gets rounded to the nearest multiple
+# before entering the debounce window -- see the rounding site in
+# ocr_loop() below.
+COINS_ROUND_TO = 50
 MONOTONIC_LIVESTATS_FIELDS = ("kills", "deaths", "assists")
 MONOTONIC_MAX_JUMP = 8
 
@@ -1751,11 +1757,25 @@ async def ocr_loop():
                     send_previews = dashboard_connected()
                     for (team, row, field, key), text, crop in zip(cell_keys, texts, crops):
                         raw_value = parse_int(text)
-                        if field == "coins" and raw_value is not None and not (0 <= raw_value <= COINS_MAX_CREDITS):
-                            # Categorically impossible -- discard before it
-                            # can dilute the debounce vote at all, same as
-                            # an unreadable frame. See COINS_MAX_CREDITS.
-                            raw_value = None
+                        if field == "coins" and raw_value is not None:
+                            if not (0 <= raw_value <= COINS_MAX_CREDITS):
+                                # Categorically impossible -- discard before
+                                # it can dilute the debounce vote at all,
+                                # same as an unreadable frame. See
+                                # COINS_MAX_CREDITS.
+                                raw_value = None
+                            else:
+                                # Coins only ever comes in multiples of
+                                # COINS_ROUND_TO -- confirmed directly by the
+                                # operator watching the live match. Rounding
+                                # every reading to the nearest one corrects
+                                # exactly the residual noise the mask rework
+                                # still leaves (a last-digit miss like
+                                # reading 1458 for a true 1450), same
+                                # principle as the range clamp above but
+                                # fixing near-misses instead of only
+                                # discarding impossible ones.
+                                raw_value = round(raw_value / COINS_ROUND_TO) * COINS_ROUND_TO
                         confirmed = confirm_value(key, raw_value)
                         lock_key = f"liveStats.{team}.{row}.{field}"
                         if confirmed is not None and lock_key not in locked_fields:
