@@ -187,17 +187,18 @@ ocr_executor = ThreadPoolExecutor(max_workers=8)
 LIVESTATS_TEAMS = ("team1", "team2")
 LIVESTATS_ROWS = 5
 LIVESTATS_FIELDS = ("kills", "deaths", "assists", "coins")
-# How often (in ocr_loop iterations) the 40-cell livestats batch runs --
-# NOT every frame like the round timer/spike checks. Lowered from 10 to 4
-# after an explicit "refresh rate feels slow" report -- at the default
-# poll_interval_seconds (0.15s) this is now roughly a 0.6s cadence (was
-# ~1.5s). Still comfortably affordable: the 40-cell batch itself runs in
-# well under 0.6s wall time with ocr_executor's 8 workers, so this doesn't
-# risk the loop falling behind. Also directly helps VALUE_CONFIRM_WINDOW's
-# own convergence speed below, since a smaller real-world time-per-window
-# means a genuine stat change (a kill, a death) reaches its confirmed
-# majority sooner.
-LIVESTATS_POLL_EVERY_N_FRAMES = 4
+# How often (in ocr_loop iterations) the livestats batch (40 K/D/A/Coins
+# cells + 10 gun icons) runs -- NOT every frame like the round timer/spike
+# checks. Lowered from 10 to 4, then to 2, both times after an explicit
+# "feels slow"/"smoother" request -- at the default poll_interval_seconds
+# (0.15s) this is now roughly a 0.3s cadence (was ~0.6s, originally
+# ~1.5s). Still comfortably affordable: even the older 40-cell-only batch
+# ran in well under 0.6s wall time with ocr_executor's 8 workers, and the
+# 10 gun crops added since are cheap (a crop + PNG encode each, no OCR).
+# Also directly helps VALUE_CONFIRM_WINDOW's own convergence speed below,
+# since a smaller real-world time-per-window means a genuine stat change
+# (a kill, a death) reaches its confirmed majority sooner.
+LIVESTATS_POLL_EVERY_N_FRAMES = 2
 
 
 def default_player_stat_row():
@@ -1220,12 +1221,21 @@ def crop_to_bgr(sct, region):
     return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
 
-def crop_to_data_url(img_bgr, scale=3):
+def crop_to_data_url(img_bgr, scale=3, upscale_interpolation=cv2.INTER_NEAREST):
+    """upscale_interpolation defaults to NEAREST (the original behavior --
+    crisp, blocky pixels, exactly what's wanted for a calibration/debug
+    preview where seeing the real captured pixel boundaries matters more
+    than smoothness). The gun icon call in ocr_loop() overrides this to
+    LANCZOS4 -- unlike every other crop_to_data_url call, that image is
+    shown directly on the live broadcast overlay itself, not just a
+    dashboard debug thumbnail, and a small icon blown up with NEAREST
+    reads as blocky/low-quality there in a way debug crispness doesn't
+    excuse."""
     h, w = img_bgr.shape[:2]
     longest = max(h, w)
     effective_scale = min(scale, CROP_PREVIEW_MAX_DIMENSION / longest)
     big = cv2.resize(img_bgr, None, fx=effective_scale, fy=effective_scale,
-                      interpolation=cv2.INTER_AREA if effective_scale < 1 else cv2.INTER_NEAREST)
+                      interpolation=cv2.INTER_AREA if effective_scale < 1 else upscale_interpolation)
     ok, buf = cv2.imencode(".png", big)
     if not ok:
         return None
@@ -1885,7 +1895,7 @@ async def ocr_loop():
                         if not gun_region or gun_region.get("w", 0) <= 0 or gun_region.get("h", 0) <= 0:
                             continue
                         gun_crop = crop_to_bgr(sct, gun_region)
-                        gun_data_url = crop_to_data_url(gun_crop)
+                        gun_data_url = crop_to_data_url(gun_crop, scale=4, upscale_interpolation=cv2.INTER_LANCZOS4)
                         if not gun_data_url:
                             continue
                         gun_message = {"type": "crop_preview", "region": gun_key, "image": gun_data_url, "text": ""}
