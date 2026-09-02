@@ -30,6 +30,7 @@ import base64
 import json
 import re
 import time
+from collections import Counter, deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
@@ -517,28 +518,47 @@ def confirm_trigger(name, condition):
     return streak >= TRIGGER_CONFIRM_FRAMES
 
 
-# Debounce for ocrRoundScore (see OCR_SCORE_TEAM1_KEY/OCR_SCORE_TEAM2_KEY
-# above) -- same "don't trust a single frame" idea as confirm_trigger, but
-# for a numeric reading rather than a yes/no condition: the SAME digit
-# value has to be read on VALUE_CONFIRM_FRAMES consecutive polls before
-# it's accepted, so one misread frame (OCR briefly reading "8" as "3", say)
-# can't flicker the displayed score.
-_value_streaks = {}
-VALUE_CONFIRM_FRAMES = 3
+# Debounce for ocrRoundScore/liveStats -- a ROLLING WINDOW majority vote,
+# ported directly from ocr_engine.py's confirm_reading() (see that file's
+# own comment) after the SAME symptom showed up here: Kills/Deaths/
+# Assists/Coins were staying stuck at 0 (or visibly wrong) even on cells
+# whose crop preview looked perfectly legible. The original version here
+# required the SAME value on VALUE_CONFIRM_FRAMES consecutive polls,
+# resetting to zero on ANY single differing read -- exactly the failure
+# mode ocr_engine.py already hit and fixed for its own gold/kills HUD: a
+# live, compressed video feed misreads an occasional frame even when the
+# text is genuinely legible (compression speckle, a glow/shimmer text
+# style, a momentary encode artifact), and a strict back-to-back streak
+# can end up NEVER reconfirming even though most individual frames read
+# correctly, because one bad frame among many good ones keeps resetting
+# the count to zero. A window tolerates that -- only a genuine MAJORITY
+# of the last VALUE_CONFIRM_WINDOW readings needs to agree, not an
+# unbroken run.
+VALUE_CONFIRM_WINDOW = 5
+_value_windows = {}
+_value_last_confirmed = {}
 
 
 def confirm_value(name, value):
     """value is this frame's raw (unconfirmed) reading for `name`, or None
-    if unreadable this frame. Returns the confirmed value once the same
-    reading has been seen VALUE_CONFIRM_FRAMES times in a row, else None
-    (nothing to act on yet this frame)."""
-    prev_value, streak = _value_streaks.get(name, (None, 0))
+    if unreadable this frame (a miss -- doesn't enter the window at all,
+    so it can't dilute the vote). Returns the confirmed value once the
+    window is full AND a value holds a genuine majority (more than half),
+    and only once per change (returns None again on subsequent polls that
+    keep agreeing with what's already confirmed) -- otherwise None."""
     if value is None:
-        _value_streaks[name] = (None, 0)
         return None
-    streak = streak + 1 if value == prev_value else 1
-    _value_streaks[name] = (value, streak)
-    return value if streak >= VALUE_CONFIRM_FRAMES else None
+    window = _value_windows.setdefault(name, deque(maxlen=VALUE_CONFIRM_WINDOW))
+    window.append(value)
+    if len(window) < window.maxlen:
+        return None
+    winner, count = Counter(window).most_common(1)[0]
+    if count * 2 <= len(window):
+        return None
+    if _value_last_confirmed.get(name) == winner:
+        return None
+    _value_last_confirmed[name] = winner
+    return winner
 
 
 def preprocess(img_bgr, upscale=4):
