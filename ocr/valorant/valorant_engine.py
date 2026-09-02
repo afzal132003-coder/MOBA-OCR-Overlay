@@ -1589,7 +1589,25 @@ async def ocr_loop():
                                 server_state["liveStats"][team][row][field] = confirmed
                                 changed_pages.update(("valorant_dashboard", "valorant_playerstats"))
                         if send_previews:
-                            data_url = crop_to_data_url(crop)
+                            # For Coins, preview the FINAL black/white
+                            # image Tesseract actually reads (icon
+                            # stripped, contrast-enhanced, thresholded --
+                            # the exact same preprocess() pipeline
+                            # ocr_number() itself runs), not the raw
+                            # calibrated box -- an explicit debugging aid
+                            # so a bad reading's real cause (icon not
+                            # fully removed, digits clipped, contrast too
+                            # low even after CLAHE) is visible directly
+                            # instead of guessed at from the text output
+                            # alone.
+                            if field == "coins":
+                                # preprocess() already upscales 4x, don't
+                                # also apply crop_to_data_url's own default
+                                # 3x on top of that.
+                                preview_source = cv2.cvtColor(preprocess(strip_leading_icon(crop)), cv2.COLOR_GRAY2BGR)
+                                data_url = crop_to_data_url(preview_source, scale=1)
+                            else:
+                                data_url = crop_to_data_url(crop)
                             if data_url:
                                 await broadcast_to_page("valorant_dashboard", {
                                     "type": "crop_preview", "region": key,
