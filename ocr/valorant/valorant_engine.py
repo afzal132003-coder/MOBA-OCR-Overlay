@@ -544,8 +544,21 @@ def confirm_value(name, value):
 def preprocess(img_bgr, upscale=4):
     """Same digit-tuned pipeline as ocr_engine.py's preprocess() -- see
     that file for the reasoning behind each step (border padding, upscale,
-    median blur, OTSU threshold, auto-invert)."""
+    median blur, OTSU threshold, auto-invert). CLAHE (adaptive local
+    contrast) runs before the blur/threshold -- an explicit fix for
+    text-on-semi-transparent-background cells (e.g. the Player Stats
+    Coins column, white text over a translucent panel with live gameplay
+    showing through it) where the actual contrast between text and
+    background varies frame to frame and can be quite low, which a
+    single global OTSU threshold handles poorly. CLAHE is local/adaptive
+    rather than a single global adjustment, so it pulls faint text out
+    more reliably without needing to know the real contrast level ahead
+    of time, and is a no-op in practice on crops that already have good
+    contrast (nothing here to enhance), so applying it to every digit
+    crop uniformly is safe rather than needing a per-field opt-in."""
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    gray = clahe.apply(gray)
     gray = cv2.copyMakeBorder(gray, 10, 10, 10, 10, cv2.BORDER_REPLICATE)
     gray = cv2.resize(gray, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
     gray = cv2.medianBlur(gray, 3)
@@ -567,6 +580,71 @@ def ocr_number(img_bgr):
     processed = preprocess(img_bgr)
     text = pytesseract.image_to_string(processed, config=TESS_CONFIG)
     return text.strip()
+
+
+# Coins (Player Stats) and Econ (post-match grid) both show a currency
+# icon (¤) immediately butted up against the real digits, e.g. "¤4,350" --
+# confirmed against a real capture: with TESS_CONFIG's digit-only
+# whitelist, Tesseract can't decline to recognize the icon as "not a
+# digit" and reliably misreads it as a spurious leading digit (real
+# "4,350" -> raw "14350"). Tesseract DOES still segment the icon as its
+# own character rather than fusing it into the first real digit (confirmed
+# by the same capture: the misread output has one extra leading digit, not
+# a garbled first digit), which means there's a genuine pixel-level gap
+# between them to find and crop out -- more reliable than trying to guess
+# which digit(s) in the OUTPUT TEXT are the icon after the fact, since the
+# icon doesn't necessarily misread as the same digit every time.
+CURRENCY_ICON_MAX_WIDTH_FRAC = 0.30
+
+
+def strip_leading_icon(img_bgr, gap_px=1):
+    """Returns img_bgr with a leading icon-shaped blob cropped off, if one
+    is found; otherwise returns img_bgr unchanged (safe to call on a cell
+    that's already just digits -- e.g. box was calibrated tight enough, or
+    there's no icon in this field at all).
+
+    Width alone can't truly tell a narrow icon apart from a narrow real
+    leading digit (a genuine "16" would look the same shape-wise as
+    "icon+6") -- this is only safe to use on fields where the icon is
+    KNOWN to always be present in the crop (Coins/Econ, where the operator
+    has confirmed there's no way to calibrate it out -- see
+    ocr_currency_number's own callers). Requiring at least 3 blobs total
+    (icon + 2+ real digits) before stripping anything is a cheap extra
+    guard against the narrowest realistic failure mode -- a coins/econ
+    value that's genuinely just a single or double digit number with an
+    icon that happens to not segment as its own blob this frame -- without
+    needing to tell icon and digit shapes apart, which isn't reliable from
+    width alone."""
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    if thresh.mean() > 127:
+        thresh = cv2.bitwise_not(thresh)  # ink should be the minority -- normalize to ink=255
+    col_has_ink = (thresh > 0).any(axis=0)
+    xs = np.where(col_has_ink)[0]
+    if len(xs) == 0:
+        return img_bgr
+    blobs = []
+    start = xs[0]
+    prev = xs[0]
+    for x in xs[1:]:
+        if x - prev > gap_px:
+            blobs.append((start, prev))
+            start = x
+        prev = x
+    blobs.append((start, prev))
+    if len(blobs) < 3:
+        return img_bgr  # not enough blobs to confidently call this icon+digits
+    first_w = blobs[0][1] - blobs[0][0] + 1
+    if first_w > img_bgr.shape[1] * CURRENCY_ICON_MAX_WIDTH_FRAC:
+        return img_bgr  # first blob too wide to be just the icon -- leave alone
+    crop_start = max(0, blobs[1][0] - gap_px)
+    return img_bgr[:, crop_start:]
+
+
+def ocr_currency_number(img_bgr):
+    """Same as ocr_number(), but for currency cells (Coins/Econ) that have
+    a leading ¤ icon touching the digits -- see strip_leading_icon()."""
+    return ocr_number(strip_leading_icon(img_bgr))
 
 
 def parse_int(text):
@@ -792,7 +870,9 @@ def extract_postmatch_grid(regions_cfg, img_bgr=None):
                 crop_previews["acs"] = crop_to_data_url(acs_crop)
 
             econ_crop = read_cell(keys["econ"], sct)
-            econ = parse_int(ocr_number(econ_crop)) if econ_crop is not None else None
+            # Currency-aware path -- Econ has the same leading ¤ icon
+            # touching its digits as Coins does, see ocr_currency_number.
+            econ = parse_int(ocr_currency_number(econ_crop)) if econ_crop is not None else None
             if econ_crop is not None:
                 crop_previews["econ"] = crop_to_data_url(econ_crop)
 
@@ -1487,8 +1567,17 @@ async def ocr_loop():
                             cell_keys.append((team, row, field, key))
                             crops.append(crop_to_bgr(sct, region))
                 if cell_keys:
+                    # Coins gets the currency-aware OCR path (strips a
+                    # leading ¤ icon before reading digits, see
+                    # ocr_currency_number) -- Kills/Deaths/Assists have no
+                    # icon and use the plain digit path unchanged.
                     texts = await asyncio.gather(*[
-                        loop.run_in_executor(ocr_executor, ocr_number, c) for c in crops
+                        loop.run_in_executor(
+                            ocr_executor,
+                            ocr_currency_number if field == "coins" else ocr_number,
+                            crop,
+                        )
+                        for (_, _, field, _), crop in zip(cell_keys, crops)
                     ])
                     send_previews = dashboard_connected()
                     for (team, row, field, key), text, crop in zip(cell_keys, texts, crops):
