@@ -164,6 +164,10 @@ PLANT_DEFUSE_AUTO_DETECT = False
 
 connected_clients = set()
 connected_pages = {}
+# Set only while relay_client_loop() below has an active connection to a
+# cloud relay -- see broadcast_to_page()'s own comment for why this needs
+# special handling separate from connected_pages.
+relay_websocket = None
 # Raised from 4 -- the Live Player Stats panel (LIVESTATS_* below) reads
 # 40 individual cells (2 teams x 5 rows x 4 fields), well beyond what 4
 # workers can keep up with on the fast main-loop cadence the rest of this
@@ -967,14 +971,27 @@ async def broadcast_to_page(page, message):
     connected_pages, populated from the ?page= query param each client
     connects with). Crop previews (base64 PNG images, several per OCR poll)
     are only ever read by dashboard.html's own crop_preview handler -- no
-    OBS overlay HUD page, and no cloud relay hop, has any use for them, so
-    sending them to every connected_clients socket (broadcast()'s default)
-    was pure wasted bandwidth on every one of those. This is an explicit
-    fix for that -- an operator reported high data usage."""
+    OBS overlay HUD page has any use for them, so sending them to every
+    connected_clients socket (broadcast()'s default) was pure wasted
+    bandwidth on every one of those. This is an explicit fix for that --
+    an operator reported high data usage.
+
+    The relay socket (if connected) is ALWAYS included, regardless of
+    `page` -- from this engine's own point of view that one connection
+    represents however many real dashboard/overlay tabs are actually on
+    the other end of it (it never gets its own accurate page= identity),
+    so this engine has no way to know locally whether skipping it would
+    wrongly deprive a legitimate relay-connected recipient. Instead the
+    message carries "_target_pages" so the RELAY server itself (see
+    ocr/relay/server.py) can narrow its own fan-out down to just the
+    matching page(s) on its end, where the real per-client page identity
+    actually is known."""
     targets = [c for c, p in connected_pages.items() if p == page]
+    if relay_websocket is not None and relay_websocket not in targets:
+        targets.append(relay_websocket)
     if not targets:
         return
-    data = json.dumps(message)
+    data = json.dumps({**message, "_target_pages": [page]})
     await asyncio.gather(*[c.send(data) for c in targets], return_exceptions=True)
 
 
@@ -1625,6 +1642,7 @@ async def ocr_loop():
 async def relay_client_loop():
     """Same optional cloud-relay pattern as ocr_engine.py/freefire_engine.py
     -- no-op if relay isn't configured in valorant_config.json."""
+    global relay_websocket
     relay_cfg = config.get("relay", {})
     if not relay_cfg.get("enabled"):
         return
@@ -1639,9 +1657,12 @@ async def relay_client_loop():
         try:
             async with websockets.connect(connect_url, max_size=16 * 1024 * 1024) as relay_ws:
                 print(f"Connected to cloud relay at {url}")
+                relay_websocket = relay_ws
                 await handle_client(relay_ws)
         except Exception as e:
             print(f"Relay connection lost/failed ({e}); retrying in 3s...")
+        finally:
+            relay_websocket = None
         await asyncio.sleep(3)
 
 

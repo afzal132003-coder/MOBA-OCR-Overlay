@@ -27,6 +27,18 @@ authenticates the connection, caches the most recent "state_sync" message
 fans every other message out to all other connected clients. All the real
 logic (OCR reading, state merging, calibration, extraction, turtle timing)
 stays exactly where it already was, in ocr_engine.py.
+
+One exception, added for valorant_engine.py's page-targeted broadcasts
+(see broadcast_to_page() there): an engine only ever holds ONE connection
+to this relay, representing however many real dashboard/overlay browser
+tabs are actually on the other end of it -- it has no way to address just
+one of them directly the way it can for its own local (non-relay)
+clients. A message may carry an optional "_target_pages" list (page names,
+matching the same ?page= each client connects with); if present, this
+relay narrows its own fan-out to just the peers whose page is in that
+list, instead of sending to everyone. Messages without that field (the
+MOBA/Free Fire engines never send it) are unaffected -- fanned out to all
+peers exactly as before.
 """
 
 import asyncio
@@ -113,9 +125,19 @@ async def handler(websocket):
             if msg.get("type") == "state_sync":
                 last_state_sync = raw
 
+            # See the file-level comment above -- an engine can't address
+            # just one of its own relay-connected pages directly, since it
+            # only ever holds this one connection representing all of
+            # them. target_pages is None (fan out to everyone, the
+            # original/default behavior) unless the sender explicitly
+            # narrowed it.
+            target_pages = msg.get("_target_pages")
+
             stale = []
             for peer in connected:
                 if peer is websocket:
+                    continue
+                if target_pages is not None and connected_pages.get(peer) not in target_pages:
                     continue
                 try:
                     await peer.send(raw)
