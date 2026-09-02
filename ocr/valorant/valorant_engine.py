@@ -597,6 +597,27 @@ def ocr_number(img_bgr):
 CURRENCY_ICON_MAX_WIDTH_FRAC = 0.30
 
 
+def _bright_text_mask(gray, percentile=85):
+    """Binary ink=255 mask isolating roughly the brightest (100-percentile)%
+    of pixels in `gray`, instead of OTSU's automatic bimodal split.
+
+    Confirmed via a real debug capture: OTSU (even after CLAHE contrast
+    boost) produced pure SPECKLE NOISE, not clean digit shapes, on Coins
+    cells with a highly textured background (live gameplay visible
+    through a semi-transparent HUD panel) -- OTSU tries to split the
+    WHOLE crop's brightness distribution into two balanced halves, which
+    falls apart when the "background" half is itself high-variance rather
+    than a flat color, instead of a clean single cutoff. Percentile
+    thresholding sidesteps that entirely: since the text is white and
+    known to occupy a small minority of the crop, isolating "the
+    brightest ~15% of pixels" directly stays robust regardless of how
+    noisy or varied everything else in the crop is -- it never tries to
+    make sense of the noisy majority at all."""
+    cutoff = np.percentile(gray, percentile)
+    mask = np.where(gray >= cutoff, 255, 0).astype(np.uint8)
+    return mask
+
+
 def strip_leading_icon(img_bgr, gap_px=1):
     """Returns img_bgr with a leading icon-shaped blob cropped off, if one
     is found; otherwise returns img_bgr unchanged (safe to call on a cell
@@ -614,11 +635,11 @@ def strip_leading_icon(img_bgr, gap_px=1):
     value that's genuinely just a single or double digit number with an
     icon that happens to not segment as its own blob this frame -- without
     needing to tell icon and digit shapes apart, which isn't reliable from
-    width alone."""
+    width alone. Uses _bright_text_mask(), not OTSU, for the same noisy-
+    background reason as preprocess_currency() below -- OTSU's own blob
+    boundaries were unreliable on the same cells that needed this most."""
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    if thresh.mean() > 127:
-        thresh = cv2.bitwise_not(thresh)  # ink should be the minority -- normalize to ink=255
+    thresh = _bright_text_mask(gray)
     col_has_ink = (thresh > 0).any(axis=0)
     xs = np.where(col_has_ink)[0]
     if len(xs) == 0:
@@ -641,10 +662,32 @@ def strip_leading_icon(img_bgr, gap_px=1):
     return img_bgr[:, crop_start:]
 
 
+def preprocess_currency(img_bgr, upscale=4):
+    """Coins/Econ-specific variant of preprocess() -- see
+    _bright_text_mask()'s own comment for why percentile thresholding
+    replaces OTSU here specifically. Everything else (CLAHE, upscale,
+    border, blur) matches preprocess() exactly; only the final threshold
+    step differs, and only for these two fields -- every other digit
+    field keeps using the original OTSU-based preprocess() unchanged, so
+    this doesn't risk regressing anything that already reads fine."""
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    gray = clahe.apply(gray)
+    gray = cv2.copyMakeBorder(gray, 10, 10, 10, 10, cv2.BORDER_REPLICATE)
+    gray = cv2.resize(gray, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
+    gray = cv2.medianBlur(gray, 3)
+    return _bright_text_mask(gray)
+
+
 def ocr_currency_number(img_bgr):
     """Same as ocr_number(), but for currency cells (Coins/Econ) that have
-    a leading ¤ icon touching the digits -- see strip_leading_icon()."""
-    return ocr_number(strip_leading_icon(img_bgr))
+    a leading ¤ icon touching the digits (strip_leading_icon()) AND can
+    have a noisy/textured background OTSU handles badly
+    (preprocess_currency(), not the shared preprocess())."""
+    stripped = strip_leading_icon(img_bgr)
+    processed = preprocess_currency(stripped)
+    text = pytesseract.image_to_string(processed, config=TESS_CONFIG)
+    return text.strip()
 
 
 def parse_int(text):
@@ -1604,7 +1647,7 @@ async def ocr_loop():
                                 # preprocess() already upscales 4x, don't
                                 # also apply crop_to_data_url's own default
                                 # 3x on top of that.
-                                preview_source = cv2.cvtColor(preprocess(strip_leading_icon(crop)), cv2.COLOR_GRAY2BGR)
+                                preview_source = cv2.cvtColor(preprocess_currency(strip_leading_icon(crop)), cv2.COLOR_GRAY2BGR)
                                 data_url = crop_to_data_url(preview_source, scale=1)
                             else:
                                 data_url = crop_to_data_url(crop)
