@@ -1349,7 +1349,28 @@ async def ocr_loop():
         frame_counter = 0
         while True:
             regions = config.get("regions", {})
-            changed = False
+            # WHICH pages need a fresh state_sync this cycle, not just
+            # whether anything changed -- an explicit fix for high data
+            # usage over the cloud relay. state_sync always carries the
+            # FULL server_state (team logos and any other uploaded images
+            # included, each easily hundreds of KB as base64), and this
+            # loop can now update multiple times a second (liveStats/
+            # ocrRoundScore); broadcasting that to every connected page
+            # regardless of relevance meant pages like valorant_mvp.html --
+            # which reads none of the OCR-driven fields below -- were
+            # getting the full payload resent every cycle for no reason,
+            # over a real internet relay connection. ocrRoundScore only
+            # feeds the Hoax section of valorant_ingame.html; liveStats
+            # only feeds valorant_playerstats.html; spikeBadge/bugBanner/
+            # plantDefuse/mapVeto (below, only when PLANT_DEFUSE_AUTO_
+            # DETECT is on) only render on valorant_ingame.html too --
+            # none of these ever need to reach valorant_mvp/
+            # valorant_teamchemistry/valorant_characterpick, so those
+            # pages now only get updated via explicit manual_update
+            # actions (still a plain broadcast() -- those are infrequent
+            # operator clicks, not a continuous drain). The dashboard
+            # always needs everything, so it's in every set below.
+            changed_pages = set()
 
             # ocrRoundScore -- see OCR_SCORE_TEAM1_KEY/OCR_SCORE_TEAM2_KEY
             # and confirm_value() above. Runs unconditionally (NOT gated
@@ -1372,7 +1393,7 @@ async def ocr_loop():
                     continue
                 if server_state["ocrRoundScore"][team] != confirmed:
                     server_state["ocrRoundScore"][team] = confirmed
-                    changed = True
+                    changed_pages.update(("valorant_dashboard", "valorant_ingame"))
 
             if frame_counter % 6 == 0 and "valorant_dashboard" in connected_pages.values():
                 for key, (crop, raw_value) in score_crops.items():
@@ -1424,7 +1445,7 @@ async def ocr_loop():
                         if confirmed is not None and lock_key not in locked_fields:
                             if server_state["liveStats"][team][row][field] != confirmed:
                                 server_state["liveStats"][team][row][field] = confirmed
-                                changed = True
+                                changed_pages.update(("valorant_dashboard", "valorant_playerstats"))
                         if send_previews:
                             data_url = crop_to_data_url(crop)
                             if data_url:
@@ -1442,9 +1463,10 @@ async def ocr_loop():
                 # buttons); this just stops OCR from reading/deciding
                 # anything for them. Flip PLANT_DEFUSE_AUTO_DETECT back to
                 # True above once the detection logic gets revisited.
-                if changed:
+                if changed_pages:
                     save_state()
-                    await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+                    for page in changed_pages:
+                        await broadcast_to_page(page, {"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
                 frame_counter += 1
                 await asyncio.sleep(interval)
                 continue
@@ -1493,7 +1515,7 @@ async def ocr_loop():
             )
 
             if process_plant_defuse_reading(combined_announcement_text, int(time.time() * 1000)):
-                changed = True
+                changed_pages.update(("valorant_dashboard", "valorant_ingame"))
 
             # Spike icon in the round-timer box -- see detect_spike_icon
             # above. Normally requires BOTH some red color present AND no
@@ -1518,7 +1540,7 @@ async def ocr_loop():
             if icon_confirmed and server_state["spikeBadge"]["mode"] != "planted":
                 server_state["spikeBadge"]["mode"] = "planted"
                 server_state["bugBanner"]["mode"] = "planted"
-                changed = True
+                changed_pages.update(("valorant_dashboard", "valorant_ingame"))
 
             # Spike badge safety net -- see ROUND_TIMER_KEY/track_round_timer
             # above. Only acts while the badge is actually showing planted;
@@ -1527,7 +1549,7 @@ async def ocr_loop():
             if track_round_timer(timer_seconds) and server_state["spikeBadge"]["mode"] == "planted":
                 server_state["spikeBadge"]["mode"] = "idle"
                 server_state["bugBanner"]["mode"] = "hidden"
-                changed = True
+                changed_pages.update(("valorant_dashboard", "valorant_ingame"))
 
             # Crop previews (base64 PNG images) are ONLY read by the
             # dashboard's own calibration UI -- no OBS overlay page, and no
@@ -1571,9 +1593,10 @@ async def ocr_loop():
                             "image": data_url, "text": timer_debug_text,
                         })
 
-            if changed:
+            if changed_pages:
                 save_state()
-                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+                for page in changed_pages:
+                    await broadcast_to_page(page, {"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
 
             frame_counter += 1
             await asyncio.sleep(interval)
