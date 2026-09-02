@@ -769,26 +769,44 @@ def extract_postmatch_grid(regions_cfg, img_bgr=None):
             if not any(regions_cfg.get(k) for k in keys.values()):
                 continue
 
+            # crops kept per column so a preview image can be sent back
+            # alongside the extracted numbers -- an explicit request, so
+            # the operator can actually SEE what each cell captured (e.g.
+            # whether Econ's crop caught real digits or just an icon)
+            # instead of only ever seeing the resulting 0.
+            crop_previews = {}
+
             kda_crop = read_cell(keys["kda"], sct)
             kda = ocr_kda_triple(kda_crop) if kda_crop is not None else None
             kills, deaths, assists = kda if kda else (0, 0, 0)
+            if kda_crop is not None:
+                crop_previews["kda"] = crop_to_data_url(kda_crop)
 
             acs_crop = read_cell(keys["acs"], sct)
             acs = parse_int(ocr_number(acs_crop)) if acs_crop is not None else None
+            if acs_crop is not None:
+                crop_previews["acs"] = crop_to_data_url(acs_crop)
 
             econ_crop = read_cell(keys["econ"], sct)
             econ = parse_int(ocr_number(econ_crop)) if econ_crop is not None else None
+            if econ_crop is not None:
+                crop_previews["econ"] = crop_to_data_url(econ_crop)
 
             fb_crop = read_cell(keys["fb"], sct)
             first_bloods = parse_int(ocr_number(fb_crop)) if fb_crop is not None else None
+            if fb_crop is not None:
+                crop_previews["fb"] = crop_to_data_url(fb_crop)
 
             plants_crop = read_cell(keys["plants"], sct)
             plants = parse_int(ocr_number(plants_crop)) if plants_crop is not None else None
+            if plants_crop is not None:
+                crop_previews["plants"] = crop_to_data_url(plants_crop)
 
             rows.append({
                 "rowIndex": row,
                 "acs": acs or 0, "kills": kills, "deaths": deaths, "assists": assists,
                 "econ": econ or 0, "firstBloods": first_bloods or 0, "plants": plants or 0,
+                "crops": crop_previews,
             })
         return rows
 
@@ -1146,6 +1164,13 @@ async def handle_client(websocket, path=None):
                     server_state["headToHead"] = data["headToHead"]
                 if "mapVeto" in data:
                     server_state["mapVeto"] = data["mapVeto"]
+                if "liveStats" in data:
+                    # Manual per-cell override for the Player Stats OCR --
+                    # sent as a full replace (same pattern as mapVeto/
+                    # postMatch above), paired with a lock/unlock entry
+                    # like "liveStats.team1.2.kills" so the OCR loop knows
+                    # to leave that one cell alone afterward.
+                    server_state["liveStats"] = data["liveStats"]
                 if "graphicOverrides" in data:
                     server_state["graphicOverrides"] = data["graphicOverrides"]
                 if "characterFraming" in data:
@@ -1366,7 +1391,15 @@ async def ocr_loop():
             # at this cell count would be far too slow to be worth running
             # at all. confirm_value() debounces each cell same as
             # ocrRoundScore above, so one misread frame can't flicker a
-            # displayed stat.
+            # displayed stat. Respects a per-cell operator lock
+            # (liveStats.{team}.{row}.{field} in locked_fields), same
+            # override pattern as ocrRoundScore -- an explicit request,
+            # since OCR misreads on this many cells are inevitable
+            # sometimes. Crop previews go out on this same cadence, to the
+            # dashboard only (see broadcast_to_page's own reasoning) -- an
+            # explicit request for visibility into what each cell is
+            # actually reading (e.g. whether "Coins" is picking up the
+            # currency icon instead of/along with the digits).
             if frame_counter % LIVESTATS_POLL_EVERY_N_FRAMES == 0:
                 cell_keys = []
                 crops = []
@@ -1383,13 +1416,22 @@ async def ocr_loop():
                     texts = await asyncio.gather(*[
                         loop.run_in_executor(ocr_executor, ocr_number, c) for c in crops
                     ])
-                    for (team, row, field, key), text in zip(cell_keys, texts):
-                        confirmed = confirm_value(key, parse_int(text))
-                        if confirmed is None:
-                            continue
-                        if server_state["liveStats"][team][row][field] != confirmed:
-                            server_state["liveStats"][team][row][field] = confirmed
-                            changed = True
+                    send_previews = "valorant_dashboard" in connected_pages.values()
+                    for (team, row, field, key), text, crop in zip(cell_keys, texts, crops):
+                        raw_value = parse_int(text)
+                        confirmed = confirm_value(key, raw_value)
+                        lock_key = f"liveStats.{team}.{row}.{field}"
+                        if confirmed is not None and lock_key not in locked_fields:
+                            if server_state["liveStats"][team][row][field] != confirmed:
+                                server_state["liveStats"][team][row][field] = confirmed
+                                changed = True
+                        if send_previews:
+                            data_url = crop_to_data_url(crop)
+                            if data_url:
+                                await broadcast_to_page("valorant_dashboard", {
+                                    "type": "crop_preview", "region": key,
+                                    "image": data_url, "text": str(raw_value) if raw_value is not None else "",
+                                })
 
             if not PLANT_DEFUSE_AUTO_DETECT:
                 # Whole plant/defuse/spike-badge OCR pipeline switched off

@@ -1207,6 +1207,11 @@
         <div class="team-form" id="val_liveStatsAssignTeam1"></div>
         <div class="team-form" id="val_liveStatsAssignTeam2"></div>
       </div>
+      <p class="hint" style="margin-top:14px;">Live OCR reading per cell -- crop preview so you can see exactly what's
+        being read (e.g. whether Coins picked up the currency icon along with the digits), with an Override checkbox
+        per cell for when OCR misses one:</p>
+      <div id="val_liveStatsGridTeam1" style="margin-top:6px;overflow-x:auto;"></div>
+      <div id="val_liveStatsGridTeam2" style="margin-top:14px;overflow-x:auto;"></div>
       <div class="row" style="margin-top:10px;">
         <button id="val_liveStatsPush">Push Player Stats Up</button>
         <button class="secondary" id="val_liveStatsPushDown">Pull Player Stats Down</button>
@@ -4765,6 +4770,7 @@ function valConnect(){
       valRenderOcrScoreGrid(valState);
       valRenderMapVetoRows(valState);
       valRenderLiveStatsAssignRows(valState);
+      valRenderLiveStatsGrid(valState);
       valRenderPlantDefuseStatus(valState);
       valRenderHoaxLeftSideStatus(valState);
       valBuildMvpDropdown(valState);
@@ -4784,6 +4790,9 @@ function valConnect(){
       } else if(msg.region === "valorant_round_timer"){
         document.getElementById("val_roundTimerLastText").textContent =
           (msg.text && msg.text.trim()) ? msg.text : "(nothing read this frame)";
+      } else if(msg.region.startsWith("valorant_livestats_")){
+        const liveEl = document.getElementById(`val-ls-live-${msg.region}`);
+        if(liveEl) liveEl.textContent = (msg.text && msg.text.trim()) ? msg.text : "—";
       }
     } else if(msg.type === "postmatch_scoreboard_extracted"){
       const elapsed = stopExtractTimer("val_import_status");
@@ -5262,6 +5271,88 @@ function valRenderLiveStatsAssignRows(state){
 valBuildLiveStatsAssignRows("team1");
 valBuildLiveStatsAssignRows("team2");
 
+/* ---------- Live Ops: Player Stats (Live) -- crop preview + override ---------- */
+const VAL_LIVESTATS_FIELDS = ["kills", "deaths", "assists", "coins"];
+const VAL_LIVESTATS_FIELD_LABELS = { kills: "Kills", deaths: "Deaths", assists: "Assists", coins: "Coins" };
+
+function valApplyLiveStatsOverride(team, row, field, value){
+  if(!(valState && valState.liveStats)) return;
+  const liveStats = JSON.parse(JSON.stringify(valState.liveStats));
+  liveStats[team][row][field] = value;
+  valSendManualUpdate({ liveStats }, [`liveStats.${team}.${row}.${field}`], []);
+}
+function valUnlockLiveStatsCell(team, row, field){
+  valSendManualUpdate({}, [], [`liveStats.${team}.${row}.${field}`]);
+}
+
+function valBuildLiveStatsGrid(team){
+  const container = document.getElementById(`val_liveStatsGridTeam${team.slice(-1)}`);
+  const table = document.createElement("table");
+  table.style.cssText = "width:100%;border-collapse:collapse;font-size:12px;";
+  let thead = `<thead><tr style="text-align:center;color:#9aa4c0;"><th style="padding:4px;text-align:left;">${team === "team1" ? "Team 1" : "Team 2"} Row</th>`;
+  VAL_LIVESTATS_FIELDS.forEach(f => { thead += `<th style="padding:4px;">${VAL_LIVESTATS_FIELD_LABELS[f]}</th>`; });
+  thead += `</tr></thead>`;
+  let tbody = "<tbody>";
+  for(let row = 0; row < 5; row++){
+    tbody += `<tr style="border-top:1px solid #332b52;"><td style="padding:4px;color:#9aa4c0;">Row ${row + 1}</td>`;
+    VAL_LIVESTATS_FIELDS.forEach(f => {
+      const key = `valorant_livestats_${team}_row${row}_${f}`;
+      tbody += `
+        <td style="padding:4px;text-align:center;">
+          <img id="crop-${key}" style="display:block;max-width:70px;max-height:24px;margin:0 auto 3px;border:1px solid #332b52;border-radius:3px;">
+          <div id="val-ls-live-${key}" style="font-size:11px;color:#9aa4c0;">—</div>
+          <div style="display:flex;align-items:center;justify-content:center;gap:3px;margin-top:2px;">
+            <input type="checkbox" id="val-ls-lock-${key}" title="Override" style="width:12px;height:12px;margin:0;">
+            <input type="number" id="val-ls-input-${key}" disabled style="width:44px;font-size:11px;padding:2px;">
+          </div>
+        </td>
+      `;
+    });
+    tbody += `</tr>`;
+  }
+  tbody += "</tbody>";
+  table.innerHTML = thead + tbody;
+  container.innerHTML = "";
+  container.appendChild(table);
+
+  VAL_LIVESTATS_FIELDS.forEach(f => {
+    for(let row = 0; row < 5; row++){
+      const key = `valorant_livestats_${team}_row${row}_${f}`;
+      const lockEl = document.getElementById(`val-ls-lock-${key}`);
+      const inputEl = document.getElementById(`val-ls-input-${key}`);
+      lockEl.addEventListener("change", () => {
+        inputEl.disabled = !lockEl.checked;
+        if(lockEl.checked) valApplyLiveStatsOverride(team, row, f, Number(inputEl.value || 0));
+        else valUnlockLiveStatsCell(team, row, f);
+      });
+      inputEl.addEventListener("change", () => {
+        if(lockEl.checked) valApplyLiveStatsOverride(team, row, f, Number(inputEl.value || 0));
+      });
+    }
+  });
+}
+function valRenderLiveStatsGrid(state){
+  const liveStats = state.liveStats || { team1: [], team2: [] };
+  ["team1", "team2"].forEach(team => {
+    const rows = liveStats[team] || [];
+    for(let row = 0; row < 5; row++){
+      VAL_LIVESTATS_FIELDS.forEach(f => {
+        const key = `valorant_livestats_${team}_row${row}_${f}`;
+        const value = (rows[row] && rows[row][f]) || 0;
+        const isLocked = valLockedFields.has(`liveStats.${team}.${row}.${f}`);
+        const lockEl = document.getElementById(`val-ls-lock-${key}`);
+        const inputEl = document.getElementById(`val-ls-input-${key}`);
+        if(!lockEl || !inputEl) return;
+        lockEl.checked = isLocked;
+        inputEl.disabled = !isLocked;
+        if(document.activeElement !== inputEl) inputEl.value = value;
+      });
+    }
+  });
+}
+valBuildLiveStatsGrid("team1");
+valBuildLiveStatsGrid("team2");
+
 document.getElementById("val_liveStatsPush").addEventListener("click", () => {
   if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"livestats_overlay_show"}));
 });
@@ -5439,12 +5530,13 @@ function valBuildImportRowsFromExtraction(extractedRows){
   const rows = sorted.map((r, i) => ({
     team: i < 5 ? "team1" : "team2", playerIndex: i < 5 ? i : i - 5,
     acs: r.acs ?? 0, kills: r.kills ?? 0, deaths: r.deaths ?? 0, assists: r.assists ?? 0,
-    kd: r.kd ?? 0, econ: 0, firstBloods: r.firstBloods ?? 0, plants: r.plants ?? 0, defuses: 0,
+    econ: r.econ ?? 0, firstBloods: r.firstBloods ?? 0, plants: r.plants ?? 0, defuses: 0,
+    crops: r.crops || {},
   }));
   while(rows.length < 10){
     const i = rows.length;
     rows.push({team: i < 5 ? "team1" : "team2", playerIndex: i < 5 ? i : i - 5,
-      acs:0, kills:0, deaths:0, assists:0, kd:0, econ:0, firstBloods:0, plants:0, defuses:0});
+      acs:0, kills:0, deaths:0, assists:0, econ:0, firstBloods:0, plants:0, defuses:0, crops:{}});
   }
   return rows;
 }
@@ -5484,7 +5576,6 @@ function valRenderImportTable(){
       <th style="padding:6px;">K</th>
       <th style="padding:6px;">D</th>
       <th style="padding:6px;">A</th>
-      <th style="padding:6px;" title="Read from the grid for cross-checking only -- not stored, the overlay always derives K/D from Kills/Deaths itself">K/D (ref)</th>
       <th style="padding:6px;">Econ</th>
       <th style="padding:6px;">FB</th>
       <th style="padding:6px;">Plants</th>
@@ -5493,6 +5584,9 @@ function valRenderImportTable(){
     <tbody></tbody>
   `;
   const tbody = table.querySelector("tbody");
+  const cropImg = (row, col) => row.crops && row.crops[col]
+    ? `<img src="${row.crops[col]}" style="display:block;max-width:70px;max-height:24px;margin:0 auto 3px;border:1px solid #332b52;border-radius:3px;">`
+    : "";
   valImportRows.forEach((row, i) => {
     const tr = document.createElement("tr");
     tr.style.borderTop = "1px solid #332b52";
@@ -5504,14 +5598,15 @@ function valRenderImportTable(){
         </div>
       </td>
       <td style="padding:6px;"><select id="val_import_${i}_who" class="import-who-select val-import-who" style="width:170px;">${valImportWhoOptionsHtml(row.team, row.playerIndex)}</select></td>
-      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_acs" style="width:72px;" value="${row.acs}"></td>
-      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_kills" style="width:64px;" value="${row.kills}"></td>
-      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_deaths" style="width:64px;" value="${row.deaths}"></td>
-      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_assists" style="width:64px;" value="${row.assists}"></td>
-      <td style="padding:6px;color:#9aa4c0;text-align:center;">${row.kd || 0}</td>
-      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_econ" style="width:72px;" value="${row.econ}"></td>
-      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_firstBloods" style="width:64px;" value="${row.firstBloods}"></td>
-      <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_plants" style="width:64px;" value="${row.plants}"></td>
+      <td style="padding:6px;text-align:center;">${cropImg(row,"acs")}<input type="number" class="import-num-input" id="val_import_${i}_acs" style="width:72px;" value="${row.acs}"></td>
+      <td style="padding:6px;text-align:center;" colspan="3">${cropImg(row,"kda")}<div style="display:flex;gap:4px;justify-content:center;">
+        <input type="number" class="import-num-input" id="val_import_${i}_kills" style="width:56px;" value="${row.kills}">
+        <input type="number" class="import-num-input" id="val_import_${i}_deaths" style="width:56px;" value="${row.deaths}">
+        <input type="number" class="import-num-input" id="val_import_${i}_assists" style="width:56px;" value="${row.assists}">
+      </div></td>
+      <td style="padding:6px;text-align:center;">${cropImg(row,"econ")}<input type="number" class="import-num-input" id="val_import_${i}_econ" style="width:72px;" value="${row.econ}"></td>
+      <td style="padding:6px;text-align:center;">${cropImg(row,"fb")}<input type="number" class="import-num-input" id="val_import_${i}_firstBloods" style="width:64px;" value="${row.firstBloods}"></td>
+      <td style="padding:6px;text-align:center;">${cropImg(row,"plants")}<input type="number" class="import-num-input" id="val_import_${i}_plants" style="width:64px;" value="${row.plants}"></td>
       <td style="padding:6px;"><input type="number" class="import-num-input" id="val_import_${i}_defuses" style="width:72px;" value="${row.defuses}"></td>
     `;
     tbody.appendChild(tr);
