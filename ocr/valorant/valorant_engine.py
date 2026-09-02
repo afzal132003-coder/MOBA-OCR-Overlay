@@ -188,12 +188,16 @@ LIVESTATS_TEAMS = ("team1", "team2")
 LIVESTATS_ROWS = 5
 LIVESTATS_FIELDS = ("kills", "deaths", "assists", "coins")
 # How often (in ocr_loop iterations) the 40-cell livestats batch runs --
-# NOT every frame like the round timer/spike checks. At the default
-# poll_interval_seconds (0.15s) this is roughly a 1.5s cadence, plenty
-# fresh for K/D/A/economy numbers that only change between rounds/kills,
-# while keeping the fast, latency-sensitive checks (spike icon, round
-# timer) running at their own full speed every frame regardless.
-LIVESTATS_POLL_EVERY_N_FRAMES = 10
+# NOT every frame like the round timer/spike checks. Lowered from 10 to 4
+# after an explicit "refresh rate feels slow" report -- at the default
+# poll_interval_seconds (0.15s) this is now roughly a 0.6s cadence (was
+# ~1.5s). Still comfortably affordable: the 40-cell batch itself runs in
+# well under 0.6s wall time with ocr_executor's 8 workers, so this doesn't
+# risk the loop falling behind. Also directly helps VALUE_CONFIRM_WINDOW's
+# own convergence speed below, since a smaller real-world time-per-window
+# means a genuine stat change (a kill, a death) reaches its confirmed
+# majority sooner.
+LIVESTATS_POLL_EVERY_N_FRAMES = 4
 
 
 def default_player_stat_row():
@@ -534,7 +538,20 @@ def confirm_trigger(name, condition):
 # the count to zero. A window tolerates that -- only a genuine MAJORITY
 # of the last VALUE_CONFIRM_WINDOW readings needs to agree, not an
 # unbroken run.
-VALUE_CONFIRM_WINDOW = 5
+#
+# Lowered from 5 to 3 after a real capture showed the window itself
+# lagging behind a GENUINE value change: Deaths' raw OCR text correctly
+# read "13" on screen while the confirmed/displayed value was still stuck
+# at "12" -- old "12" readings were still a big enough share of the
+# window to keep winning the vote for several more polls even after the
+# real value had already changed. Kills/Deaths/Assists/Coins are
+# monotonically-increasing match counters (they only go up mid-match),
+# so there's little value in a wide window's extra noise tolerance once
+# a real change happens -- old, now-stale readings should get flushed out
+# and lose the vote quickly, not linger. 3 (majority = 2 of 3) still
+# rejects a single one-off misread, just converges to a real change much
+# faster than 5 did, especially paired with the faster poll cadence above.
+VALUE_CONFIRM_WINDOW = 3
 _value_windows = {}
 _value_last_confirmed = {}
 
@@ -699,21 +716,34 @@ def strip_leading_icon(img_bgr, gap_px=1):
 def preprocess_currency(img_bgr, upscale=4):
     """Coins/Econ-specific variant of preprocess() -- see
     _bright_text_mask()'s own comment for why brightness+saturation
-    thresholding replaces OTSU here specifically. Border/upscale/blur
-    match preprocess() exactly; CLAHE runs on the HSV value (brightness)
-    channel specifically rather than a plain grayscale convert, so the
-    saturation channel _bright_text_mask() needs survives untouched --
-    only the final threshold step differs from preprocess(), and only for
-    these two fields, so this doesn't risk regressing anything that
-    already reads fine."""
-    img_bgr = cv2.copyMakeBorder(img_bgr, 10, 10, 10, 10, cv2.BORDER_REPLICATE)
-    img_bgr = cv2.resize(img_bgr, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
-    img_bgr = cv2.medianBlur(img_bgr, 3)
+    thresholding replaces OTSU here specifically. CLAHE runs on the HSV
+    value (brightness) channel specifically rather than a plain grayscale
+    convert, so the saturation channel _bright_text_mask() needs survives
+    untouched.
+
+    Border+upscale happen AFTER masking here, not before like preprocess()
+    does it -- an explicit fix after realizing the border was hurting the
+    percentile threshold specifically: a 10px replicated border, then 4x
+    upscaled, becomes a LARGE fraction of the total image (for a typical
+    small cell, often more pixels than the original crop content), all of
+    it just the edge pixel's own color repeated. _bright_text_mask()'s
+    percentile is computed over the WHOLE image it's given, so computing
+    it on the bordered+upscaled version let a big block of replicated
+    background pixels skew what "the brightest ~15%" even means. Masking
+    the small original crop FIRST keeps the percentile honest, then the
+    resulting BINARY mask gets upscaled (NEAREST, not CUBIC -- keeps it
+    crisp instead of introducing gray blending at edges) and a plain black
+    border (BORDER_CONSTANT, not REPLICATE -- there's no real ink at a
+    mask's edge to replicate)."""
     hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
     clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
     hsv[:, :, 2] = clahe.apply(hsv[:, :, 2])
     enhanced_bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
-    return _bright_text_mask(enhanced_bgr)
+    mask = _bright_text_mask(enhanced_bgr)
+    mask = cv2.resize(mask, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_NEAREST)
+    mask = cv2.medianBlur(mask, 3)
+    mask = cv2.copyMakeBorder(mask, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=0)
+    return mask
 
 
 def ocr_currency_number(img_bgr):
