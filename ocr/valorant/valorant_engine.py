@@ -103,65 +103,14 @@ if config.get("tesseract_path"):
 OCR_SCORE_TEAM1_KEY = "valorant_ocr_team1_score"
 OCR_SCORE_TEAM2_KEY = "valorant_ocr_team2_score"
 
-# The round timer (e.g. "0:04", top-center between the two scores) --
-# read purely as a SAFETY NET for the spike badge, not displayed anywhere
-# itself. Any time the badge is "planted" and this timer jumps UP instead
-# of continuing to count down, that means the round has moved on (spike
-# defused, exploded, whatever ended it) -- turn the badge back to idle
-# regardless of which exact end-of-round banner text fired, since guessing
-# every possible "ATTACKERS WIN"-style banner wording is more fragile than
-# just watching the timer reset. See ocr_loop()/track_round_timer().
-ROUND_TIMER_KEY = "valorant_round_timer"
-
-# The top-center announcement zone -- confirmed against a real clip (not
-# assumed): "SPIKE PLANTED" is genuine on-screen text, same toast-style
-# banner as MOBA's turtle/lord announcements. Reads generously (whole
-# banner, not just the words) same reasoning as turtle_announcement's own
-# calibration hint -- the banner can shift slightly.
-ANNOUNCEMENT_REGION_KEY = "valorant_announcement"
-# A SECOND, separately-calibrated region -- confirmed against real clips
-# that the small toast above and this one are NOT the same screen spot:
-# the big center-screen round-end result banner ("ATTACKERS/DEFENDERS WON"
-# + "Spike Defused"/etc as a subtitle), later replaced in that same spot
-# by "BUY PHASE". Read with the same generic ocr_text() pipeline as the
-# toast, and its text is just concatenated onto the toast's own reading
-# before either gets matched against any regex below -- so "SPIKE DEFUSED"
-# said here counts exactly the same as it would in the small toast, and
-# "BUY PHASE" (which only ever appears here, never in the small toast) is
-# finally something the OCR loop actually sees.
-ROUND_BANNER_REGION_KEY = "valorant_round_banner"
-# "defused" only, not "defus\w*" -- Valorant shows a "next DEFUSING"
-# progress bar WHILE a defuse is in progress (confirmed on a real clip),
-# which must NOT fire this early; only the completed-defuse banner should,
-# and that reads "DEFUSED" (past tense), not "DEFUSING".
-SPIKE_PLANTED_REGEX = re.compile(r"spike\W*planted", re.IGNORECASE)
-SPIKE_DEFUSED_REGEX = re.compile(r"spike\W*defused", re.IGNORECASE)
-PLANT_DEFUSE_DISPLAY_SECONDS = 6
-
-# Spike badge/bug banner triggers -- separate from (and faster than) the
-# plant/defuse TOAST above, an explicit request. "planting" is the
-# in-progress planting-animation text (distinct from "planted", past
-# tense, so this can't double-fire off the completed-plant banner) --
-# catching it turns the badge/bug on the moment the plant STARTS instead
-# of waiting for the completed "SPIKE PLANTED" banner. "BUY PHASE" is the
-# reliable marker printed at the start of every new round -- seeing it
-# turns the badge/bug back off, a second, more immediate way to catch a
-# round ending than the round-timer safety net (see ROUND_TIMER_KEY),
-# which still runs as a fallback in case this text is ever missed.
-SPIKE_PLANTING_REGEX = re.compile(r"\bplanting\b", re.IGNORECASE)
-BUY_PHASE_REGEX = re.compile(r"buy\W*phase", re.IGNORECASE)
-
-# Master switch for all of the above -- explicit request after several
-# tuning passes (banner text, "planting"/"BUY PHASE", the round-timer red-
-# icon color check) still weren't reliable enough in real games. False
-# turns OCR OFF entirely for the plant/defuse popup, spike badge, and bug
-# banner -- ocr_loop() skips reading/deciding anything for them (see the
-# check near its top). The dashboard's manual buttons (including the
-# Spike Bug + Badge Up/Down combo buttons) still fully control all three
-# by hand either way, since those go through handle_client's message
-# handlers, a completely separate code path from this flag. Flip back to
-# True once the detection logic gets revisited.
-PLANT_DEFUSE_AUTO_DETECT = False
+# Note: an earlier OCR-driven plant/defuse popup + auto spike-badge/bug-
+# banner detection (announcement toast, center round-end banner, round-
+# timer safety net, spike-icon color trigger) lived here and has been
+# removed entirely -- an explicit "we won't be using it" request. Spike
+# Badge and Bug Banner remain, fully manual-only (see their dashboard
+# push/hide buttons and handle_client's spike_badge_*/bug_banner_*
+# handlers below) -- they never depended on this OCR pipeline to function,
+# only to auto-trigger, which is what's gone now.
 
 connected_clients = set()
 connected_pages = {}
@@ -247,37 +196,14 @@ def default_state():
         # by the defending side, and those swap at halftime -- a real game
         # mechanic, not something to guess at, so this is an explicit
         # operator toggle (flip it once at halftime) rather than inferred.
-        # Drives which team plantDefuse.team gets set to below.
         "attackingTeam": "team1",
 
-        # OCR-detected from ANNOUNCEMENT_REGION_KEY (SPIKE_PLANTED_REGEX /
-        # SPIKE_DEFUSED_REGEX), same toast-detection pattern as MOBA's
-        # turtle/lord popups -- "team" is derived (plant -> attackingTeam,
-        # defuse -> the other team), not read from the OCR text itself.
-        # Manual show/hide (plant_defuse_show/hide) still works as an
-        # operator override/fallback, same relationship turtle's manual
-        # countdown has with its own OCR detection. Auto-hides after
-        # PLANT_DEFUSE_DISPLAY_SECONDS.
-        "plantDefuse": {
-            "status": "idle", "shownUntil": None,
-            "team": None, "type": None,  # type: "plant" | "defuse"
-        },
-
-        # A separate, PERSISTENT spike-planted indicator (the small hex
-        # badge hanging off the round-score bar) -- distinct from
-        # plantDefuse above (a 6-second toast). This has no auto-hide: once
-        # the spike is planted it should stay visible on the HUD for the
-        # rest of the round, not vanish after 6 seconds like the toast
-        # does. Driven off the SAME OCR detection as plantDefuse (see
-        # process_plant_defuse_reading) -- no separate calibration needed,
-        # despite the badge being visually a different element. Manual
-        # push/push-down (spike_badge_show/spike_badge_hide) still works as
-        # an operator override, same relationship as plantDefuse's own
-        # manual buttons. mode is "idle" (white, below context text),
-        # "planted" (red, above context text), or "hidden" (not drawn at
-        # all -- a manual-only override, OCR never sets this one, for
-        # rounds where the operator doesn't want the badge competing for
-        # attention at all).
+        # A PERSISTENT spike-planted indicator (the small hex badge hanging
+        # off the round-score bar) -- fully manual (push/push-down: spike_
+        # badge_show/spike_badge_hide). No auto-hide: once pushed it stays
+        # visible until explicitly hidden again. mode is "idle" (white,
+        # below context text), "planted" (red, above context text), or
+        # "hidden" (not drawn at all).
         "spikeBadge": {"mode": "idle"},
 
         # A separate, fully-manual banner from spikeBadge above -- two
@@ -288,6 +214,17 @@ def default_state():
         # Resets to hidden on load, same as every other "currently showing"
         # manual overlay toggle in this project.
         "bugBanner": {"mode": "hidden"},
+
+        # Animated glow that traces the main HUD's actual bar shape (a
+        # CSS drop-shadow pulse on valorant_ingame_blank.png itself, so it
+        # follows that image's real irregular silhouette -- the diagonal-
+        # cut team plates, the notched center banner -- automatically,
+        # instead of needing a hand-traced path for an outline that isn't
+        # a plain rectangle). An explicit request; a real operator
+        # setting like hoaxOverlay.leftSide, not a "currently showing"
+        # flag, so it's NOT reset anywhere on load -- an easy rollback
+        # switch from the dashboard if it doesn't read well once live.
+        "hudBoundaryAnimation": True,
 
         # The full hoax-overlay.png-styled bar (own team plates + score) --
         # lives on the SAME overlay/valorant_ingame.html file as the main
@@ -429,7 +366,6 @@ def load_state():
             # A mid-display plant/defuse popup doesn't mean anything across
             # a process restart -- always come back up idle, same reasoning
             # as MOBA's turtleTimer/lordTimer reset on load.
-            state["plantDefuse"] = default_state()["plantDefuse"]
             state["spikeBadge"] = default_state()["spikeBadge"]
             state["bugBanner"] = default_state()["bugBanner"]
             state["mvpScreenMode"] = default_state()["mvpScreenMode"]
@@ -461,73 +397,6 @@ def save_state():
 
 server_state = load_state()
 locked_fields = set()
-
-# Round-timer jump tracking for the spike badge safety net (see
-# ROUND_TIMER_KEY above). _last_round_timer_seconds is a FROZEN baseline
-# from before a suspected jump -- it deliberately does NOT update on every
-# poll while a jump is being confirmed, only once the jump is confirmed or
-# abandoned. That matters because once a real round transition happens the
-# new timer immediately resumes counting DOWN (e.g. 100, 99, 98...), so
-# only the very first post-jump reading is actually higher than the one
-# right before it -- comparing every frame against the immediately-prior
-# frame (instead of a frozen baseline) would see that first jump, then see
-# "99 < 100" on the next frame and wrongly conclude nothing happened.
-# Comparing against a frozen pre-jump baseline instead lets consecutive
-# elevated-but-decreasing readings still count as confirming the same
-# jump, which is what a real round transition looks like.
-_last_round_timer_seconds = None
-_timer_jump_streak = 0
-TIMER_JUMP_CONFIRM_FRAMES = 2
-
-
-def track_round_timer(seconds):
-    """Call once per poll with the raw (unconfirmed) timer reading, or
-    None if unreadable this frame. Returns True if this reading confirms
-    the round just moved on (only meaningful while spikeBadge is
-    "planted" -- caller decides what to do with True)."""
-    global _last_round_timer_seconds, _timer_jump_streak
-    if seconds is None:
-        return False
-    if _last_round_timer_seconds is None:
-        _last_round_timer_seconds = seconds
-        return False
-    jumped = seconds > _last_round_timer_seconds + 2
-    if jumped:
-        _timer_jump_streak += 1
-    else:
-        _timer_jump_streak = 0
-        _last_round_timer_seconds = seconds  # only move the baseline when NOT mid-jump
-    if _timer_jump_streak >= TIMER_JUMP_CONFIRM_FRAMES:
-        _last_round_timer_seconds = seconds
-        _timer_jump_streak = 0
-        return True
-    return False
-
-
-# Debounce for the badge/bug's OCR-text and color triggers -- an explicit
-# fix after the badge started popping up "unnecessarily": a single bad
-# frame (an OCR misread that happens to contain "planting"/"buy phase", or
-# a stray red-pixel-ratio blip in the timer crop) is enough to flip a
-# one-shot check, so each trigger now has to see the SAME condition true on
-# TRIGGER_CONFIRM_FRAMES consecutive polls before it's trusted -- same
-# "don't trust a single frame" reasoning as track_round_timer above, just
-# per-condition instead of one frozen baseline.
-_trigger_streaks = {}
-TRIGGER_CONFIRM_FRAMES = 3
-
-
-def confirm_trigger(name, condition):
-    """condition is this frame's raw (unconfirmed) True/False reading for
-    trigger `name`. Returns True only once the same True has been seen
-    TRIGGER_CONFIRM_FRAMES times in a row; any False resets that streak to
-    zero immediately, so a real, sustained state (the banner/icon actually
-    on screen for more than a couple frames) still confirms quickly, but an
-    isolated misread can't."""
-    streak = _trigger_streaks.get(name, 0)
-    streak = streak + 1 if condition else 0
-    _trigger_streaks[name] = streak
-    return streak >= TRIGGER_CONFIRM_FRAMES
-
 
 # Debounce for ocrRoundScore/liveStats -- a ROLLING WINDOW majority vote,
 # ported directly from ocr_engine.py's confirm_reading() (see that file's
@@ -847,125 +716,6 @@ def parse_int(text):
     if not match:
         return None
     return int(match.group())
-
-
-TESS_CONFIG_TIMER = (
-    "--oem 1 --psm 7 "
-    "-c tessedit_char_whitelist=0123456789: "
-    "-c load_system_dawg=0 -c load_freq_dawg=0"
-)
-ROUND_TIMER_REGEX = re.compile(r"(\d{1,2}):(\d{2})")
-
-
-def ocr_round_timer(img_bgr):
-    """Returns total seconds parsed from an "M:SS" reading, or None. Not a
-    debounced/confirmed value like the scores -- this is read raw, every
-    poll, purely to detect when it jumps UP (see track_round_timer)."""
-    processed = preprocess(img_bgr)
-    text = pytesseract.image_to_string(processed, config=TESS_CONFIG_TIMER)
-    match = ROUND_TIMER_REGEX.search(text.strip())
-    if not match:
-        return None
-    minutes, seconds = int(match.group(1)), int(match.group(2))
-    if seconds > 59:
-        return None
-    return minutes * 60 + seconds
-
-
-# Once the spike is planted, Valorant swaps the M:SS countdown in this SAME
-# box for a red spike icon (confirmed against a real clip) -- no digits
-# left for ocr_round_timer to read at all. Detecting that icon by color
-# instead (a plain red-pixel-ratio check, same "match by color, not literal
-# pixels" reasoning as match_agent_by_color, just simpler since this is one
-# distinctive color rather than 25+ portraits to tell apart) is a fast,
-# purely-visual THIRD trigger for the spike badge/bug, on top of the
-# "planting" text trigger and the full "SPIKE PLANTED" banner -- reuses the
-# round timer's existing calibration, nothing new to set up.
-#
-# Color ratio ALONE turned out unreliable in both directions: a high
-# threshold (0.40, tried first after color-only false-positived on ordinary
-# HUD red) missed the real icon too, because a lot of the icon's own crop
-# is dark background/outline, not solid red fill -- the red-colored portion
-# alone doesn't reliably clear a high bar. So this now ALSO requires
-# ocr_round_timer() to have found no M:SS digits in the same crop this
-# frame (see the call site in ocr_loop) -- real countdown digits always
-# parse fine, so "digits failed to parse" + "some red present" together is
-# a much more specific icon signal than either alone, and lets the color
-# side of the check use a lower, more forgiving ratio.
-# Loosened again -- 0.15 at r>110/g+60/b+60 was still missing the real icon
-# on a real clip. The icon is a red RING/badge shape around a light center
-# glyph, not a solid red disc, so even a generously-drawn crop is a lot of
-# non-red pixels (badge interior, dark stone background behind it) no
-# matter how the color match itself is tuned -- demanding a big fraction of
-# the WHOLE crop be red was the wrong shape of check. Lowered the ratio
-# and loosened the color match to catch darker/desaturated reds too
-# (compression artifacts, HUD transparency).
-SPIKE_ICON_RED_RATIO = 0.06  # fraction of pixels that must look "red enough"
-# Any crop clearing THIS ratio is red enough to trust on its own, no matter
-# what ocr_round_timer() thinks it read -- a real M:SS reading essentially
-# never has this much red in it, so this is a safety valve in case the
-# "digits failed to parse" gate (see detect_spike_icon's caller in
-# ocr_loop) is ever wrong about a frame that's obviously the icon.
-SPIKE_ICON_RED_RATIO_OVERRIDE = 0.30
-
-
-def spike_icon_red_ratio(img_bgr):
-    """The raw fraction of "red enough" pixels in a round-timer crop --
-    split out from detect_spike_icon() so the OCR loop can also surface
-    this number in the dashboard's crop preview (see ocr_loop), letting the
-    SPIKE_ICON_RED_RATIO threshold above get tuned against a real observed
-    value instead of guessed blind."""
-    b = img_bgr[:, :, 0].astype(np.int16)
-    g = img_bgr[:, :, 1].astype(np.int16)
-    r = img_bgr[:, :, 2].astype(np.int16)
-    red_mask = (r > 80) & (r > g + 30) & (r > b + 30)
-    return float(red_mask.mean())
-
-
-def detect_spike_icon(img_bgr):
-    """Returns True if this round-timer crop looks like the red spike icon
-    rather than plain white/gray countdown digits."""
-    return spike_icon_red_ratio(img_bgr) >= SPIKE_ICON_RED_RATIO
-
-
-MAX_OCR_DIMENSION = 1920
-
-
-def _image_to_data(img_bgr):
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    h, w = gray.shape[:2]
-    scale = 1.0
-    longest = max(h, w)
-    if longest > MAX_OCR_DIMENSION:
-        scale = MAX_OCR_DIMENSION / longest
-        gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-    data = pytesseract.image_to_data(gray, config="--oem 1 --psm 11", output_type=pytesseract.Output.DICT)
-    if scale != 1.0:
-        inv = 1.0 / scale
-        for key in ("left", "top", "width", "height"):
-            data[key] = [int(round(v * inv)) for v in data[key]]
-    return data
-
-
-def ocr_lines(img_bgr):
-    data = _image_to_data(img_bgr)
-    lines = {}
-    for i in range(len(data["text"])):
-        text = data["text"][i].strip()
-        if not text:
-            continue
-        key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
-        lines.setdefault(key, []).append(text)
-    return [" ".join(words) for words in lines.values()]
-
-
-def ocr_text(img_bgr):
-    """Reads whatever text is in the crop (used for the plant/defuse
-    announcement banner). Deliberately NOT using preprocess()/the digit
-    pipeline above -- same reasoning as MOBA's turtle toast: that pipeline
-    is tuned for tiny plain digits on a flat background and wipes out
-    stylized game-announcement text entirely."""
-    return " ".join(ocr_lines(img_bgr)).strip()
 
 
 # ---------------------------------------------------------------------------
@@ -1336,10 +1086,6 @@ def swap_team_sides():
     if assign:
         assign["team1"], assign["team2"] = assign["team2"], assign["team1"]
 
-    pd = s.get("plantDefuse")
-    if pd and pd.get("team") in ("team1", "team2"):
-        pd["team"] = "team2" if pd["team"] == "team1" else "team1"
-
     pom = s.get("postMatch")
     if pom:
         pom["players"]["team1"], pom["players"]["team2"] = pom["players"]["team2"], pom["players"]["team1"]
@@ -1370,73 +1116,6 @@ def swap_team_sides():
             renamed.add(f)
     locked_fields.clear()
     locked_fields.update(renamed)
-
-
-def process_plant_defuse_reading(text, now_ms):
-    """Advances the plant/defuse popup, same state-machine shape as MOBA's
-    process_turtle_reading -- runs every cycle regardless of whether
-    there's a fresh OCR reading, since auto-hide is timed locally, not
-    re-OCR'd. Only looks for a new trigger while idle, so a still-visible
-    banner doesn't re-trigger every frame it stays on screen. Team is
-    derived from event type + attackingTeam (a real game mechanic: only
-    attackers plant, only defenders defuse), not read from the OCR text.
-    Every OCR-text condition below is run through confirm_trigger() (see
-    above) -- called unconditionally, every frame, so its streak keeps
-    building even while the toast is "shown" and this function isn't
-    acting on it yet. Returns True if server_state changed."""
-    pd = server_state["plantDefuse"]
-    changed = False
-
-    if pd["status"] == "shown" and pd["shownUntil"] is not None and now_ms >= pd["shownUntil"]:
-        pd["status"] = "idle"
-        pd["shownUntil"] = None
-        changed = True
-
-    defused_confirmed = confirm_trigger("spike_defused_banner", bool(text) and SPIKE_DEFUSED_REGEX.search(text) is not None)
-    planted_confirmed = confirm_trigger("spike_planted_banner", bool(text) and SPIKE_PLANTED_REGEX.search(text) is not None)
-    planting_confirmed = confirm_trigger("planting", bool(text) and SPIKE_PLANTING_REGEX.search(text) is not None)
-    buy_phase_confirmed = confirm_trigger("buy_phase", bool(text) and BUY_PHASE_REGEX.search(text) is not None)
-
-    if pd["status"] == "idle":
-        attacking = server_state.get("attackingTeam", "team1")
-        defending = "team2" if attacking == "team1" else "team1"
-        event_type = None
-        team = None
-        if defused_confirmed:
-            event_type, team = "defuse", defending
-        elif planted_confirmed:
-            event_type, team = "plant", attacking
-        if event_type:
-            pd["status"] = "shown"
-            pd["shownUntil"] = now_ms + PLANT_DEFUSE_DISPLAY_SECONDS * 1000
-            pd["team"] = team
-            pd["type"] = event_type
-            server_state["spikeBadge"]["mode"] = "planted" if event_type == "plant" else "idle"
-            # The bug banner (SPIKEPLANTED_BUG / spikedefused.png art) now
-            # follows the same OCR trigger as the spike badge, an explicit
-            # request -- no separate manual push needed for the common
-            # case, the dashboard buttons stay as an override for when OCR
-            # misses it.
-            server_state["bugBanner"]["mode"] = "planted" if event_type == "plant" else "defused"
-            changed = True
-
-    # Spike badge/bug banner: independent of the toast state machine above
-    # (checked every frame, not gated behind pd["status"] == "idle") --
-    # "planting" turns them on the moment the plant animation starts,
-    # "BUY PHASE" turns them back off at the start of the next round. Each
-    # only acts if it'd actually change something, both to avoid spamming
-    # state_sync broadcasts every frame the text stays on screen, and so
-    # BUY PHASE doesn't stomp an operator's explicit "hidden" override.
-    if planting_confirmed and server_state["spikeBadge"]["mode"] != "planted":
-        server_state["spikeBadge"]["mode"] = "planted"
-        server_state["bugBanner"]["mode"] = "planted"
-        changed = True
-    elif buy_phase_confirmed and server_state["spikeBadge"]["mode"] == "planted":
-        server_state["spikeBadge"]["mode"] = "idle"
-        server_state["bugBanner"]["mode"] = "hidden"
-        changed = True
-
-    return changed
 
 
 async def handle_client(websocket, path=None):
@@ -1496,22 +1175,6 @@ async def handle_client(websocket, path=None):
                     locked_fields.add(field)
                 for field in payload.get("unlock", []):
                     locked_fields.discard(field)
-                save_state()
-                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
-
-            elif msg_type == "plant_defuse_show":
-                now_ms = int(time.time() * 1000)
-                pd = server_state["plantDefuse"]
-                pd["status"] = "shown"
-                pd["shownUntil"] = now_ms + PLANT_DEFUSE_DISPLAY_SECONDS * 1000
-                pd["team"] = payload.get("team")
-                pd["type"] = payload.get("eventType")
-                save_state()
-                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
-
-            elif msg_type == "plant_defuse_hide":
-                server_state["plantDefuse"]["status"] = "idle"
-                server_state["plantDefuse"]["shownUntil"] = None
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
 
@@ -1599,6 +1262,11 @@ async def handle_client(websocket, path=None):
 
             elif msg_type == "livestats_bg_animation_set":
                 server_state["liveStatsOverlay"]["bgAnimation"] = bool(payload.get("enabled", True))
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
+            elif msg_type == "hud_boundary_animation_set":
+                server_state["hudBoundaryAnimation"] = bool(payload.get("enabled", True))
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
 
@@ -1704,8 +1372,7 @@ async def ocr_loop():
             # over a real internet relay connection. ocrRoundScore only
             # feeds the Hoax section of valorant_ingame.html; liveStats
             # only feeds valorant_playerstats.html; spikeBadge/bugBanner/
-            # plantDefuse/mapVeto (below, only when PLANT_DEFUSE_AUTO_
-            # DETECT is on) only render on valorant_ingame.html too --
+            # mapVeto only render on valorant_ingame.html too --
             # none of these ever need to reach valorant_mvp/
             # valorant_teamchemistry/valorant_characterpick, so those
             # pages now only get updated via explicit manual_update
@@ -1715,9 +1382,7 @@ async def ocr_loop():
             changed_pages = set()
 
             # ocrRoundScore -- see OCR_SCORE_TEAM1_KEY/OCR_SCORE_TEAM2_KEY
-            # and confirm_value() above. Runs unconditionally (NOT gated
-            # behind PLANT_DEFUSE_AUTO_DETECT below -- this is a separate
-            # feature, independent of the plant/defuse pipeline). Respects
+            # and confirm_value() above. Respects
             # an operator lock the same way the old apply_live_score() did,
             # via the shared locked_fields set. score_crops keeps each
             # crop+raw reading around for the dashboard preview broadcast
@@ -1747,9 +1412,8 @@ async def ocr_loop():
                         })
 
             # Live Player Stats -- see LIVESTATS_TEAMS/_ROWS/_FIELDS above.
-            # Runs on its own slower cadence (LIVESTATS_POLL_EVERY_N_FRAMES),
-            # independent of PLANT_DEFUSE_AUTO_DETECT below (a separate
-            # feature). All 40 cells are captured then OCR'd in parallel via
+            # Runs on its own slower cadence (LIVESTATS_POLL_EVERY_N_FRAMES).
+            # All 40 cells are captured then OCR'd in parallel via
             # ocr_executor/asyncio.gather in one batch -- a sequential pass
             # at this cell count would be far too slow to be worth running
             # at all. confirm_value() debounces each cell same as
@@ -1902,145 +1566,12 @@ async def ocr_loop():
                         await broadcast_to_page("valorant_dashboard", gun_message)
                         await broadcast_to_page("valorant_playerstats", gun_message)
 
-            if not PLANT_DEFUSE_AUTO_DETECT:
-                # Whole plant/defuse/spike-badge OCR pipeline switched off
-                # -- explicit request after several tuning passes still
-                # weren't reliable enough. The spike badge, bug banner, and
-                # plant/defuse popup are all still fully controllable by
-                # hand from the dashboard buttons (including the combo
-                # buttons); this just stops OCR from reading/deciding
-                # anything for them. Flip PLANT_DEFUSE_AUTO_DETECT back to
-                # True above once the detection logic gets revisited.
-                if changed_pages:
-                    save_state()
-                    for page in changed_pages:
-                        await broadcast_to_page(page, {"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
-                frame_counter += 1
-                await asyncio.sleep(interval)
-                continue
-
-            announcement_region = regions.get(ANNOUNCEMENT_REGION_KEY)
-            announcement_crop = None
-            if announcement_region and announcement_region.get("w", 0) > 0 and announcement_region.get("h", 0) > 0:
-                announcement_crop = crop_to_bgr(sct, announcement_region)
-
-            round_banner_region = regions.get(ROUND_BANNER_REGION_KEY)
-            round_banner_crop = None
-            if round_banner_region and round_banner_region.get("w", 0) > 0 and round_banner_region.get("h", 0) > 0:
-                round_banner_crop = crop_to_bgr(sct, round_banner_region)
-
-            timer_region = regions.get(ROUND_TIMER_KEY)
-            timer_crop = None
-            if timer_region and timer_region.get("w", 0) > 0 and timer_region.get("h", 0) > 0:
-                timer_crop = crop_to_bgr(sct, timer_region)
-
-            ocr_tasks = []
-            if announcement_crop is not None:
-                ocr_tasks.append(loop.run_in_executor(ocr_executor, ocr_text, announcement_crop))
-            if round_banner_crop is not None:
-                ocr_tasks.append(loop.run_in_executor(ocr_executor, ocr_text, round_banner_crop))
-            if timer_crop is not None:
-                ocr_tasks.append(loop.run_in_executor(ocr_executor, ocr_round_timer, timer_crop))
-            results = await asyncio.gather(*ocr_tasks)
-
-            idx = 0
-            announcement_raw_text = None
-            if announcement_crop is not None:
-                announcement_raw_text = results[idx]
-                idx += 1
-            round_banner_raw_text = None
-            if round_banner_crop is not None:
-                round_banner_raw_text = results[idx]
-                idx += 1
-            timer_seconds = results[idx] if timer_crop is not None else None
-
-            # Concatenated, not read separately -- "SPIKE DEFUSED"/"BUY
-            # PHASE" said in either region counts the same either way (see
-            # ROUND_BANNER_REGION_KEY above for why there are two regions
-            # at all).
-            combined_announcement_text = " ".join(
-                t for t in (announcement_raw_text, round_banner_raw_text) if t
-            )
-
-            if process_plant_defuse_reading(combined_announcement_text, int(time.time() * 1000)):
-                changed_pages.update(("valorant_dashboard", "valorant_ingame"))
-
-            # Spike icon in the round-timer box -- see detect_spike_icon
-            # above. Normally requires BOTH some red color present AND no
-            # M:SS digits parsed from the very same crop this frame -- real
-            # countdown digits always parse fine, so pairing "digits
-            # failed" with "red present" is what makes a forgiving color
-            # threshold safe. An overwhelming red ratio (SPIKE_ICON_RED_
-            # RATIO_OVERRIDE) skips that gate entirely -- a safety valve in
-            # case the digit-parse check is ever wrong about an obviously-
-            # icon frame. Then run through confirm_trigger() same as the
-            # OCR-text triggers in process_plant_defuse_reading, so a
-            # single stray frame can't pop the badge on its own -- only
-            # acts once confirmed AND it'd actually flip the mode.
-            icon_seen = False
-            if timer_crop is not None:
-                red_ratio = spike_icon_red_ratio(timer_crop)
-                icon_seen = (
-                    red_ratio >= SPIKE_ICON_RED_RATIO_OVERRIDE
-                    or (timer_seconds is None and red_ratio >= SPIKE_ICON_RED_RATIO)
-                )
-            icon_confirmed = confirm_trigger("spike_icon", icon_seen)
-            if icon_confirmed and server_state["spikeBadge"]["mode"] != "planted":
-                server_state["spikeBadge"]["mode"] = "planted"
-                server_state["bugBanner"]["mode"] = "planted"
-                changed_pages.update(("valorant_dashboard", "valorant_ingame"))
-
-            # Spike badge safety net -- see ROUND_TIMER_KEY/track_round_timer
-            # above. Only acts while the badge is actually showing planted;
-            # a timer jump the rest of the time is just a normal new round
-            # starting up, nothing to correct.
-            if track_round_timer(timer_seconds) and server_state["spikeBadge"]["mode"] == "planted":
-                server_state["spikeBadge"]["mode"] = "idle"
-                server_state["bugBanner"]["mode"] = "hidden"
-                changed_pages.update(("valorant_dashboard", "valorant_ingame"))
-
-            # Crop previews (base64 PNG images) are ONLY read by the
-            # dashboard's own calibration UI -- no OBS overlay page, and no
-            # cloud relay hop, ever does anything with them. Skipping the
-            # whole block (no encoding work, no send) whenever no dashboard
-            # tab is connected, and sending what IS generated only to
-            # dashboard sockets (broadcast_to_page, not broadcast), was an
-            # explicit fix for high data usage -- these were going out to
-            # every connected client (every OBS source, plus over the
-            # internet on any relay connection) for no reason. Also dropped
-            # to every 6th frame (was every 2nd) -- calibration preview
-            # doesn't need to be smoother than that.
-            if frame_counter % 6 == 0 and dashboard_connected():
-                if announcement_crop is not None:
-                    data_url = crop_to_data_url(announcement_crop)
-                    if data_url:
-                        await broadcast_to_page("valorant_dashboard", {
-                            "type": "crop_preview", "region": ANNOUNCEMENT_REGION_KEY,
-                            "image": data_url, "text": announcement_raw_text or "",
-                        })
-                if round_banner_crop is not None:
-                    data_url = crop_to_data_url(round_banner_crop)
-                    if data_url:
-                        await broadcast_to_page("valorant_dashboard", {
-                            "type": "crop_preview", "region": ROUND_BANNER_REGION_KEY,
-                            "image": data_url, "text": round_banner_raw_text or "",
-                        })
-                if timer_crop is not None:
-                    data_url = crop_to_data_url(timer_crop)
-                    if data_url:
-                        # When digits parsed, show them; otherwise show the
-                        # spike-icon red-ratio reading instead of leaving
-                        # this blank -- lets SPIKE_ICON_RED_RATIO get tuned
-                        # against a real number instead of guessed blind.
-                        if timer_seconds is not None:
-                            timer_debug_text = f"{timer_seconds}s"
-                        else:
-                            timer_debug_text = f"no digits (red={spike_icon_red_ratio(timer_crop):.2f})"
-                        await broadcast_to_page("valorant_dashboard", {
-                            "type": "crop_preview", "region": ROUND_TIMER_KEY,
-                            "image": data_url, "text": timer_debug_text,
-                        })
-
+            # Spike Badge and Bug Banner stay fully manual-only (their own
+            # dashboard push/hide buttons, handled in handle_client above)
+            # -- the plant/defuse popup, its OCR auto-detection (toast +
+            # center-banner text, round-timer safety net, spike-icon color
+            # trigger), and everything that only existed to feed it were
+            # removed entirely, an explicit "we won't be using it" request.
             if changed_pages:
                 save_state()
                 for page in changed_pages:

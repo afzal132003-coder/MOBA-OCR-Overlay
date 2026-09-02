@@ -1060,78 +1060,25 @@
         </div>
       </div>
       <button id="val_saveRoundScore">Save</button>
+      <label class="row" style="margin-top:10px;align-items:center;gap:6px;">
+        <input type="checkbox" id="val_hudBoundaryAnimation" style="width:14px;height:14px;margin:0;">
+        Animated glow along the main HUD bar's edge -- turn off to roll back to plain
+      </label>
     </div>
 
     <div class="card">
-      <h2>Plant / Defuse Popup</h2>
-      <p class="hint" style="background:#3a2412;border:1px solid #7a4a1a;border-radius:6px;padding:10px;color:#f2c14e;">
-        OCR auto-detection for the popup, spike badge, and bug banner is currently <strong>OFF</strong> (set
-        <code>PLANT_DEFUSE_AUTO_DETECT = False</code> in valorant_engine.py) -- it wasn't reliable enough across
-        several tuning passes. Everything below still works fully by hand; the previews/readings just won't update
-        on their own until it's turned back on.
-      </p>
-      <p class="hint">When re-enabled, this auto-detects two SEPARATE on-screen banners -- the small "SPIKE
-        PLANTED"/"SPIKE DEFUSED" toast (top-center, below the round score) AND the big center-screen round-end/"BUY
-        PHASE" banner, a different position and size from the toast (confirmed against real clips: neither shows the
-        other's text). Team is derived from Attacking Side above, not read off the banner. Calibrate the toast
-        (generously -- wider/taller than the text, it can shift slightly), the center banner (generously around the
-        whole banner area), and the round timer next to the toast (crop tight to just the digits) -- the timer isn't
-        shown anywhere, it's read as a safety net AND to detect the game's own red spike icon that replaces it once
-        planted:</p>
-      <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-        cd ocr/valorant &amp;&amp; python calibrate_valorant.py valo-ingame
-      </div>
-      <div class="row">
-        <div class="crop-box" style="max-width:220px;">
-          <img id="crop-valorant_announcement">
-          <div class="label">small toast</div>
-        </div>
-        <div class="crop-box" style="max-width:220px;">
-          <img id="crop-valorant_round_banner">
-          <div class="label">center banner (round-end / buy phase)</div>
-        </div>
-        <div class="crop-box" style="max-width:140px;">
-          <img id="crop-valorant_round_timer">
-          <div class="label">round timer / spike icon</div>
-        </div>
-      </div>
-      <div class="row" style="margin-top:8px;">
-        <div class="team-form">
-          <label>Last toast OCR reading</label>
-          <div id="val_announcementLastText" style="font-size:12px;color:#9aa4c0;min-height:18px;">&mdash;</div>
-        </div>
-        <div class="team-form">
-          <label>Last center banner OCR reading</label>
-          <div id="val_roundBannerLastText" style="font-size:12px;color:#9aa4c0;min-height:18px;">&mdash;</div>
-        </div>
-        <div class="team-form">
-          <label>Last round timer reading</label>
-          <div id="val_roundTimerLastText" style="font-size:12px;color:#9aa4c0;min-height:18px;">&mdash;</div>
-        </div>
-      </div>
-      <p class="hint" style="margin-top:8px;">Current popup status: <span id="val_plantDefuseStatus" style="color:#9aa4c0;">idle</span></p>
-      <p class="hint">Manual override (in case OCR misses it, or you want it off-schedule):</p>
-      <div class="row">
-        <button id="val_manualPlant">Show Plant Popup</button>
-        <button id="val_manualDefuse">Show Defuse Popup</button>
-        <button class="secondary" id="val_manualHide">Hide Popup</button>
-      </div>
+      <h2>Spike Badge / Bug Banner</h2>
+      <p class="hint">Both fully manual, no OCR involved -- the earlier plant/defuse popup and its OCR
+        auto-detection (toast/banner/round-timer) have been removed entirely.</p>
       <p class="hint" style="margin-top:14px;">Quick combo — one click for the spike badge AND the matching bug
         banner together (same effect as clicking one button from each row below):</p>
       <div class="row">
         <button id="val_spikeComboUp">Spike Bug + Badge Up</button>
         <button class="secondary" id="val_spikeComboDown">Spike Defused + Badge Down</button>
       </div>
-      <p class="hint" style="margin-top:14px;">The spike badge on the In-Game HUD is different from the popup above
-        — it's PERSISTENT (stays up for the rest of the round, doesn't auto-hide after a few seconds). It (and the Bug
-        Banner below) turn on from whichever of THREE triggers notices first: OCR reading "planting", OCR reading the
-        completed "SPIKE PLANTED" banner, or the round-timer box itself switching from digits to the game's own red
-        spike icon (detected by color, no text needed). They turn back off as soon as OCR reads "BUY PHASE" at the
-        start of the next round (SPIKE DEFUSED text and the round-timer safety net still turn it off too, as
-        backups). No separate calibration needed, same announcement/timer regions as above. Its idle (before planted)
-        and settled (after planted) positions are both independently adjustable in Graphic Fixing → In-Game HUD. Push
-        it manually if OCR misses it or you need to correct it, or hide it entirely for a round where you don't want
-        it on screen at all:</p>
+      <p class="hint" style="margin-top:14px;">The spike badge on the In-Game HUD is PERSISTENT (stays up until you
+        hide it, no auto-hide timer). Its idle (before planted) and settled (after planted) positions are both
+        independently adjustable in Graphic Fixing → In-Game HUD:</p>
       <div class="row">
         <button id="val_spikeBadgePush">Push Spike Badge Up</button>
         <button class="secondary" id="val_spikeBadgePushDown">Push Spike Badge Down</button>
@@ -4776,7 +4723,6 @@ function valConnect(){
       valRenderMapVetoRows(valState);
       valRenderLiveStatsAssignRows(valState);
       valRenderLiveStatsGrid(valState);
-      valRenderPlantDefuseStatus(valState);
       valRenderHoaxLeftSideStatus(valState);
       valBuildMvpDropdown(valState);
       valBuildH2HDropdowns(valState);
@@ -4786,16 +4732,7 @@ function valConnect(){
     } else if(msg.type === "crop_preview"){
       const img = document.getElementById(`crop-${msg.region}`);
       if(img) img.src = msg.image;
-      if(msg.region === "valorant_announcement"){
-        document.getElementById("val_announcementLastText").textContent =
-          (msg.text && msg.text.trim()) ? msg.text : "(nothing read this frame)";
-      } else if(msg.region === "valorant_round_banner"){
-        document.getElementById("val_roundBannerLastText").textContent =
-          (msg.text && msg.text.trim()) ? msg.text : "(nothing read this frame)";
-      } else if(msg.region === "valorant_round_timer"){
-        document.getElementById("val_roundTimerLastText").textContent =
-          (msg.text && msg.text.trim()) ? msg.text : "(nothing read this frame)";
-      } else if(msg.region.startsWith("valorant_livestats_")){
+      if(msg.region.startsWith("valorant_livestats_")){
         const liveEl = document.getElementById(`val-ls-live-${msg.region}`);
         if(liveEl) liveEl.textContent = (msg.text && msg.text.trim()) ? msg.text : "—";
       }
@@ -5122,6 +5059,9 @@ document.getElementById("val_saveRoundScore").addEventListener("click", () => {
     },
   });
 });
+document.getElementById("val_hudBoundaryAnimation").addEventListener("change", (e) => {
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"hud_boundary_animation_set", enabled: e.target.checked}));
+});
 function valRenderScoreGrid(state){
   const t1 = document.getElementById("val_round_t1");
   const t2 = document.getElementById("val_round_t2");
@@ -5415,31 +5355,12 @@ document.querySelectorAll('input[name="val_attackingTeam"]').forEach(radio => {
   });
 });
 
-/* ---------- Live Ops: Plant/Defuse ---------- */
-function valRenderPlantDefuseStatus(state){
-  const pd = state.plantDefuse;
-  const teamLabel = pd.team === "team1" ? (state.team1.name || "Team 1") : pd.team === "team2" ? (state.team2.name || "Team 2") : "";
-  document.getElementById("val_plantDefuseStatus").textContent =
-    pd.status === "shown" ? `SHOWN — ${pd.type} (${teamLabel})` : "idle";
-}
+/* ---------- Live Ops: Spike Badge / Bug Banner ---------- */
 function valRenderHoaxLeftSideStatus(state){
   const side = (state.hoaxOverlay && state.hoaxOverlay.leftSide) || "attacker";
   document.getElementById("val_hoaxLeftSideStatus").textContent =
     side === "defender" ? "defender (teal)" : "attacker (red)";
 }
-document.getElementById("val_manualPlant").addEventListener("click", () => {
-  if(!(valWs && valWs.readyState === WebSocket.OPEN)) return;
-  const attacking = document.getElementById("val_attacking_t1").checked ? "team1" : "team2";
-  valWs.send(JSON.stringify({type:"plant_defuse_show", eventType:"plant", team: attacking}));
-});
-document.getElementById("val_manualDefuse").addEventListener("click", () => {
-  if(!(valWs && valWs.readyState === WebSocket.OPEN)) return;
-  const defending = document.getElementById("val_attacking_t1").checked ? "team2" : "team1";
-  valWs.send(JSON.stringify({type:"plant_defuse_show", eventType:"defuse", team: defending}));
-});
-document.getElementById("val_manualHide").addEventListener("click", () => {
-  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"plant_defuse_hide"}));
-});
 document.getElementById("val_spikeComboUp").addEventListener("click", () => {
   if(valWs && valWs.readyState === WebSocket.OPEN){
     valWs.send(JSON.stringify({type:"spike_badge_show"}));
@@ -5826,6 +5747,9 @@ function valApplyState(state){
   if(active !== "val_liveStatsBgAnimation") {
     document.getElementById("val_liveStatsBgAnimation").checked =
       !!(state.liveStatsOverlay && state.liveStatsOverlay.bgAnimation !== false);
+  }
+  if(active !== "val_hudBoundaryAnimation") {
+    document.getElementById("val_hudBoundaryAnimation").checked = state.hudBoundaryAnimation !== false;
   }
   if(isFree("val_map")) document.getElementById("val_map").value = state.prematch.map || "";
   if(active !== "val_line1") document.getElementById("val_line1").value = state.prematch.context.line1 || "";

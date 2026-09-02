@@ -2,30 +2,15 @@
 Interactive calibration tool for Valorant's live HUD, organized into three
 categories you can run independently:
 
-  valo-ingame     The SMALL "SPIKE PLANTED" / "SPIKE DEFUSED" toast zone
-                   (draw it generously, wider/taller than the text itself --
-                   same reasoning as MOBA's turtle_announcement calibration,
-                   the banner can shift slightly) + the round timer itself
-                   (the M:SS clock between the two scores, cropped tight to
-                   just the digits) -- that one isn't shown anywhere, it's
-                   purely a safety net so the spike badge auto-clears itself
-                   once the round moves on, even if the exact end-of-round
-                   banner text isn't recognized -- + the BIG center-screen
-                   round-transition banner (confirmed against real clips: a
-                   large "ATTACKERS WON"/"DEFENDERS WON" + "Spike Defused"
-                   result screen, later replaced in that SAME spot by "BUY
-                   PHASE") -- a completely different position/size from the
-                   small toast above, draw it generously around that whole
-                   center banner area so both the result text and "BUY
-                   PHASE" get caught by the same box.
-                   The main In-Game HUD's own round score is NOT calibrated
-                   here -- an explicit request, OCR on it wasn't reliable
-                   enough to be worth it, that one's manual-only from the
-                   dashboard. A SEPARATE pair of digit boxes IS calibrated
-                   here though (valorant_ocr_team1_score/valorant_ocr_
-                   team2_score) -- a reintroduced OCR round-score reading
-                   for the Hoax Overlay specifically, an explicit later
-                   request, kept independent of the manual one above.
+  valo-ingame     Just a pair of digit boxes (valorant_ocr_team1_score/
+                   valorant_ocr_team2_score) -- a reintroduced OCR round-
+                   score reading for the Hoax Overlay specifically, kept
+                   independent of the main In-Game HUD's own round score
+                   (that one is manual-only from the dashboard, OCR on it
+                   wasn't reliable enough to be worth it). This category
+                   used to also cover the plant/defuse popup's toast/
+                   banner/round-timer regions -- removed entirely along
+                   with that feature (see valorant_engine.py).
 
   valo-character   Ten character-select slot regions (5 defenders/left, 5
                    attackers/right) -- FIXED per-slot boxes on purpose: the
@@ -78,8 +63,8 @@ Usage:
     python calibrate_valorant.py                  # all 4 categories, in order
     python calibrate_valorant.py valo-ingame       # just that category
     python calibrate_valorant.py valo-postmatch    # just the 50-cell post-match scoreboard
-    python calibrate_valorant.py valo-livestats    # just the 40-cell live scoreboard
-    python calibrate_valorant.py valorant_announcement   # one individual box
+    python calibrate_valorant.py valo-livestats    # just the 50-cell live scoreboard
+    python calibrate_valorant.py valorant_ocr_team1_score   # one individual box
 Run again any time your game window moves or resizes.
 """
 
@@ -137,7 +122,6 @@ LIVESTATS_KEYS = [
 
 CATEGORIES = {
     "valo-ingame": [
-        "valorant_announcement", "valorant_round_timer", "valorant_round_banner",
         "valorant_ocr_team1_score", "valorant_ocr_team2_score",
     ],
     "valo-character": CHARSELECT_KEYS,
@@ -157,9 +141,6 @@ for _cat, _keys in CATEGORIES.items():
         KEY_TO_CATEGORY[_key] = _cat
 
 LABELS = {
-    "valorant_announcement": "SPIKE PLANTED / SPIKE DEFUSED small toast zone - draw it generously, wider/taller than the text itself",
-    "valorant_round_timer": "ROUND TIMER (the M:SS clock between the two scores) - crop tight to just the digits, used only as a spike-badge safety net, not displayed anywhere",
-    "valorant_round_banner": "BIG CENTER-SCREEN round-end result banner (\"ATTACKERS/DEFENDERS WON\" + reason) AND \"BUY PHASE\" (same spot, different time) - draw it generously around the whole banner area",
     "valorant_ocr_team1_score": "TEAM 1 (left/attacker side) - OCR ROUND SCORE (feeds the Hoax Overlay ONLY, separate from the manual Round Score used by the main In-Game HUD) - crop tight to just the digit",
     "valorant_ocr_team2_score": "TEAM 2 (right/defender side) - OCR ROUND SCORE (feeds the Hoax Overlay ONLY, separate from the manual Round Score used by the main In-Game HUD) - crop tight to just the digit",
 }
@@ -225,7 +206,7 @@ def main():
     # by category name, individual key, or a mix of both -- a category arg
     # expands to all its keys, an individual key arg adds just that one, and
     # everything gets merged (no duplicates) so e.g. "valo-character
-    # valorant_announcement" in one invocation runs both correctly.
+    # valorant_ocr_team1_score" in one invocation runs both correctly.
     if not requested:
         keys_by_category = {cat: list(keys) for cat, keys in CATEGORIES.items()}
     else:

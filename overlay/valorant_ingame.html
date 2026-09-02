@@ -67,6 +67,27 @@
 
   .bg-frame{ position:absolute; top:0; left:0; width:1920px; height:1080px; pointer-events:none; }
 
+  /* Animated glow along the main HUD bar's own real shape -- explicit
+     request ("whole top HUD bar" specifically, not the score plates or
+     the center banner alone). A CSS drop-shadow pulse follows
+     valorant_ingame_blank.png's actual alpha silhouette automatically
+     (the diagonal-cut team plates, the notched center banner, all of
+     it), so it traces the bar's real irregular outline without needing
+     a hand-drawn path for a shape that isn't a plain rectangle -- same
+     technique as Player Stats' own panel glow. Only applied via
+     #ingame-bg-frame specifically, NOT the shared .bg-frame class alone
+     -- #hoax-bg reuses that same class for the separate Hoax Overlay
+     screen in this same file, which wasn't asked for here. Toggled by
+     hudBoundaryAnimation (see applyState() below) -- rollback switch,
+     same pattern as every other animation toggle in this project. */
+  #ingame-bg-frame.boundary-glow{
+    animation: hudBoundaryGlow 3.2s ease-in-out infinite;
+  }
+  @keyframes hudBoundaryGlow{
+    0%, 100% { filter: drop-shadow(0 0 2px rgba(197,164,107,0.35)); }
+    50%      { filter: drop-shadow(0 0 9px rgba(197,164,107,0.85)); }
+  }
+
   .team-logo{ position:absolute; object-fit:contain; display:none; }
   #team1-logo{ left:6px; top:3px; width:50px; height:50px; }
   #team2-logo{ left:1864px; top:3px; width:50px; height:50px; }
@@ -102,8 +123,8 @@
      "spike-badge-idle" (before planted) and "spike-badge-planted" (once
      planted) -- both editable in Graphic Fixing's In-Game HUD page, so the
      whole idle->planted travel path is under the operator's control.
-     PERSISTENT, not the 6-second toast (that's the separate Plant/Defuse
-     Popup). A third state, "hidden", removes the badge entirely -- a
+     PERSISTENT (stays up until explicitly hidden, no auto-hide timer).
+     A third state, "hidden", removes the badge entirely -- a
      manual-only operator override (OCR never sets it), for rounds where
      the badge shouldn't be competing for attention at all.
      Recolored via an inline SVG filter (#spikeRedFilter below), not
@@ -262,7 +283,7 @@
 </svg>
 
 <div id="stage">
-  <img class="bg-frame" src="assets/valorant_ingame_blank.png" alt="">
+  <img class="bg-frame" id="ingame-bg-frame" src="assets/valorant_ingame_blank.png" alt="">
 
   <img class="team-logo" id="team1-logo" alt="">
   <div class="team-name" id="team1-name"></div>
@@ -389,6 +410,9 @@ function applyState(state){
   const hoaxVisible = !!(state.hoaxOverlay && state.hoaxOverlay.visible);
   document.getElementById("stage").classList.toggle("visible", !hoaxVisible);
   document.getElementById("hoax-stage").classList.toggle("visible", hoaxVisible);
+  document.getElementById("ingame-bg-frame").classList.toggle(
+    "boundary-glow", state.hudBoundaryAnimation !== false
+  );
 
   document.getElementById("team1-name").textContent = state.team1.name || "";
   document.getElementById("team2-name").textContent = state.team2.name || "";
