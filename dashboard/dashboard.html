@@ -1168,6 +1168,10 @@
         <input type="checkbox" id="val_liveStatsBgAnimation" style="width:14px;height:14px;margin:0;">
         Animated panel glow (pulses along the existing player rows' own edges -- doesn't add anything to the transparent background) -- turn off to roll back to plain
       </label>
+      <label class="row" style="margin-top:6px;align-items:center;gap:6px;">
+        <input type="checkbox" id="val_liveStatsGunIcon" style="width:14px;height:14px;margin:0;">
+        Show equipped gun icon (live, not OCR'd) -- off shows the panels without it, engine keeps capturing either way
+      </label>
     </div>
   </div>
 
@@ -5347,6 +5351,9 @@ document.getElementById("val_liveStatsClear").addEventListener("click", () => {
 document.getElementById("val_liveStatsBgAnimation").addEventListener("change", (e) => {
   if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"livestats_bg_animation_set", enabled: e.target.checked}));
 });
+document.getElementById("val_liveStatsGunIcon").addEventListener("change", (e) => {
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"livestats_gun_icon_set", enabled: e.target.checked}));
+});
 
 /* ---------- Live Ops: Attacking Side ---------- */
 document.querySelectorAll('input[name="val_attackingTeam"]').forEach(radio => {
@@ -5747,6 +5754,10 @@ function valApplyState(state){
   if(active !== "val_liveStatsBgAnimation") {
     document.getElementById("val_liveStatsBgAnimation").checked =
       !!(state.liveStatsOverlay && state.liveStatsOverlay.bgAnimation !== false);
+  }
+  if(active !== "val_liveStatsGunIcon") {
+    document.getElementById("val_liveStatsGunIcon").checked =
+      !!(state.liveStatsOverlay && state.liveStatsOverlay.gunIconEnabled === true);
   }
   if(active !== "val_hudBoundaryAnimation") {
     document.getElementById("val_hudBoundaryAnimation").checked = state.hudBoundaryAnimation !== false;

@@ -297,13 +297,14 @@ def default_state():
             "team1": [0, 1, 2, 3, 4],
             "team2": [0, 1, 2, 3, 4],
         },
-        # bgAnimation -- the animated background texture toggle. A real
-        # operator setting (like hoaxOverlay's leftSide), NOT a "currently
-        # showing" flag, so it deliberately does NOT get reset on restart
-        # below (only "visible" does) -- an easy rollback switch for the
-        # animation without needing a code change/redeploy if it doesn't
-        # read well once live.
-        "liveStatsOverlay": {"visible": False, "bgAnimation": True},
+        # bgAnimation/gunIconEnabled -- real operator settings (like
+        # hoaxOverlay's leftSide), NOT "currently showing" flags, so
+        # neither gets reset on restart below (only "visible" does).
+        # gunIconEnabled off by default -- explicit "turn it off for now"
+        # request; the engine keeps capturing/sending gun crops
+        # regardless (cheap, no OCR), this only gates whether the overlay
+        # actually renders them, so flipping it back on needs no restart.
+        "liveStatsOverlay": {"visible": False, "bgAnimation": True, "gunIconEnabled": False},
 
         "postMatch": {
             "duration": "", "date": "",
@@ -1262,6 +1263,11 @@ async def handle_client(websocket, path=None):
 
             elif msg_type == "livestats_bg_animation_set":
                 server_state["liveStatsOverlay"]["bgAnimation"] = bool(payload.get("enabled", True))
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
+            elif msg_type == "livestats_gun_icon_set":
+                server_state["liveStatsOverlay"]["gunIconEnabled"] = bool(payload.get("enabled", True))
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
 

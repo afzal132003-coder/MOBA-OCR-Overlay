@@ -124,6 +124,13 @@ const WS_URL = _relay
   ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=valorant_playerstats"
   : "ws://localhost:8765?page=valorant_playerstats";
 let ws;
+// Set from liveStatsOverlay.gunIconEnabled in applyState() -- gates
+// whether the crop_preview handler below is allowed to actually show a
+// gun icon <img>. Off by default (explicit "turn it off for now"
+// request); the engine keeps sending the crops regardless, this is a
+// pure display-side gate so flipping the dashboard toggle back on takes
+// effect instantly, no engine restart needed.
+let gunIconEnabled = false;
 
 function connect(){
   ws = new WebSocket(WS_URL);
@@ -136,7 +143,7 @@ function connect(){
       // block); the live captured picture is forwarded straight into
       // this row's gun <img> as its own message instead.
       const m = msg.region.match(/^valorant_livestats_(team\d)_row(\d)_gun$/);
-      if(m){
+      if(m && gunIconEnabled){
         const el = document.getElementById(`livestats-${m[1]}-row${m[2]}-gun`);
         if(el){ el.src = msg.image; el.style.display = "block"; }
       }
@@ -238,6 +245,16 @@ function applyState(state){
   document.getElementById("bg-frame-img").classList.toggle(
     "boundary-glow", !!(state.liveStatsOverlay && state.liveStatsOverlay.bgAnimation !== false)
   );
+  const gunIconWasEnabled = gunIconEnabled;
+  gunIconEnabled = !!(state.liveStatsOverlay && state.liveStatsOverlay.gunIconEnabled === true);
+  if(gunIconWasEnabled && !gunIconEnabled){
+    TEAMS.forEach(team => {
+      for(let row = 0; row < ROWS; row++){
+        const el = document.getElementById(`livestats-${team}-row${row}-gun`);
+        if(el) el.style.display = "none";
+      }
+    });
+  }
 
   const liveStats = state.liveStats || { team1: [], team2: [] };
   const assign = state.liveStatsAssign || { team1: [0,1,2,3,4], team2: [0,1,2,3,4] };
