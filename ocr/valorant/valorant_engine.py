@@ -527,6 +527,30 @@ def confirm_value(name, value, window_size=VALUE_CONFIRM_WINDOW):
     return winner
 
 
+def reset_livestats_debounce(team, row):
+    """Clears confirm_value()'s debounce state (window + last-confirmed)
+    for one row's Kills/Deaths/Assists/Coins, and zeroes that row's
+    displayed stats back to default -- call this whenever the row's
+    roster assignment changes, whether the operator corrects it by hand
+    (livestats_set_assign) or it's auto-detected from the on-screen name
+    (see the name-matching block in ocr_loop). Without this, the
+    monotonic guard (Kills/Deaths/Assists can't decrease) or the Coins
+    jump cap keep treating the PREVIOUS occupant's stats as a floor/
+    anchor for whoever's sitting there now -- confirmed directly against
+    a real live capture: Deaths stuck at a stale 7 while raw OCR
+    consistently read a clean 4 (which should have confirmed easily),
+    because 4 < 7 kept tripping the monotonic guard. The row's NEXT real
+    reading still has to win its own confirm_value() majority normally --
+    this only clears the stale anchor and the stale displayed number, it
+    doesn't force anything. Caller is responsible for save_state()/
+    broadcasting afterward, same as every other state mutation here."""
+    for field in LIVESTATS_FIELDS:
+        key = f"valorant_livestats_{team}_row{row}_{field}"
+        _value_windows.pop(key, None)
+        _value_last_confirmed.pop(key, None)
+    server_state["liveStats"][team][row] = default_live_stat_row()
+
+
 def preprocess(img_bgr, upscale=4):
     """Digit-tuned pipeline for Kills/Deaths/Assists (and Round Score) --
     originally mirrored ocr_engine.py's preprocess() including a CLAHE
@@ -1345,7 +1369,9 @@ async def handle_client(websocket, path=None):
                     and isinstance(row, int) and 0 <= row < LIVESTATS_ROWS
                     and isinstance(player_index, int) and 0 <= player_index < 5
                 ):
-                    server_state["liveStatsAssign"][team][row] = player_index
+                    if server_state["liveStatsAssign"][team][row] != player_index:
+                        server_state["liveStatsAssign"][team][row] = player_index
+                        reset_livestats_debounce(team, row)
                     save_state()
                     await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
 
