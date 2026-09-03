@@ -1558,19 +1558,40 @@ async def ocr_loop():
                 # payload every cycle would undo the earlier page-targeted
                 # broadcast bandwidth work (see broadcast_to_page's own
                 # comment) for a field nothing needs to persist or vote on.
-                for team in LIVESTATS_TEAMS:
-                    for row in range(LIVESTATS_ROWS):
-                        gun_key = f"valorant_livestats_{team}_row{row}_gun"
-                        gun_region = regions.get(gun_key)
-                        if not gun_region or gun_region.get("w", 0) <= 0 or gun_region.get("h", 0) <= 0:
-                            continue
-                        gun_crop = crop_to_bgr(sct, gun_region)
-                        gun_data_url = crop_to_data_url(gun_crop, scale=4, upscale_interpolation=cv2.INTER_LANCZOS4)
-                        if not gun_data_url:
-                            continue
-                        gun_message = {"type": "crop_preview", "region": gun_key, "image": gun_data_url, "text": ""}
-                        await broadcast_to_page("valorant_dashboard", gun_message)
-                        await broadcast_to_page("valorant_playerstats", gun_message)
+                #
+                # Gated on two SEPARATE conditions, not sent unconditionally
+                # like the comment above once implied -- an explicit fix
+                # after this was found still capturing and broadcasting all
+                # 10 cells, to both pages, every ~0.3s (LIVESTATS_POLL_
+                # EVERY_N_FRAMES), REGARDLESS of gunIconEnabled -- a real,
+                # reported data-usage problem (this runs over a real
+                # internet relay connection for whoever's PC is running the
+                # engine, and every connected viewer). Now: capture (the
+                # actual CPU/bandwidth cost -- crop_to_bgr + PNG encode)
+                # only happens at all if at least one destination wants it;
+                # each destination gets it only if IT specifically wants it
+                # -- dashboard for calibration visibility (same
+                # dashboard_connected() gate every other crop preview
+                # here uses), playerstats only when the operator has
+                # actually turned the icon on.
+                gun_icon_enabled = bool(server_state["liveStatsOverlay"].get("gunIconEnabled"))
+                send_gun_to_dashboard = dashboard_connected()
+                if gun_icon_enabled or send_gun_to_dashboard:
+                    for team in LIVESTATS_TEAMS:
+                        for row in range(LIVESTATS_ROWS):
+                            gun_key = f"valorant_livestats_{team}_row{row}_gun"
+                            gun_region = regions.get(gun_key)
+                            if not gun_region or gun_region.get("w", 0) <= 0 or gun_region.get("h", 0) <= 0:
+                                continue
+                            gun_crop = crop_to_bgr(sct, gun_region)
+                            gun_data_url = crop_to_data_url(gun_crop, scale=4, upscale_interpolation=cv2.INTER_LANCZOS4)
+                            if not gun_data_url:
+                                continue
+                            gun_message = {"type": "crop_preview", "region": gun_key, "image": gun_data_url, "text": ""}
+                            if send_gun_to_dashboard:
+                                await broadcast_to_page("valorant_dashboard", gun_message)
+                            if gun_icon_enabled:
+                                await broadcast_to_page("valorant_playerstats", gun_message)
 
             # Spike Badge and Bug Banner stay fully manual-only (their own
             # dashboard push/hide buttons, handled in handle_client above)
