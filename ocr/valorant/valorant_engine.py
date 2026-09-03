@@ -994,6 +994,30 @@ def crop_to_data_url(img_bgr, scale=3, upscale_interpolation=cv2.INTER_NEAREST):
     return f"data:image/png;base64,{b64}"
 
 
+def state_payload_for_page(page):
+    """Same server_state dict for every page except valorant_playerstats,
+    which gets a shallow copy with team1/team2's logo and photos blanked
+    out. An explicit fix after a real measurement (during a live match)
+    showed state_sync running ~550KB PER MESSAGE, sent every couple
+    seconds due to how often Kills/Deaths/Assists/Coins confirm during
+    live play -- team1.logo alone was 497KB of that 553KB, team2.logo
+    17KB, team1.photos[0] 22KB, together over 97% of the payload. This
+    is exactly the reported "data load" (for the engine operator AND
+    every viewer, since this goes out over a real internet relay
+    connection). valorant_playerstats.html's own applyState() never
+    reads .logo or .photos on either team -- confirmed directly by
+    reading that file -- so blanking them for its state_sync specifically
+    is safe: every OTHER page (dashboard needs the real logos for its own
+    preview/upload UI, valorant_ingame.html draws them on the HUD, etc)
+    still gets the untouched full state exactly as before."""
+    if page != "valorant_playerstats":
+        return server_state
+    trimmed = dict(server_state)
+    trimmed["team1"] = {**server_state["team1"], "logo": "", "photos": []}
+    trimmed["team2"] = {**server_state["team2"], "logo": "", "photos": []}
+    return trimmed
+
+
 async def broadcast(message):
     if not connected_clients:
         return
@@ -1129,7 +1153,7 @@ async def handle_client(websocket, path=None):
     connected_pages[websocket] = page
     await broadcast_presence()
     await websocket.send(json.dumps({
-        "type": "state_sync", "data": server_state, "locked": list(locked_fields),
+        "type": "state_sync", "data": state_payload_for_page(page), "locked": list(locked_fields),
     }))
     try:
         async for message in websocket:
@@ -1602,7 +1626,7 @@ async def ocr_loop():
             if changed_pages:
                 save_state()
                 for page in changed_pages:
-                    await broadcast_to_page(page, {"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+                    await broadcast_to_page(page, {"type": "state_sync", "data": state_payload_for_page(page), "locked": list(locked_fields)})
 
             frame_counter += 1
             await asyncio.sleep(interval)
