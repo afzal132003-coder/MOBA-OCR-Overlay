@@ -42,13 +42,15 @@ categories you can run independently:
                    throughout the match rather than captured once at the
                    end. Team-grouped (5 rows left/Team 1, 5 rows right/
                    Team 2), NOT one mixed ACS-sorted list like the post-
-                   match screen -- so this calibrates 2 teams x 5 rows x 4
-                   stat columns (Kills, Deaths, Assists, Coins/economy),
-                   40 INDIVIDUALLY drag-one-box cells, same plain flow as
-                   valo-postmatch. Player identity isn't calibrated here
-                   either -- the dashboard's Player Stats card lets you
-                   assign each physical row to a roster player, correctable
-                   any time the live scoreboard's own order shifts.
+                   match screen -- so this calibrates 2 teams x 5 rows x 6
+                   columns (Kills, Deaths, Assists, Coins/economy, the
+                   equipped gun icon, and the on-screen player name), 60
+                   INDIVIDUALLY drag-one-box cells, same plain flow as
+                   valo-postmatch. Row -> Player assignment is auto-
+                   detected from that name column (fuzzy-matched against
+                   the roster) with a manual override always available
+                   from the dashboard's Player Stats card for whenever
+                   OCR misses it.
 
 Have Valorant's in-game HUD (or a paused frame with the relevant screen
 visible) on screen when you run this. Region coordinates are written into
@@ -63,7 +65,7 @@ Usage:
     python calibrate_valorant.py                  # all 4 categories, in order
     python calibrate_valorant.py valo-ingame       # just that category
     python calibrate_valorant.py valo-postmatch    # just the 50-cell post-match scoreboard
-    python calibrate_valorant.py valo-livestats    # just the 50-cell live scoreboard
+    python calibrate_valorant.py valo-livestats    # just the 60-cell live scoreboard
     python calibrate_valorant.py valorant_ocr_team1_score   # one individual box
 Run again any time your game window moves or resizes.
 """
@@ -98,7 +100,7 @@ POSTMATCH_KEYS = [
 ]
 
 # Live in-game Tab-held scoreboard -- team-grouped (unlike valo-postmatch's
-# single mixed list), so this is 2 teams x 5 rows x 4 fields, not one flat
+# single mixed list), so this is 2 teams x 5 rows x 6 fields, not one flat
 # 10-row list. Kept in sync manually with LIVESTATS_TEAMS/_ROWS/_FIELDS in
 # valorant_engine.py.
 LIVESTATS_TEAMS = ["team1", "team2"]
@@ -110,8 +112,12 @@ LIVESTATS_TEAMS = ["team1", "team2"]
 # choice over trying to classify/match the icon against a reference
 # sprite sheet, which would be far less reliable under live video
 # compression than just showing the real captured icon directly.
-LIVESTATS_COLS = ["kills", "deaths", "assists", "coins", "gun"]
-LIVESTATS_COL_LABELS = {"kills": "Kills", "deaths": "Deaths", "assists": "Assists", "coins": "Coins/Economy", "gun": "Equipped Gun Icon (no OCR -- just crop tight to the weapon icon itself, the live picture is forwarded as-is)"}
+LIVESTATS_COLS = ["kills", "deaths", "assists", "coins", "gun", "name"]
+LIVESTATS_COL_LABELS = {
+    "kills": "Kills", "deaths": "Deaths", "assists": "Assists", "coins": "Coins/Economy",
+    "gun": "Equipped Gun Icon (no OCR -- just crop tight to the weapon icon itself, the live picture is forwarded as-is)",
+    "name": "On-screen Player Name/IGN (OCR'd and fuzzy-matched against the roster to auto-correct Row -> Player when the scoreboard re-sorts -- crop tight to just the name text, not the agent icon beside it)",
+}
 LIVESTATS_ROWS = 5
 LIVESTATS_KEYS = [
     f"valorant_livestats_{team}_row{r}_{col}"

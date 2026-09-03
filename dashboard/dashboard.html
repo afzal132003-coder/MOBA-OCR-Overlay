@@ -1172,6 +1172,10 @@
         <input type="checkbox" id="val_liveStatsGunIcon" style="width:14px;height:14px;margin:0;">
         Show equipped gun icon (live, not OCR'd) -- off shows the panels without it, engine keeps capturing either way
       </label>
+      <label class="row" style="margin-top:6px;align-items:center;gap:6px;">
+        <input type="checkbox" id="val_liveStatsAutoNameMatch" style="width:14px;height:14px;margin:0;">
+        Auto-correct Row → Player from the on-screen name -- off falls back to the manual dropdowns above only
+      </label>
     </div>
   </div>
 
@@ -5260,6 +5264,7 @@ function valBuildLiveStatsGrid(team){
   let thead = `<thead><tr style="text-align:center;color:#9aa4c0;"><th style="padding:4px;text-align:left;">${team === "team1" ? "Team 1" : "Team 2"} Row</th>`;
   VAL_LIVESTATS_FIELDS.forEach(f => { thead += `<th style="padding:4px;">${VAL_LIVESTATS_FIELD_LABELS[f]}</th>`; });
   thead += `<th style="padding:4px;">Gun</th>`;
+  thead += `<th style="padding:4px;">Name (auto-match)</th>`;
   thead += `</tr></thead>`;
   let tbody = "<tbody>";
   for(let row = 0; row < 5; row++){
@@ -5288,6 +5293,20 @@ function valBuildLiveStatsGrid(team){
       <td style="padding:4px;text-align:center;">
         <img id="crop-${gunKey}" style="display:block;max-width:260px;max-height:400px;margin:0 auto 3px;border:1px solid #332b52;border-radius:3px;image-rendering:pixelated;">
         <button type="button" class="secondary val-copy-calib" data-key="${gunKey}" title="Copy the recalibration command for just this cell" style="font-size:9px;padding:2px 4px;margin-top:3px;">Copy Calib Cmd</button>
+      </td>
+    `;
+    // Name -- OCR'd and fuzzy-matched against the roster to auto-correct
+    // Row -> Player when the live scoreboard re-sorts (see ocr_loop()'s
+    // name-matching block in valorant_engine.py). Purely informational
+    // here (crop + last raw OCR text, same val-ls-live-<key> pattern
+    // every stat column uses) -- the actual override, same as before, is
+    // the Row -> Player dropdown above this grid, not a control here.
+    const nameKey = `valorant_livestats_${team}_row${row}_name`;
+    tbody += `
+      <td style="padding:4px;text-align:center;">
+        <img id="crop-${nameKey}" style="display:block;max-width:260px;max-height:400px;margin:0 auto 3px;border:1px solid #332b52;border-radius:3px;image-rendering:pixelated;">
+        <div id="val-ls-live-${nameKey}" style="font-size:11px;color:#9aa4c0;">—</div>
+        <button type="button" class="secondary val-copy-calib" data-key="${nameKey}" title="Copy the recalibration command for just this cell" style="font-size:9px;padding:2px 4px;margin-top:3px;">Copy Calib Cmd</button>
       </td>
     `;
     tbody += `</tr>`;
@@ -5353,6 +5372,9 @@ document.getElementById("val_liveStatsBgAnimation").addEventListener("change", (
 });
 document.getElementById("val_liveStatsGunIcon").addEventListener("change", (e) => {
   if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"livestats_gun_icon_set", enabled: e.target.checked}));
+});
+document.getElementById("val_liveStatsAutoNameMatch").addEventListener("change", (e) => {
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"livestats_auto_name_match_set", enabled: e.target.checked}));
 });
 
 /* ---------- Live Ops: Attacking Side ---------- */
@@ -5758,6 +5780,10 @@ function valApplyState(state){
   if(active !== "val_liveStatsGunIcon") {
     document.getElementById("val_liveStatsGunIcon").checked =
       !!(state.liveStatsOverlay && state.liveStatsOverlay.gunIconEnabled === true);
+  }
+  if(active !== "val_liveStatsAutoNameMatch") {
+    document.getElementById("val_liveStatsAutoNameMatch").checked =
+      !!(state.liveStatsOverlay && state.liveStatsOverlay.autoNameMatchEnabled !== false);
   }
   if(active !== "val_hudBoundaryAnimation") {
     document.getElementById("val_hudBoundaryAnimation").checked = state.hudBoundaryAnimation !== false;

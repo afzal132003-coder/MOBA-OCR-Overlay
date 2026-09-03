@@ -27,6 +27,7 @@ follow-up once that's been looked at directly.
 
 import asyncio
 import base64
+import difflib
 import json
 import re
 import time
@@ -297,14 +298,21 @@ def default_state():
             "team1": [0, 1, 2, 3, 4],
             "team2": [0, 1, 2, 3, 4],
         },
-        # bgAnimation/gunIconEnabled -- real operator settings (like
-        # hoaxOverlay's leftSide), NOT "currently showing" flags, so
-        # neither gets reset on restart below (only "visible" does).
-        # gunIconEnabled off by default -- explicit "turn it off for now"
-        # request; the engine keeps capturing/sending gun crops
+        # bgAnimation/gunIconEnabled/autoNameMatchEnabled -- real operator
+        # settings (like hoaxOverlay's leftSide), NOT "currently showing"
+        # flags, so none get reset on restart below (only "visible"
+        # does). gunIconEnabled off by default -- explicit "turn it off
+        # for now" request; the engine keeps capturing/sending gun crops
         # regardless (cheap, no OCR), this only gates whether the overlay
         # actually renders them, so flipping it back on needs no restart.
-        "liveStatsOverlay": {"visible": False, "bgAnimation": True, "gunIconEnabled": False},
+        # autoNameMatchEnabled on by default -- explicit request to stop
+        # needing a manual Row -> Player fix every time the live
+        # scoreboard re-sorts; conservative matching (match_player_name's
+        # similarity threshold + its own confirm_value() debounce) makes
+        # a false reassignment unlikely, but this is the rollback switch
+        # if it ever misfires -- manual livestats_set_assign always still
+        # works regardless of this flag.
+        "liveStatsOverlay": {"visible": False, "bgAnimation": True, "gunIconEnabled": False, "autoNameMatchEnabled": True},
 
         "postMatch": {
             "duration": "", "date": "",
@@ -499,6 +507,14 @@ MONOTONIC_MAX_JUMP = 8
 COINS_CONFIRM_WINDOW = 5
 COINS_MAX_JUMP_PER_CONFIRM = 3000
 
+# Wider than the default VALUE_CONFIRM_WINDOW for the same reason Coins'
+# own window is wider -- a wrong auto row->player reassignment is more
+# disruptive than one noisy stat frame (it resets the whole row's K/D/A/
+# Coins tracking, see reset_livestats_debounce()), so it's worth trading
+# a little responsiveness for real resistance to a one-off OCR misread
+# of the name text winning a narrow majority.
+NAME_MATCH_CONFIRM_WINDOW = 5
+
 
 def confirm_value(name, value, window_size=VALUE_CONFIRM_WINDOW):
     """value is this frame's raw (unconfirmed) reading for `name`, or None
@@ -603,6 +619,50 @@ def ocr_number(img_bgr):
     processed = preprocess(img_bgr)
     text = pytesseract.image_to_string(processed, config=TESS_CONFIG)
     return text.strip()
+
+
+# On-screen player name/IGN, for auto row->player reassignment (see
+# match_player_name() and its call site in ocr_loop()). No digit
+# whitelist -- unlike every other field above, a name can be almost any
+# character (letters, numbers, symbols, unicode). Reuses preprocess()
+# (the same CLAHE-free OTSU pipeline Kills/Deaths/Assists use, tuned for
+# this pipeline's real small-crop size) since name cells are similarly
+# tiny and share the same white-text-on-panel look, just swaps the
+# digit-only Tesseract config for a permissive one.
+TESS_CONFIG_NAME = "--oem 1 --psm 7"
+
+
+def ocr_name(img_bgr):
+    processed = preprocess(img_bgr)
+    text = pytesseract.image_to_string(processed, config=TESS_CONFIG_NAME)
+    return text.strip()
+
+
+def match_player_name(ocr_text, roster, min_ratio=0.5):
+    """Best-guess match of OCR'd name text against a team's roster (up to
+    5 names). Returns the matching roster index, or None if nothing
+    clears min_ratio -- deliberately conservative, since a wrong auto-
+    match would silently misattribute a whole row's stat line to the
+    wrong player. Both sides are normalized (uppercase, strip everything
+    but letters/digits) before comparing with difflib's SequenceMatcher,
+    since OCR noise on stylized broadcast-font text most often shows up
+    as dropped/garbled punctuation and case, not wrong letters."""
+    if not ocr_text:
+        return None
+    target = re.sub(r"[^A-Z0-9]", "", ocr_text.upper())
+    if not target:
+        return None
+    best_idx, best_ratio = None, 0.0
+    for i, name in enumerate(roster):
+        name_norm = re.sub(r"[^A-Z0-9]", "", (name or "").upper())
+        if not name_norm:
+            continue
+        ratio = difflib.SequenceMatcher(None, target, name_norm).ratio()
+        if ratio > best_ratio:
+            best_idx, best_ratio = i, ratio
+    if best_ratio < min_ratio:
+        return None
+    return best_idx
 
 
 # Coins (Player Stats) and Econ (post-match grid) both show a currency
@@ -1351,6 +1411,11 @@ async def handle_client(websocket, path=None):
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
 
+            elif msg_type == "livestats_auto_name_match_set":
+                server_state["liveStatsOverlay"]["autoNameMatchEnabled"] = bool(payload.get("enabled", True))
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
             elif msg_type == "hud_boundary_animation_set":
                 server_state["hudBoundaryAnimation"] = bool(payload.get("enabled", True))
                 save_state()
@@ -1677,6 +1742,65 @@ async def ocr_loop():
                                 await broadcast_to_page("valorant_dashboard", gun_message)
                             if gun_icon_enabled:
                                 await broadcast_to_page("valorant_playerstats", gun_message)
+
+                # Auto row -> player reassignment: OCR the on-screen name
+                # each cycle and fuzzy-match it against the team's roster
+                # (see match_player_name() above) -- an explicit request
+                # to stop needing a manual Row -> Player fix every time
+                # the live scoreboard re-sorts. Debounced through
+                # confirm_value() same as every numeric field above --
+                # that function works on any hashable value, not just
+                # numbers, so the matched roster INDEX (or None, on a
+                # no-confident-match frame) gets the exact same rolling-
+                # majority treatment a stat reading does, just with its
+                # own wider window (NAME_MATCH_CONFIRM_WINDOW) since a
+                # wrong reassignment is more disruptive than one noisy
+                # stat frame. Only acts when a NEWLY confirmed match
+                # differs from the CURRENT assignment, and immediately
+                # calls reset_livestats_debounce() for that row (see its
+                # own docstring) -- otherwise the row's K/D/A/Coins would
+                # keep enforcing the OLD occupant's stats as a floor
+                # against the new one.
+                auto_name_match_enabled = bool(server_state["liveStatsOverlay"].get("autoNameMatchEnabled"))
+                send_name_to_dashboard = dashboard_connected()
+                if auto_name_match_enabled or send_name_to_dashboard:
+                    name_keys = []
+                    name_crops = []
+                    for team in LIVESTATS_TEAMS:
+                        for row in range(LIVESTATS_ROWS):
+                            name_key = f"valorant_livestats_{team}_row{row}_name"
+                            name_region = regions.get(name_key)
+                            if not name_region or name_region.get("w", 0) <= 0 or name_region.get("h", 0) <= 0:
+                                continue
+                            name_keys.append((team, row, name_key))
+                            name_crops.append(crop_to_bgr(sct, name_region))
+                    if name_keys:
+                        name_texts = await asyncio.gather(*[
+                            loop.run_in_executor(ocr_executor, ocr_name, crop)
+                            for crop in name_crops
+                        ])
+                        for (team, row, name_key), text, crop in zip(name_keys, name_texts, name_crops):
+                            if send_name_to_dashboard:
+                                data_url = crop_to_data_url(crop)
+                                if data_url:
+                                    await broadcast_to_page("valorant_dashboard", {
+                                        "type": "crop_preview", "region": name_key,
+                                        "image": data_url, "text": text or "",
+                                    })
+                            if not auto_name_match_enabled:
+                                continue
+                            roster = server_state[team].get("players") or []
+                            matched_index = match_player_name(text, roster)
+                            confirmed_index = confirm_value(
+                                f"{name_key}_match", matched_index, window_size=NAME_MATCH_CONFIRM_WINDOW,
+                            )
+                            if confirmed_index is None:
+                                continue
+                            current_index = server_state["liveStatsAssign"][team][row]
+                            if confirmed_index != current_index:
+                                server_state["liveStatsAssign"][team][row] = confirmed_index
+                                reset_livestats_debounce(team, row)
+                                changed_pages.update(("valorant_dashboard", "valorant_playerstats"))
 
             # Spike Badge and Bug Banner stay fully manual-only (their own
             # dashboard push/hide buttons, handled in handle_client above)
