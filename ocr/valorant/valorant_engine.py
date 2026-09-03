@@ -472,17 +472,49 @@ COINS_ROUND_TO = 50
 MONOTONIC_LIVESTATS_FIELDS = ("kills", "deaths", "assists")
 MONOTONIC_MAX_JUMP = 8
 
+# Both added after a SECOND live-match capture (mid-match, via the same
+# relay-viewer monitoring as the sanity guards above) showed the range
+# clamp and round-to-50 weren't enough on their own: raw (pre-window)
+# Coins readings for a single cell were seen swinging wildly within a
+# few seconds of real time -- e.g. 50, 5750, 8750, 8700, 50, 0, 100,
+# 7300, 700 for the very same cell -- and every one of those already
+# passed the 0-9000 range check and rounds cleanly to a multiple of 50,
+# so neither existing guard has any way to tell them apart from a real
+# reading. Wide enough noise that two bad reads occasionally landing on
+# the same value by chance is enough to win VALUE_CONFIRM_WINDOW's
+# default 2-of-3 majority (a real confirmed jump to 5750 was observed
+# this way, for a cell that read ~50-250 the whole time around it).
+#
+# COINS_CONFIRM_WINDOW widens the majority needed (3-of-5 instead of
+# 2-of-3) specifically for Coins -- unlike Kills/Deaths/Assists, credits
+# don't need split-second live accuracy, so trading a bit of latency for
+# real bad-reads-agreeing-by-chance resistance is a clear win here.
+# COINS_MAX_JUMP_PER_CONFIRM rejects a confirmed value that differs from
+# the current one by more than this in EITHER direction (Coins isn't
+# monotonic like K/D/A -- credits legitimately drop when a player buys
+# -- so this bounds magnitude, not direction) -- real Valorant economy
+# swings happen at discrete round transitions, not continuously within
+# the sub-second span one confirm window covers, so a swing this large
+# in one step can only be noise.
+COINS_CONFIRM_WINDOW = 5
+COINS_MAX_JUMP_PER_CONFIRM = 3000
 
-def confirm_value(name, value):
+
+def confirm_value(name, value, window_size=VALUE_CONFIRM_WINDOW):
     """value is this frame's raw (unconfirmed) reading for `name`, or None
     if unreadable this frame (a miss -- doesn't enter the window at all,
     so it can't dilute the vote). Returns the confirmed value once the
     window is full AND a value holds a genuine majority (more than half),
     and only once per change (returns None again on subsequent polls that
-    keep agreeing with what's already confirmed) -- otherwise None."""
+    keep agreeing with what's already confirmed) -- otherwise None.
+
+    window_size only takes effect the FIRST time a given `name` is seen
+    (the deque's maxlen is fixed at creation) -- fine in practice since
+    every caller always passes the same size for the same name. Coins
+    passes a wider one (see COINS_CONFIRM_WINDOW) than the default."""
     if value is None:
         return None
-    window = _value_windows.setdefault(name, deque(maxlen=VALUE_CONFIRM_WINDOW))
+    window = _value_windows.setdefault(name, deque(maxlen=window_size))
     window.append(value)
     if len(window) < window.maxlen:
         return None
@@ -1504,7 +1536,8 @@ async def ocr_loop():
                                 # fixing near-misses instead of only
                                 # discarding impossible ones.
                                 raw_value = round(raw_value / COINS_ROUND_TO) * COINS_ROUND_TO
-                        confirmed = confirm_value(key, raw_value)
+                        window_size = COINS_CONFIRM_WINDOW if field == "coins" else VALUE_CONFIRM_WINDOW
+                        confirmed = confirm_value(key, raw_value, window_size=window_size)
                         lock_key = f"liveStats.{team}.{row}.{field}"
                         if confirmed is not None and lock_key not in locked_fields:
                             current = server_state["liveStats"][team][row][field]
@@ -1512,6 +1545,8 @@ async def ocr_loop():
                                 confirmed < current or confirmed - current > MONOTONIC_MAX_JUMP
                             ):
                                 pass  # impossible for a live match counter -- see MONOTONIC_LIVESTATS_FIELDS
+                            elif field == "coins" and abs(confirmed - current) > COINS_MAX_JUMP_PER_CONFIRM:
+                                pass  # too large a swing for one confirm cycle -- see COINS_MAX_JUMP_PER_CONFIRM
                             elif current != confirmed:
                                 server_state["liveStats"][team][row][field] = confirmed
                                 changed_pages.update(("valorant_dashboard", "valorant_playerstats"))
