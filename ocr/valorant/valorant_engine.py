@@ -679,9 +679,12 @@ def match_player_name(ocr_text, roster, min_ratio=0.5):
     return best_idx
 
 
-# Coins (Player Stats) and Econ (post-match grid) both show a currency
+# Coins (Player Stats, the live in-match scoreboard) shows a currency
 # icon (¤) immediately butted up against the real digits, e.g. "¤4,350" --
-# confirmed against a real capture: with TESS_CONFIG's digit-only
+# NOT the post-match grid's Econ column, which is a plain 0-100ish spend-
+# efficiency rating with no icon at all (see its own comment at the
+# ocr_number(econ_crop) call site) -- confirmed against a real capture:
+# with TESS_CONFIG's digit-only
 # whitelist, Tesseract can't decline to recognize the icon as "not a
 # digit" and reliably misreads it as a spurious leading digit (real
 # "4,350" -> raw "14350"). Tesseract DOES still segment the icon as its
@@ -959,9 +962,21 @@ def extract_postmatch_grid(regions_cfg, img_bgr=None):
                 crop_previews["acs"] = crop_to_data_url(acs_crop)
 
             econ_crop = read_cell(keys["econ"], sct)
-            # Currency-aware path -- Econ has the same leading ¤ icon
-            # touching its digits as Coins does, see ocr_currency_number.
-            econ = parse_int(ocr_currency_number(econ_crop)) if econ_crop is not None else None
+            # Plain digit path, NOT ocr_currency_number() -- an earlier
+            # assumption that post-match Econ shows the same leading ¤
+            # icon as live Coins was wrong (never verified against a real
+            # capture at the time). Confirmed via real crop thumbnails the
+            # operator sent: this cell shows a bare 0-100ish spend-
+            # efficiency rating (Valorant's real "ECON" stat) with no icon
+            # at all, nothing like Coins' 0-9000 raw-credit range. Running
+            # it through strip_leading_icon() (which only activates on
+            # >=3 ink blobs, tuned for icon+digits) plus preprocess_
+            # currency()'s brightness/saturation mask (tuned for the live
+            # Coins panel's own dark-navy translucent background, a
+            # different screen entirely) was silently reading empty text
+            # -> None -> displayed as a hardcoded 0 for every row, matching
+            # exactly what got reported.
+            econ = parse_int(ocr_number(econ_crop)) if econ_crop is not None else None
             if econ_crop is not None:
                 crop_previews["econ"] = crop_to_data_url(econ_crop)
 
