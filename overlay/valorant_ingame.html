@@ -349,7 +349,17 @@ function connect(){
 
 function setLogo(id, src){
   const el = document.getElementById(id);
-  if(src){ el.src = src; el.style.display = "block"; }
+  if(src){
+    // state_sync fires many times a second (OCR poll loop), and every
+    // tick calls this with the SAME base64 logo string unchanged --
+    // reassigning el.src to an identical data: URL still makes the
+    // browser redecode/reload it, which showed as the logo flickering
+    // off and back on the live HUD. Skipping the reassignment when the
+    // value hasn't actually changed fixes that without touching the
+    // real update path (a genuinely new logo still assigns normally).
+    if(el.src !== src) el.src = src;
+    el.style.display = "block";
+  }
   else { el.style.display = "none"; }
 }
 
