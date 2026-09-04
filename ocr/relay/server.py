@@ -122,9 +122,6 @@ async def handler(websocket):
             except json.JSONDecodeError:
                 continue
 
-            if msg.get("type") == "state_sync":
-                last_state_sync = raw
-
             # See the file-level comment above -- an engine can't address
             # just one of its own relay-connected pages directly, since it
             # only ever holds this one connection representing all of
@@ -132,6 +129,28 @@ async def handler(websocket):
             # original/default behavior) unless the sender explicitly
             # narrowed it.
             target_pages = msg.get("_target_pages")
+
+            if msg.get("type") == "state_sync" and target_pages is None:
+                # Only cache FULL, untargeted state_sync messages as "the
+                # current state" for late joiners -- an explicit fix after
+                # a real capture showed a newly-(re)connecting page
+                # sometimes getting served a stale, WRONGLY-SCOPED snapshot
+                # instead. valorant_engine.py's own bandwidth optimization
+                # sends some fields (e.g. team logos) trimmed out via
+                # _target_pages to just the one page that doesn't need
+                # them (valorant_playerstats) -- if THAT narrowed message
+                # got cached here as the global "last known state", the
+                # next unrelated page to (re)connect (e.g. valorant_ingame,
+                # which DOES need the real logo) would get served the
+                # trimmed version and render it as if it were the real
+                # current state, visible live as the team logo flickering
+                # off and back on every time that page's connection blips
+                # and reconnects (routine over a real internet relay).
+                # Caching only full snapshots means a late joiner always
+                # gets a complete one; it may be a poll cycle stale, but
+                # never missing fields that were only trimmed for a
+                # DIFFERENT page's benefit.
+                last_state_sync = raw
 
             stale = []
             for peer in connected:
