@@ -1148,8 +1148,10 @@
         cd ocr/valorant &amp;&amp; python calibrate_valorant.py valo-livestats
       </div>
       <p class="hint" style="margin-top:10px;">Row → Player — the live scoreboard can re-sort as the match goes on;
-        use these to say which roster player is CURRENTLY sitting at each on-screen row position. Correct any time
-        the order changes:</p>
+        use these to say which roster player is CURRENTLY sitting at each on-screen row position. The crop + text
+        next to each dropdown is exactly what the engine is currently reading off-screen for that row's name -- use
+        it to confirm the dropdown actually matches before you trust the assignment, or before Auto-correct changes
+        it for you. Correct any time the order changes:</p>
       <div class="row">
         <div class="team-form" id="val_liveStatsAssignTeam1"></div>
         <div class="team-form" id="val_liveStatsAssignTeam2"></div>
@@ -1175,6 +1177,10 @@
       <label class="row" style="margin-top:6px;align-items:center;gap:6px;">
         <input type="checkbox" id="val_liveStatsAutoNameMatch" style="width:14px;height:14px;margin:0;">
         Auto-correct Row → Player from the on-screen name -- off falls back to the manual dropdowns above only
+      </label>
+      <label class="row" style="margin-top:6px;align-items:center;gap:6px;">
+        <input type="checkbox" id="val_liveStatsCoinsVisible" style="width:14px;height:14px;margin:0;">
+        Show Coins (number + the currency icon in the graphic) -- off hides both on the live overlay
       </label>
     </div>
   </div>
@@ -4743,6 +4749,13 @@ function valConnect(){
       if(msg.region.startsWith("valorant_livestats_")){
         const liveEl = document.getElementById(`val-ls-live-${msg.region}`);
         if(liveEl) liveEl.textContent = (msg.text && msg.text.trim()) ? msg.text : "—";
+        if(msg.region.endsWith("_name")){
+          const text = (msg.text && msg.text.trim()) ? msg.text : "—";
+          const assignImg = document.getElementById(`crop-assign-${msg.region}`);
+          if(assignImg) assignImg.src = msg.image;
+          const assignLive = document.getElementById(`val-ls-live-assign-${msg.region}`);
+          if(assignLive){ assignLive.textContent = `Reading: ${text}`; assignLive.title = text; }
+        }
       }
     } else if(msg.type === "postmatch_scoreboard_extracted"){
       const elapsed = stopExtractTimer("val_import_status");
@@ -5214,16 +5227,29 @@ function valBuildLiveStatsAssignRows(team){
   const container = document.getElementById(`val_liveStatsAssignTeam${team.slice(-1)}`);
   container.innerHTML = `<label>${team === "team1" ? "Team 1" : "Team 2"} — Row → Player</label>`;
   for (let row = 0; row < 5; row++) {
+    const nameKey = `valorant_livestats_${team}_row${row}_name`;
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:6px;";
     const sel = document.createElement("select");
     sel.id = `val_liveStatsAssign_${team}_row${row}`;
-    sel.style.marginBottom = "6px";
+    sel.style.flex = "1";
+    sel.style.minWidth = "0";
     sel.addEventListener("change", () => {
       if(!(valWs && valWs.readyState === WebSocket.OPEN)) return;
       valWs.send(JSON.stringify({
         type: "livestats_set_assign", team, row, playerIndex: Number(sel.value),
       }));
     });
-    container.appendChild(sel);
+    wrap.appendChild(sel);
+    wrap.insertAdjacentHTML("beforeend", `
+      <img id="crop-assign-${nameKey}" title="Live crop of the on-screen name for this row" alt=""
+        style="width:76px;height:22px;object-fit:cover;border:1px solid #332b52;border-radius:3px;
+        image-rendering:pixelated;flex-shrink:0;background:#0c0a17;">
+      <div id="val-ls-live-assign-${nameKey}" title=""
+        style="font-size:10px;color:#9aa4c0;width:100px;flex-shrink:0;white-space:nowrap;overflow:hidden;
+        text-overflow:ellipsis;">Reading: —</div>
+    `);
+    container.appendChild(wrap);
   }
 }
 function valRenderLiveStatsAssignRows(state){
@@ -5375,6 +5401,9 @@ document.getElementById("val_liveStatsGunIcon").addEventListener("change", (e) =
 });
 document.getElementById("val_liveStatsAutoNameMatch").addEventListener("change", (e) => {
   if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"livestats_auto_name_match_set", enabled: e.target.checked}));
+});
+document.getElementById("val_liveStatsCoinsVisible").addEventListener("change", (e) => {
+  if(valWs && valWs.readyState === WebSocket.OPEN) valWs.send(JSON.stringify({type:"livestats_coins_visible_set", enabled: e.target.checked}));
 });
 
 /* ---------- Live Ops: Attacking Side ---------- */
@@ -5784,6 +5813,10 @@ function valApplyState(state){
   if(active !== "val_liveStatsAutoNameMatch") {
     document.getElementById("val_liveStatsAutoNameMatch").checked =
       !!(state.liveStatsOverlay && state.liveStatsOverlay.autoNameMatchEnabled !== false);
+  }
+  if(active !== "val_liveStatsCoinsVisible") {
+    document.getElementById("val_liveStatsCoinsVisible").checked =
+      !!(state.liveStatsOverlay && state.liveStatsOverlay.coinsVisible !== false);
   }
   if(active !== "val_hudBoundaryAnimation") {
     document.getElementById("val_hudBoundaryAnimation").checked = state.hudBoundaryAnimation !== false;

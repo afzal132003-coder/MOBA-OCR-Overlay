@@ -312,7 +312,18 @@ def default_state():
         # a false reassignment unlikely, but this is the rollback switch
         # if it ever misfires -- manual livestats_set_assign always still
         # works regardless of this flag.
-        "liveStatsOverlay": {"visible": False, "bgAnimation": True, "gunIconEnabled": False, "autoNameMatchEnabled": True},
+        # coinsVisible on by default (Coins has always shown) -- explicit
+        # request to be able to hide BOTH the live Coins number and the
+        # static currency-icon glyph baked into playerstats.png's
+        # background art. The engine still reads/confirms Coins either
+        # way (cheap, no extra OCR cost either direction) -- this only
+        # gates what the overlay renders, see valorant_playerstats.html's
+        # own coinsVisible handling for how the baked-in icon gets
+        # covered rather than truly hidden.
+        "liveStatsOverlay": {
+            "visible": False, "bgAnimation": True, "gunIconEnabled": False,
+            "autoNameMatchEnabled": True, "coinsVisible": True,
+        },
 
         "postMatch": {
             "duration": "", "date": "",
@@ -568,41 +579,44 @@ def reset_livestats_debounce(team, row):
 
 
 def preprocess(img_bgr, upscale=4):
-    """Digit-tuned pipeline for Kills/Deaths/Assists (and Round Score) --
-    originally mirrored ocr_engine.py's preprocess() including a CLAHE
-    (adaptive local contrast) pass, but that turned out to actively hurt
-    here specifically once measured against these fields' real crop size:
-    Player Stats K/D/A cells calibrate to roughly 20-30px square (see
-    valorant_regions_livestats.json), and CLAHE's default 8x8 tile grid
-    on a crop that small means each tile covers only a few pixels --
-    "local contrast enhancement" over that few a sample mostly amplifies
-    noise rather than revealing real digit signal (the exact same failure
-    mode found and fixed in preprocess_currency() for Coins/Econ, which
-    has the same root cause and dropped CLAHE entirely for it).
+    """Digit-tuned pipeline for Kills/Deaths/Assists/Round Score (and,
+    via ocr_number()/ocr_kda_triple(), the post-match grid's ACS/K-D-A/
+    First Bloods/Plants too). No CLAHE -- an earlier fix already found and
+    removed that (its default 8x8 tile grid is degenerate on a crop this
+    small, see preprocess_currency() for the same root cause on Coins/
+    Econ); that part stands. Border still goes on AFTER thresholding, not
+    before -- a replicated border that's a large fraction of a crop this
+    small would skew OTSU's histogram before it ever sees the real digit.
 
-    Border+upscale also moved to AFTER thresholding rather than before --
-    same reasoning as preprocess_currency(): a 10px REPLICATE border then
-    4x CUBIC upscale becomes a large fraction of a crop this small, all of
-    it a smoothed/replicated copy of whatever's at the true edge, which
-    can skew OTSU's histogram before it ever sees the real digit. OTSU now
-    runs on the small original grayscale crop directly, then the binary
-    result is upscaled with NEAREST (crisp edges, no gray blending) and
-    bordered with a flat white fill (matching the post-invert polarity
-    below) after the fact.
+    Where upscale happens relative to thresholding, though, needed a
+    second look: a same-session change moved it to run on the BINARY
+    result via NEAREST (to keep edges crisp), but that left OTSU
+    thresholding the native ~20-36px crop directly -- fine for simple
+    stroke digits (1/3/5/7), but confirmed against real crops pulled live
+    off a real match (via the relay, not synthetic) to actively corrupt
+    LOOP-shaped digits: a true "0" and a true "8" each collapsed into an
+    unrecognizable blob (the hollow center filling in or breaking apart)
+    at native resolution, reading as blank and "4" respectively. Same
+    real-crop test also caught the native-resolution version hallucinating
+    a spurious "78" out of a frame that was actually just noise -- no
+    digit at all -- which is worse than a miss, since a wrong-but-present
+    reading can still win a debounce majority.
 
-    An end-to-end synthetic test (rendered digit crops at real K/D/A
-    crop size, with noise/blur added to mimic video compression) went
-    from reading almost nothing (1/56 correct, empty string nearly every
-    attempt -- consistent with these fields' reported misreads) to 17/56
-    with this version -- still far from perfect single-frame accuracy,
-    but a large jump in how often there's a real digit to feed the
-    debounce window at all, same milestone as the Coins mask rework."""
+    Upscaling the GRAYSCALE crop first with CUBIC (interpolated, not
+    blocky) gives OTSU a smoother, larger image to threshold, which
+    preserves loop holes instead of letting single native pixels decide
+    whether they survive. Re-run against the same real captures: the
+    misread "8", the blank "0", AND the hallucinated "78" (which
+    correctly returned nothing once the frame's actual lack of any digit
+    wasn't being amplified by native-resolution thresholding) all read
+    correctly/safely afterward, with no regression on the digits that
+    already worked (1, 3, 5)."""
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    gray = cv2.resize(gray, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
     gray = cv2.medianBlur(gray, 3)
     _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     if thresh.mean() < 127:
         thresh = cv2.bitwise_not(thresh)
-    thresh = cv2.resize(thresh, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_NEAREST)
     thresh = cv2.copyMakeBorder(thresh, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
     return thresh
 
@@ -851,8 +865,21 @@ def parse_int(text):
 # own screenshot import already uses.
 # ---------------------------------------------------------------------------
 
-# The K/D/A column OCRs as one slash-joined token, e.g. "18/3/5".
-KDA_TRIPLE_REGEX = re.compile(r"^(\d+)/(\d+)/(\d+)$")
+# The K/D/A column OCRs as one slash-joined token, e.g. "18/3/5" -- but
+# Tesseract (PSM 7, on this wider ~80-125px cell vs the tiny single-digit
+# ones elsewhere) can space the slash out from a digit (e.g. "18 / 3/5")
+# or leave a stray character at either end, neither of which the old
+# exact-adjacency, fully-anchored regex tolerated -- it rejected the whole
+# reading outright rather than just misreading it. Confirmed as the shape
+# of a real failure: the user reported the WHOLE K/D/A column coming back
+# blank (needing a full manual re-entry) even though the crop thumbnails
+# themselves showed clearly legible "18/3/5"-style text -- blank/0 output
+# from otherwise-legible input is what an unmatched regex produces, not
+# what a genuine misread produces (a wrong but present number). \s* around
+# each slash tolerates spacing; searching instead of anchor-matching
+# tolerates stray leading/trailing junk, without loosening what counts as
+# the triple itself.
+KDA_TRIPLE_REGEX = re.compile(r"(\d+)\s*/\s*(\d+)\s*/\s*(\d+)")
 
 TESS_CONFIG_KDA = (
     "--oem 1 --psm 7 "
@@ -880,7 +907,7 @@ def ocr_kda_triple(img_bgr):
     """Returns (kills, deaths, assists) or None for a "K/D/A" cell."""
     processed = preprocess(img_bgr)
     text = pytesseract.image_to_string(processed, config=TESS_CONFIG_KDA).strip()
-    match = KDA_TRIPLE_REGEX.match(text)
+    match = KDA_TRIPLE_REGEX.search(text)
     if not match:
         return None
     return int(match.group(1)), int(match.group(2)), int(match.group(3))
@@ -1413,6 +1440,11 @@ async def handle_client(websocket, path=None):
 
             elif msg_type == "livestats_auto_name_match_set":
                 server_state["liveStatsOverlay"]["autoNameMatchEnabled"] = bool(payload.get("enabled", True))
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+
+            elif msg_type == "livestats_coins_visible_set":
+                server_state["liveStatsOverlay"]["coinsVisible"] = bool(payload.get("enabled", True))
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
 

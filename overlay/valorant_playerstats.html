@@ -196,6 +196,21 @@ const FIELD_RECT = {
   // PLAYERSTATS_FIELD_RECT (same convention as every other field's rect).
   gun:     { left:44,  top:39, width:34, height:24 },
 };
+// The currency icon next to Coins is baked into playerstats.png itself
+// (drawn once per row x team, not a separate element), so "hide the
+// coins symbol too" can't be a simple display:none on some element --
+// tried covering it with a same-color CSS patch first, but the icon
+// glyph is fully opaque while the chip behind it is only ~64% opaque
+// (lets live gameplay footage tint through), so a patch at the chip's
+// own alpha still let the icon show through underneath, and a fully
+// opaque patch sat visibly darker than its surroundings against real
+// footage. Fixed at the source instead: assets/playerstats_nocoinicon.png
+// is playerstats.png with just those 10 icons' own ink pixels overwritten
+// with the exact flat fill color+alpha sampled from the pixels around
+// them (see the one-off edit script that produced it) -- pixel-identical
+// to the original everywhere else, confirmed via diff (~145px changed
+// per icon, matching just the glyph's own ink, nothing beyond it).
+// coinsVisible in applyState() swaps which one bg-frame-img points at.
 const TEAMS = ["team1", "team2"];
 const ROWS = 5;
 
@@ -255,6 +270,17 @@ function applyState(state){
       }
     });
   }
+
+  const coinsVisible = !!(state.liveStatsOverlay && state.liveStatsOverlay.coinsVisible !== false);
+  const bgImg = document.getElementById("bg-frame-img");
+  const wantBg = coinsVisible ? "assets/playerstats.png" : "assets/playerstats_nocoinicon.png";
+  if(!bgImg.src.endsWith(wantBg)) bgImg.src = wantBg;
+  TEAMS.forEach(team => {
+    for(let row = 0; row < ROWS; row++){
+      const coinsEl = document.getElementById(`livestats-${team}-row${row}-coins`);
+      if(coinsEl) coinsEl.style.display = coinsVisible ? "" : "none";
+    }
+  });
 
   const liveStats = state.liveStats || { team1: [], team2: [] };
   const assign = state.liveStatsAssign || { team1: [0,1,2,3,4], team2: [0,1,2,3,4] };
