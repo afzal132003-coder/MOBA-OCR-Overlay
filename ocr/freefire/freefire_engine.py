@@ -98,6 +98,21 @@ def default_state():
         "currentSafezone": None,
         "matches": [],
         "standings": [],
+        # Event-level context the operator sets once before the day starts:
+        # the broadcast title ("FFM CLT WEEKLY SCRIMS - GRAND FINALS DAY 1"),
+        # how many games the series runs, and which game is CURRENTLY being
+        # played/captured. currentGame is what the dashboard's game dropdown
+        # drives -- both the Num5 loadout capture and a committed match
+        # result get tagged with it, so per-game data stays separated
+        # instead of everything piling into one undifferentiated list.
+        # maps[] is per-game, index 0 = game 1.
+        "event": {
+            "matchTitle": "",
+            "roundName": "",
+            "totalGames": 6,
+            "currentGame": 1,
+            "maps": [],
+        },
         # Which view freefire_scoreboard.html shows -- "match" (latest
         # committed match's own results) or "overall" (cumulative
         # standings). freefire_booyah.html has no mode: it always shows
@@ -315,6 +330,123 @@ def parse_freefire_match_result(text):
     return teams
 
 
+# ---------------------------------------------------------------------------
+# Resolving what the result file says against what the operator configured.
+#
+# The game client writes whatever name the team happened to register with,
+# which is routinely NOT what should go on the broadcast: a team entered as
+# "total" needs to show as "iQOO TOTAL GAMING" (or its short name "IQTG"),
+# and a player's in-game display name can be anything on the day while the
+# operator has already registered the IGN they want shown against that
+# player's UID. An explicit request: the roster is the source of truth for
+# BOTH, with the file only supplying the numbers.
+#
+# UID is matched exactly and wins outright -- it's a stable numeric account
+# ID, so a hit there is certain in a way no name comparison can be. Team
+# names have no such ID in the file, so they fall back to a three-step
+# ladder: exact normalized match, then containment either direction (which
+# is what actually catches "total" inside "iqoototalgaming" -- a plain
+# similarity ratio scores that pair only ~0.45 and would lose to the
+# threshold), then fuzzy ratio as a last resort.
+# ---------------------------------------------------------------------------
+
+TEAM_NAME_MIN_RATIO = 0.6
+PLAYER_NAME_MIN_RATIO = 0.6
+
+
+def normalize_for_match(value):
+    return re.sub(r"[^a-z0-9]", "", (value or "").lower())
+
+
+def match_roster_team(file_team_name, roster_teams):
+    """Returns the roster team dict this result-file team name refers to,
+    or None if nothing matches confidently enough."""
+    target = normalize_for_match(file_team_name)
+    if not target:
+        return None
+
+    candidates = []
+    for team in roster_teams:
+        for candidate_name in (team.get("name"), team.get("shortName")):
+            norm = normalize_for_match(candidate_name)
+            if norm:
+                candidates.append((norm, team))
+
+    for norm, team in candidates:
+        if norm == target:
+            return team
+    # Containment before fuzzy -- see the block comment above for why.
+    for norm, team in candidates:
+        if target in norm or norm in target:
+            return team
+
+    best_team, best_ratio = None, 0.0
+    for norm, team in candidates:
+        ratio = difflib.SequenceMatcher(None, target, norm).ratio()
+        if ratio > best_ratio:
+            best_team, best_ratio = team, ratio
+    return best_team if best_ratio >= TEAM_NAME_MIN_RATIO else None
+
+
+def match_roster_player(file_player, roster_team):
+    """UID first (exact, authoritative), then name similarity within that
+    team only -- never across teams, since two squads can easily carry
+    similar-looking names and a cross-team 'correction' would be worse
+    than leaving the file's own name alone."""
+    if not roster_team:
+        return None
+    players = roster_team.get("players", []) or []
+
+    file_uid = str(file_player.get("uid") or "").strip()
+    if file_uid:
+        for player in players:
+            if str(player.get("uid") or "").strip() == file_uid:
+                return player
+
+    target = normalize_for_match(file_player.get("name"))
+    if not target:
+        return None
+    best_player, best_ratio = None, 0.0
+    for player in players:
+        ratio = difflib.SequenceMatcher(
+            None, target, normalize_for_match(player.get("ign")),
+        ).ratio()
+        if ratio > best_ratio:
+            best_player, best_ratio = player, ratio
+    return best_player if best_ratio >= PLAYER_NAME_MIN_RATIO else None
+
+
+def apply_roster_overrides(teams, roster):
+    """Rewrites parsed result rows to use the operator's configured team
+    name/short name and player IGNs wherever a confident match exists.
+
+    Each row keeps what the file itself said in `fileTeamName`/`fileName`
+    so the dashboard can show both -- an operator reviewing an import needs
+    to see that "total" became "iQOO TOTAL GAMING" to catch a bad match,
+    which is impossible if the original is silently discarded. `matched`
+    flags rows where nothing lined up, so those can be surfaced rather
+    than quietly passing through unresolved."""
+    roster_teams = (roster or {}).get("teams", []) or []
+    for team in teams:
+        file_team_name = team.get("teamName", "")
+        team["fileTeamName"] = file_team_name
+        roster_team = match_roster_team(file_team_name, roster_teams)
+        team["matched"] = roster_team is not None
+        if roster_team:
+            team["teamName"] = roster_team.get("name") or file_team_name
+            team["shortName"] = roster_team.get("shortName") or ""
+            team["logo"] = roster_team.get("logo") or ""
+        for player in team.get("players", []):
+            file_player_name = player.get("name", "")
+            player["fileName"] = file_player_name
+            roster_player = match_roster_player(player, roster_team)
+            player["matched"] = roster_player is not None
+            if roster_player:
+                player["name"] = roster_player.get("ign") or file_player_name
+                player["photo"] = roster_player.get("photo") or ""
+    return teams
+
+
 def parse_freefire_safezone(text):
     text = text.lstrip("\ufeff")
     m = FREEFIRE_SAFEZONE_COORD_REGEX.search(text)
@@ -497,12 +629,17 @@ async def handle_client(websocket, path=None):
                     else:
                         text = file_path.read_text(encoding="utf-8-sig")
                         teams = parse_freefire_match_result(text)
+                        # Resolve against the configured roster before the
+                        # dashboard ever sees it -- see apply_roster_overrides.
+                        teams = apply_roster_overrides(teams, server_state.get("roster", {}))
                         await websocket.send(json.dumps({
                             "type": "freefire_match_result",
                             "matchId": name_match.group("match_id"),
                             "timestamp": name_match.group("timestamp"),
                             "fileName": file_path.name,
+                            "gameNumber": server_state.get("event", {}).get("currentGame", 1),
                             "teams": teams,
+                            "unmatchedTeams": [t["fileTeamName"] for t in teams if not t.get("matched")],
                             "error": None if teams else "File found but no team blocks could be parsed from it.",
                         }))
                 except Exception as e:
