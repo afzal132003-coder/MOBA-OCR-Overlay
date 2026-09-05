@@ -24,12 +24,33 @@ import numpy as np
 
 CONFIG_PATH = Path(__file__).parent / "freefire_config.json"
 
-REGION_ORDER = ["freefire_killfeed", "freefire_sidetable", "freefire_loadout"]
+REGION_ORDER = [
+    "freefire_killfeed",
+    "freefire_sidetable",
+    "freefire_loadout",
+    # Per-slot loadout boxes -- each is identified individually against its
+    # own reference-image library (characters/pets/equipment) rather than
+    # being read as one opaque card, so each needs its own tight box.
+    "freefire_loadout_ign",
+    "freefire_loadout_active",
+    "freefire_loadout_passive1",
+    "freefire_loadout_passive2",
+    "freefire_loadout_passive3",
+    "freefire_loadout_pet",
+    "freefire_loadout_equipment",
+]
 
 LABELS = {
     "freefire_killfeed": "KILLFEED / KNOCKOUT FEED (the scrolling elimination/knockdown log) - raw text only for now, draw around the whole feed area",
     "freefire_sidetable": "12-TEAM SIDE TABLE (alive status / kills per team) - raw text only for now, draw around the whole table",
-    "freefire_loadout": "LOADOUT CAPTURE (the player HUD card - IGN, weapon, active/passive/pet/equipment icons) - draw tightly around just that card, this gets screenshotted on every Num5 press",
+    "freefire_loadout": "LOADOUT CARD, WHOLE (the full player HUD card) - kept as the overall visual record; the per-slot boxes below are what actually get identified",
+    "freefire_loadout_ign": "LOADOUT: PLAYER IGN - draw tightly around just the name text on the card (this one is read as TEXT, not matched as an icon)",
+    "freefire_loadout_active": "LOADOUT: ACTIVE CHARACTER (the BIG character portrait) - draw tightly around just that icon",
+    "freefire_loadout_passive1": "LOADOUT: PASSIVE CHARACTER 1 (first of the three small portraits) - tight box around just that icon",
+    "freefire_loadout_passive2": "LOADOUT: PASSIVE CHARACTER 2 (second small portrait) - tight box around just that icon",
+    "freefire_loadout_passive3": "LOADOUT: PASSIVE CHARACTER 3 (third small portrait) - tight box around just that icon",
+    "freefire_loadout_pet": "LOADOUT: PET icon - tight box around just the pet icon",
+    "freefire_loadout_equipment": "LOADOUT: EQUIPMENT icon - tight box around just the equipped item icon",
 }
 
 

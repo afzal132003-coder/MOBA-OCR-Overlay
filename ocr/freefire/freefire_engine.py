@@ -72,11 +72,50 @@ if config.get("tesseract_path"):
 # against them (same reasoning as the MOBA turtle toast originally).
 FREEFIRE_KILLFEED_REGION_KEY = "freefire_killfeed"
 FREEFIRE_SIDETABLE_REGION_KEY = "freefire_sidetable"
-# Player HUD card (IGN, weapon, active/passive/pet/equipment icons) --
-# screenshotted whole on every Num5 press, no OCR/icon-classification
-# attempted here. That needs an icon reference library this doesn't have;
-# for now the raw crop is just stored for visual reference/manual review.
+# Player HUD card, kept as the whole-card screenshot it always was -- the
+# per-slot regions below supersede it for actual data, but a capture of
+# the entire card is still worth having as the visual record an operator
+# can eyeball when a slot match looks wrong.
 FREEFIRE_LOADOUT_REGION_KEY = "freefire_loadout"
+
+# Per-slot loadout calibration -- an explicit request to stop treating the
+# card as one opaque screenshot and actually identify what's in it: which
+# character, which three passives, which pet, which equipment, against
+# which IGN. Each is its own calibrated box because they sit at fixed but
+# unrelated spots on the card, and each icon slot gets matched against its
+# own reference library (see match_icon) rather than OCR'd -- these are
+# artwork, not text. The IGN slot is the one exception and is read as
+# text.
+FREEFIRE_LOADOUT_SLOT_KEYS = {
+    "active": "freefire_loadout_active",
+    "passive1": "freefire_loadout_passive1",
+    "passive2": "freefire_loadout_passive2",
+    "passive3": "freefire_loadout_passive3",
+    "pet": "freefire_loadout_pet",
+    "equipment": "freefire_loadout_equipment",
+}
+FREEFIRE_LOADOUT_IGN_KEY = "freefire_loadout_ign"
+
+# Which reference-image folder each slot matches against. Characters cover
+# both the active and the three passive slots -- in Free Fire those are the
+# same pool of character portraits, just used in different roles, so one
+# library serves all four rather than four duplicate copies.
+FREEFIRE_ICON_LIBRARIES = {
+    "active": "characters",
+    "passive1": "characters",
+    "passive2": "characters",
+    "passive3": "characters",
+    "pet": "pets",
+    "equipment": "equipment",
+}
+FREEFIRE_ASSETS_DIR = Path(__file__).parent.parent.parent / "overlay" / "assets" / "freefire"
+
+# Below this, a "best match" is reported but flagged low-confidence rather
+# than trusted -- a colour signature always returns SOME nearest neighbour
+# even when the real icon isn't in the library at all, and silently
+# accepting that is how a wrong character ends up on a Booyah graphic.
+ICON_MATCH_MIN_CONFIDENCE = 0.55
+
 NUM5_HOTKEY = "num 5"
 
 HEADSHOT_HUNTER_DISPLAY_SECONDS = 6
@@ -261,6 +300,111 @@ def ocr_text(img_bgr):
     analysis handle it (no hard black/white digit threshold -- that's
     tuned for tiny plain numbers, not full lines of game-UI text)."""
     return " ".join(line["text"] for line in ocr_lines(img_bgr)).strip()
+
+
+# ---------------------------------------------------------------------------
+# Loadout icon identification.
+#
+# These slots hold artwork, not text, so OCR has nothing to read -- they get
+# matched against a reference library instead. Same colour-signature
+# approach the Valorant engine uses for agent portraits: split the image
+# into a grid and average each cell, which captures rough colour AND its
+# spatial arrangement (telling a mostly-dark icon with a bright top apart
+# from one bright all over), far more robust than a single average colour
+# and far cheaper than real template matching.
+#
+# Libraries are just folders of images -- the FILENAME is the label, so
+# adding a newly released character means dropping "Kenta.png" into
+# characters/ with no code change and no name table to maintain. That's a
+# deliberate difference from the Valorant engine's hardcoded AGENT_FILE_MAP,
+# which has to be edited by hand every time Riot ships an agent.
+#
+# Signatures are built once on first use and cached, since rebuilding them
+# per capture would re-read and resize every reference image on every
+# single Num5 press.
+# ---------------------------------------------------------------------------
+
+_icon_signature_cache = {}
+
+
+def _icon_signature(img_bgr, grid=4):
+    """Average BGR per cell of a grid x grid split, normalised for overall
+    brightness. The normalisation matters here in a way it doesn't for
+    Valorant portraits: the same character icon renders noticeably dimmer
+    on a knocked/greyed-out HUD card than on a healthy one, and without it
+    that brightness shift alone can outweigh the actual colour differences
+    between two different characters."""
+    resized = cv2.resize(img_bgr, (grid * 8, grid * 8), interpolation=cv2.INTER_AREA)
+    cells = []
+    h, w = resized.shape[:2]
+    for gy in range(grid):
+        for gx in range(grid):
+            y0, y1 = h * gy // grid, h * (gy + 1) // grid
+            x0, x1 = w * gx // grid, w * (gx + 1) // grid
+            cell = resized[y0:y1, x0:x1]
+            cells.append(cell.reshape(-1, 3).mean(axis=0))
+    sig = np.array(cells, dtype=np.float32)
+    mean = sig.mean()
+    if mean > 1e-6:
+        sig = sig / mean
+    return sig
+
+
+def load_icon_library(library_name):
+    """{label: signature} for every image in overlay/assets/freefire/<name>/,
+    built once and cached. Returns an empty dict (not an error) when the
+    folder doesn't exist yet -- the engine has to keep running and simply
+    report "no match" until the operator drops their reference images in."""
+    if library_name in _icon_signature_cache:
+        return _icon_signature_cache[library_name]
+
+    library = {}
+    folder = FREEFIRE_ASSETS_DIR / library_name
+    if folder.is_dir():
+        for path in sorted(folder.iterdir()):
+            if path.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
+                continue
+            img = cv2.imread(str(path), cv2.IMREAD_COLOR)
+            if img is None:
+                continue
+            library[path.stem] = _icon_signature(img)
+    _icon_signature_cache[library_name] = library
+    return library
+
+
+def match_icon(img_bgr, library_name):
+    """Returns {"label", "confidence", "lowConfidence"} for the closest
+    reference image, or a null label when the library is empty.
+
+    Confidence is a 0-1 rescaling of the distance to the best match
+    relative to the second-best. Comparing against the runner-up rather
+    than using raw distance is what makes the number meaningful: a crop
+    that sits 'somewhat near' every icon in the library is genuinely
+    ambiguous and scores low, while one that's decisively closer to one
+    icon than all others scores high, which is exactly the distinction an
+    operator needs when deciding whether to trust a match."""
+    library = load_icon_library(library_name)
+    if not library:
+        return {"label": None, "confidence": 0.0, "lowConfidence": True,
+                "reason": f"no reference images in assets/freefire/{library_name}/"}
+
+    sig = _icon_signature(img_bgr)
+    scored = sorted(
+        ((float(np.linalg.norm(sig - ref)), label) for label, ref in library.items()),
+    )
+    best_distance, best_label = scored[0]
+    if len(scored) > 1:
+        runner_up = scored[1][0]
+        confidence = 0.0 if runner_up <= 1e-6 else max(0.0, 1.0 - (best_distance / runner_up))
+    else:
+        # Single-image library -- nothing to compare against, so report it
+        # as a match but never as a confident one.
+        confidence = 0.0
+    return {
+        "label": best_label,
+        "confidence": round(confidence, 3),
+        "lowConfidence": confidence < ICON_MATCH_MIN_CONFIDENCE,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -546,34 +690,109 @@ def flatten_roster_players(roster):
     return result
 
 
+def capture_region(sct, region_key):
+    """Grabs one calibrated region, or None if it isn't calibrated yet --
+    an uncalibrated slot is a normal state (the operator may only have set
+    up some of them), not an error worth aborting the whole capture over."""
+    region = config.get("regions", {}).get(region_key)
+    if not region or region.get("w", 0) <= 0 or region.get("h", 0) <= 0:
+        return None
+    return crop_to_bgr(sct, region)
+
+
 def on_num5_pressed():
+    """Runs on the `keyboard` library's own thread. Deliberately does ONLY
+    the screen grabs here and hands everything else off: what's on screen
+    is gone the moment the operator's card changes, so capture has to be
+    immediate, while icon matching and OCR can happen a few milliseconds
+    later on the event loop without racing the screen."""
     lc = server_state.get("loadoutCapture", {})
     if not lc.get("active"):
         return
-    region = config.get("regions", {}).get(FREEFIRE_LOADOUT_REGION_KEY)
-    if not region or region.get("w", 0) <= 0 or region.get("h", 0) <= 0:
-        return
     flat = flatten_roster_players(server_state.get("roster", {}))
     pointer = lc.get("pointer", 0)
-    if pointer >= len(flat):
+    if pointer >= len(flat) or main_loop is None:
         return
+
     with mss.mss() as sct:
-        crop = crop_to_bgr(sct, region)
-    data_url = crop_to_data_url(crop, scale=1)
-    if not data_url or main_loop is None:
+        crops = {
+            slot: capture_region(sct, key)
+            for slot, key in FREEFIRE_LOADOUT_SLOT_KEYS.items()
+        }
+        crops["ign"] = capture_region(sct, FREEFIRE_LOADOUT_IGN_KEY)
+        crops["card"] = capture_region(sct, FREEFIRE_LOADOUT_REGION_KEY)
+
+    if all(crop is None for crop in crops.values()):
+        print("Num5 pressed but no loadout regions are calibrated -- nothing captured.")
         return
+
     team_index, player_index = flat[pointer]
     asyncio.run_coroutine_threadsafe(
-        apply_loadout_capture(team_index, player_index, data_url), main_loop
+        apply_loadout_capture(team_index, player_index, crops), main_loop
     )
 
 
-async def apply_loadout_capture(team_index, player_index, data_url):
+def capture_dir_for(game_number):
+    return Path(__file__).parent / "captures" / f"game{game_number}"
+
+
+def identify_loadout(crops):
+    """Matches each icon slot against its library and reads the IGN slot as
+    text. Returns the per-slot results plus the crops re-encoded for
+    preview, so the dashboard can show what was captured next to what it
+    was identified as -- an explicit request, since a match is only
+    trustworthy if the operator can see the picture it came from."""
+    slots = {}
+    for slot, library_name in FREEFIRE_ICON_LIBRARIES.items():
+        crop = crops.get(slot)
+        if crop is None:
+            slots[slot] = {"label": None, "confidence": 0.0, "lowConfidence": True,
+                           "reason": "region not calibrated"}
+            continue
+        slots[slot] = match_icon(crop, library_name)
+
+    ign_crop = crops.get("ign")
+    ign_text = ocr_text(ign_crop) if ign_crop is not None else ""
+    return slots, ign_text
+
+
+async def apply_loadout_capture(team_index, player_index, crops):
     try:
         player = server_state["roster"]["teams"][team_index]["players"][player_index]
     except (IndexError, KeyError):
         return  # roster changed under us (re-imported mid-capture) -- drop this one
-    player["loadoutScreenshot"] = data_url
+
+    loop = asyncio.get_running_loop()
+    slots, ign_text = await loop.run_in_executor(ocr_executor, identify_loadout, crops)
+
+    game_number = server_state.get("event", {}).get("currentGame", 1)
+
+    # Crops go to disk, not into server_state. Seven images per player
+    # across a full 60-player lobby is megabytes of base64 that would then
+    # ride along on EVERY state_sync broadcast -- the exact payload-bloat
+    # problem that had to be fixed on the Valorant side after it showed up
+    # as real bandwidth cost during a live match. State keeps the labels
+    # (tiny); the dashboard pulls the pictures on demand, per player, via
+    # freefire_fetch_loadout_capture.
+    out_dir = capture_dir_for(game_number)
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for slot, crop in crops.items():
+            if crop is not None:
+                cv2.imwrite(str(out_dir / f"t{team_index}_p{player_index}_{slot}.png"), crop)
+        saved = True
+    except OSError as e:
+        print(f"Couldn't save loadout crops for t{team_index}p{player_index}: {e}")
+        saved = False
+
+    loadouts = player.setdefault("loadouts", {})
+    loadouts[str(game_number)] = {
+        "slots": slots,
+        "ignRead": ign_text,
+        "capturedAt": int(time.time() * 1000),
+        "hasCrops": saved,
+    }
+
     server_state["loadoutCapture"]["pointer"] += 1
     save_state()
     await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
@@ -678,6 +897,36 @@ async def handle_client(websocket, path=None):
                     await websocket.send(json.dumps({
                         "type": "freefire_safezone_result", "error": str(e),
                     }))
+            elif payload.get("type") == "freefire_fetch_loadout_capture":
+                # On-demand crop retrieval -- see apply_loadout_capture for
+                # why these live on disk instead of in state.
+                try:
+                    team_index = int(payload.get("teamIndex", -1))
+                    player_index = int(payload.get("playerIndex", -1))
+                    game_number = int(payload.get("gameNumber")
+                                      or server_state.get("event", {}).get("currentGame", 1))
+                except (TypeError, ValueError):
+                    team_index = player_index = -1
+                    game_number = 1
+                images = {}
+                folder = capture_dir_for(game_number)
+                if team_index >= 0 and player_index >= 0 and folder.is_dir():
+                    prefix = f"t{team_index}_p{player_index}_"
+                    for path in folder.glob(f"{prefix}*.png"):
+                        img = cv2.imread(str(path), cv2.IMREAD_COLOR)
+                        if img is None:
+                            continue
+                        slot = path.stem[len(prefix):]
+                        data_url = crop_to_data_url(img, scale=2)
+                        if data_url:
+                            images[slot] = data_url
+                await websocket.send(json.dumps({
+                    "type": "freefire_loadout_capture",
+                    "teamIndex": team_index, "playerIndex": player_index,
+                    "gameNumber": game_number,
+                    "images": images,
+                    "error": None if images else "No saved crops found for that player/game.",
+                }))
             elif payload.get("type") == "loadout_capture_arm":
                 server_state["loadoutCapture"]["active"] = True
                 save_state()
