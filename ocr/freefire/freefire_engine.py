@@ -199,7 +199,13 @@ def default_state():
         "roster": {"teams": []},
         # Raw OCR text only, refreshed every capture cycle once the
         # freefire_killfeed/freefire_sidetable regions are calibrated.
-        "liveOps": {"killfeedLastText": "", "sidetableLastText": ""},
+        # killfeedLastText/sidetableLastText stay as the raw OCR text (still
+        # the honest record of what was actually read). sidetableRows is the
+        # structured parse layered on top -- see parse_sidetable.
+        "liveOps": {
+            "killfeedLastText": "", "sidetableLastText": "",
+            "sidetableRows": [], "sidetableUsedPalette": False,
+        },
         # Sequential Num5 loadout capture. "pointer" indexes into the
         # flattened roster (team-then-player order, see
         # flatten_roster_players()) -- each Num5 press while "active" is
@@ -335,6 +341,320 @@ def ocr_text(img_bgr):
     analysis handle it (no hard black/white digit threshold -- that's
     tuned for tiny plain numbers, not full lines of game-UI text)."""
     return " ".join(line["text"] for line in ocr_lines(img_bgr)).strip()
+
+
+# ---------------------------------------------------------------------------
+# 12-team side table -- structured read.
+#
+# Each row is TEAM / ELIMS / ALIVE, where ALIVE is four coloured bars (one
+# per squad member) rather than text. So the row is read in two different
+# ways: OCR for the name and elim count, colour classification for the
+# bars, because there is nothing for OCR to read in a coloured bar.
+#
+# Rows are located from where OCR actually found text rather than by
+# slicing the region into 12 equal bands. The table re-sorts constantly
+# during a match and doesn't always hold 12 rows (teams drop out), so a
+# fixed slice would drift out of alignment the moment the row count or
+# spacing changed. Anchoring to the detected text keeps the bar sampling
+# tied to the row it belongs to.
+#
+# The bar colours are NOT hardcoded here. They're read from config
+# ("sidetable_colors"), because the actual RGB values depend on the game's
+# own palette and on the capture pipeline (OBS colour space, compression),
+# and inventing thresholds without a real captured frame to measure would
+# be a guess dressed up as a measurement. classify_bar falls back to a
+# broad hue/brightness heuristic until real values are calibrated, and
+# reports which method it used so the dashboard can show that it's running
+# on the fallback rather than measured values.
+# ---------------------------------------------------------------------------
+
+SIDETABLE_PLAYERS_PER_TEAM = 4
+# Fractions of the calibrated region's width where each column sits.
+# Overridable per-setup in config, since a 12-team table's proportions can
+# differ between resolutions and aspect ratios.
+SIDETABLE_DEFAULT_COLUMNS = {"team": [0.0, 0.55], "elims": [0.55, 0.75], "alive": [0.75, 1.0]}
+
+SIDETABLE_ROW_REGEX = re.compile(r"^(?P<name>.+?)\s+(?P<elims>\d+)\s*$")
+
+
+def classify_bar(patch_bgr, palette=None):
+    """One alive/knocked/eliminated bar -> a status string.
+
+    palette, when configured, is {status: [B, G, R]} measured from a real
+    frame; the nearest one wins. Without it this falls back to a coarse
+    saturation/brightness rule, which is deliberately conservative: a dark
+    bar is a dead slot, a bright saturated one is alive, and anything in
+    between is reported as "unknown" rather than guessed, so an
+    uncalibrated setup shows gaps instead of confidently wrong player
+    counts."""
+    mean = patch_bgr.reshape(-1, 3).mean(axis=0)
+    if palette:
+        best_status, best_distance = None, None
+        for status, colour in palette.items():
+            distance = float(np.linalg.norm(mean - np.array(colour, dtype=np.float32)))
+            if best_distance is None or distance < best_distance:
+                best_status, best_distance = status, distance
+        return {"status": best_status, "method": "palette", "distance": round(best_distance, 1)}
+
+    hsv = cv2.cvtColor(np.uint8([[mean]]), cv2.COLOR_BGR2HSV)[0][0]
+    _, saturation, value = int(hsv[0]), int(hsv[1]), int(hsv[2])
+    if value < 70:
+        return {"status": "eliminated", "method": "fallback"}
+    if saturation > 90 and value > 120:
+        return {"status": "alive", "method": "fallback"}
+    return {"status": "unknown", "method": "fallback"}
+
+
+TESS_CONFIG_DIGITS = (
+    "--oem 1 --psm 7 "
+    "-c tessedit_char_whitelist=0123456789 "
+    "-c load_system_dawg=0 -c load_freq_dawg=0"
+)
+
+
+def ocr_small_number(img_bgr, upscale=4):
+    """Reads a small standalone number (an elim count).
+
+    Needed because the general sparse-text pass used for the rest of the
+    table demonstrably misses these: on a mock-up of the real layout it
+    found the two-digit "10" but silently dropped every single-digit
+    count, which is a whole column of zeros that look like real data. A
+    digit-whitelisted single-line pass over an upscaled, thresholded crop
+    reads them reliably -- same approach the Valorant engine needed for
+    its own small-digit cells."""
+    if img_bgr is None or img_bgr.size == 0:
+        return None
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    gray = cv2.resize(gray, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
+    gray = cv2.medianBlur(gray, 3)
+    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    if thresh.mean() < 127:
+        thresh = cv2.bitwise_not(thresh)
+    thresh = cv2.copyMakeBorder(thresh, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
+    text = pytesseract.image_to_string(thresh, config=TESS_CONFIG_DIGITS).strip()
+    match = re.search(r"\d{1,3}", text)
+    return int(match.group()) if match else None
+
+
+def find_bar_columns(alive_strip, expected=SIDETABLE_PLAYERS_PER_TEAM):
+    """Learns the x-positions of the status-bar slots by pooling evidence
+    across ALL rows at once.
+
+    A per-row search can't work: an ELIMINATED bar is dark against a dark
+    column and simply isn't findable on its own, so a squad that's been
+    wiped yields no bars at all and reads as "no data" instead of "all
+    dead" -- measured, that's exactly what happened (an all-eliminated row
+    returned zero bars). But every row shares the same x layout, so bars
+    that ARE visible somewhere in the table reveal where the slots sit for
+    every row, including the rows where they're invisible.
+
+    Returns x-ranges within the strip, or [] if nothing was detectable."""
+    if alive_strip.size == 0:
+        return []
+    height, width = alive_strip.shape[:2]
+    gray = cv2.cvtColor(alive_strip, cv2.COLOR_BGR2GRAY)
+    # Column-wise "brightest thing anywhere in this column" -- a slot with
+    # even one lit bar in the whole table shows up as a peak.
+    profile = gray.max(axis=0).astype(np.float32)
+    if profile.max() - profile.min() < 15:
+        return []
+    lit = profile > (profile.min() + (profile.max() - profile.min()) * 0.45)
+
+    spans, start = [], None
+    for x, on in enumerate(lit):
+        if on and start is None:
+            start = x
+        elif not on and start is not None:
+            spans.append((start, x - 1))
+            start = None
+    if start is not None:
+        spans.append((start, len(lit) - 1))
+
+    spans = [s for s in spans if (s[1] - s[0] + 1) >= max(2, width * 0.03)]
+    if len(spans) > expected:
+        # Keep the widest `expected` spans, then restore left-to-right order.
+        spans = sorted(sorted(spans, key=lambda s: s[1] - s[0], reverse=True)[:expected])
+    return spans
+
+
+def find_bar_rows(alive_strip, spans):
+    """Row centre-lines, found from the bar column itself rather than from
+    OCR -- so a row survives its team name failing to read.
+
+    Restricted to the x-ranges the bars actually occupy (`spans`) so
+    background texture between slots can't register as a row. A row that
+    is entirely eliminated is dark and won't be found here; that's fine,
+    since such a row is only lost if its name ALSO failed to read, and the
+    two failures are independent."""
+    if alive_strip.size == 0 or not spans:
+        return []
+    gray = cv2.cvtColor(alive_strip, cv2.COLOR_BGR2GRAY)
+    columns = np.hstack([gray[:, s0:s1 + 1] for s0, s1 in spans])
+    profile = columns.max(axis=1).astype(np.float32)
+    if profile.max() - profile.min() < 15:
+        return []
+    lit = profile > (profile.min() + (profile.max() - profile.min()) * 0.45)
+
+    centres, start = [], None
+    for y, on in enumerate(lit):
+        if on and start is None:
+            start = y
+        elif not on and start is not None:
+            if (y - start) >= 2:
+                centres.append((start + y - 1) / 2.0)
+            start = None
+    if start is not None and (len(lit) - start) >= 2:
+        centres.append((start + len(lit) - 1) / 2.0)
+    return centres
+
+
+def find_status_bars(alive_strip):
+    """Locates the actual status bars in the ALIVE column as bounding boxes.
+
+    Deliberately finds the bars rather than assuming N evenly-spaced slots
+    across the column. Measured against a mock-up of the real layout, the
+    even-split assumption mis-sampled the outer bars entirely -- the bars
+    don't span the full column width, so slot 4 landed on background and
+    reported a live player as dead. Detecting the shapes removes the
+    dependency on padding, bar width and inter-bar gaps, none of which the
+    engine can know ahead of a real capture.
+
+    Bars are found as blobs that stand out from the column's own dark
+    background; a size filter drops specks and anything spanning most of
+    the strip (a divider line or border rather than a bar)."""
+    if alive_strip.size == 0:
+        return []
+    height, width = alive_strip.shape[:2]
+    gray = cv2.cvtColor(alive_strip, cv2.COLOR_BGR2GRAY)
+    # OTSU splits "bar" from "gap" without needing an absolute threshold,
+    # which matters because an all-eliminated row is uniformly dark and an
+    # all-alive row uniformly bright.
+    _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    if mask.mean() > 127:
+        mask = cv2.bitwise_not(mask)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    boxes = []
+    for contour in contours:
+        x, y, w, h = cv2.boundingRect(contour)
+        if w < 2 or h < 2:
+            continue
+        if w > width * 0.6 or h > height * 0.6:
+            continue
+        boxes.append((x, y, w, h))
+    return boxes
+
+
+def group_into_rows(items, key_y, tolerance):
+    """Clusters items into rows by vertical proximity. Used for both OCR
+    words and detected bars so the two end up on a common row grid."""
+    rows = []
+    for item in sorted(items, key=key_y):
+        y = key_y(item)
+        placed = False
+        for row in rows:
+            if abs(row["y"] - y) <= tolerance:
+                row["items"].append(item)
+                row["y"] = (row["y"] * (len(row["items"]) - 1) + y) / len(row["items"])
+                placed = True
+                break
+        if not placed:
+            rows.append({"y": y, "items": [item]})
+    return rows
+
+
+def parse_sidetable(img_bgr, columns=None, palette=None):
+    """Reads the side table into per-team rows.
+
+    Returns {"rows": [...], "usedPalette": bool}. Each row carries the OCR
+    text it came from so a mis-split is debuggable from the dashboard
+    rather than only visible as a wrong number on air.
+
+    Words are clustered into rows by vertical position rather than trusting
+    Tesseract's own line grouping: in sparse-text mode it routinely splits
+    a team's name and its elim count into separate "lines", which produced
+    phantom rows ("RNTX" and "10" as two teams) and left every elim count
+    at zero."""
+    cols = columns or SIDETABLE_DEFAULT_COLUMNS
+    height, width = img_bgr.shape[:2]
+    if height < 10 or width < 10:
+        return {"rows": [], "usedPalette": bool(palette)}
+
+    def slice_x(name):
+        lo, hi = cols.get(name, SIDETABLE_DEFAULT_COLUMNS[name])
+        return max(0, int(lo * width)), min(width, int(hi * width))
+
+    team_x0, _ = slice_x("team")
+    elims_x0, elims_x1 = slice_x("elims")
+    alive_x0, alive_x1 = slice_x("alive")
+
+    # Team names only -- the elim count is read per-row afterwards with a
+    # digit-tuned pass, because the sparse text pass that reads names
+    # cannot be trusted with small standalone numbers (see ocr_small_number).
+    name_strip = img_bgr[:, team_x0:elims_x0]
+    words, _ = _words_and_lines_from_data(_image_to_data(name_strip)) if name_strip.size else ([], [])
+
+    # Row tolerance scales with text height so it adapts to resolution
+    # instead of being a pixel constant tuned to one capture size.
+    typical_h = float(np.median([w["h"] for w in words])) if words else 12.0
+    tolerance = max(4.0, typical_h * 0.6)
+
+    word_rows = group_into_rows(words, lambda w: w["cy"], tolerance)
+    alive_strip = img_bgr[:, alive_x0:alive_x1]
+    bar_spans = find_bar_columns(alive_strip)
+
+    # Rows are the UNION of "where text was found" and "where bars were
+    # found", not just the former. A team whose name fails to OCR would
+    # otherwise vanish entirely, taking its elim count and alive bars with
+    # it -- measured: a legible 3-character team name was missed outright
+    # by Tesseract (not even at low confidence), silently dropping that
+    # whole squad from the table. Losing a name is recoverable; losing the
+    # row is not, because nothing downstream can tell that a team is even
+    # missing.
+    row_centres = [wr["y"] for wr in word_rows]
+    for bar_y in find_bar_rows(alive_strip, bar_spans):
+        if all(abs(bar_y - existing) > tolerance for existing in row_centres):
+            row_centres.append(bar_y)
+    row_centres.sort()
+
+    rows = []
+    for centre_y in row_centres:
+        word_row = min(word_rows, key=lambda wr: abs(wr["y"] - centre_y), default=None)
+        if word_row is not None and abs(word_row["y"] - centre_y) <= tolerance:
+            ordered = sorted(word_row["items"], key=lambda w: w["x"])
+            name = " ".join(w["text"] for w in ordered).strip()
+        else:
+            name = ""
+
+        half = max(3, int(typical_h * 0.9))
+        y0, y1 = max(0, int(centre_y - half)), min(height, int(centre_y + half))
+
+        elims_patch = img_bgr[y0:y1, elims_x0:elims_x1]
+        elims = ocr_small_number(elims_patch)
+
+        bars = []
+        for (sx0, sx1) in bar_spans:
+            patch = img_bgr[y0:y1, alive_x0 + sx0:alive_x0 + sx1 + 1]
+            bars.append(classify_bar(patch, palette) if patch.size
+                        else {"status": "unknown", "method": "empty"})
+
+        rows.append({
+            "teamName": name,
+            # None (not 0) when the count couldn't be read at all, so the
+            # dashboard can show "unread" rather than a confident zero --
+            # a team on 0 elims and a team whose count failed to OCR are
+            # very different things to put on a broadcast. Same reasoning
+            # for an empty teamName: the row is real, its label just didn't
+            # read, and that's something to show rather than hide.
+            "elims": elims,
+            "bars": [b["status"] for b in bars],
+            "barDetail": bars,
+            "aliveCount": sum(1 for b in bars if b["status"] == "alive"),
+            "nameRead": bool(name),
+            "rawText": name,
+        })
+    return {"rows": rows, "usedPalette": bool(palette)}
 
 
 # ---------------------------------------------------------------------------
@@ -1143,6 +1463,20 @@ async def ocr_loop():
                     changed = True
                 if sidetable_raw_text is not None and sidetable_raw_text != ff_live.get("sidetableLastText", ""):
                     ff_live["sidetableLastText"] = sidetable_raw_text
+                    changed = True
+
+            # Structured side-table parse. Runs off the same crop the raw
+            # OCR above used, on the executor since it does its own OCR pass
+            # plus per-bar colour sampling.
+            if sidetable_crop is not None:
+                parsed = await loop.run_in_executor(
+                    ocr_executor, parse_sidetable, sidetable_crop,
+                    config.get("sidetable_columns"), config.get("sidetable_colors"),
+                )
+                ff_live = server_state["liveOps"]
+                if parsed["rows"] != ff_live.get("sidetableRows"):
+                    ff_live["sidetableRows"] = parsed["rows"]
+                    ff_live["sidetableUsedPalette"] = parsed["usedPalette"]
                     changed = True
             else:
                 killfeed_raw_text = None
