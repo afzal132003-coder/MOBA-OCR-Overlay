@@ -1,0 +1,14 @@
+# Python bytecode -- regenerated on every run, never worth committing
+__pycache__/
+*.pyc
+
+# Per-machine screen calibration and live runtime state. These hold pixel
+# coordinates tied to one specific PC's monitor layout, plus in-progress
+# match data -- committing them would overwrite another operator's
+# calibration with yours.
+ocr/*/valorant_state.json
+ocr/*/freefire_state.json
+ocr/*/moba_state.json
+
+# Loadout crops captured during a match -- large, regenerated per event.
+ocr/freefire/captures/
