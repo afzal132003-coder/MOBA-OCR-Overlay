@@ -1440,6 +1440,52 @@
   <!-- ===================== PRE-MATCH ===================== -->
   <div class="ff-tab-panel active" id="fftab-prematch">
     <div class="card">
+      <h2>Event Setup</h2>
+      <p class="hint">Set once at the start of the day. <strong>Current Game</strong> is the important one during
+        play — it tags both Num5 loadout captures and fetched match results, so each game's data stays separate
+        instead of piling together. Change it between games.</p>
+      <div class="row" style="gap:16px;">
+        <div class="team-form" style="flex:2;">
+          <label>Match Title</label>
+          <input type="text" id="ff_eventTitle" placeholder="FFM CLT WEEKLY SCRIMS - GRAND FINALS DAY 1">
+        </div>
+        <div class="team-form">
+          <label>Round Name</label>
+          <input type="text" id="ff_eventRound" placeholder="Grand Finals">
+        </div>
+      </div>
+      <div class="row" style="gap:16px;margin-top:10px;">
+        <div class="team-form" style="max-width:150px;">
+          <label>Total Games</label>
+          <input type="number" id="ff_eventTotalGames" min="1" max="20" value="6">
+        </div>
+        <div class="team-form" style="max-width:180px;">
+          <label>Current Game</label>
+          <select id="ff_eventCurrentGame"></select>
+        </div>
+        <div class="team-form" style="max-width:260px;">
+          <label>Map for this game</label>
+          <input type="text" id="ff_eventMap" placeholder="Bermuda">
+        </div>
+      </div>
+      <div class="row" style="gap:16px;margin-top:10px;">
+        <div class="team-form" style="max-width:420px;">
+          <label>Unregistered teams/players in a result</label>
+          <select id="ff_unmatchedPolicy">
+            <option value="flag">Flag for review — keep the row, highlight it (default)</option>
+            <option value="allow">Allow — keep the row, no highlight</option>
+            <option value="drop">Drop — exclude unregistered teams from standings</option>
+          </select>
+        </div>
+      </div>
+      <p class="hint" style="margin-top:6px;">Controls what happens when a result file has a team or player that
+        isn't in your roster. A scrim with guest teams usually wants <em>Allow</em>; a final with a verified roster
+        usually wants <em>Drop</em>. Unregistered <em>players</em> never drop their team's row on their own.</p>
+      <button id="ff_eventSave" style="margin-top:12px;">Save Event Setup</button>
+      <span class="hint" id="ff_eventStatus" style="margin-left:10px;"></span>
+    </div>
+
+    <div class="card">
       <h2>Roster Import</h2>
       <p class="hint">Upload a CSV with one row per player: <code>team,ign,uid</code> (a header row is fine, it's
         auto-detected). This is the roster every other Free Fire tab matches names/UIDs against.</p>
@@ -1521,10 +1567,12 @@
 
     <div class="card">
       <h2>Loadout Capture (Num5)</h2>
-      <p class="hint">Calibrate the player HUD card first: <code>cd ocr/freefire &amp;&amp; python calibrate.py freefire_loadout</code>.
-        While armed, pressing Num5 anywhere (even with the game window focused — needs the engine run as
-        Administrator on Windows) screenshots that region into whichever player is next below, then advances.
-        Import the roster on the Pre-Match tab first.</p>
+      <p class="hint">Calibrate the seven loadout boxes first: <code>cd ocr/freefire &amp;&amp; python calibrate.py</code>
+        (or pass single keys like <code>freefire_loadout_active</code>). While armed, pressing Num5 anywhere — even
+        with the game focused, which needs the engine running as Administrator on Windows — captures the next
+        player below, identifies each slot against the reference images in <code>overlay/assets/FFM</code>, and
+        advances. Import the roster on the Pre-Match tab first, and set <strong>Current Game</strong> there so
+        captures are tagged to the right game.</p>
       <div class="row" style="gap:8px;align-items:center;">
         <button id="ff_loadoutArm">Arm Capture</button>
         <button class="secondary" id="ff_loadoutDisarm">Disarm</button>
@@ -1532,8 +1580,16 @@
         <button class="secondary" id="ff_loadoutResetPointer">Reset to Start</button>
       </div>
       <div class="hint" id="ff_loadoutCaptureStatus" style="margin-top:10px;font-size:14px;"></div>
-      <div id="ff_loadoutCaptureGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-top:12px;"></div>
+      <div id="ff_loadoutCaptureGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:12px;"></div>
       <p class="hint" id="ff_loadoutCaptureEmpty">No roster imported yet.</p>
+    </div>
+
+    <div class="card" id="ff_loadoutReviewCard" style="display:none;">
+      <h2>Capture Review <span id="ff_loadoutReviewTitle" style="color:#6d7899;font-size:12px;font-weight:400;"></span></h2>
+      <p class="hint">The captured pixels next to what the matcher identified them as — green is confident,
+        red means low confidence and worth checking before it reaches a graphic.</p>
+      <div id="ff_loadoutReviewBody"></div>
+      <button class="secondary" id="ff_loadoutReviewClose" style="margin-top:12px;">Close</button>
     </div>
 
     <div class="card">
@@ -4264,6 +4320,7 @@ function ffConnect(){
       ffRenderRoster(ffState);
       ffRenderLoadouts(ffState);
       ffRenderLoadoutCapture(ffState);
+      ffRenderEvent(ffState);
       ffBuildPopupDropdowns(ffState);
     } else if(msg.type === "crop_preview"){
       const img = document.getElementById(`crop-${msg.region}`);
@@ -4277,6 +4334,8 @@ function ffConnect(){
       ffHandleMatchResult(msg);
     } else if(msg.type === "freefire_safezone_result"){
       ffHandleSafezoneResult(msg);
+    } else if(msg.type === "freefire_loadout_capture"){
+      ffRenderLoadoutReview(msg);
     }
   };
 }
@@ -4419,12 +4478,89 @@ function ffFlattenRosterPlayers(roster){
   return flat;
 }
 
+/* ---------- Free Fire: event setup (title/round/game number/policy) ----------
+ * currentGame is the one that matters mid-event: the engine stamps it onto
+ * every Num5 capture and every fetched result, so switching it between
+ * games is what keeps game 1's data from mixing into game 2's. */
+function ffRenderEvent(ff){
+  const ev = ff.event || {};
+  const active = document.activeElement ? document.activeElement.id : "";
+  const setIfFree = (id, value) => {
+    const el = document.getElementById(id);
+    if(el && active !== id) el.value = value;
+  };
+  setIfFree("ff_eventTitle", ev.matchTitle || "");
+  setIfFree("ff_eventRound", ev.roundName || "");
+  setIfFree("ff_eventTotalGames", ev.totalGames || 6);
+
+  const gameSel = document.getElementById("ff_eventCurrentGame");
+  if(gameSel && active !== "ff_eventCurrentGame"){
+    const total = Number(ev.totalGames) || 6;
+    const current = Number(ev.currentGame) || 1;
+    gameSel.innerHTML = Array.from({length: total}, (_, i) =>
+      `<option value="${i+1}" ${i+1 === current ? "selected" : ""}>Game ${i+1}</option>`).join("");
+  }
+  const maps = ev.maps || [];
+  setIfFree("ff_eventMap", maps[(Number(ev.currentGame) || 1) - 1] || "");
+
+  const policySel = document.getElementById("ff_unmatchedPolicy");
+  if(policySel && active !== "ff_unmatchedPolicy"){
+    policySel.value = (ff.settings && ff.settings.unmatchedPolicy) || "flag";
+  }
+}
+
+document.getElementById("ff_eventSave").addEventListener("click", () => {
+  const totalGames = Math.max(1, Number(document.getElementById("ff_eventTotalGames").value) || 6);
+  const currentGame = Number(document.getElementById("ff_eventCurrentGame").value) || 1;
+  const maps = ((ffState && ffState.event && ffState.event.maps) || []).slice();
+  while(maps.length < totalGames) maps.push("");
+  maps[currentGame - 1] = document.getElementById("ff_eventMap").value.trim();
+
+  const settings = Object.assign({}, (ffState && ffState.settings) || {}, {
+    unmatchedPolicy: document.getElementById("ff_unmatchedPolicy").value,
+  });
+  ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: {
+    event: {
+      matchTitle: document.getElementById("ff_eventTitle").value.trim(),
+      roundName: document.getElementById("ff_eventRound").value.trim(),
+      totalGames, currentGame, maps,
+    },
+    settings,
+  }}}));
+  const status = document.getElementById("ff_eventStatus");
+  status.textContent = `Saved — now capturing as Game ${currentGame}.`;
+  setTimeout(() => { status.textContent = ""; }, 4000);
+});
+
+/* Switching game re-renders immediately so the map field follows, without
+ * waiting for the round-trip -- otherwise the operator sees the previous
+ * game's map sitting under the new game number. */
+document.getElementById("ff_eventCurrentGame").addEventListener("change", () => {
+  if(!ffState) return;
+  const maps = (ffState.event && ffState.event.maps) || [];
+  const g = Number(document.getElementById("ff_eventCurrentGame").value) || 1;
+  document.getElementById("ff_eventMap").value = maps[g-1] || "";
+});
+document.getElementById("ff_eventTotalGames").addEventListener("change", () => {
+  if(ffState) ffRenderEvent(Object.assign({}, ffState, {
+    event: Object.assign({}, ffState.event, {
+      totalGames: Number(document.getElementById("ff_eventTotalGames").value) || 6,
+    }),
+  }));
+});
+
+const FF_SLOT_LABELS = {
+  active: "Active", passive1: "Passive 1", passive2: "Passive 2",
+  passive3: "Passive 3", pet: "Pet", equipment: "Equipment",
+};
+
 function ffRenderLoadoutCapture(ff){
   const flat = ffFlattenRosterPlayers(ff.roster);
   const grid = document.getElementById("ff_loadoutCaptureGrid");
   const emptyEl = document.getElementById("ff_loadoutCaptureEmpty");
   const statusEl = document.getElementById("ff_loadoutCaptureStatus");
   const lc = ff.loadoutCapture || { active: false, pointer: 0 };
+  const currentGame = String((ff.event && ff.event.currentGame) || 1);
 
   if(!flat.length){
     grid.innerHTML = "";
@@ -4445,27 +4581,141 @@ function ffRenderLoadoutCapture(ff){
 
   grid.innerHTML = flat.map((entry, i) => {
     const isNext = i === lc.pointer;
-    const captured = !!entry.player.loadoutScreenshot;
+    const loadout = (entry.player.loadouts || {})[currentGame];
     const teamLabel = entry.team.name || `Team ${entry.ti + 1}`;
-    const thumb = captured
-      ? `<img src="${entry.player.loadoutScreenshot}" style="width:100%;height:70px;object-fit:cover;border-radius:4px;">`
-      : `<div style="width:100%;height:70px;border-radius:4px;background:#0c0a17;display:flex;align-items:center;justify-content:center;color:#6d7899;font-size:11px;">not captured</div>`;
+
+    let body;
+    if(!loadout){
+      body = `<div style="height:70px;border-radius:4px;background:#0c0a17;display:flex;align-items:center;
+        justify-content:center;color:#6d7899;font-size:11px;">not captured</div>`;
+    } else {
+      const slots = loadout.slots || {};
+      // Every slot listed, including the ones that came back unidentified --
+      // a blank row is the signal that a box isn't calibrated or the icon
+      // isn't in the library, which is exactly what needs noticing.
+      const rows = Object.keys(FF_SLOT_LABELS).map(slot => {
+        const s = slots[slot] || {};
+        const shown = s.name || s.label || "—";
+        const colour = !s.label ? "#6d7899" : (s.lowConfidence ? "#f5a4a4" : "#4ade80");
+        const title = s.reason ? ffEscapeHtml(s.reason)
+                     : (s.label ? `confidence ${s.confidence}` : "no match");
+        return `<div style="display:flex;justify-content:space-between;gap:4px;font-size:9px;" title="${title}">
+            <span style="color:#6d7899;">${FF_SLOT_LABELS[slot]}</span>
+            <span style="color:${colour};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70px;"
+              >${ffEscapeHtml(String(shown))}</span>
+          </div>`;
+      }).join("");
+      const anyLow = Object.values(slots).some(s => s && s.lowConfidence);
+      body = `<div style="background:#0c0a17;border-radius:4px;padding:4px;">${rows}</div>
+        ${anyLow ? `<div style="font-size:9px;color:#f5a4a4;margin-top:2px;">⚠ check low-confidence</div>` : ""}`;
+    }
+
     return `
-      <div class="ff-loadout-cell" data-index="${i}" style="cursor:pointer;padding:6px;border-radius:8px;border:2px solid ${isNext ? "#8b5cf6" : "#332b52"};background:#181430;">
-        ${thumb}
+      <div class="ff-loadout-cell" data-index="${i}" data-ti="${entry.ti}" data-pi="${entry.pi}"
+        style="padding:6px;border-radius:8px;border:2px solid ${isNext ? "#8b5cf6" : "#332b52"};background:#181430;">
+        ${body}
         <div style="font-size:10px;color:#6d7899;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${ffEscapeHtml(teamLabel)}</div>
         <div style="font-size:11px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${ffEscapeHtml(entry.player.ign || `P${entry.pi + 1}`)}</div>
+        <div class="row" style="gap:4px;margin-top:4px;">
+          <button type="button" class="secondary ff-loadout-review" data-ti="${entry.ti}" data-pi="${entry.pi}"
+            style="font-size:9px;padding:2px 4px;flex:1;" ${loadout ? "" : "disabled"}>View crops</button>
+          <button type="button" class="secondary ff-loadout-goto" data-index="${i}"
+            style="font-size:9px;padding:2px 4px;">Set next</button>
+        </div>
       </div>`;
   }).join("");
 
-  grid.querySelectorAll(".ff-loadout-cell").forEach(cell => {
-    cell.addEventListener("click", () => {
-      const index = Number(cell.dataset.index);
-      ffWs.send(JSON.stringify({ type: "loadout_capture_set_pointer", pointer: index }));
+  grid.querySelectorAll(".ff-loadout-goto").forEach(btn => {
+    btn.addEventListener("click", () => {
+      ffWs.send(JSON.stringify({ type: "loadout_capture_set_pointer", pointer: Number(btn.dataset.index) }));
+    });
+  });
+  grid.querySelectorAll(".ff-loadout-review").forEach(btn => {
+    btn.addEventListener("click", () => {
+      // Crops live on the engine's disk, not in state (they'd be megabytes
+      // of base64 riding every state_sync otherwise) -- fetched per player
+      // only when actually being reviewed.
+      ffWs.send(JSON.stringify({
+        type: "freefire_fetch_loadout_capture",
+        teamIndex: Number(btn.dataset.ti), playerIndex: Number(btn.dataset.pi),
+        gameNumber: Number(currentGame),
+      }));
+      document.getElementById("ff_loadoutReviewCard").style.display = "block";
+      document.getElementById("ff_loadoutReviewBody").innerHTML =
+        `<p class="hint">Loading crops…</p>`;
     });
   });
 }
 
+/* Renders the crop-vs-reading comparison: the actual captured pixels beside
+ * what the matcher called them, so a wrong identification is visible rather
+ * than something you'd only discover on the broadcast graphic. */
+function ffRenderLoadoutReview(msg){
+  const body = document.getElementById("ff_loadoutReviewBody");
+  const titleEl = document.getElementById("ff_loadoutReviewTitle");
+  if(!ffState){ return; }
+  const team = ((ffState.roster || {}).teams || [])[msg.teamIndex] || {};
+  const player = (team.players || [])[msg.playerIndex] || {};
+  titleEl.textContent = `${team.name || "Team"} — ${player.ign || "Player"} (Game ${msg.gameNumber})`;
+
+  if(msg.error && !Object.keys(msg.images || {}).length){
+    body.innerHTML = `<p class="hint" style="color:#f5a4a4;">${ffEscapeHtml(msg.error)}</p>`;
+    return;
+  }
+  const loadout = (player.loadouts || {})[String(msg.gameNumber)] || {};
+  const slots = loadout.slots || {};
+  const cells = Object.keys(FF_SLOT_LABELS).map(slot => {
+    const s = slots[slot] || {};
+    const img = (msg.images || {})[slot];
+    const shown = s.name || s.label || "no match";
+    const colour = !s.label ? "#6d7899" : (s.lowConfidence ? "#f5a4a4" : "#4ade80");
+    return `
+      <div style="text-align:center;">
+        <div style="font-size:10px;color:#9aa4c0;margin-bottom:3px;">${FF_SLOT_LABELS[slot]}</div>
+        ${img ? `<img src="${img}" style="width:72px;height:72px;object-fit:contain;border:1px solid #332b52;border-radius:4px;background:#0c0a17;">`
+              : `<div style="width:72px;height:72px;border:1px solid #332b52;border-radius:4px;background:#0c0a17;display:flex;align-items:center;justify-content:center;color:#6d7899;font-size:9px;">no crop</div>`}
+        <div style="font-size:11px;font-weight:700;color:${colour};margin-top:3px;max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${ffEscapeHtml(String(shown))}</div>
+        <div style="font-size:9px;color:#6d7899;">${s.label ? `conf ${s.confidence}` : ""}</div>
+      </div>`;
+  }).join("");
+
+  const ignImg = (msg.images || {}).ign;
+  const cardImg = (msg.images || {}).card;
+
+  // A read IGN that doesn't resemble the roster IGN is the single best
+  // signal that a capture landed on the WRONG PLAYER -- i.e. the operator
+  // and the capture pointer drifted out of sync, which otherwise only
+  // surfaces once a Booyah graphic shows someone else's loadout. Compared
+  // loosely (case/punctuation-insensitive, and tolerant of the usual OCR
+  // confusions like O/0 and I/1/l) so a mere misread doesn't cry wolf.
+  const loosen = s => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "")
+    .replace(/[o0]/g, "0").replace(/[il1]/g, "1").replace(/[s5]/g, "5").replace(/[b8]/g, "8");
+  const readIgn = loadout.ignRead || "";
+  const rosterIgn = player.ign || "";
+  const ignMismatch = readIgn && rosterIgn && loosen(readIgn) !== loosen(rosterIgn);
+
+  body.innerHTML = `
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;">${cells}</div>
+    <div style="margin-top:12px;display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
+      <div>
+        <div style="font-size:10px;color:#9aa4c0;margin-bottom:3px;">IGN slot (read as text)</div>
+        ${ignImg ? `<img src="${ignImg}" style="max-width:220px;border:1px solid #332b52;border-radius:4px;background:#0c0a17;">` : `<span class="hint">no crop</span>`}
+        <div style="font-size:12px;font-weight:700;margin-top:3px;color:${ignMismatch ? "#f5a4a4" : "#eef1fa"};">${ffEscapeHtml(readIgn || "(nothing read)")}</div>
+        <div style="font-size:10px;color:#6d7899;">roster says: ${ffEscapeHtml(rosterIgn || "—")}</div>
+        ${ignMismatch ? `<div style="font-size:10px;color:#f5a4a4;margin-top:3px;max-width:220px;">
+          ⚠ Doesn't match the roster — this capture may have gone to the wrong player.
+          Check the pointer and re-capture.</div>` : ""}
+      </div>
+      ${cardImg ? `<div>
+        <div style="font-size:10px;color:#9aa4c0;margin-bottom:3px;">Whole card</div>
+        <img src="${cardImg}" style="max-width:320px;border:1px solid #332b52;border-radius:4px;">
+      </div>` : ""}
+    </div>`;
+}
+
+document.getElementById("ff_loadoutReviewClose").addEventListener("click", () => {
+  document.getElementById("ff_loadoutReviewCard").style.display = "none";
+});
 document.getElementById("ff_loadoutArm").addEventListener("click", () => {
   ffWs.send(JSON.stringify({ type: "loadout_capture_arm" }));
 });
