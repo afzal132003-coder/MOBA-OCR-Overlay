@@ -108,13 +108,37 @@ FREEFIRE_ICON_LIBRARIES = {
     "pet": "pets",
     "equipment": "equipment",
 }
-FREEFIRE_ASSETS_DIR = Path(__file__).parent.parent.parent / "overlay" / "assets" / "freefire"
+# The operator's existing asset dump, exported straight from the game:
+# flat files named by Free Fire's own numeric asset ID (101xxxxxx female
+# characters, 102xxxxxx male). Characters therefore live in the ROOT of
+# this folder, with pets/ and equipment/ as subfolders to be added later --
+# that convention fits the dump as it already exists rather than making
+# the operator reorganise 84 files to suit the code.
+FREEFIRE_ASSETS_DIR = Path(__file__).parent.parent.parent / "overlay" / "assets" / "FFM"
+# Optional {"101000005": "Kelly", ...} beside the images. Matching works
+# without it (labels are just the numeric IDs), but a broadcast graphic
+# needs a real name, and this lets those be filled in incrementally
+# without renaming files or touching code.
+FREEFIRE_ICON_NAMES_FILE = "names.json"
 
 # Below this, a "best match" is reported but flagged low-confidence rather
 # than trusted -- a colour signature always returns SOME nearest neighbour
 # even when the real icon isn't in the library at all, and silently
 # accepting that is how a wrong character ends up on a Booyah graphic.
+#
+# Measured against the real 84-portrait dump, degraded to what a captured
+# HUD icon actually looks like (44px, 60% brightness, compression noise):
+# every one of the 80 distinct portraits matched itself, and the only
+# four that "failed" turned out to be byte-identical duplicate pairs in
+# the dump (101000001/101000004, 101000018/101100018, 101888888/101999999,
+# 102000019/102200019) -- all four scored 0.000 and were flagged rather
+# than guessed at, which is the behaviour wanted for a genuinely
+# ambiguous icon.
 ICON_MATCH_MIN_CONFIDENCE = 0.55
+
+# Transparent reference pixels get flattened onto this value -- roughly the
+# dark card the game draws these icons over. See load_reference_image.
+ICON_BACKDROP_VALUE = 30
 
 NUM5_HOTKEY = "num 5"
 
@@ -130,7 +154,18 @@ ocr_executor = ThreadPoolExecutor(max_workers=2)
 
 def default_state():
     return {
-        "settings": {"matchResultFolder": "", "safezoneFolder": ""},
+        "settings": {
+            "matchResultFolder": "", "safezoneFolder": "",
+            # What happens to a result row that couldn't be resolved against
+            # the roster (unknown team, or a UID/name that isn't registered).
+            # "allow" keeps the row using whatever the file said; "flag"
+            # keeps it but marks it for review; "drop" excludes it entirely.
+            # An explicit request to control this rather than have the
+            # engine decide: a scrim with guest teams wants "allow", while
+            # a final where every roster entry is verified wants unknown
+            # rows kept out of the standings rather than quietly scoring.
+            "unmatchedPolicy": "flag",
+        },
         "currentMatchId": None,
         "currentContext": "",
         "knownContexts": [],
@@ -350,24 +385,68 @@ def _icon_signature(img_bgr, grid=4):
     return sig
 
 
+def load_reference_image(path):
+    """Reads a reference icon and flattens any transparency onto the same
+    dark background the game draws these cards on.
+
+    This matters rather than being a detail: 80 of the 84 character
+    portraits ship with a real alpha channel, and reading them with
+    IMREAD_COLOR silently drops it, leaving whatever garbage sits in the
+    transparent RGB pixels. The captured screen crop has no alpha at all --
+    it's already composited by the game -- so a reference kept unflattened
+    is being compared against something structurally different."""
+    img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    if img is None:
+        return None
+    if img.ndim == 3 and img.shape[2] == 4:
+        alpha = img[:, :, 3:4].astype(np.float32) / 255.0
+        img = (img[:, :, :3].astype(np.float32) * alpha
+               + ICON_BACKDROP_VALUE * (1.0 - alpha)).astype(np.uint8)
+    elif img.ndim == 2:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    return img
+
+
+def load_icon_names(folder):
+    path = folder / FREEFIRE_ICON_NAMES_FILE
+    if not path.is_file():
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return {}
+        # Blank values are skipped rather than honoured, so a template with
+        # every ID listed and only some filled in behaves correctly -- an
+        # unfilled entry falls back to showing the ID instead of rendering
+        # an empty name onto a graphic.
+        return {str(k): str(v).strip() for k, v in data.items() if str(v).strip()}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
 def load_icon_library(library_name):
-    """{label: signature} for every image in overlay/assets/freefire/<name>/,
-    built once and cached. Returns an empty dict (not an error) when the
-    folder doesn't exist yet -- the engine has to keep running and simply
-    report "no match" until the operator drops their reference images in."""
+    """{label: (signature, display_name)} for a reference folder, built once
+    and cached. Returns empty (not an error) when the folder doesn't exist
+    -- the engine keeps running and reports "no match" until the operator
+    adds images, which is the actual state for pets/equipment today.
+
+    "characters" reads the flat root of the asset dump; everything else
+    reads a subfolder of the same name. See FREEFIRE_ASSETS_DIR."""
     if library_name in _icon_signature_cache:
         return _icon_signature_cache[library_name]
 
+    folder = FREEFIRE_ASSETS_DIR if library_name == "characters" else FREEFIRE_ASSETS_DIR / library_name
     library = {}
-    folder = FREEFIRE_ASSETS_DIR / library_name
     if folder.is_dir():
+        names = load_icon_names(folder)
         for path in sorted(folder.iterdir()):
-            if path.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
+            if not path.is_file() or path.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
                 continue
-            img = cv2.imread(str(path), cv2.IMREAD_COLOR)
+            img = load_reference_image(path)
             if img is None:
                 continue
-            library[path.stem] = _icon_signature(img)
+            library[path.stem] = (_icon_signature(img), names.get(path.stem, path.stem))
     _icon_signature_cache[library_name] = library
     return library
 
@@ -385,12 +464,13 @@ def match_icon(img_bgr, library_name):
     operator needs when deciding whether to trust a match."""
     library = load_icon_library(library_name)
     if not library:
-        return {"label": None, "confidence": 0.0, "lowConfidence": True,
-                "reason": f"no reference images in assets/freefire/{library_name}/"}
+        where = "assets/FFM/" if library_name == "characters" else f"assets/FFM/{library_name}/"
+        return {"label": None, "name": None, "confidence": 0.0, "lowConfidence": True,
+                "reason": f"no reference images in {where}"}
 
     sig = _icon_signature(img_bgr)
     scored = sorted(
-        ((float(np.linalg.norm(sig - ref)), label) for label, ref in library.items()),
+        ((float(np.linalg.norm(sig - ref)), label) for label, (ref, _) in library.items()),
     )
     best_distance, best_label = scored[0]
     if len(scored) > 1:
@@ -402,6 +482,7 @@ def match_icon(img_bgr, library_name):
         confidence = 0.0
     return {
         "label": best_label,
+        "name": library[best_label][1],
         "confidence": round(confidence, 3),
         "lowConfidence": confidence < ICON_MATCH_MIN_CONFIDENCE,
     }
@@ -558,6 +639,30 @@ def match_roster_player(file_player, roster_team):
         if ratio > best_ratio:
             best_player, best_ratio = player, ratio
     return best_player if best_ratio >= PLAYER_NAME_MIN_RATIO else None
+
+
+def apply_unmatched_policy(teams, policy):
+    """Applies the operator's chosen handling for rows that didn't resolve
+    against the roster. "drop" is the only one that changes what's in the
+    list; "allow" and "flag" both keep every row, differing only in whether
+    the dashboard is told to highlight it. Unmatched PLAYERS never drop a
+    row on their own -- a team with one unregistered stand-in still has a
+    real result that belongs in the standings, and silently deleting the
+    whole squad over one player would be worse than showing the name the
+    file gave."""
+    if policy == "drop":
+        return [t for t in teams if t.get("matched")]
+    if policy == "allow":
+        for team in teams:
+            team["needsReview"] = False
+            for player in team.get("players", []):
+                player["needsReview"] = False
+        return teams
+    for team in teams:  # "flag" (default)
+        team["needsReview"] = not team.get("matched", False)
+        for player in team.get("players", []):
+            player["needsReview"] = not player.get("matched", False)
+    return teams
 
 
 def apply_roster_overrides(teams, roster):
@@ -851,6 +956,8 @@ async def handle_client(websocket, path=None):
                         # Resolve against the configured roster before the
                         # dashboard ever sees it -- see apply_roster_overrides.
                         teams = apply_roster_overrides(teams, server_state.get("roster", {}))
+                        policy = server_state.get("settings", {}).get("unmatchedPolicy", "flag")
+                        teams = apply_unmatched_policy(teams, policy)
                         await websocket.send(json.dumps({
                             "type": "freefire_match_result",
                             "matchId": name_match.group("match_id"),
