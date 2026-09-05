@@ -3,69 +3,106 @@
 <head>
 <meta charset="UTF-8">
 <title>Titanium Aero - GEN6.7</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-  body{font-family:'Segoe UI',Arial,sans-serif;background:#0c0a17;color:#eef1fa;margin:0;padding:24px;
+  /* Poppins with a real fallback stack -- this dashboard runs on an
+     operator's PC that may be offline or behind a locked-down network
+     mid-event, and a webfont that fails to load must not take the
+     layout's readability with it. */
+  body{font-family:'Poppins','Segoe UI',Arial,sans-serif;background:#0a0d18;color:#eef2fb;margin:0;padding:24px;
     border-top:4px solid transparent;
-    border-image:linear-gradient(90deg,#7c3aed,#a855f7,#ec4899,#8b5cf6) 1;
+    border-image:linear-gradient(90deg,#6d4dff,#a06bff,#ec4899,#7d6bff) 1;
+    /* Ambient glow: a cool wash top-left and a warm one bottom-right, so
+       the page reads as lit rather than flat. Fixed attachment keeps the
+       light source still while content scrolls past it -- scrolling the
+       glow with the content makes it read as a texture instead. */
+    background-image:
+      radial-gradient(1100px 700px at 12% -10%, rgba(109,77,255,0.16), transparent 60%),
+      radial-gradient(900px 600px at 100% 105%, rgba(255,138,76,0.13), transparent 62%);
+    background-attachment:fixed;
+    min-height:100vh;
   }
   h1{font-size:20px;margin-bottom:4px;}
   #status{display:inline-block;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:700;margin-bottom:16px;}
   #status.connected{background:#1b5e3a;color:#a4f5c4;}
   #status.disconnected{background:#5e1b1b;color:#f5a4a4;}
-  .hint{font-size:12px;color:#6d7899;margin-top:-4px;}
+  .hint{font-size:12px;color:#6b7590;margin-top:-4px;}
   #tso_status{transition:opacity 0.6s ease; margin-top:8px;}
 
-  .brand-title{font-size:26px;font-weight:800;letter-spacing:0.5px;margin:0 0 2px;color:#8b5cf6;}
-  .brand-title span{color:#eef1fa;font-weight:600;}
-  .brand-tagline{font-size:13px;color:#9aa4c0;margin:0 0 16px;font-style:italic;}
+  .brand-title{font-size:26px;font-weight:800;letter-spacing:0.5px;margin:0 0 2px;color:#7d6bff;}
+  .brand-title span{color:#eef2fb;font-weight:600;}
+  .brand-tagline{font-size:13px;color:#98a3bd;margin:0 0 16px;font-style:italic;}
 
   .category-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;}
   .category-btn{
-    background:#181430;color:#9aa4c0;border:1px solid #332b52;
-    padding:10px 20px;border-radius:8px;font-weight:800;cursor:pointer;
-    font-size:13px;text-transform:uppercase;letter-spacing:0.5px;
+    background:rgba(20,26,40,0.85);color:#98a3bd;border:1px solid #2b3348;
+    padding:10px 20px;border-radius:12px;font-weight:600;cursor:pointer;
+    font-size:13px;text-transform:uppercase;letter-spacing:0.6px;font-family:inherit;
+    transition:background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
   }
-  .category-btn.active{background:#8b5cf6;color:#0c0a17;border-color:#8b5cf6;}
+  .category-btn:hover{color:#eef2fb;border-color:#3a4460;}
+  .category-btn.active{
+    background:linear-gradient(180deg,#8b7bff,#6d59f5);color:#0a0d18;border-color:transparent;
+    box-shadow:0 4px 16px rgba(109,89,245,0.4);
+  }
   .category-panel{display:none;}
   .category-panel.active{display:block;}
-  .coming-soon{background:#181430;border:1px dashed #332b52;border-radius:10px;padding:40px 20px;text-align:center;}
-  .coming-soon h2{color:#8b5cf6;text-transform:uppercase;letter-spacing:0.5px;margin-top:0;}
+  .coming-soon{background:#141a28;border:1px dashed #2b3348;border-radius:10px;padding:40px 20px;text-align:center;}
+  .coming-soon h2{color:#7d6bff;text-transform:uppercase;letter-spacing:0.5px;margin-top:0;}
 
   .tabbar{display:flex;gap:8px;margin:16px 0 0;}
   .tabbar button, .ff-tab-btn, .val-tab-btn{
-    background:#181430;color:#9aa4c0;border:1px solid #332b52;border-bottom:none;
-    padding:10px 18px;border-radius:8px 8px 0 0;font-weight:700;cursor:pointer;
-    font-size:12px;text-transform:uppercase;letter-spacing:0.5px;
+    background:rgba(20,26,40,0.7);color:#98a3bd;border:1px solid #2b3348;border-bottom:none;
+    padding:10px 18px;border-radius:10px 10px 0 0;font-weight:600;cursor:pointer;
+    font-size:12px;text-transform:uppercase;letter-spacing:0.6px;font-family:inherit;
+    box-shadow:none;margin-top:0;
   }
-  .tabbar button.active, .ff-tab-btn.active, .val-tab-btn.active{background:#8b5cf6;color:#0c0a17;border-color:#8b5cf6;}
-  .tab-panel, .ff-tab-panel, .val-tab-panel{display:none;background:#0c0a17;padding-top:4px;}
+  .tabbar button.active, .ff-tab-btn.active, .val-tab-btn.active{
+    background:linear-gradient(180deg,#8b7bff,#6d59f5);color:#0a0d18;border-color:transparent;
+  }
+  .tab-panel, .ff-tab-panel, .val-tab-panel{display:none;background:transparent;padding-top:4px;}
   .tab-panel.active, .ff-tab-panel.active, .val-tab-panel.active{display:block;}
 
-  .card{background:#181430;border:1px solid #241d3d;border-radius:14px;padding:18px 20px;margin-bottom:20px;
-    box-shadow:0 4px 18px rgba(0,0,0,0.25);
+  /* Cards read as lit glass panels: a faint top-edge highlight where the
+     ambient light would catch, a soft drop shadow for depth, and a
+     translucent surface so the page glow shows through rather than each
+     card sitting on its own flat block. */
+  .card{
+    background:linear-gradient(180deg, rgba(27,34,51,0.92), rgba(18,24,38,0.92));
+    border:1px solid #1f2739;border-radius:18px;padding:20px 22px;margin-bottom:20px;
+    box-shadow:0 10px 30px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+    backdrop-filter:blur(6px);
   }
-  .card h2{margin-top:0;font-size:15px;color:#8b5cf6;text-transform:uppercase;letter-spacing:0.5px;}
-  .card h3{font-size:12px;color:#9aa4c0;text-transform:uppercase;margin:0 0 10px;letter-spacing:0.5px;}
+  .card h2{margin-top:0;font-size:15px;color:#7d6bff;text-transform:uppercase;letter-spacing:0.6px;font-weight:700;}
+  .card h3{font-size:12px;color:#98a3bd;text-transform:uppercase;margin:0 0 10px;letter-spacing:0.5px;}
   .row{display:flex;gap:24px;flex-wrap:wrap;}
   .two-col{display:flex;gap:24px;flex-wrap:wrap;}
   .col{flex:1;min-width:300px;}
   .team-form{flex:1;min-width:260px;}
 
-  label{display:block;font-size:12px;color:#9aa4c0;margin:10px 0 4px;}
+  label{display:block;font-size:12px;color:#98a3bd;margin:10px 0 4px;}
   input[type=text], input[type=number]{
-    width:100%;box-sizing:border-box;padding:8px 10px;border-radius:6px;border:1px solid #332b52;
-    background:#0c0a17;color:#eef1fa;font-size:14px;
+    width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid #2b3348;
+    background:rgba(10,13,24,0.75);color:#eef2fb;font-size:14px;font-family:inherit;
+    transition:border-color 0.15s ease, box-shadow 0.15s ease;
   }
-  input[type=file]{color:#9aa4c0;font-size:12px;}
-  .logo-preview{width:48px;height:48px;border-radius:50%;object-fit:cover;background:#0c0a17;border:2px solid #8b5cf6;margin-top:8px;}
+  input[type=text]:focus, input[type=number]:focus, select:focus, textarea:focus{
+    outline:none;border-color:#7d6bff;box-shadow:0 0 0 3px rgba(125,107,255,0.18);
+  }
+  input[type=file]{color:#98a3bd;font-size:12px;}
+  .logo-preview{width:48px;height:48px;border-radius:50%;object-fit:cover;background:#0a0d18;border:2px solid #7d6bff;margin-top:8px;}
   button{
-    background:#8b5cf6;color:#0c0a17;border:none;padding:9px 16px;border-radius:6px;
-    font-weight:700;cursor:pointer;font-size:13px;margin-top:12px;
-    transition:opacity 0.15s ease, transform 0.1s ease;
+    background:linear-gradient(180deg,#8b7bff,#6d59f5);color:#0a0d18;border:none;padding:10px 18px;border-radius:10px;
+    font-weight:600;cursor:pointer;font-size:13px;margin-top:12px;font-family:inherit;
+    box-shadow:0 4px 14px rgba(109,89,245,0.35);
+    transition:opacity 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
   }
-  button.secondary{background:#332b52;color:#eef1fa;}
-  button.danger{background:#c0453f;color:#fff;}
-  button:hover{opacity:0.9;}
+  button.secondary{background:rgba(43,51,72,0.85);color:#eef2fb;box-shadow:none;}
+  button.danger{background:linear-gradient(180deg,#d2544e,#b03c36);color:#fff;box-shadow:0 4px 14px rgba(192,69,63,0.3);}
+  button:hover{opacity:0.92;box-shadow:0 6px 20px rgba(109,89,245,0.45);}
+  button.secondary:hover{box-shadow:none;background:rgba(56,66,92,0.9);}
   /* Fire-and-forget buttons (push/apply/save) had zero click feedback --
      no hover transition, no pressed state, nothing -- so clicking one felt
      unresponsive even when it worked, especially for buttons like Push
@@ -74,16 +111,17 @@
   button:active{transform:scale(0.96); opacity:0.85;}
 
   select{
-    width:100%;box-sizing:border-box;padding:8px 10px;border-radius:6px;border:1px solid #332b52;
-    background:#0c0a17;color:#eef1fa;font-size:14px;
+    width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid #2b3348;
+    background:rgba(10,13,24,0.75);color:#eef2fb;font-size:14px;font-family:inherit;
+    transition:border-color 0.15s ease, box-shadow 0.15s ease;
   }
 
   .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;}
-  .stat-card{background:#0c0a17;border:1px solid #332b52;border-radius:8px;padding:12px;
+  .stat-card{background:#0a0d18;border:1px solid #2b3348;border-radius:8px;padding:12px;
     display:flex; gap:12px; align-items:stretch;}
   .stat-card .stat-main{flex:1;min-width:0;}
-  .stat-card .label{font-size:12px;color:#9aa4c0;text-transform:uppercase;}
-  .stat-card .live-value{font-size:26px;font-weight:800;color:#8b5cf6;margin:6px 0;}
+  .stat-card .label{font-size:12px;color:#98a3bd;text-transform:uppercase;}
+  .stat-card .live-value{font-size:26px;font-weight:800;color:#7d6bff;margin:6px 0;}
   .stat-card .override-row{display:flex;align-items:center;gap:8px;margin-top:8px;}
   .stat-card input[type=number]{width:80px;display:inline-block;}
   .stat-card.locked{border-color:#f2c14e;}
@@ -106,9 +144,9 @@
      instead of a separate section the operator had to scroll to and
      visually match up by eye against this card. */
   .stat-card .stat-crop{width:110px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    background:#000;border:1px solid #241d3d;border-radius:6px;padding:4px;}
+    background:#000;border:1px solid #1f2739;border-radius:6px;padding:4px;}
   .stat-card .stat-crop img{width:100%;height:50px;object-fit:contain;}
-  .stat-card .stat-crop .crop-caption{font-size:9px;color:#6d7899;text-transform:uppercase;margin-top:4px;text-align:center;}
+  .stat-card .stat-crop .crop-caption{font-size:9px;color:#6b7590;text-transform:uppercase;margin-top:4px;text-align:center;}
 
   /* Player K/D/A Live Stats -- 10 compact rows (5 players x 2 teams), each
      with one shared crop (one combined "K/D/A" region per player now, not
@@ -116,30 +154,30 @@
      much smaller than the main stat-card since there are so many more of
      them. */
   .pstat-row{display:flex; align-items:center; gap:8px; margin-bottom:8px;
-    background:#0c0a17; border:1px solid #332b52; border-radius:6px; padding:6px 8px;}
-  .pstat-row .pstat-name{flex:1; font-size:12px; font-weight:700; color:#eef1fa; min-width:0;
+    background:#0a0d18; border:1px solid #2b3348; border-radius:6px; padding:6px 8px;}
+  .pstat-row .pstat-name{flex:1; font-size:12px; font-weight:700; color:#eef2fb; min-width:0;
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .pstat-kda-crop-wrap{display:flex; flex-direction:column; align-items:center; gap:2px; flex-shrink:0;}
-  .pstat-kda-crop{width:56px; height:22px; object-fit:contain; background:#000; border-radius:3px; border:1px solid #241d3d;}
+  .pstat-kda-crop{width:56px; height:22px; object-fit:contain; background:#000; border-radius:3px; border:1px solid #1f2739;}
   /* Raw OCR text, not the parsed number -- lets you see "OCR read garbage
      that failed to parse" vs "OCR read fine but something downstream is
      wrong" instead of a stuck value being a total black box. Same idea as
      the Turtle/Game Timer cards' "last OCR reading" line. */
-  .pstat-kda-lasttext{font-size:9px; color:#6d7899; max-width:56px; overflow:hidden;
+  .pstat-kda-lasttext{font-size:9px; color:#6b7590; max-width:56px; overflow:hidden;
     text-overflow:ellipsis; white-space:nowrap; text-align:center;}
   .pstat-cell{display:flex; align-items:center; gap:4px;}
-  .pstat-cell .pstat-label{font-size:10px; color:#6d7899; text-transform:uppercase;}
-  .pstat-cell .pstat-value{font-size:15px; font-weight:800; color:#8b5cf6; width:22px; text-align:center;}
+  .pstat-cell .pstat-label{font-size:10px; color:#6b7590; text-transform:uppercase;}
+  .pstat-cell .pstat-value{font-size:15px; font-weight:800; color:#7d6bff; width:22px; text-align:center;}
   .pstat-cell .pstat-override-toggle{display:flex; align-items:center; cursor:pointer;}
   .pstat-cell .pstat-override-toggle input{width:12px; height:12px; margin:0; cursor:pointer;}
   .pstat-cell .pstat-override-input{width:32px; font-size:11px; padding:2px 3px;
-    background:#161129; border:1px solid #332b52; border-radius:3px; color:#eef1fa;}
+    background:#161129; border:1px solid #2b3348; border-radius:3px; color:#eef2fb;}
   .pstat-cell .pstat-override-input:disabled{opacity:0.35;}
 
   .crop-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;}
-  .crop-box{background:#0c0a17;border:1px solid #332b52;border-radius:8px;padding:8px;text-align:center;}
+  .crop-box{background:#0a0d18;border:1px solid #2b3348;border-radius:8px;padding:8px;text-align:center;}
   .crop-box img{width:100%;height:60px;object-fit:contain;background:#000;border-radius:4px;}
-  .crop-box .label{font-size:11px;color:#9aa4c0;margin-top:6px;text-transform:uppercase;}
+  .crop-box .label{font-size:11px;color:#98a3bd;margin-top:6px;text-transform:uppercase;}
 
   .mini-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
   .mini-grid label{margin:0 0 4px;}
@@ -148,8 +186,8 @@
   .player-row label{margin:0 0 4px;}
 
   .draft-slot{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
-  .draft-slot .slot-num{width:16px;color:#6d7899;font-size:11px;text-align:center;flex-shrink:0;}
-  .draft-slot img.hero-preview{width:30px;height:30px;border-radius:4px;object-fit:cover;background:#0c0a17;border:1px solid #332b52;display:none;flex-shrink:0;}
+  .draft-slot .slot-num{width:16px;color:#6b7590;font-size:11px;text-align:center;flex-shrink:0;}
+  .draft-slot img.hero-preview{width:30px;height:30px;border-radius:4px;object-fit:cover;background:#0a0d18;border:1px solid #2b3348;display:none;flex-shrink:0;}
   .draft-slot input[type=text]{flex:1;font-size:12px;padding:6px 8px;}
 
   /* Picks-only reorder arrows: move the hero pick up/down a slot without
@@ -157,26 +195,26 @@
      driven off the players roster, not the pick array. */
   .reorder-btns{display:flex;flex-direction:column;gap:2px;flex-shrink:0;}
   .reorder-btn{
-    background:#332b52;color:#eef1fa;border:none;border-radius:4px;
+    background:#2b3348;color:#eef2fb;border:none;border-radius:4px;
     width:20px;height:16px;font-size:9px;line-height:1;padding:0;margin:0;
     cursor:pointer;display:flex;align-items:center;justify-content:center;
   }
   .reorder-btn:hover{background:#3a4a80;}
   .reorder-btn:disabled{opacity:0.25;cursor:default;}
-  .reorder-btn:disabled:hover{background:#332b52;}
+  .reorder-btn:disabled:hover{background:#2b3348;}
 
   .paste-zone{
-    border:1px dashed #332b52; border-radius:8px; padding:14px; outline:none; cursor:text;
+    border:1px dashed #2b3348; border-radius:8px; padding:14px; outline:none; cursor:text;
   }
-  .paste-zone:focus{ border-color:#8b5cf6; background:#181430; }
-  .paste-hint{ font-size:12px; color:#6d7899; margin-top:8px; }
+  .paste-zone:focus{ border-color:#7d6bff; background:#141a28; }
+  .paste-hint{ font-size:12px; color:#6b7590; margin-top:8px; }
 
   .gfx-box{
     position:absolute; border:1px dashed rgba(139,92,246,0.35); box-sizing:border-box;
     cursor:move; display:flex; align-items:center; justify-content:center;
     overflow:hidden; background:none;
   }
-  .gfx-box:hover{ border:1px solid #8b5cf6; background:rgba(139,92,246,0.08); }
+  .gfx-box:hover{ border:1px solid #7d6bff; background:rgba(139,92,246,0.08); }
   .gfx-box.gfx-selected{ border:1px solid #ff5050; box-shadow:0 0 0 1px rgba(255,80,80,0.45); }
   .gfx-box.gfx-arrow{ border:none; background:none; }
   .gfx-box.gfx-arrow:hover{ border:none; background:none; }
@@ -184,25 +222,25 @@
   .gfx-arrow-shape{ width:100%; height:100%; background:#3ddc6a; filter:drop-shadow(0 0 4px #3ddc6a); }
   .gfx-ghost{ opacity:0.85; }
   .gfx-box img{ max-width:100%; max-height:100%; object-fit:contain; pointer-events:none; }
-  .gfx-box .gfx-label{ color:#8b5cf6; font-size:10px; text-align:center; pointer-events:none; padding:2px; }
+  .gfx-box .gfx-label{ color:#7d6bff; font-size:10px; text-align:center; pointer-events:none; padding:2px; }
   .gfx-handle{
     position:absolute; right:-5px; bottom:-5px; width:12px; height:12px;
-    background:#8b5cf6; border:1px solid #0c0a17; cursor:nwse-resize; border-radius:2px;
+    background:#7d6bff; border:1px solid #0a0d18; cursor:nwse-resize; border-radius:2px;
   }
 
   .timer-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;}
   .timer-row > div{display:flex;flex-direction:column;}
-  .timer-display{font-size:26px;font-weight:800;color:#8b5cf6;min-width:80px;align-self:center;}
+  .timer-display{font-size:26px;font-weight:800;color:#7d6bff;min-width:80px;align-self:center;}
   .timer-row input[type=number]{width:80px;}
   .timer-row button{margin-top:0;}
 
   .session-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:20px;}
   .session-card{
-    background:#181430;border:1px solid #241d3d;border-radius:14px;padding:14px 16px;
+    background:#141a28;border:1px solid #1f2739;border-radius:14px;padding:14px 16px;
     box-shadow:0 4px 18px rgba(0,0,0,0.25);
   }
-  .session-card .s-label{font-size:11px;color:#9aa4c0;text-transform:uppercase;letter-spacing:0.5px;}
-  .session-card .s-value{font-size:26px;font-weight:800;color:#eef1fa;margin:4px 0 2px;}
+  .session-card .s-label{font-size:11px;color:#98a3bd;text-transform:uppercase;letter-spacing:0.5px;}
+  .session-card .s-value{font-size:26px;font-weight:800;color:#eef2fb;margin:4px 0 2px;}
   .session-card .s-sub{font-size:11px;color:#7c8bb0;}
   .session-card .s-trend{font-size:11px;font-weight:700;margin-top:2px;display:inline-flex;align-items:center;gap:3px;}
   .session-card .s-trend.up{color:#4ade80;}
@@ -210,14 +248,14 @@
   .session-card.accent-green .s-value{color:#4ade80;}
   .session-card.accent-pink .s-value{color:#f472b6;}
   .session-card.accent-blue .s-value{color:#60a5fa;}
-  .session-card.accent-purple .s-value{color:#a855f7;}
+  .session-card.accent-purple .s-value{color:#a06bff;}
   .spark-svg{
     width:100%;height:38px;margin-top:8px;display:block;border-radius:6px;
     background-color:#0a0818;
     background-image:
       repeating-linear-gradient(0deg, rgba(139,92,246,0.10) 0 1px, transparent 1px 7px),
       repeating-linear-gradient(90deg, rgba(139,92,246,0.10) 0 1px, transparent 1px 7px);
-    border:1px solid #241d3d;
+    border:1px solid #1f2739;
   }
   .spark-svg .spark-line{
     fill:none;stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round;
@@ -226,9 +264,9 @@
 
   .uptime-ring{position:relative;width:72px;height:72px;flex-shrink:0;}
   .uptime-ring svg{transform:rotate(-90deg);}
-  .uptime-ring .ring-track{fill:none;stroke:#241d3d;stroke-width:6;}
-  .uptime-ring .ring-fill{fill:none;stroke:#a855f7;stroke-width:6;stroke-linecap:round;transition:stroke-dashoffset 0.5s ease;}
-  .uptime-ring .ring-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:#eef1fa;}
+  .uptime-ring .ring-track{fill:none;stroke:#1f2739;stroke-width:6;}
+  .uptime-ring .ring-fill{fill:none;stroke:#a06bff;stroke-width:6;stroke-linecap:round;transition:stroke-dashoffset 0.5s ease;}
+  .uptime-ring .ring-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:#eef2fb;}
   .session-card:has(.uptime-row){display:flex;flex-direction:column;}
   .uptime-row{display:flex;align-items:center;gap:16px;margin-top:12px;flex:1;}
 
@@ -262,11 +300,11 @@
   }
   .entry-gate-title{
     font-size:32px;font-weight:800;line-height:1.3;margin:0 0 14px;
-    background:linear-gradient(90deg,#a855f7,#ec4899,#8b5cf6);-webkit-background-clip:text;background-clip:text;color:transparent;
+    background:linear-gradient(90deg,#a06bff,#ec4899,#7d6bff);-webkit-background-clip:text;background-clip:text;color:transparent;
   }
-  .entry-gate-sub{font-size:14px;color:#9aa4c0;margin:0 0 30px;}
+  .entry-gate-sub{font-size:14px;color:#98a3bd;margin:0 0 30px;}
   .entry-gate-enter{
-    background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;border:none;
+    background:linear-gradient(135deg,#6d4dff,#a06bff);color:#fff;border:none;
     padding:12px 40px;border-radius:8px;font-weight:800;letter-spacing:1px;text-transform:uppercase;
     cursor:pointer;font-size:13px;box-shadow:0 6px 20px rgba(124,58,237,0.4);
   }
@@ -328,7 +366,7 @@
 </div>
 
 <details class="card" id="overlayLinksCard" style="margin-bottom:20px;">
-  <summary style="cursor:pointer;font-weight:800;color:#8b5cf6;font-size:14px;">Overlay Browser Source Links (all games)</summary>
+  <summary style="cursor:pointer;font-weight:800;color:#7d6bff;font-size:14px;">Overlay Browser Source Links (all games)</summary>
   <p class="hint">Paste one of these straight into an OBS Browser Source's URL field — works from any PC, not just
     the one running the OCR engine, same as this dashboard's own hosted link. Includes the relay/token this
     dashboard itself connected with, so it'll show DISCONNECTED if you opened this page without those in the URL.</p>
@@ -386,7 +424,7 @@
       </div>
       <div class="team-form">
         <label>Last OCR reading</label>
-        <div id="gameTimer_lastText" style="font-size:12px;color:#9aa4c0;min-height:18px;">&mdash;</div>
+        <div id="gameTimer_lastText" style="font-size:12px;color:#98a3bd;min-height:18px;">&mdash;</div>
       </div>
     </div>
     <div class="timer-row">
@@ -481,7 +519,7 @@
       their whole "K/D/A" reading (e.g. "18/0/2"), not three separate boxes. Its own calibration pass, separate from
       the main HUD, for whenever you have time. Check the box next to any value to override it manually (locks that
       player's whole K/D/A reading, since OCR reads all three together); uncheck to hand it back to OCR:</p>
-    <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+    <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
       cd ocr/moba &amp;&amp; python calibrate_teamstats.py
     </div>
     <div class="two-col" style="margin-top:14px;">
@@ -510,17 +548,17 @@
       </div>
       <div class="team-form">
         <label>Turtle Status</label>
-        <div id="turtle_status" style="font-weight:800;color:#8b5cf6;">idle</div>
+        <div id="turtle_status" style="font-weight:800;color:#7d6bff;">idle</div>
         <label>Last OCR reading</label>
-        <div id="turtle_lastText" style="font-size:12px;color:#9aa4c0;min-height:18px;">&mdash;</div>
+        <div id="turtle_lastText" style="font-size:12px;color:#98a3bd;min-height:18px;">&mdash;</div>
         <label>Live countdown</label>
         <div id="turtle_countdownDisplay" style="font-size:20px;font-weight:800;">&mdash;</div>
       </div>
       <div class="team-form">
         <label>Lord Status</label>
-        <div id="lord_status" style="font-weight:800;color:#8b5cf6;">idle</div>
+        <div id="lord_status" style="font-weight:800;color:#7d6bff;">idle</div>
         <label>Last OCR reading</label>
-        <div id="lord_lastText" style="font-size:12px;color:#9aa4c0;min-height:18px;">&mdash;</div>
+        <div id="lord_lastText" style="font-size:12px;color:#98a3bd;min-height:18px;">&mdash;</div>
       </div>
     </div>
     <p class="hint">Manual override — works regardless of what OCR is doing, useful while detection is still
@@ -796,7 +834,7 @@
       straight off the screen through the same fast per-region OCR your live kills/gold HUD uses, no image upload
       needed. First time only: calibrate the 20 regions once with the command below (like you did for the HUD),
       it's reused after that.</p>
-    <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+    <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
       cd ocr/moba &amp;&amp; python calibrate_postmatch_hero.py
     </div>
     <button id="import_battleReport_capture">Capture From Screen Now</button>
@@ -805,7 +843,7 @@
     <button class="secondary" id="import_battleReport_apply" style="display:none;">Apply to Post Match Players</button>
 
     <details style="margin-top:14px;">
-      <summary style="cursor:pointer;color:#9aa4c0;font-size:12px;">Or upload/paste a screenshot instead (slower — full-page OCR, fuzzy name match)</summary>
+      <summary style="cursor:pointer;color:#98a3bd;font-size:12px;">Or upload/paste a screenshot instead (slower — full-page OCR, fuzzy name match)</summary>
       <div class="paste-zone" id="import_battleReport_zone" tabindex="0" style="margin-top:10px;">
         <input type="file" id="import_battleReport_file" accept="image/*">
         <div class="paste-hint">or click in this box and press Ctrl+V to paste a screenshot</div>
@@ -822,7 +860,7 @@
       (e.g. "18 0 2" — this screen uses a gap between the numbers, not the "/" the live in-game HUD uses). Whichever
       player you select for the MVP graphic pulls their K/D/A from here. First time only: calibrate the 10 regions
       once with the command below.</p>
-    <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+    <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
       cd ocr/moba &amp;&amp; python calibrate_postmatch_kda.py
     </div>
     <button id="import_kda_capture">Capture From Screen Now</button>
@@ -836,7 +874,7 @@
     <p class="hint">Have the game's post-match "Overall" screen up (per-player gold next to KDA), then hit Capture.
       Gold is read per player straight off the screen and summed per team automatically. First time only:
       calibrate the 10 regions once with the command below.</p>
-    <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+    <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
       cd ocr/moba &amp;&amp; python calibrate_postmatch_gold.py
     </div>
     <button id="import_gold_capture">Capture From Screen Now</button>
@@ -855,7 +893,7 @@
     </div>
 
     <details style="margin-top:14px;">
-      <summary style="cursor:pointer;color:#9aa4c0;font-size:12px;">Or upload/paste a screenshot instead (slower — full-page OCR, fuzzy name match)</summary>
+      <summary style="cursor:pointer;color:#98a3bd;font-size:12px;">Or upload/paste a screenshot instead (slower — full-page OCR, fuzzy name match)</summary>
       <div class="paste-zone" id="import_gold_zone" tabindex="0" style="margin-top:10px;">
         <input type="file" id="import_gold_file" accept="image/*">
         <div class="paste-hint">or click in this box and press Ctrl+V to paste a screenshot</div>
@@ -889,7 +927,7 @@
       multiple boxes and move them together with arrow keys or by dragging any one of them. Ctrl+Z
       undoes the last drag/resize/nudge/reset on this page, Ctrl+S saves. The two on-clock arrows
       stay level with each other — moving one vertically moves both.</p>
-    <div id="gfx_stage_wrap" style="position:relative;width:960px;height:540px;background:#000;border:1px solid #332b52;border-radius:6px;overflow:hidden;">
+    <div id="gfx_stage_wrap" style="position:relative;width:960px;height:540px;background:#000;border:1px solid #2b3348;border-radius:6px;overflow:hidden;">
       <img id="gfx_bg" style="position:absolute;top:0;left:0;width:960px;height:540px;object-fit:cover;" alt="">
       <div id="gfx_stage" style="position:absolute;top:0;left:0;width:960px;height:540px;"></div>
       <div id="gfx_guides" style="position:absolute;top:0;left:0;width:960px;height:540px;pointer-events:none;z-index:50;"></div>
@@ -1003,7 +1041,7 @@
         not a verdict, and check each one before saving. Low-confidence guesses (&lt;45%) are left blank rather than
         filled with a bad guess. First time only, calibrate each of the 10 slots tightly around just the agent art
         (not the name or lock-in icon):</p>
-      <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+      <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
         cd ocr/valorant &amp;&amp; python calibrate_valorant.py valorant_charselect_team1_0 valorant_charselect_team1_1 valorant_charselect_team1_2 valorant_charselect_team1_3 valorant_charselect_team1_4 valorant_charselect_team2_0 valorant_charselect_team2_1 valorant_charselect_team2_2 valorant_charselect_team2_3 valorant_charselect_team2_4
       </div>
       <button id="val_charselect_capture">Auto-Detect From Screen Now</button>
@@ -1106,7 +1144,7 @@
       </div>
       <p class="hint" style="margin-top:14px;">Left side color — manual choice, not tied to Attacking Side above.
         Picks which of two backgrounds is shown (colors mirrored between them). Currently:
-        <span id="val_hoaxLeftSideStatus" style="color:#9aa4c0;">attacker (red)</span></p>
+        <span id="val_hoaxLeftSideStatus" style="color:#98a3bd;">attacker (red)</span></p>
       <div class="row">
         <button id="val_hoaxLeftAttacker">Left Side: Attacker (Red)</button>
         <button class="secondary" id="val_hoaxLeftDefender">Left Side: Defender (Teal)</button>
@@ -1118,7 +1156,7 @@
       <p class="hint">A SEPARATE round-score reading from the manual Round Score card above -- this one is OCR-fed
         and only drives the Hoax Overlay's score, not the main In-Game HUD (which stays fully manual/editorial on
         purpose). First time only, calibrate:</p>
-      <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+      <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
         cd ocr/valorant &amp;&amp; python calibrate_valorant.py valo-ingame
       </div>
       <div class="stat-grid" id="val_ocrScoreGrid"></div>
@@ -1144,7 +1182,7 @@
         row's Kills/Deaths/Assists/Coins read continuously off the in-game Tab-held scoreboard (needs Tab held the
         whole match, e.g. by a dedicated observer PC — see tools/valorant_tab_hold.ahk). Name and agent portrait come
         from your roster/Agent Pick, not OCR. First time only, calibrate the 40 stat cells:</p>
-      <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+      <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
         cd ocr/valorant &amp;&amp; python calibrate_valorant.py valo-livestats
       </div>
       <p class="hint" style="margin-top:10px;">Row → Player — the live scoreboard can re-sort as the match goes on;
@@ -1279,7 +1317,7 @@
         reads straight off the screen, no screenshot/upload needed. First time only, calibrate the 10x5 stat grid
         (K/D/A, ACS, K/D, First Bloods, Plants per row — an interactive multi-step tool, follow its on-screen
         instructions):</p>
-      <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+      <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
         cd ocr/valorant &amp;&amp; python calibrate_valorant.py valo-postmatch
       </div>
       <button id="val_import_capture">Capture From Screen Now</button>
@@ -1288,7 +1326,7 @@
       <button class="secondary" id="val_import_apply" style="display:none;">Apply to Post Match Players</button>
 
       <details style="margin-top:14px;">
-        <summary style="cursor:pointer;color:#9aa4c0;font-size:12px;">Or upload/paste a screenshot instead</summary>
+        <summary style="cursor:pointer;color:#98a3bd;font-size:12px;">Or upload/paste a screenshot instead</summary>
         <div class="paste-zone" id="val_import_zone" tabindex="0" style="margin-top:10px;">
           <input type="file" id="val_import_file" accept="image/*">
           <div class="paste-hint">Upload the post-match scoreboard screenshot, or click here and press Ctrl+V to paste one</div>
@@ -1333,7 +1371,7 @@
           <input type="checkbox" id="valgfx_grid_toggle"> Show alignment grid (100px)
         </label>
       </div>
-      <div id="valgfx_stage_scroll" style="max-width:100%;max-height:640px;overflow:auto;border:1px solid #332b52;border-radius:6px;">
+      <div id="valgfx_stage_scroll" style="max-width:100%;max-height:640px;overflow:auto;border:1px solid #2b3348;border-radius:6px;">
         <div id="valgfx_stage_wrap" style="position:relative;width:960px;height:540px;background:#000;">
           <img id="valgfx_bg" style="position:absolute;top:0;left:0;width:960px;height:540px;object-fit:cover;" alt="">
           <div id="valgfx_stage" style="position:absolute;top:0;left:0;width:960px;height:540px;"></div>
@@ -1359,7 +1397,7 @@
         <div class="two-col" style="margin-top:14px;">
           <div class="col">
             <h3>Character Pick preview</h3>
-            <div style="width:318px;height:358px;overflow:hidden;position:relative;background:#0c0a17;border:1px solid #332b52;border-radius:6px;">
+            <div style="width:318px;height:358px;overflow:hidden;position:relative;background:#0a0d18;border:1px solid #2b3348;border-radius:6px;">
               <img id="valcf_preview_characterpick" style="width:100%;height:100%;object-fit:cover;" alt="">
             </div>
             <div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap;">
@@ -1375,7 +1413,7 @@
           </div>
           <div class="col">
             <h3>Team Chemistry Stats preview</h3>
-            <div style="width:297px;height:228px;overflow:hidden;position:relative;background:#0c0a17;border:1px solid #332b52;border-radius:6px;">
+            <div style="width:297px;height:228px;overflow:hidden;position:relative;background:#0a0d18;border:1px solid #2b3348;border-radius:6px;">
               <img id="valcf_preview_teamchemistry" style="width:100%;height:100%;object-fit:cover;" alt="">
             </div>
             <div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap;">
@@ -1496,7 +1534,7 @@
         </div>
       </div>
       <p class="hint">Or paste CSV text directly:</p>
-      <textarea id="ff_rosterPaste" rows="4" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:6px;border:1px solid #332b52;background:#0c0a17;color:#eef1fa;font-size:13px;font-family:monospace;" placeholder="team,ign,uid&#10;Team Tufan,SAIKYO.01,2281027273&#10;Team Tufan,TT_TUFAN,126560212"></textarea>
+      <textarea id="ff_rosterPaste" rows="4" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:6px;border:1px solid #2b3348;background:#0a0d18;color:#eef2fb;font-size:13px;font-family:monospace;" placeholder="team,ign,uid&#10;Team Tufan,SAIKYO.01,2281027273&#10;Team Tufan,TT_TUFAN,126560212"></textarea>
       <button class="secondary" id="ff_rosterParse">Parse Roster</button>
       <div id="ff_rosterStatus" class="hint"></div>
       <div id="ff_rosterTable" style="overflow-x:auto;margin-top:10px;"></div>
@@ -1547,19 +1585,19 @@
       <h2>OCR Crop Preview</h2>
       <p class="hint">Raw OCR text only for now — no structured parsing yet (killfeed events and side-table rows
         need real captured sample text before that logic can be written). First time only, calibrate both regions:</p>
-      <div class="hint" style="background:#0c0a17;border:1px solid #332b52;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+      <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
         cd ocr/freefire &amp;&amp; python calibrate.py
       </div>
       <p class="hint">Saves into <code>ocr/freefire_config.json</code> — separate from the MOBA engine's <code>config.json</code>, so calibrating here never touches the MOBA setup.</p>
       <div class="two-col" style="margin-top:14px;">
         <div class="col">
           <h3>Killfeed / Knockout Feed</h3>
-          <img id="crop-freefire_killfeed" style="width:100%;border-radius:6px;border:1px solid #332b52;background:#0c0a17;min-height:60px;">
+          <img id="crop-freefire_killfeed" style="width:100%;border-radius:6px;border:1px solid #2b3348;background:#0a0d18;min-height:60px;">
           <div class="hint" id="ff_killfeedLastText" style="margin-top:6px;white-space:pre-wrap;">(nothing read yet)</div>
         </div>
         <div class="col">
           <h3>12-Team Side Table</h3>
-          <img id="crop-freefire_sidetable" style="width:100%;border-radius:6px;border:1px solid #332b52;background:#0c0a17;min-height:60px;">
+          <img id="crop-freefire_sidetable" style="width:100%;border-radius:6px;border:1px solid #2b3348;background:#0a0d18;min-height:60px;">
           <div class="hint" id="ff_sidetableLastText" style="margin-top:6px;white-space:pre-wrap;">(nothing read yet)</div>
         </div>
       </div>
@@ -1585,7 +1623,7 @@
     </div>
 
     <div class="card" id="ff_loadoutReviewCard" style="display:none;">
-      <h2>Capture Review <span id="ff_loadoutReviewTitle" style="color:#6d7899;font-size:12px;font-weight:400;"></span></h2>
+      <h2>Capture Review <span id="ff_loadoutReviewTitle" style="color:#6b7590;font-size:12px;font-weight:400;"></span></h2>
       <p class="hint">The captured pixels next to what the matcher identified them as — green is confident,
         red means low confidence and worth checking before it reaches a graphic.</p>
       <div id="ff_loadoutReviewBody"></div>
@@ -1639,7 +1677,7 @@
     </div>
 
     <div class="card" id="ff_reviewCard" style="display:none;">
-      <h2>Match Review <span id="ff_reviewMatchId" style="color:#6d7899;font-size:12px;font-weight:400;"></span></h2>
+      <h2>Match Review <span id="ff_reviewMatchId" style="color:#6b7590;font-size:12px;font-weight:400;"></span></h2>
       <p class="hint">Fetched from disk but not counted in standings yet — review the parse below before committing.</p>
       <div id="ff_reviewTable" style="overflow-x:auto;"></div>
       <button id="ff_commitMatch">Add This Match to Standings</button>
@@ -1886,9 +1924,9 @@ function changeConnection(){
   if (_relay) {
     let host = _relay;
     try { host = new URL(_relay.replace(/^ws/, "http")).host; } catch(e) {}
-    el.innerHTML = `Relay: ${host} &mdash; <a href="#" onclick="changeConnection();return false;" style="color:#8b5cf6;">change</a>`;
+    el.innerHTML = `Relay: ${host} &mdash; <a href="#" onclick="changeConnection();return false;" style="color:#7d6bff;">change</a>`;
   } else {
-    el.innerHTML = `Local &mdash; <a href="#" onclick="changeConnection();return false;" style="color:#8b5cf6;">use relay instead</a>`;
+    el.innerHTML = `Local &mdash; <a href="#" onclick="changeConnection();return false;" style="color:#7d6bff;">use relay instead</a>`;
   }
 })();
 
@@ -2411,7 +2449,7 @@ function buildPlayerOrderList(containerId, team){
     row.className = "draft-slot";
     row.innerHTML = `
       <span class="slot-num">${i+1}</span>
-      <div id="pm_playerOrder_${team}_${i}_name" style="flex:1;font-size:13px;color:#eef1fa;">—</div>
+      <div id="pm_playerOrder_${team}_${i}_name" style="flex:1;font-size:13px;color:#eef2fb;">—</div>
       ${playerReorderButtonsHtml(team, i)}
     `;
     container.appendChild(row);
@@ -2837,8 +2875,8 @@ function buildPlayerRows(containerId, team){
     row.innerHTML = `
       <div>
         <label>Player ${i+1}</label>
-        <div id="pom_${team}_${i}_nameLabel" style="font-weight:700;color:#9aa4c0;">—</div>
-        <div id="pom_${team}_${i}_heroLabel" style="font-size:11px;color:#6d7899;padding-top:2px;">no pick yet</div>
+        <div id="pom_${team}_${i}_nameLabel" style="font-weight:700;color:#98a3bd;">—</div>
+        <div id="pom_${team}_${i}_heroLabel" style="font-size:11px;color:#6b7590;padding-top:2px;">no pick yet</div>
       </div>
       <div>
         <label>Dmg Dealt</label>
@@ -3253,7 +3291,7 @@ function buildImportBattleReportTable(extractedRows){
   const table = document.createElement("table");
   table.style.cssText = "width:100%;border-collapse:collapse;font-size:13px;";
   table.innerHTML = `
-    <thead><tr style="text-align:left;color:#9aa4c0;">
+    <thead><tr style="text-align:left;color:#98a3bd;">
       <th style="padding:6px;">Player</th>
       ${isCalibrated ? "" : '<th style="padding:6px;">OCR read (reference)</th>'}
       <th style="padding:6px;">Hero Damage</th>
@@ -3270,9 +3308,9 @@ function buildImportBattleReportTable(extractedRows){
       const rosterName = players[i] || `(unnamed player ${i+1})`;
       const found = byTeamIdx[`${team}_${i}`];
       const tr = document.createElement("tr");
-      tr.style.borderTop = "1px solid #332b52";
+      tr.style.borderTop = "1px solid #2b3348";
       const refCell = isCalibrated ? "" :
-        `<td style="padding:6px;color:#6d7899;font-size:11px;">${found ? `"${found.ocrName}" (${Math.round(found.matchScore*100)}%)` : "not detected"}</td>`;
+        `<td style="padding:6px;color:#6b7590;font-size:11px;">${found ? `"${found.ocrName}" (${Math.round(found.matchScore*100)}%)` : "not detected"}</td>`;
       const reorderCell = isCalibrated ? `
         <td style="padding:6px;">
           <div class="reorder-btns">
@@ -3282,7 +3320,7 @@ function buildImportBattleReportTable(extractedRows){
         </td>` : "";
       tr.innerHTML = `
         <td style="padding:6px;font-weight:700;">${buildWhoSelectHtml("import_br", team, i, players)}
-          <span style="color:#6d7899;font-size:11px;">(${team === "team1" ? "T1" : "T2"} #${i+1})</span></td>
+          <span style="color:#6b7590;font-size:11px;">(${team === "team1" ? "T1" : "T2"} #${i+1})</span></td>
         ${refCell}
         <td style="padding:6px;"><input type="number" id="import_br_${team}_${i}_dealt" style="width:90px;" value="${found && found.heroDamage != null ? found.heroDamage : ""}"></td>
         <td style="padding:6px;"><input type="number" id="import_br_${team}_${i}_taken" style="width:90px;" value="${found && found.damageTaken != null ? found.damageTaken : ""}"></td>
@@ -3347,7 +3385,7 @@ function buildImportKdaTable(rows){
   const table = document.createElement("table");
   table.style.cssText = "width:100%;border-collapse:collapse;font-size:13px;";
   table.innerHTML = `
-    <thead><tr style="text-align:left;color:#9aa4c0;">
+    <thead><tr style="text-align:left;color:#98a3bd;">
       <th style="padding:6px;">Player</th>
       <th style="padding:6px;">OCR read (raw)</th>
       <th style="padding:6px;">Kills</th>
@@ -3365,7 +3403,7 @@ function buildImportKdaTable(rows){
       const rosterName = players[i] || `(unnamed player ${i+1})`;
       const found = byTeamIdx[`${team}_${i}`];
       const tr = document.createElement("tr");
-      tr.style.borderTop = "1px solid #332b52";
+      tr.style.borderTop = "1px solid #2b3348";
       // Raw OCR text -- the whole reason "no data" was undiagnosable
       // before: a blank Kills/Deaths/Assists cell only ever told you
       // parsing failed, never WHAT Tesseract actually read that failed to
@@ -3374,8 +3412,8 @@ function buildImportKdaTable(rows){
       const ocrText = (found && found.ocrText) ? found.ocrText : "(blank)";
       tr.innerHTML = `
         <td style="padding:6px;font-weight:700;">${buildWhoSelectHtml("import_kda", team, i, players)}
-          <span style="color:#6d7899;font-size:11px;">(${team === "team1" ? "T1" : "T2"} #${i+1})</span></td>
-        <td style="padding:6px;color:#6d7899;font-size:11px;">${ocrText}</td>
+          <span style="color:#6b7590;font-size:11px;">(${team === "team1" ? "T1" : "T2"} #${i+1})</span></td>
+        <td style="padding:6px;color:#6b7590;font-size:11px;">${ocrText}</td>
         <td style="padding:6px;"><input type="number" id="import_kda_${team}_${i}_kills" style="width:60px;" value="${found && found.kills != null ? found.kills : ""}"></td>
         <td style="padding:6px;"><input type="number" id="import_kda_${team}_${i}_deaths" style="width:60px;" value="${found && found.deaths != null ? found.deaths : ""}"></td>
         <td style="padding:6px;"><input type="number" id="import_kda_${team}_${i}_assists" style="width:60px;" value="${found && found.assists != null ? found.assists : ""}"></td>
@@ -3453,7 +3491,7 @@ function buildImportGoldTable(rows){
   const table = document.createElement("table");
   table.style.cssText = "width:100%;border-collapse:collapse;font-size:13px;";
   table.innerHTML = `
-    <thead><tr style="text-align:left;color:#9aa4c0;">
+    <thead><tr style="text-align:left;color:#98a3bd;">
       <th style="padding:6px;">Player</th>
       ${isCalibrated ? "" : '<th style="padding:6px;">OCR read (reference)</th>'}
       <th style="padding:6px;">Gold</th>
@@ -3469,9 +3507,9 @@ function buildImportGoldTable(rows){
       const rosterName = players[i] || `(unnamed player ${i+1})`;
       const found = byTeamIdx[`${team}_${i}`];
       const tr = document.createElement("tr");
-      tr.style.borderTop = "1px solid #332b52";
+      tr.style.borderTop = "1px solid #2b3348";
       const refCell = isCalibrated ? "" :
-        `<td style="padding:6px;color:#6d7899;font-size:11px;">${found ? `"${found.ocrName}" (${Math.round(found.matchScore*100)}%)` : "not detected"}</td>`;
+        `<td style="padding:6px;color:#6b7590;font-size:11px;">${found ? `"${found.ocrName}" (${Math.round(found.matchScore*100)}%)` : "not detected"}</td>`;
       const reorderCell = isCalibrated ? `
         <td style="padding:6px;">
           <div class="reorder-btns">
@@ -3481,7 +3519,7 @@ function buildImportGoldTable(rows){
         </td>` : "";
       tr.innerHTML = `
         <td style="padding:6px;font-weight:700;">${buildWhoSelectHtml("import_gr", team, i, players)}
-          <span style="color:#6d7899;font-size:11px;">(${team === "team1" ? "T1" : "T2"} #${i+1})</span></td>
+          <span style="color:#6b7590;font-size:11px;">(${team === "team1" ? "T1" : "T2"} #${i+1})</span></td>
         ${refCell}
         <td style="padding:6px;"><input type="number" id="import_gr_${team}_${i}_gold" style="width:90px;" value="${found && found.gold != null ? found.gold : ""}"></td>
         ${reorderCell}
@@ -3528,7 +3566,7 @@ function renderGoldCandidates(candidates){
   el.appendChild(note);
   candidates.forEach(c => {
     const chip = document.createElement("div");
-    chip.style.cssText = "background:#181430;border:1px solid #332b52;border-radius:6px;padding:6px 10px;font-size:12px;display:flex;gap:6px;align-items:center;";
+    chip.style.cssText = "background:#141a28;border:1px solid #2b3348;border-radius:6px;padding:6px 10px;font-size:12px;display:flex;gap:6px;align-items:center;";
     const label = document.createElement("span");
     label.textContent = c.value.toLocaleString() + `  ("${c.rawText}")`;
     const b1 = document.createElement("button");
@@ -4085,7 +4123,7 @@ function gfxLoadPage(pageKey){
 
   document.querySelectorAll("#tab-graphics .row button.secondary").forEach(b => b.classList.remove("gfx-active"));
   const pageBtn = document.getElementById(`gfx_page_${pageKey}`);
-  if(pageBtn) pageBtn.style.background = "#8b5cf6", pageBtn.style.color = "#0c0a17";
+  if(pageBtn) pageBtn.style.background = "#7d6bff", pageBtn.style.color = "#0a0d18";
   Object.keys(GRAPHIC_PAGES).filter(k => k !== pageKey).forEach(k => {
     const b = document.getElementById(`gfx_page_${k}`);
     if(b){ b.style.background = ""; b.style.color = ""; }
@@ -4367,12 +4405,12 @@ function ffRenderRosterPreview(teams){
   const container = document.getElementById("ff_rosterTable");
   if(!teams.length){ container.innerHTML = ""; return; }
   const rows = teams.map(t => `
-    <tr style="border-top:1px solid #332b52;">
+    <tr style="border-top:1px solid #2b3348;">
       <td style="padding:6px;font-weight:700;">${ffEscapeHtml(t.name)}</td>
-      <td style="padding:6px;color:#9aa4c0;">${t.players.map(p => `${ffEscapeHtml(p.ign)} (${ffEscapeHtml(p.uid)})`).join(", ")}</td>
+      <td style="padding:6px;color:#98a3bd;">${t.players.map(p => `${ffEscapeHtml(p.ign)} (${ffEscapeHtml(p.uid)})`).join(", ")}</td>
     </tr>`).join("");
   container.innerHTML = `
-    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#9aa4c0;">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#98a3bd;">
       <th style="padding:6px;">Team</th><th style="padding:6px;">Players (IGN / UID)</th>
     </tr></thead><tbody>${rows}</tbody></table>`;
 }
@@ -4432,7 +4470,7 @@ function ffRenderLoadouts(ff){
       const lRaw = p.loadout || {};
       const l = { active: lRaw.active || "", passives: lRaw.passives || ["", "", ""], pet: lRaw.pet || "", equipment: lRaw.equipment || "" };
       rows.push(`
-        <tr style="border-top:1px solid #332b52;">
+        <tr style="border-top:1px solid #2b3348;">
           <td style="padding:6px;font-weight:700;">${ffEscapeHtml(t.name)}</td>
           <td style="padding:6px;">${ffEscapeHtml(p.ign)}</td>
           <td style="padding:6px;"><input type="text" id="ff_lo_${ti}_${pi}_active" value="${ffEscapeHtml(l.active)}" placeholder="Active"></td>
@@ -4445,7 +4483,7 @@ function ffRenderLoadouts(ff){
     });
   });
   container.innerHTML = `
-    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#9aa4c0;">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#98a3bd;">
       <th style="padding:6px;">Team</th><th style="padding:6px;">Player</th>
       <th style="padding:6px;">Active</th><th style="padding:6px;">Passive 1</th>
       <th style="padding:6px;">Passive 2</th><th style="padding:6px;">Passive 3</th>
@@ -4586,8 +4624,8 @@ function ffRenderLoadoutCapture(ff){
 
     let body;
     if(!loadout){
-      body = `<div style="height:70px;border-radius:4px;background:#0c0a17;display:flex;align-items:center;
-        justify-content:center;color:#6d7899;font-size:11px;">not captured</div>`;
+      body = `<div style="height:70px;border-radius:4px;background:#0a0d18;display:flex;align-items:center;
+        justify-content:center;color:#6b7590;font-size:11px;">not captured</div>`;
     } else {
       const slots = loadout.slots || {};
       // Every slot listed, including the ones that came back unidentified --
@@ -4596,25 +4634,25 @@ function ffRenderLoadoutCapture(ff){
       const rows = Object.keys(FF_SLOT_LABELS).map(slot => {
         const s = slots[slot] || {};
         const shown = s.name || s.label || "—";
-        const colour = !s.label ? "#6d7899" : (s.lowConfidence ? "#f5a4a4" : "#4ade80");
+        const colour = !s.label ? "#6b7590" : (s.lowConfidence ? "#f5a4a4" : "#4ade80");
         const title = s.reason ? ffEscapeHtml(s.reason)
                      : (s.label ? `confidence ${s.confidence}` : "no match");
         return `<div style="display:flex;justify-content:space-between;gap:4px;font-size:9px;" title="${title}">
-            <span style="color:#6d7899;">${FF_SLOT_LABELS[slot]}</span>
+            <span style="color:#6b7590;">${FF_SLOT_LABELS[slot]}</span>
             <span style="color:${colour};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70px;"
               >${ffEscapeHtml(String(shown))}</span>
           </div>`;
       }).join("");
       const anyLow = Object.values(slots).some(s => s && s.lowConfidence);
-      body = `<div style="background:#0c0a17;border-radius:4px;padding:4px;">${rows}</div>
+      body = `<div style="background:#0a0d18;border-radius:4px;padding:4px;">${rows}</div>
         ${anyLow ? `<div style="font-size:9px;color:#f5a4a4;margin-top:2px;">⚠ check low-confidence</div>` : ""}`;
     }
 
     return `
       <div class="ff-loadout-cell" data-index="${i}" data-ti="${entry.ti}" data-pi="${entry.pi}"
-        style="padding:6px;border-radius:8px;border:2px solid ${isNext ? "#8b5cf6" : "#332b52"};background:#181430;">
+        style="padding:6px;border-radius:8px;border:2px solid ${isNext ? "#7d6bff" : "#2b3348"};background:#141a28;">
         ${body}
-        <div style="font-size:10px;color:#6d7899;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${ffEscapeHtml(teamLabel)}</div>
+        <div style="font-size:10px;color:#6b7590;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${ffEscapeHtml(teamLabel)}</div>
         <div style="font-size:11px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${ffEscapeHtml(entry.player.ign || `P${entry.pi + 1}`)}</div>
         <div class="row" style="gap:4px;margin-top:4px;">
           <button type="button" class="secondary ff-loadout-review" data-ti="${entry.ti}" data-pi="${entry.pi}"
@@ -4668,14 +4706,14 @@ function ffRenderLoadoutReview(msg){
     const s = slots[slot] || {};
     const img = (msg.images || {})[slot];
     const shown = s.name || s.label || "no match";
-    const colour = !s.label ? "#6d7899" : (s.lowConfidence ? "#f5a4a4" : "#4ade80");
+    const colour = !s.label ? "#6b7590" : (s.lowConfidence ? "#f5a4a4" : "#4ade80");
     return `
       <div style="text-align:center;">
-        <div style="font-size:10px;color:#9aa4c0;margin-bottom:3px;">${FF_SLOT_LABELS[slot]}</div>
-        ${img ? `<img src="${img}" style="width:72px;height:72px;object-fit:contain;border:1px solid #332b52;border-radius:4px;background:#0c0a17;">`
-              : `<div style="width:72px;height:72px;border:1px solid #332b52;border-radius:4px;background:#0c0a17;display:flex;align-items:center;justify-content:center;color:#6d7899;font-size:9px;">no crop</div>`}
+        <div style="font-size:10px;color:#98a3bd;margin-bottom:3px;">${FF_SLOT_LABELS[slot]}</div>
+        ${img ? `<img src="${img}" style="width:72px;height:72px;object-fit:contain;border:1px solid #2b3348;border-radius:4px;background:#0a0d18;">`
+              : `<div style="width:72px;height:72px;border:1px solid #2b3348;border-radius:4px;background:#0a0d18;display:flex;align-items:center;justify-content:center;color:#6b7590;font-size:9px;">no crop</div>`}
         <div style="font-size:11px;font-weight:700;color:${colour};margin-top:3px;max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${ffEscapeHtml(String(shown))}</div>
-        <div style="font-size:9px;color:#6d7899;">${s.label ? `conf ${s.confidence}` : ""}</div>
+        <div style="font-size:9px;color:#6b7590;">${s.label ? `conf ${s.confidence}` : ""}</div>
       </div>`;
   }).join("");
 
@@ -4698,17 +4736,17 @@ function ffRenderLoadoutReview(msg){
     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;">${cells}</div>
     <div style="margin-top:12px;display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
       <div>
-        <div style="font-size:10px;color:#9aa4c0;margin-bottom:3px;">IGN slot (read as text)</div>
-        ${ignImg ? `<img src="${ignImg}" style="max-width:220px;border:1px solid #332b52;border-radius:4px;background:#0c0a17;">` : `<span class="hint">no crop</span>`}
-        <div style="font-size:12px;font-weight:700;margin-top:3px;color:${ignMismatch ? "#f5a4a4" : "#eef1fa"};">${ffEscapeHtml(readIgn || "(nothing read)")}</div>
-        <div style="font-size:10px;color:#6d7899;">roster says: ${ffEscapeHtml(rosterIgn || "—")}</div>
+        <div style="font-size:10px;color:#98a3bd;margin-bottom:3px;">IGN slot (read as text)</div>
+        ${ignImg ? `<img src="${ignImg}" style="max-width:220px;border:1px solid #2b3348;border-radius:4px;background:#0a0d18;">` : `<span class="hint">no crop</span>`}
+        <div style="font-size:12px;font-weight:700;margin-top:3px;color:${ignMismatch ? "#f5a4a4" : "#eef2fb"};">${ffEscapeHtml(readIgn || "(nothing read)")}</div>
+        <div style="font-size:10px;color:#6b7590;">roster says: ${ffEscapeHtml(rosterIgn || "—")}</div>
         ${ignMismatch ? `<div style="font-size:10px;color:#f5a4a4;margin-top:3px;max-width:220px;">
           ⚠ Doesn't match the roster — this capture may have gone to the wrong player.
           Check the pointer and re-capture.</div>` : ""}
       </div>
       ${cardImg ? `<div>
-        <div style="font-size:10px;color:#9aa4c0;margin-bottom:3px;">Whole card</div>
-        <img src="${cardImg}" style="max-width:320px;border:1px solid #332b52;border-radius:4px;">
+        <div style="font-size:10px;color:#98a3bd;margin-bottom:3px;">Whole card</div>
+        <img src="${cardImg}" style="max-width:320px;border:1px solid #2b3348;border-radius:4px;">
       </div>` : ""}
     </div>`;
 }
@@ -4844,7 +4882,7 @@ function ffHandleMatchResult(msg){
   const rows = msg.teams.map(t => {
     const playerLine = t.players.map(p => `${ffEscapeHtml(p.name)} (${p.uid}): ${p.kills}k`).join(", ");
     return `
-      <tr style="border-top:1px solid #332b52;">
+      <tr style="border-top:1px solid #2b3348;">
         <td style="padding:6px;">${t.rank}</td>
         <td style="padding:6px;font-weight:700;">${ffEscapeHtml(t.teamName)}</td>
         <td style="padding:6px;">${t.killScore}</td>
@@ -4853,11 +4891,11 @@ function ffHandleMatchResult(msg){
       </tr>
       <tr style="border-top:none;">
         <td></td>
-        <td colspan="4" style="padding:0 6px 8px;color:#6d7899;font-size:11px;">${playerLine}</td>
+        <td colspan="4" style="padding:0 6px 8px;color:#6b7590;font-size:11px;">${playerLine}</td>
       </tr>`;
   }).join("");
   document.getElementById("ff_reviewTable").innerHTML = `
-    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#9aa4c0;">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#98a3bd;">
       <th style="padding:6px;">Rank</th><th style="padding:6px;">Team</th>
       <th style="padding:6px;">Kill Pts</th><th style="padding:6px;">Rank Pts</th>
       <th style="padding:6px;">Total Pts</th>
@@ -4900,7 +4938,7 @@ function ffRenderStandings(ff){
   document.getElementById("ff_standingsEmpty").style.display = standings.length ? "none" : "block";
   if(!standings.length){ document.getElementById("ff_standingsTable").innerHTML = ""; return; }
   const rows = standings.map((r, i) => `
-    <tr style="border-top:1px solid #332b52;">
+    <tr style="border-top:1px solid #2b3348;">
       <td style="padding:6px;">${i + 1}</td>
       <td style="padding:6px;font-weight:700;">${ffEscapeHtml(r.teamName)}</td>
       <td style="padding:6px;">${r.matches}</td>
@@ -4909,7 +4947,7 @@ function ffRenderStandings(ff){
       <td style="padding:6px;">${r.bestRank != null ? "#" + r.bestRank : "-"}</td>
     </tr>`).join("");
   document.getElementById("ff_standingsTable").innerHTML = `
-    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#9aa4c0;">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#98a3bd;">
       <th style="padding:6px;">#</th><th style="padding:6px;">Team</th>
       <th style="padding:6px;">Matches</th><th style="padding:6px;">Total Kills</th>
       <th style="padding:6px;">Total Points</th><th style="padding:6px;">Best Placement</th>
@@ -5115,8 +5153,8 @@ function valBuildAgentPickRows(containerId, team){
     const row = document.createElement("div");
     row.style.cssText = "display:flex;gap:8px;align-items:center;margin-bottom:8px;";
     row.innerHTML = `
-      <img id="val_agentPick_${team}_${i}_portrait" style="width:36px;height:36px;border-radius:6px;object-fit:cover;background:#0c0a17;display:none;" alt="">
-      <div style="min-width:110px;font-weight:700;color:#9aa4c0;" id="val_agentPick_${team}_${i}_nameLabel">Player ${i+1}</div>
+      <img id="val_agentPick_${team}_${i}_portrait" style="width:36px;height:36px;border-radius:6px;object-fit:cover;background:#0a0d18;display:none;" alt="">
+      <div style="min-width:110px;font-weight:700;color:#98a3bd;" id="val_agentPick_${team}_${i}_nameLabel">Player ${i+1}</div>
       <input type="text" id="val_agentPick_${team}_${i}_agent" list="valAgentDatalist" placeholder="Agent" style="flex:1;">
     `;
     container.appendChild(row);
@@ -5493,10 +5531,10 @@ function valBuildLiveStatsAssignRows(team){
     wrap.appendChild(sel);
     wrap.insertAdjacentHTML("beforeend", `
       <img id="crop-assign-${nameKey}" title="Live crop of the on-screen name for this row" alt=""
-        style="width:76px;height:22px;object-fit:cover;border:1px solid #332b52;border-radius:3px;
-        image-rendering:pixelated;flex-shrink:0;background:#0c0a17;">
+        style="width:76px;height:22px;object-fit:cover;border:1px solid #2b3348;border-radius:3px;
+        image-rendering:pixelated;flex-shrink:0;background:#0a0d18;">
       <div id="val-ls-live-assign-${nameKey}" title=""
-        style="font-size:10px;color:#9aa4c0;width:100px;flex-shrink:0;white-space:nowrap;overflow:hidden;
+        style="font-size:10px;color:#98a3bd;width:100px;flex-shrink:0;white-space:nowrap;overflow:hidden;
         text-overflow:ellipsis;">Reading: —</div>
     `);
     container.appendChild(wrap);
@@ -5537,20 +5575,20 @@ function valBuildLiveStatsGrid(team){
   const container = document.getElementById(`val_liveStatsGridTeam${team.slice(-1)}`);
   const table = document.createElement("table");
   table.style.cssText = "width:100%;border-collapse:collapse;font-size:12px;";
-  let thead = `<thead><tr style="text-align:center;color:#9aa4c0;"><th style="padding:4px;text-align:left;">${team === "team1" ? "Team 1" : "Team 2"} Row</th>`;
+  let thead = `<thead><tr style="text-align:center;color:#98a3bd;"><th style="padding:4px;text-align:left;">${team === "team1" ? "Team 1" : "Team 2"} Row</th>`;
   VAL_LIVESTATS_FIELDS.forEach(f => { thead += `<th style="padding:4px;">${VAL_LIVESTATS_FIELD_LABELS[f]}</th>`; });
   thead += `<th style="padding:4px;">Gun</th>`;
   thead += `<th style="padding:4px;">Name (auto-match)</th>`;
   thead += `</tr></thead>`;
   let tbody = "<tbody>";
   for(let row = 0; row < 5; row++){
-    tbody += `<tr style="border-top:1px solid #332b52;"><td style="padding:4px;color:#9aa4c0;">Row ${row + 1}</td>`;
+    tbody += `<tr style="border-top:1px solid #2b3348;"><td style="padding:4px;color:#98a3bd;">Row ${row + 1}</td>`;
     VAL_LIVESTATS_FIELDS.forEach(f => {
       const key = `valorant_livestats_${team}_row${row}_${f}`;
       tbody += `
         <td style="padding:4px;text-align:center;">
-          <img id="crop-${key}" style="display:block;max-width:260px;max-height:400px;margin:0 auto 3px;border:1px solid #332b52;border-radius:3px;image-rendering:pixelated;">
-          <div id="val-ls-live-${key}" style="font-size:11px;color:#9aa4c0;">—</div>
+          <img id="crop-${key}" style="display:block;max-width:260px;max-height:400px;margin:0 auto 3px;border:1px solid #2b3348;border-radius:3px;image-rendering:pixelated;">
+          <div id="val-ls-live-${key}" style="font-size:11px;color:#98a3bd;">—</div>
           <div style="display:flex;align-items:center;justify-content:center;gap:3px;margin-top:2px;">
             <input type="checkbox" id="val-ls-lock-${key}" title="Override" style="width:12px;height:12px;margin:0;">
             <input type="number" id="val-ls-input-${key}" disabled style="width:44px;font-size:11px;padding:2px;">
@@ -5567,7 +5605,7 @@ function valBuildLiveStatsGrid(team){
     const gunKey = `valorant_livestats_${team}_row${row}_gun`;
     tbody += `
       <td style="padding:4px;text-align:center;">
-        <img id="crop-${gunKey}" style="display:block;max-width:260px;max-height:400px;margin:0 auto 3px;border:1px solid #332b52;border-radius:3px;image-rendering:pixelated;">
+        <img id="crop-${gunKey}" style="display:block;max-width:260px;max-height:400px;margin:0 auto 3px;border:1px solid #2b3348;border-radius:3px;image-rendering:pixelated;">
         <button type="button" class="secondary val-copy-calib" data-key="${gunKey}" title="Copy the recalibration command for just this cell" style="font-size:9px;padding:2px 4px;margin-top:3px;">Copy Calib Cmd</button>
       </td>
     `;
@@ -5580,8 +5618,8 @@ function valBuildLiveStatsGrid(team){
     const nameKey = `valorant_livestats_${team}_row${row}_name`;
     tbody += `
       <td style="padding:4px;text-align:center;">
-        <img id="crop-${nameKey}" style="display:block;max-width:260px;max-height:400px;margin:0 auto 3px;border:1px solid #332b52;border-radius:3px;image-rendering:pixelated;">
-        <div id="val-ls-live-${nameKey}" style="font-size:11px;color:#9aa4c0;">—</div>
+        <img id="crop-${nameKey}" style="display:block;max-width:260px;max-height:400px;margin:0 auto 3px;border:1px solid #2b3348;border-radius:3px;image-rendering:pixelated;">
+        <div id="val-ls-live-${nameKey}" style="font-size:11px;color:#98a3bd;">—</div>
         <button type="button" class="secondary val-copy-calib" data-key="${nameKey}" title="Copy the recalibration command for just this cell" style="font-size:9px;padding:2px 4px;margin-top:3px;">Copy Calib Cmd</button>
       </td>
     `;
@@ -5719,11 +5757,11 @@ function valBuildPostMatchRows(containerId, team){
   container.innerHTML = "";
   for(let i=0;i<5;i++){
     const row = document.createElement("div");
-    row.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #241d3d;";
+    row.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #1f2739;";
     row.innerHTML = `
       <div style="min-width:100px;">
         <label>Player ${i+1}</label>
-        <div id="val_pom_${team}_${i}_nameLabel" style="font-weight:700;color:#9aa4c0;">&mdash;</div>
+        <div id="val_pom_${team}_${i}_nameLabel" style="font-weight:700;color:#98a3bd;">&mdash;</div>
       </div>
       <div style="width:84px;"><label>Agent</label><input type="text" id="val_pom_${team}_${i}_agent"></div>
       <div style="width:52px;"><label>ACS</label><input type="number" id="val_pom_${team}_${i}_acs" value="0"></div>
@@ -5846,7 +5884,7 @@ function valRenderImportTable(){
   const table = document.createElement("table");
   table.style.cssText = "width:100%;border-collapse:collapse;font-size:13px;";
   table.innerHTML = `
-    <thead><tr style="text-align:left;color:#9aa4c0;">
+    <thead><tr style="text-align:left;color:#98a3bd;">
       <th style="padding:6px;">Reorder</th>
       <th style="padding:6px;">Player</th>
       <th style="padding:6px;">ACS</th>
@@ -5862,11 +5900,11 @@ function valRenderImportTable(){
   `;
   const tbody = table.querySelector("tbody");
   const cropImg = (row, col) => row.crops && row.crops[col]
-    ? `<img src="${row.crops[col]}" style="display:block;max-width:70px;max-height:24px;margin:0 auto 3px;border:1px solid #332b52;border-radius:3px;">`
+    ? `<img src="${row.crops[col]}" style="display:block;max-width:70px;max-height:24px;margin:0 auto 3px;border:1px solid #2b3348;border-radius:3px;">`
     : "";
   valImportRows.forEach((row, i) => {
     const tr = document.createElement("tr");
-    tr.style.borderTop = "1px solid #332b52";
+    tr.style.borderTop = "1px solid #2b3348";
     tr.innerHTML = `
       <td style="padding:6px;">
         <div class="reorder-btns">
@@ -6589,8 +6627,8 @@ function valgfxSetZoom(scale){
   valgfxApplyStageSize();
   document.querySelectorAll("[data-valgfx-zoom]").forEach(btn => {
     const active = Number(btn.dataset.valgfxZoom) === scale;
-    btn.style.background = active ? "#8b5cf6" : "";
-    btn.style.color = active ? "#0c0a17" : "";
+    btn.style.background = active ? "#7d6bff" : "";
+    btn.style.color = active ? "#0a0d18" : "";
   });
   const pageDef = VAL_GRAPHIC_PAGES[valgfxCurrentPage];
   if(pageDef){
@@ -6622,7 +6660,7 @@ function valgfxLoadPage(pageKey){
 
   document.querySelectorAll("#valtab-graphics .row button.secondary").forEach(b => b.classList.remove("gfx-active"));
   const pageBtn = document.getElementById(`valgfx_page_${pageKey}`);
-  if(pageBtn){ pageBtn.style.background = "#8b5cf6"; pageBtn.style.color = "#0c0a17"; }
+  if(pageBtn){ pageBtn.style.background = "#7d6bff"; pageBtn.style.color = "#0a0d18"; }
   Object.keys(VAL_GRAPHIC_PAGES).filter(k => k !== pageKey).forEach(k => {
     const b = document.getElementById(`valgfx_page_${k}`);
     if(b){ b.style.background = ""; b.style.color = ""; }
@@ -6796,8 +6834,8 @@ function valgfxShowStagePage(pageKey){
   valgfxLoadPage(pageKey);
   document.querySelectorAll("[data-valgfx-zoom]").forEach(btn => {
     const active = Number(btn.dataset.valgfxZoom) === VALGFX_SCALE;
-    btn.style.background = active ? "#8b5cf6" : "";
-    btn.style.color = active ? "#0c0a17" : "";
+    btn.style.background = active ? "#7d6bff" : "";
+    btn.style.color = active ? "#0a0d18" : "";
   });
 }
 
@@ -6809,7 +6847,7 @@ function valgfxShowCharacterFixingPanel(){
   document.getElementById("valgfx_characterfixing_panel").style.display = "block";
   document.querySelectorAll("#valtab-graphics .row button.secondary").forEach(b => { b.style.background = ""; b.style.color = ""; });
   const btn = document.getElementById("valgfx_page_characterfixing");
-  btn.style.background = "#8b5cf6"; btn.style.color = "#0c0a17";
+  btn.style.background = "#7d6bff"; btn.style.color = "#0a0d18";
   valcfLoad();
 }
 
@@ -6855,7 +6893,7 @@ function buildOverlayLinksTable(){
   const table = document.createElement("table");
   table.style.cssText = "width:100%;border-collapse:collapse;font-size:13px;";
   table.innerHTML = `
-    <thead><tr style="text-align:left;color:#9aa4c0;">
+    <thead><tr style="text-align:left;color:#98a3bd;">
       <th style="padding:6px;">Game</th>
       <th style="padding:6px;">Asset</th>
       <th style="padding:6px;">Browser Source Link</th>
@@ -6870,11 +6908,11 @@ function buildOverlayLinksTable(){
       link += `?relay=${encodeURIComponent(_relay)}&token=${encodeURIComponent(_token)}`;
     }
     const tr = document.createElement("tr");
-    tr.style.borderTop = "1px solid #332b52";
+    tr.style.borderTop = "1px solid #2b3348";
     tr.innerHTML = `
-      <td style="padding:6px;color:#6d7899;">${item.game}</td>
+      <td style="padding:6px;color:#6b7590;">${item.game}</td>
       <td style="padding:6px;font-weight:700;">${item.name}</td>
-      <td style="padding:6px;"><input type="text" readonly value="${link}" style="width:100%;font-family:monospace;font-size:11px;background:#0c0a17;color:#c8cede;border:1px solid #332b52;border-radius:4px;padding:4px 6px;" onclick="this.select();"></td>
+      <td style="padding:6px;"><input type="text" readonly value="${link}" style="width:100%;font-family:monospace;font-size:11px;background:#0a0d18;color:#c8cede;border:1px solid #2b3348;border-radius:4px;padding:4px 6px;" onclick="this.select();"></td>
       <td style="padding:6px;"><button type="button" class="secondary overlay-link-copy" data-link="${link}">Copy</button></td>
     `;
     tbody.appendChild(tr);
