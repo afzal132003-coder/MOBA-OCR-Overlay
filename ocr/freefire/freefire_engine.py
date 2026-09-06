@@ -2732,15 +2732,25 @@ async def handle_client(websocket, path=None):
 # Set when the log says a match ended, cleared once its result file has
 # been read. The file lands in the same second as the line across every
 # match checked, but "same second" isn't "already flushed", so the fetch
-# retries for a few polls rather than giving up on the first miss.
+# retries rather than giving up on the first miss.
 _pending_match_fetch = None
-_pending_match_tries = 0
+_pending_match_since = None  # time.time() when the match_end signal arrived
+_pending_match_tries = 0     # attempts made, for the log line only
 # Knockdowns for the match now waiting to be fetched. Snapshotted at the
 # match-end line rather than read later: the live state rolls over to the
 # next match as soon as its first line arrives, and the fetch may still be
 # retrying by then.
 _pending_match_knocks = {}
-MAX_AUTO_FETCH_TRIES = 15
+# A TIME budget, not a tick count. This used to be a fixed 15 polls, which
+# quietly meant 15 real seconds at the old 1-second poll interval -- and
+# silently dropped to 3.75 seconds the moment the loop was sped up to run
+# 4x/sec, well under how long the result file can actually take to settle
+# on disk under real conditions (antivirus scanning, a busy disk during a
+# live show). That was reported as "auto-fetch stopped working, had to
+# press Fetch myself" -- it hadn't stopped, it was just giving up before
+# the file existed. Tied to wall-clock time instead, so it stays correct
+# regardless of how fast the loop polls.
+MAX_AUTO_FETCH_SECONDS = 30
 
 
 async def handle_live_signals(signals, gs_names):
@@ -2749,7 +2759,7 @@ async def handle_live_signals(signals, gs_names):
     Both behaviours here are opt-out via settings, because they put things
     on air by themselves: an operator who wants to call the elimination
     graphic manually should not have the engine doing it underneath them."""
-    global _pending_match_fetch, _pending_match_tries, _pending_match_knocks
+    global _pending_match_fetch, _pending_match_since, _pending_match_tries, _pending_match_knocks
     settings = server_state.get("settings", {})
     changed = False
 
@@ -2778,6 +2788,7 @@ async def handle_live_signals(signals, gs_names):
 
         elif signal["type"] == "match_end":
             _pending_match_fetch = signal["matchId"]
+            _pending_match_since = time.time()
             _pending_match_knocks = signal.get("knocks") or {}
             _pending_match_tries = 0
             print(f"[live] match {signal['matchId']} ended")
@@ -2793,9 +2804,10 @@ async def handle_live_signals(signals, gs_names):
             print(f"[live] auto-fetched {payload['fileName']} "
                   f"({len(payload['teams'])} teams) -- review and commit")
             _pending_match_fetch = None
-        elif _pending_match_tries >= MAX_AUTO_FETCH_TRIES:
-            print(f"[live] gave up auto-fetching match {_pending_match_fetch}: "
-                  f"{payload.get('error')}")
+        elif time.time() - _pending_match_since >= MAX_AUTO_FETCH_SECONDS:
+            print(f"[live] gave up auto-fetching match {_pending_match_fetch} "
+                  f"after {_pending_match_tries} attempts over "
+                  f"{MAX_AUTO_FETCH_SECONDS}s: {payload.get('error')}")
             _pending_match_fetch = None
 
     return changed
