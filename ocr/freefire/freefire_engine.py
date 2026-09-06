@@ -353,6 +353,12 @@ def default_state():
         # work survives a state reset and can be shared between machines.
         "assetNames": {},
         "fullSizeNames": {},
+        # Per-graphic nudges: graphicOverrides["scoreboardLogo"] etc ->
+        # {dx, dy, scale}, applied on top of each graphic's built-in
+        # position. Same pattern the MOBA/Valorant "Graphic Fixing" tab
+        # already uses (state.graphicOverrides there); this is Free Fire's
+        # own copy since the two engines don't share state.
+        "graphicOverrides": {},
         # What is actually in the dump, so the dashboard can render the
         # library without a directory listing of its own. Static per
         # install, refreshed at startup.

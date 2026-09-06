@@ -297,6 +297,7 @@ function applyScoreboard(ff){
   const sbNames = rows.map(r => (r && r.fullName) || (r && r.name) || "");
   paintBadges("sb", sbNames, TEAMS, ff);
   paintLogos("sb", sbNames, TEAMS, ff);
+  applyLogoOverride("sb", TEAMS, "scoreboardLogo", ff);
 
   // Nothing is drawn on the left-hand BOOYAH plate: the artwork already
   // has "BOOYAH" printed there, and overlaying the winning team's name on
@@ -315,10 +316,14 @@ function applyPointsTable(ff){
   // matches rather than the event's "current game", which is the game
   // being captured -- during game 4 the table on screen still only
   // contains the three that have been committed, and saying otherwise
-  // would misdate it on air.
+  // would misdate it on air. An explicit override (event.afterGameLabel)
+  // wins when set -- for the case the count itself is right but the
+  // operator wants different wording, or a game was played but entered
+  // outside this system and the auto count would read low.
+  const override = (ff.event && ff.event.afterGameLabel || "").trim();
   const played = (ff.matches || []).length;
   document.getElementById("pt-after").textContent =
-    played ? "AFTER GAME " + played : "";
+    override || (played ? "AFTER GAME " + played : "");
 
   const standings = ff.standings || [];
   for(let i = 0; i < PT_PER_BLOCK * PT_BLOCKS.length; i++){
@@ -341,6 +346,7 @@ function applyPointsTable(ff){
   const ptNames = standings.map(r => (r && r.teamName) || "");
   paintBadges("pt", ptNames, ptCount, ff);
   paintLogos("pt", ptNames, ptCount, ff);
+  applyLogoOverride("pt", ptCount, "pointsTableLogo", ff);
 }
 
 // Same lookup freefire_alive_status.html uses: joined by name against the
@@ -354,6 +360,20 @@ function logoFor(teamName, roster){
   const team = ((roster && roster.teams) || []).find(
     t => (t.name || "").trim().toUpperCase() === want);
   return team || null;
+}
+
+// Same transform trick the MOBA/Valorant graphic-fixing tab uses:
+// translate/scale layered on top of the element's own base position, so
+// nudging it doesn't require touching the geometry constants above.
+function applyLogoOverride(prefix, count, key, ff){
+  const o = (ff.graphicOverrides && ff.graphicOverrides[key]) || {};
+  const dx = o.dx || 0, dy = o.dy || 0, scale = o.scale || 1;
+  for(let i = 0; i < count; i++){
+    const el = document.getElementById(prefix + "-" + i + "-logo");
+    if(!el) continue;
+    el.style.transform = "translate(" + dx + "px, " + dy + "px) scale(" + scale + ")";
+    el.style.transformOrigin = "center";
+  }
 }
 
 function paintLogos(prefix, names, count, ff){

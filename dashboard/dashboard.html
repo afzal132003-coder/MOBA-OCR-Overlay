@@ -77,6 +77,20 @@
   .ff-map-what b{display:block;font-size:14px;}
   .ff-map-what span{color:#6b7590;font-size:12px;}
   .ff-map-row select{min-width:210px;}
+  .ff-qme-row{
+    display:flex;gap:8px;align-items:center;
+    padding:6px 0;border-top:1px solid #2b3348;
+  }
+  .ff-qme-row:first-child{border-top:none;}
+  .ff-qme-order{display:flex;flex-direction:column;gap:0;}
+  .ff-qme-order button{
+    padding:0 6px;font-size:10px;line-height:16px;min-width:20px;
+    background:transparent;border:1px solid #2b3348;color:#98a3bd;margin:1px 0;
+  }
+  .ff-qme-num{width:34px;text-align:center;color:#6b7590;font-size:12px;flex:0 0 auto;}
+  .ff-qme-row input[type="text"]{flex:2;min-width:160px;}
+  .ff-qme-row input[type="number"]{width:70px;flex:0 0 auto;}
+  .ff-qme-derived{color:#6b7590;font-size:12px;flex:0 0 110px;text-align:right;}
   .ff-asset{
     display:flex;gap:9px;align-items:center;
     padding:7px 9px;border:1px solid #2b3348;border-radius:6px;background:#141a2b;
@@ -1764,6 +1778,34 @@
       <div id="ff_safezoneStatus" class="hint"></div>
     </div>
 
+    <div class="card">
+      <h2>Quick Match Entry</h2>
+      <p class="hint">For when there's no result file to fetch, or you'd rather work from your own sheet. Set the
+        team order once below (drag the arrows to match your sheet's row order, or edit a name directly), then
+        copy two columns — <b>Place</b> and <b>Kills</b> — from your sheet and paste into the box underneath. A
+        header row in the pasted text is fine, it's ignored automatically. Rank points and totals are computed
+        with the same table the game itself uses (1st = 12, 2nd = 9, 3rd = 8 ... down to 0 for 11th/12th), so a
+        match entered here scores identically to one fetched from a file. It won't have per-player kills, knocks,
+        or characters, since there's no file to read those from — the Booyah card just skips them for that game.</p>
+      <datalist id="ff_qmeTeamList"></datalist>
+      <div id="ff_qmeSlots"></div>
+      <div class="row" style="gap:12px;margin-top:12px;align-items:flex-start;">
+        <div class="team-form" style="flex:1;">
+          <label>Paste Place + Kills here (two columns from your sheet, one row per team, top to bottom)</label>
+          <textarea id="ff_qmePaste" rows="4" placeholder="Place	Kills
+1	20
+2	15
+3	12
+..." style="width:100%;font-family:monospace;font-size:12px;"></textarea>
+        </div>
+      </div>
+      <div class="row" style="gap:8px;margin-top:8px;">
+        <button id="ff_qmeBuild">Build Review From This</button>
+        <button class="secondary" id="ff_qmeClear">Clear Place/Kills</button>
+      </div>
+      <div class="hint" id="ff_qmeStatus" style="margin-top:6px;"></div>
+    </div>
+
     <div class="card" id="ff_reviewCard" style="display:none;">
       <h2>Match Review <span id="ff_reviewMatchId" style="color:#6b7590;font-size:12px;font-weight:400;"></span></h2>
       <p class="hint">Fetched from disk but not counted in standings yet — review the parse below before committing.</p>
@@ -1916,6 +1958,31 @@
     </div>
 
     <div class="card">
+      <h2>Logo Placement</h2>
+      <p class="hint">Same idea as Graphic Fixing on the MOBA/Valorant side — drag the box to where the team logo
+        should sit, adjust its size, then save. Applies to every row on the graphic at once (all twelve use the
+        same offset), so one drag fixes the whole column instead of nudging each row individually.</p>
+      <div class="row" style="gap:8px;margin-bottom:10px;">
+        <button class="secondary" id="ffgfx_page_pointsTableLogo">Overall Points Table</button>
+        <button class="secondary" id="ffgfx_page_scoreboardLogo">Match Scoreboard</button>
+      </div>
+      <div id="ffgfx_stage_wrap" style="position:relative;width:960px;height:540px;
+           background:#000;border:1px solid #2b3348;border-radius:8px;overflow:hidden;">
+        <img id="ffgfx_bg" style="position:absolute;top:0;left:0;width:960px;height:540px;object-fit:fill;" alt="">
+        <div id="ffgfx_stage" style="position:absolute;inset:0;"></div>
+      </div>
+      <div class="row" style="gap:16px;align-items:flex-end;margin-top:10px;">
+        <div class="team-form" style="max-width:120px;">
+          <label>Size</label>
+          <input type="number" id="ffgfx_scale" min="0.3" max="3" step="0.05" value="1">
+        </div>
+        <button id="ffgfx_save">Save Position</button>
+        <button class="secondary" id="ffgfx_reset">Reset This Graphic</button>
+      </div>
+      <div class="hint" id="ffgfx_status" style="margin-top:6px;"></div>
+    </div>
+
+    <div class="card">
       <h2>Graphics Package</h2>
       <p class="hint">The folder under <code>overlay/assets/freefire/</code> every Free Fire overlay draws its
         artwork from. Two or three companies' events can run on the same day with different graphics, so each one
@@ -1963,6 +2030,16 @@
         the committed standings — ranks 1-6 on the left, 7-12 on the right. Shares the scoreboard's browser source,
         so pushing it up pulls the scoreboard down. It doesn't appear on its own just because the numbers
         changed.</p>
+      <div class="row" style="gap:16px;align-items:flex-end;margin-bottom:10px;">
+        <div class="team-form" style="max-width:260px;">
+          <label>"AFTER GAME" label</label>
+          <input type="text" id="ff_afterGameLabel" placeholder="auto: AFTER GAME 3">
+        </div>
+        <button class="secondary" id="ff_afterGameSave">Save Label</button>
+      </div>
+      <p class="hint" style="margin-top:-4px;">Leave blank to count committed matches automatically. Set it when a
+        game was played but entered outside this system (the auto count would read low), or you just want
+        different wording — e.g. "GRAND FINALS" instead of a game number.</p>
       <div class="row" style="gap:8px;">
         <button id="ff_pointsTableShow">Push Points Table Up</button>
         <button class="secondary" id="ff_pointsTableHide">Pull Points Table Down</button>
@@ -4650,6 +4727,7 @@ function ffConnect(){
       ffRenderLoadouts(ffState);
       ffRenderLoadoutCapture(ffState);
       ffRenderEvent(ffState);
+      ffQmeSeedFromRoster(ffState);
       ffRenderMapping(ffState);
       ffRenderAssets(ffState);
       ffRenderFullsize(ffState);
@@ -5145,6 +5223,7 @@ function ffRenderEvent(ff){
   }
 
   setIfFree("ff_assetFolder", ev.assetFolder || "CLT");
+  setIfFree("ff_afterGameLabel", ev.afterGameLabel || "");
   setIfFree("ff_debuggerStartAt", (ff.settings && ff.settings.debuggerStartAt) || "");
   document.getElementById("ff_championBadge").checked =
     !!(ff.display && ff.display.championRushBadgeVisible);
@@ -6104,6 +6183,301 @@ document.getElementById("ff_previewPull").addEventListener("click", () => {
   ffWs.send(JSON.stringify({ type: entry.hide }));
 });
 
+/* ---------- Quick Match Entry: paste Place+Kills from a sheet ----------
+   Builds a match in exactly the shape a fetched result would produce and
+   feeds it into the SAME review/commit flow (ffHandleMatchResult,
+   ffPendingMatch, the existing "Add This Match to Standings" button) --
+   no separate commit path to keep in sync with the real one.
+
+   The placement -> points table below isn't a guess: it's the exact table
+   read out of ten real MatchResult files, all agreeing (1st=12 down to
+   1=for 10th, 0 for 11th/12th), and Total = Kills + that value held in
+   every one of them. */
+const FF_PLACEMENT_POINTS = {1:12, 2:9, 3:8, 4:7, 5:6, 6:5, 7:4, 8:3, 9:2, 10:1, 11:0, 12:0};
+const FF_QME_SLOTS = 12;
+let ffQmeTeams = Array.from({length: FF_QME_SLOTS}, () => "");
+let ffQmeValues = Array.from({length: FF_QME_SLOTS}, () => ({place: "", kills: ""}));
+let ffQmeSeeded = false;
+
+function ffQmeRender(){
+  document.getElementById("ff_qmeSlots").innerHTML = ffQmeTeams.map((name, i) => `
+    <div class="ff-qme-row">
+      <div class="ff-qme-order">
+        <button type="button" class="ff-qme-up" data-i="${i}" ${i === 0 ? "disabled" : ""}>▲</button>
+        <button type="button" class="ff-qme-down" data-i="${i}" ${i === FF_QME_SLOTS - 1 ? "disabled" : ""}>▼</button>
+      </div>
+      <div class="ff-qme-num">Slot ${i + 1}</div>
+      <input type="text" class="ff-qme-team" data-i="${i}" list="ff_qmeTeamList"
+        placeholder="Team name" value="${ffEscapeHtml(name)}">
+      <input type="number" class="ff-qme-place" data-i="${i}" min="1" max="${FF_QME_SLOTS}"
+        placeholder="Place" value="${ffEscapeHtml(ffQmeValues[i].place)}">
+      <input type="number" class="ff-qme-kills" data-i="${i}" min="0"
+        placeholder="Kills" value="${ffEscapeHtml(ffQmeValues[i].kills)}">
+      <div class="ff-qme-derived" data-derived="${i}"></div>
+    </div>`).join("");
+  ffQmeUpdateDerived();
+}
+
+function ffQmeUpdateDerived(){
+  ffQmeTeams.forEach((_, i) => {
+    const el = document.querySelector(`[data-derived="${i}"]`);
+    if(!el) return;
+    const place = parseInt(ffQmeValues[i].place, 10);
+    const kills = parseInt(ffQmeValues[i].kills, 10);
+    if(!place || isNaN(kills)){ el.textContent = ""; return; }
+    const rankPts = FF_PLACEMENT_POINTS[place];
+    if(rankPts == null){ el.textContent = "no placement for #" + place; return; }
+    el.textContent = rankPts + " rank pts → " + (kills + rankPts) + " total";
+  });
+}
+
+// Seeded once from the roster, in roster order -- the operator can then
+// reorder or retype from there. Re-seeding on every state_sync would wipe
+// an in-progress edit, so it only fires the first time a roster shows up.
+function ffQmeSeedFromRoster(ff){
+  if(ffQmeSeeded) return;
+  const teams = ((ff.roster && ff.roster.teams) || []).filter(t => t.name).map(t => t.name);
+  if(!teams.length) return;
+  ffQmeSeeded = true;
+  ffQmeTeams = Array.from({length: FF_QME_SLOTS}, (_, i) => teams[i] || "");
+  document.getElementById("ff_qmeTeamList").innerHTML =
+    teams.map(n => '<option value="' + ffEscapeHtml(n) + '">').join("");
+  ffQmeRender();
+}
+
+document.addEventListener("click", (e) => {
+  const up = e.target.closest(".ff-qme-up");
+  const down = e.target.closest(".ff-qme-down");
+  if(!up && !down) return;
+  const i = Number((up || down).dataset.i);
+  const j = up ? i - 1 : i + 1;
+  if(j < 0 || j >= FF_QME_SLOTS) return;
+  [ffQmeTeams[i], ffQmeTeams[j]] = [ffQmeTeams[j], ffQmeTeams[i]];
+  [ffQmeValues[i], ffQmeValues[j]] = [ffQmeValues[j], ffQmeValues[i]];
+  ffQmeRender();
+});
+
+document.addEventListener("input", (e) => {
+  if(e.target.classList.contains("ff-qme-team")){
+    ffQmeTeams[Number(e.target.dataset.i)] = e.target.value;
+  } else if(e.target.classList.contains("ff-qme-place")){
+    ffQmeValues[Number(e.target.dataset.i)].place = e.target.value;
+    ffQmeUpdateDerived();
+  } else if(e.target.classList.contains("ff-qme-kills")){
+    ffQmeValues[Number(e.target.dataset.i)].kills = e.target.value;
+    ffQmeUpdateDerived();
+  }
+});
+
+// Pulls Place/Kills pairs out of pasted spreadsheet text. Liberal on
+// purpose: a line contributes its first two numbers found anywhere in it,
+// so a header row ("Place\tKills"), a stray label column, or comma vs.
+// tab separated cells all just work rather than needing an exact format.
+function ffQmeParsePaste(text){
+  const rows = [];
+  text.split(/\r?\n/).forEach(line => {
+    const nums = line.match(/-?\d+/g);
+    if(nums && nums.length >= 2) rows.push([nums[0], nums[1]]);
+  });
+  return rows;
+}
+
+document.getElementById("ff_qmePaste").addEventListener("paste", (e) => {
+  const text = (e.clipboardData || window.clipboardData).getData("text");
+  const rows = ffQmeParsePaste(text);
+  if(!rows.length) return;
+  e.preventDefault();
+  rows.slice(0, FF_QME_SLOTS).forEach((row, i) => {
+    ffQmeValues[i] = { place: row[0], kills: row[1] };
+  });
+  ffQmeRender();
+  document.getElementById("ff_qmeStatus").textContent =
+    `Filled ${Math.min(rows.length, FF_QME_SLOTS)} of ${FF_QME_SLOTS} slots from the pasted text.`;
+});
+
+document.getElementById("ff_qmeClear").addEventListener("click", () => {
+  ffQmeValues = Array.from({length: FF_QME_SLOTS}, () => ({place: "", kills: ""}));
+  document.getElementById("ff_qmePaste").value = "";
+  ffQmeRender();
+  document.getElementById("ff_qmeStatus").textContent = "";
+});
+
+document.getElementById("ff_qmeBuild").addEventListener("click", () => {
+  const statusEl = document.getElementById("ff_qmeStatus");
+  const rows = [];
+  for(let i = 0; i < FF_QME_SLOTS; i++){
+    const name = ffQmeTeams[i].trim();
+    const place = parseInt(ffQmeValues[i].place, 10);
+    const kills = parseInt(ffQmeValues[i].kills, 10);
+    if(!name && !ffQmeValues[i].place && !ffQmeValues[i].kills) continue; // skip a fully-blank slot
+    if(!name){ statusEl.textContent = `Slot ${i + 1} has a place/kills but no team name.`; return; }
+    if(!place || FF_PLACEMENT_POINTS[place] == null){
+      statusEl.textContent = `${name}: "${ffQmeValues[i].place}" isn't a valid placement (1-12).`;
+      return;
+    }
+    if(isNaN(kills) || kills < 0){
+      statusEl.textContent = `${name}: kills is missing or invalid.`;
+      return;
+    }
+    const rankScore = FF_PLACEMENT_POINTS[place];
+    rows.push({
+      teamName: name, fileTeamName: name, rank: place,
+      killScore: kills, rankScore, totalScore: kills + rankScore,
+      matched: true, shortName: "", logo: "", players: [],
+    });
+  }
+  if(!rows.length){ statusEl.textContent = "Nothing filled in yet."; return; }
+  const places = rows.map(r => r.rank);
+  if(new Set(places).size !== places.length){
+    statusEl.textContent = "Two teams have the same placement — check before building the review.";
+    return;
+  }
+  rows.sort((a, b) => a.rank - b.rank);
+
+  const gameNumber = (ffState && ffState.event && ffState.event.currentGame) || 1;
+  ffHandleMatchResult({
+    matchId: "manual-" + Date.now(),
+    timestamp: new Date().toISOString(),
+    fileName: "(typed in manually — no result file)",
+    gameNumber, teams: rows, unmatchedTeams: [], error: null,
+  });
+  statusEl.textContent = `Built — review it below, then commit as usual.`;
+});
+
+/* ---------- Free Fire logo placement (Graphic Fixing, FF's own copy) ----------
+   Deliberately its own small implementation rather than reaching into the
+   MOBA/Valorant gfx* system: that one is wired to currentState/ws and a
+   multi-element, multi-page, drag+resize+snap+undo apparatus built for a
+   different engine's state -- parameterizing a live, working tool mid-
+   broadcast is a worse risk than a focused duplicate. This one only needs
+   to move ONE thing (the logo shown beside every team row) per graphic,
+   so it's the .gfx-box drag mechanic without the parts that don't apply
+   here: no multi-select, no snap guides, no per-element resize handle
+   (a size field covers it, since every row's logo scales together). */
+const FFGFX_SCALE = 960 / 1920;
+const FFGFX_PAGES = {
+  pointsTableLogo: {
+    label: "Overall Points Table",
+    bg: () => "../overlay/assets/freefire/" +
+      ((ffState && ffState.event && ffState.event.assetFolder) || "CLT") + "/overall standings.png",
+    // Matches the FIRST row's logo geometry in freefire_scoreboard.html --
+    // col.name(200) + logoPad(4), PT_ROW_CENTRE[0](450) - logoSize/2.
+    base: { left: 204, top: 427, size: 46 },
+  },
+  scoreboardLogo: {
+    label: "Match Scoreboard",
+    // Not package-specific like the points table's background -- this one
+    // still draws on the single shared postmatch-gamestats.png (see the
+    // note in freefire_scoreboard.html; no CLT blank exists for it yet).
+    bg: () => "../overlay/assets/freefire/postmatch-gamestats.png",
+    // SB_NAME_X(1150) + sbLogoPad(6), SB_ROW_CENTRE[0](351) - sbLogoSize/2.
+    base: { left: 1156, top: 334, size: 34 },
+  },
+};
+let ffgfxCurrentPage = "pointsTableLogo";
+let ffgfxPending = { dx: 0, dy: 0, scale: 1 };
+
+function ffgfxLoadPage(pageKey){
+  ffgfxCurrentPage = pageKey;
+  const page = FFGFX_PAGES[pageKey];
+  document.getElementById("ffgfx_bg").src = page.bg();
+  Object.keys(FFGFX_PAGES).forEach(k => {
+    const btn = document.getElementById("ffgfx_page_" + k);
+    if(btn){ btn.style.background = k === pageKey ? "#7d6bff" : ""; btn.style.color = k === pageKey ? "#0a0d18" : ""; }
+  });
+
+  const existing = (ffState && ffState.graphicOverrides && ffState.graphicOverrides[pageKey]) || {};
+  ffgfxPending = Object.assign({ dx: 0, dy: 0, scale: 1 }, existing);
+  document.getElementById("ffgfx_scale").value = ffgfxPending.scale;
+  ffgfxDrawBox();
+  document.getElementById("ffgfx_status").textContent = "";
+}
+
+// Recreates the box element -- used to switch pages/reset, and once at
+// the end of a drag/scale change. NOT used on every mousemove during a
+// drag: replacing the element mid-drag destroys the one pointer capture
+// was set on, which silently kills the rest of that drag after its first
+// pixel of movement (found by testing -- a 40px drag was only moving the
+// box 16px worth, because every step after the first landed on a
+// freshly-created element with no capture and no listener bound to it).
+function ffgfxDrawBox(){
+  const stage = document.getElementById("ffgfx_stage");
+  stage.innerHTML = `<div class="gfx-box" id="ffgfx_box"><span class="gfx-label">LOGO</span></div>`;
+  ffgfxPositionBox();
+  ffgfxWireDrag();
+}
+
+// Repositions the EXISTING box in place -- safe to call as often as
+// mousemove fires, since it never touches the DOM tree the drag's pointer
+// capture depends on.
+function ffgfxPositionBox(){
+  const box = document.getElementById("ffgfx_box");
+  if(!box) return;
+  const page = FFGFX_PAGES[ffgfxCurrentPage];
+  const size = page.base.size * ffgfxPending.scale * FFGFX_SCALE;
+  box.style.left = (page.base.left + ffgfxPending.dx) * FFGFX_SCALE + "px";
+  box.style.top = (page.base.top + ffgfxPending.dy) * FFGFX_SCALE + "px";
+  box.style.width = size + "px";
+  box.style.height = size + "px";
+}
+
+function ffgfxWireDrag(){
+  const box = document.getElementById("ffgfx_box");
+  box.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    box.setPointerCapture(e.pointerId);
+    const startX = e.clientX, startY = e.clientY;
+    const startDx = ffgfxPending.dx, startDy = ffgfxPending.dy;
+    // Measured live rather than assumed as FFGFX_SCALE (960/1920): the
+    // wrapper is max-width:100%, so on a narrower screen it renders
+    // smaller than 960px and a fixed ratio would make the box drift from
+    // the cursor -- one screen-pixel of mouse movement has to map to the
+    // real amount of 1920-space it actually represents on THIS screen.
+    const liveScale = document.getElementById("ffgfx_stage_wrap").getBoundingClientRect().width / 1920;
+    const onMove = (ev) => {
+      ffgfxPending.dx = Math.round(startDx + (ev.clientX - startX) / liveScale);
+      ffgfxPending.dy = Math.round(startDy + (ev.clientY - startY) / liveScale);
+      ffgfxPositionBox();
+    };
+    const onUp = () => {
+      box.removeEventListener("pointermove", onMove);
+      box.removeEventListener("pointerup", onUp);
+    };
+    box.addEventListener("pointermove", onMove);
+    box.addEventListener("pointerup", onUp);
+  });
+}
+
+document.getElementById("ffgfx_scale").addEventListener("input", (e) => {
+  ffgfxPending.scale = Number(e.target.value) || 1;
+  ffgfxPositionBox();
+});
+
+Object.keys(FFGFX_PAGES).forEach(k => {
+  document.getElementById("ffgfx_page_" + k).addEventListener("click", () => ffgfxLoadPage(k));
+});
+
+document.getElementById("ffgfx_save").addEventListener("click", () => {
+  const statusEl = document.getElementById("ffgfx_status");
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)){
+    statusEl.textContent = "NOT saved — not connected to the Free Fire engine right now.";
+    return;
+  }
+  const allOverrides = Object.assign({}, (ffState && ffState.graphicOverrides) || {});
+  allOverrides[ffgfxCurrentPage] = ffgfxPending;
+  ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { graphicOverrides: allOverrides } } }));
+  statusEl.textContent = "Saved — live on the overlay now.";
+});
+
+document.getElementById("ffgfx_reset").addEventListener("click", () => {
+  ffgfxPending = { dx: 0, dy: 0, scale: 1 };
+  document.getElementById("ffgfx_scale").value = 1;
+  ffgfxPositionBox();
+  document.getElementById("ffgfx_status").textContent = "Reset locally — click Save Position to make it permanent.";
+});
+
+ffgfxLoadPage("pointsTableLogo");
+
 function ffRenderStandings(ff){
   const standings = ff.standings || [];
   const key = JSON.stringify(standings);
@@ -6154,6 +6528,13 @@ function ffSetPointsTable(visible){
     ? `Points table pushed up — showing ${teams} team${teams === 1 ? "" : "s"} from the committed standings.`
     : "Points table pulled down.";
 }
+document.getElementById("ff_afterGameSave").addEventListener("click", () => {
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  const event = Object.assign({}, (ffState && ffState.event) || {},
+    { afterGameLabel: document.getElementById("ff_afterGameLabel").value.trim() });
+  ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { event } } }));
+});
+
 document.getElementById("ff_pointsTableShow").addEventListener("click", () => ffSetPointsTable(true));
 document.getElementById("ff_pointsTableHide").addEventListener("click", () => ffSetPointsTable(false));
 
@@ -6186,6 +6567,7 @@ function ffSetBooyahStats(visible){
 document.getElementById("ff_booyahStatsShow").addEventListener("click", () => ffSetBooyahStats(true));
 document.getElementById("ff_booyahStatsHide").addEventListener("click", () => ffSetBooyahStats(false));
 
+ffQmeRender();
 buildStatGrid();
 buildPlayerStatRows();
 buildPlayerNameInputs("team1PlayerInputs", "team1");
