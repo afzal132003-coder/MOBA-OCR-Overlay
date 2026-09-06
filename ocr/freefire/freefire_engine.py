@@ -2480,6 +2480,30 @@ async def handle_client(websocket, path=None):
                 server_state["display"]["pointsTableVisible"] = False
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "freefire_clear_matches":
+                # Committed matches have no event boundary of their own --
+                # compute_freefire_standings sums every match ever
+                # committed on this engine, with nothing to say "these
+                # eleven are from this afternoon's scrims, not tonight's
+                # show." An operator starting a new event needs a way to
+                # drop the old ones without touching the roster they just
+                # built for the new one, which is why this is its own
+                # action rather than folded into the log cutoff above --
+                # that one only affects the LIVE feed; committed history
+                # is untouched by it.
+                #
+                # Nothing on disk is lost: the result files still exist,
+                # so any of these can be re-fetched and re-committed if
+                # cleared by mistake.
+                server_state["matches"] = []
+                server_state["currentMatchId"] = None
+                server_state["standings"] = compute_freefire_standings([])
+                server_state["championRush"] = compute_champion_rush(
+                    [], server_state.get("settings", {}).get("championRushThreshold", 110))
+                save_state()
+                print("[live] cleared all committed matches -- standings reset for a new event")
+                await broadcast({"type": "state_sync", "data": server_state,
+                                 "locked": list(locked_fields)})
             elif payload.get("type") == "freefire_debugger_cutoff":
                 # Everything derived from the log is per-match and rebuilt
                 # from it, so moving the cutoff has to drop what was

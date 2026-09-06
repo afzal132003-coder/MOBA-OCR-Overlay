@@ -1774,7 +1774,12 @@
     <div class="card">
       <h2>Overall Standings</h2>
       <p class="hint" id="ff_standingsEmpty">No matches committed yet.</p>
+      <p class="hint">Sums EVERY match ever committed on this engine, with no event boundary of its own — if an
+        earlier scrim's matches are still committed, they show up here too. Clearing removes them from standings
+        only; the result files stay on disk and can be re-fetched and re-committed if needed.</p>
       <div id="ff_standingsTable" style="overflow-x:auto;"></div>
+      <button class="secondary" id="ff_clearMatches" style="margin-top:10px;">Clear All Matches (new event)</button>
+      <span class="hint" id="ff_clearMatchesStatus" style="margin-left:10px;"></span>
     </div>
 
     <div class="card">
@@ -5939,6 +5944,16 @@ document.getElementById("ff_debuggerStartNow").addEventListener("click", () => {
   document.getElementById("ff_debuggerStartAt").value = stamp;
   ffSendCutoff(stamp);
 });
+document.getElementById("ff_clearMatches").addEventListener("click", () => {
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  const count = (ffState && ffState.matches) ? ffState.matches.length : 0;
+  if(!confirm(`Clear all ${count} committed match(es) from standings? The result files stay on disk -- ` +
+              `this only affects what's already been added here.`)) return;
+  ffWs.send(JSON.stringify({ type: "freefire_clear_matches" }));
+  document.getElementById("ff_clearMatchesStatus").textContent = "Cleared — standings reset for a new event.";
+  setTimeout(() => { document.getElementById("ff_clearMatchesStatus").textContent = ""; }, 4000);
+});
+
 document.getElementById("ff_debuggerStartClear").addEventListener("click", () => {
   document.getElementById("ff_debuggerStartAt").value = "";
   ffSendCutoff("");
