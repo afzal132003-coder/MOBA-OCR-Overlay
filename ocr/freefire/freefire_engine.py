@@ -2131,6 +2131,11 @@ async def handle_client(websocket, path=None):
                 server_state["display"]["pointsTableVisible"] = False
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") in ("alive_status_show", "alive_status_hide"):
+                server_state["display"]["aliveStatusVisible"] = (
+                    payload["type"] == "alive_status_show")
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") == "loadout_capture_arm":
                 server_state["loadoutCapture"]["active"] = True
                 save_state()

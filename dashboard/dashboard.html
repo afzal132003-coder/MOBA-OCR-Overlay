@@ -1507,6 +1507,29 @@
         </div>
       </div>
       <div class="row" style="gap:16px;margin-top:10px;">
+        <div class="team-form" style="max-width:260px;">
+          <label>Graphics package</label>
+          <input type="text" id="ff_assetFolder" placeholder="CLT" list="ff_assetFolderList">
+          <datalist id="ff_assetFolderList"><option value="CLT"></datalist>
+        </div>
+        <div class="team-form" style="max-width:520px;">
+          <label>Automatic on-air actions</label>
+          <label class="hint" style="display:block;margin-top:4px;">
+            <input type="checkbox" id="ff_autoTeamEliminated" checked>
+            Push the elimination graphic the moment a squad is wiped
+          </label>
+          <label class="hint" style="display:block;margin-top:2px;">
+            <input type="checkbox" id="ff_autoFetchOnMatchEnd" checked>
+            Fetch the result automatically when the match ends
+          </label>
+        </div>
+      </div>
+      <p class="hint" style="margin-top:6px;">Graphics package is the folder under
+        <code>overlay/assets/freefire/</code> every Free Fire overlay draws its artwork from — set it per event, so
+        two companies running on the same day each get their own look. The elimination graphic reads the wipe
+        straight out of the game client, so it lands while the kill is still on screen; untick it if you would
+        rather call it by hand.</p>
+      <div class="row" style="gap:16px;margin-top:10px;">
         <div class="team-form" style="max-width:420px;">
           <label>Unregistered teams/players in a result</label>
           <select id="ff_unmatchedPolicy">
@@ -1728,6 +1751,17 @@
         <button class="secondary" id="ff_pointsTableHide">Pull Points Table Down</button>
       </div>
       <div class="hint" id="ff_pointsTableStatus" style="margin-top:6px;"></div>
+
+      <h3 style="margin-top:18px;">Live Alive Status</h3>
+      <p class="hint">The 12-team side table (overlay/freefire_alive_status.html), fed by the game client's own
+        match log rather than by reading the screen — team names, who is still up, and who has been wiped. It needs
+        no calibration. Rank order follows the committed standings; before game one it follows the order the client
+        listed the teams.</p>
+      <div class="row" style="gap:8px;">
+        <button id="ff_aliveStatusShow">Push Alive Status Up</button>
+        <button class="secondary" id="ff_aliveStatusHide">Pull Alive Status Down</button>
+      </div>
+      <div class="hint" id="ff_aliveStatusStatus" style="margin-top:6px;"></div>
     </div>
   </div>
 
@@ -4868,6 +4902,15 @@ function ffRenderEvent(ff){
   if(policySel && active !== "ff_unmatchedPolicy"){
     policySel.value = (ff.settings && ff.settings.unmatchedPolicy) || "flag";
   }
+
+  setIfFree("ff_assetFolder", ev.assetFolder || "CLT");
+  const st = ff.settings || {};
+  // Default true to match the engine: a state saved before these existed
+  // has neither key, and the engine treats missing as on.
+  document.getElementById("ff_autoTeamEliminated").checked =
+    st.autoTeamEliminated !== false;
+  document.getElementById("ff_autoFetchOnMatchEnd").checked =
+    st.autoFetchOnMatchEnd !== false;
 }
 
 document.getElementById("ff_eventSave").addEventListener("click", () => {
@@ -4879,12 +4922,15 @@ document.getElementById("ff_eventSave").addEventListener("click", () => {
 
   const settings = Object.assign({}, (ffState && ffState.settings) || {}, {
     unmatchedPolicy: document.getElementById("ff_unmatchedPolicy").value,
+    autoTeamEliminated: document.getElementById("ff_autoTeamEliminated").checked,
+    autoFetchOnMatchEnd: document.getElementById("ff_autoFetchOnMatchEnd").checked,
   });
   ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: {
     event: {
       matchTitle: document.getElementById("ff_eventTitle").value.trim(),
       roundName: document.getElementById("ff_eventRound").value.trim(),
       totalGames, currentGame, maps,
+      assetFolder: document.getElementById("ff_assetFolder").value.trim() || "CLT",
     },
     settings,
   }}}));
@@ -5327,6 +5373,19 @@ function ffSetPointsTable(visible){
 }
 document.getElementById("ff_pointsTableShow").addEventListener("click", () => ffSetPointsTable(true));
 document.getElementById("ff_pointsTableHide").addEventListener("click", () => ffSetPointsTable(false));
+
+function ffSetAliveStatus(visible){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffWs.send(JSON.stringify({ type: visible ? "alive_status_show" : "alive_status_hide" }));
+  const rows = ((ffState && ffState.liveOps && ffState.liveOps.sidetableRows) || []).length;
+  document.getElementById("ff_aliveStatusStatus").textContent = visible
+    ? (rows
+        ? `Alive status pushed up — tracking ${rows} team${rows === 1 ? "" : "s"} from the match log.`
+        : "Alive status pushed up, but the engine isn't reading a live match yet — it fills in once a match loads.")
+    : "Alive status pulled down.";
+}
+document.getElementById("ff_aliveStatusShow").addEventListener("click", () => ffSetAliveStatus(true));
+document.getElementById("ff_aliveStatusHide").addEventListener("click", () => ffSetAliveStatus(false));
 
 buildStatGrid();
 buildPlayerStatRows();
@@ -7245,6 +7304,7 @@ const OVERLAY_LINKS = [
   {game:"Free Fire", name:"Booyah", file:"overlay/freefire_booyah.html"},
   {game:"Free Fire", name:"Headshot Hunter", file:"overlay/freefire_headshot_hunter.html"},
   {game:"Free Fire", name:"Team Eliminated", file:"overlay/freefire_team_eliminated.html"},
+  {game:"Free Fire", name:"Alive Status (live side table)", file:"overlay/freefire_alive_status.html"},
   {game:"Valorant", name:"In-Game HUD + Hoax Overlay + Map Veto", file:"overlay/valorant_ingame.html"},
   {game:"Valorant", name:"Team Chemistry Stats (Post-Match)", file:"overlay/valorant_teamchemistry.html"},
   {game:"Valorant", name:"MVP", file:"overlay/valorant_mvp.html"},
