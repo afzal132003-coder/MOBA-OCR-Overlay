@@ -101,9 +101,13 @@
      the same slot as the Champion Rush badge, which sits further left,
      outside the cell entirely. A team with no logo on file leaves this
      empty rather than showing a broken-image icon. */
+  /* Sized against each row's own height rather than a flat pixel value
+     (46px on the points table's 62px rows, 34px on the scoreboard's 44px
+     rows) -- both come out to roughly 3/4 of the row, which is what makes
+     a logo actually read next to text this size instead of disappearing
+     beside it. */
   .team-logo{
-    position:absolute; width:32px; height:32px;
-    object-fit:contain; display:none;
+    position:absolute; object-fit:contain; display:none;
   }
   .team-logo.on{ display:block; }
 </style>
@@ -153,15 +157,20 @@ SB_ROW_CENTRE.forEach((cy, i) => {
     sbStage.appendChild(el);
   };
   mk("rank", SB_COL.rank - NUM_W / 2, NUM_W, "rank");
-  const sbLogoW = 40;
-  mk("name", SB_NAME_X + sbLogoW, SB_NAME_W - sbLogoW, "name");
+  // Reserved width = left padding + logo + gap before the text, so the
+  // logo never crowds either the row's left edge or the name.
+  const sbLogoSize = 34, sbLogoPad = 6, sbLogoGap = 10;
+  const sbLogoReserve = sbLogoPad + sbLogoSize + sbLogoGap;
+  mk("name", SB_NAME_X + sbLogoReserve, SB_NAME_W - sbLogoReserve, "name");
   mk("kills", SB_COL.kills - NUM_W / 2, NUM_W);
   mk("total", SB_COL.total - NUM_W / 2, NUM_W);
   const sbLogo = document.createElement("img");
   sbLogo.className = "team-logo";
   sbLogo.id = "sb-" + i + "-logo";
-  sbLogo.style.left = SB_NAME_X + "px";
-  sbLogo.style.top = (cy - 16) + "px";
+  sbLogo.style.left = (SB_NAME_X + sbLogoPad) + "px";
+  sbLogo.style.top = (cy - sbLogoSize / 2) + "px";
+  sbLogo.style.width = sbLogoSize + "px";
+  sbLogo.style.height = sbLogoSize + "px";
   sbStage.appendChild(sbLogo);
   const sbBadge = document.createElement("img");
   sbBadge.className = "badge";
@@ -195,18 +204,22 @@ PT_BLOCKS.forEach((col, b) => {
       el.style.height = PT_ROW_H + "px";
       ptStage.appendChild(el);
     };
-    // Logo takes the first ~38px of the name cell; the text starts after
-    // it, so the two never overlap regardless of how long the name is.
-    const logoW = 38;
-    mk("name", col.name + logoW, col.nameW - logoW, "name");
+    // Reserved width = left padding + logo + gap before the text, so a
+    // long team name still starts clear of the logo instead of the two
+    // fighting for the same pixels.
+    const logoSize = 46, logoPad = 4, logoGap = 12;
+    const logoReserve = logoPad + logoSize + logoGap;
+    mk("name", col.name + logoReserve, col.nameW - logoReserve, "name");
     ["matches", "booyah", "finishes", "total"].forEach(f => {
       mk(f, col[f] - NUM_W / 2, NUM_W);
     });
     const logo = document.createElement("img");
     logo.className = "team-logo";
     logo.id = "pt-" + i + "-logo";
-    logo.style.left = col.name + "px";
-    logo.style.top = (cy - 16) + "px";
+    logo.style.left = (col.name + logoPad) + "px";
+    logo.style.top = (cy - logoSize / 2) + "px";
+    logo.style.width = logoSize + "px";
+    logo.style.height = logoSize + "px";
     ptStage.appendChild(logo);
     const badge = document.createElement("img");
     badge.className = "badge";
@@ -220,6 +233,17 @@ PT_BLOCKS.forEach((col, b) => {
 function setText(prefix, i, field, value){
   const el = document.getElementById(prefix + "-" + i + "-" + field);
   if(el) el.textContent = value;
+}
+
+// A one-word team name (NEVERMORE, TSGARMY) can't wrap onto a second line
+// the way "BRUTAL BIHARIZZ" does, so a tight name column just clips it.
+// Shrinking to fit keeps the whole name on one line instead -- same
+// approach freefire_team_eliminated.html already uses for its title.
+function fitNameCell(el, maxSize){
+  el.style.fontSize = maxSize + "px";
+  for(let size = maxSize; size > 13 && el.scrollWidth > el.clientWidth; size -= 1){
+    el.style.fontSize = size + "px";
+  }
 }
 
 function applyScoreboard(ff){
@@ -262,11 +286,13 @@ function applyScoreboard(ff){
     }
     setText("sb", i, "rank", String(row.rank == null ? i + 1 : row.rank).padStart(2, "0"));
     setText("sb", i, "name", (row.name || "").toUpperCase());
+    fitNameCell(document.getElementById("sb-" + i + "-name"), 25);
     setText("sb", i, "kills", row.kills == null ? 0 : row.kills);
     setText("sb", i, "total", row.total == null ? 0 : row.total);
   }
-  paintBadges("sb", rows.map(r => (r && r.fullName) || (r && r.name) || ""), ff);
-  paintLogos("sb", rows.map(r => (r && r.fullName) || (r && r.name) || ""), ff);
+  const sbNames = rows.map(r => (r && r.fullName) || (r && r.name) || "");
+  paintBadges("sb", sbNames, TEAMS, ff);
+  paintLogos("sb", sbNames, TEAMS, ff);
 
   // Nothing is drawn on the left-hand BOOYAH plate: the artwork already
   // has "BOOYAH" printed there, and overlaying the winning team's name on
@@ -299,6 +325,7 @@ function applyPointsTable(ff){
       continue;
     }
     setText("pt", i, "name", (row.teamName || row.shortName || "").toUpperCase());
+    fitNameCell(document.getElementById("pt-" + i + "-name"), 23);
     setText("pt", i, "matches", row.matches || 0);
     setText("pt", i, "booyah", row.booyahs || 0);
     // "Finishes" on this design is the kill total -- the artwork's own
@@ -306,8 +333,10 @@ function applyPointsTable(ff){
     setText("pt", i, "finishes", row.totalKills || 0);
     setText("pt", i, "total", row.totalPoints || 0);
   }
-  paintBadges("pt", standings.map(r => (r && r.teamName) || ""), ff);
-  paintLogos("pt", standings.map(r => (r && r.teamName) || ""), ff);
+  const ptCount = PT_PER_BLOCK * PT_BLOCKS.length;
+  const ptNames = standings.map(r => (r && r.teamName) || "");
+  paintBadges("pt", ptNames, ptCount, ff);
+  paintLogos("pt", ptNames, ptCount, ff);
 }
 
 // Same lookup freefire_alive_status.html uses: joined by name against the
@@ -323,11 +352,14 @@ function logoFor(teamName, roster){
   return team || null;
 }
 
-function paintLogos(prefix, names, ff){
+function paintLogos(prefix, names, count, ff){
   const roster = ff.roster;
-  names.forEach((name, i) => {
+  // Same reasoning as paintBadges -- iterate the fixed row count so a
+  // shorter row set actually clears the slots it doesn't use.
+  for(let i = 0; i < count; i++){
+    const name = names[i] || "";
     const el = document.getElementById(prefix + "-" + i + "-logo");
-    if(!el) return;
+    if(!el) continue;
     const team = name ? logoFor(name, roster) : null;
     const src = team && team.logo;
     if(src){
@@ -336,7 +368,7 @@ function paintLogos(prefix, names, ff){
     } else {
       el.classList.remove("on");
     }
-  });
+  }
 }
 
 /* Which teams have activated Champion Rush, by the name they are shown
@@ -350,17 +382,22 @@ function championSet(ff){
     .map(t => (t.teamName || "").trim().toUpperCase()));
 }
 
-function paintBadges(prefix, names, ff){
+function paintBadges(prefix, names, count, ff){
   const active = championSet(ff);
   const folder = (ff.event && ff.event.assetFolder) || "CLT";
   const src = "assets/freefire/" + folder + "/champion_rush.png";
-  names.forEach((name, i) => {
+  // Iterates the row COUNT, not names.length -- a match with fewer teams
+  // than the full grid (a real case: one of tonight's own games only had
+  // 10 of 12) would otherwise leave the missing rows' badges showing
+  // whatever the previous state_sync painted there instead of clearing.
+  for(let i = 0; i < count; i++){
+    const name = names[i] || "";
     const el = document.getElementById(prefix + "-" + i + "-badge");
     if(!el) return;
     const on = !!name && active.has(name.trim().toUpperCase());
     if(on && el.getAttribute("src") !== src) el.src = src;
     el.classList.toggle("on", on);
-  });
+  }
 }
 
 function applyFreefire(ff){
