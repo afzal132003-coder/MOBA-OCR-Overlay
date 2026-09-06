@@ -147,8 +147,20 @@ TEAM_ELIMINATED_DISPLAY_SECONDS = 6
 
 MAX_OCR_DIMENSION = 1920
 
+# Dashboard crop previews are judged by eye for framing, never re-read, so
+# they get lossy compression -- see crop_to_data_url.
+PREVIEW_JPEG_QUALITY = 85
+
 connected_clients = set()
 connected_pages = {}
+# The one socket this engine opens OUT to the cloud relay, if configured.
+# Tracked separately because it is the one connection whose page= identity
+# is meaningless -- see broadcast_to_page().
+relay_websocket = None
+# region key -> the last preview data URL actually sent, so an unchanged
+# crop isn't re-encoded onto the wire every poll. Cleared whenever a client
+# connects, so a dashboard opened onto a still screen still gets one.
+last_preview_sent = {}
 ocr_executor = ThreadPoolExecutor(max_workers=2)
 
 
@@ -323,13 +335,41 @@ def crop_to_bgr(sct, region):
     return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
 
-def crop_to_data_url(img_bgr, scale=3):
-    big = cv2.resize(img_bgr, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
-    ok, buf = cv2.imencode(".png", big)
+def crop_to_data_url(img_bgr, scale=1, jpeg_quality=None):
+    """Encodes a crop for a dashboard preview <img>.
+
+    The defaults are the point of this function. It used to upscale 3x
+    with NEAREST and always encode PNG, which cost 2.2 MB for the two live
+    regions -- sent every second poll, so roughly 9 Mbps of sustained
+    uplink to the relay. Everything the dashboard asked for afterwards
+    queued behind that: "Fetch latest match result" took seconds on the
+    operator's screen for a lookup measured at under 10 ms of actual work.
+
+    Both halves of the cost were waste. The upscale bought nothing -- the
+    dashboard shows these at width:100% inside a half-width column, so the
+    browser threw the extra pixels away after they had been paid for over
+    the wire twice (engine -> relay -> browser). And PNG is the wrong
+    codec for a screenshot: JPEG at q85 is another 10x smaller with no
+    difference that matters for judging whether a box is framed right,
+    which is all these are for -- the OCR text itself travels as text in
+    the same message, not read back off the image.
+
+    scale/jpeg_quality stay available for the loadout capture, which is
+    one-shot, small, and compared against reference artwork by eye.
+    """
+    img = img_bgr
+    if scale != 1:
+        img = cv2.resize(img_bgr, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
+    if jpeg_quality is None:
+        ok, buf = cv2.imencode(".png", img)
+        mime = "png"
+    else:
+        ok, buf = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality])
+        mime = "jpeg"
     if not ok:
         return None
     b64 = base64.b64encode(buf).decode("ascii")
-    return f"data:image/png;base64,{b64}"
+    return f"data:image/{mime};base64,{b64}"
 
 
 def _image_to_data(img_bgr):
@@ -1380,6 +1420,43 @@ async def broadcast(message):
     await asyncio.gather(*[c.send(data) for c in connected_clients], return_exceptions=True)
 
 
+async def broadcast_to_page(page, message):
+    """Same as broadcast(), but only to clients connected as `page`.
+
+    Crop previews are read by exactly one thing -- the dashboard's
+    calibration panel. Sending them to every connected socket meant every
+    OBS overlay browser source was also being fed a couple of megabytes a
+    poll it had no handler for and simply dropped. The Valorant engine hit
+    this first (see its broadcast_to_page); this is the same fix, for the
+    same reason, in the engine that hadn't had it yet.
+
+    The relay socket is ALWAYS included whatever `page` is. From here that
+    single connection stands in for however many real dashboard and
+    overlay tabs are on the far side of it, and it has no page identity of
+    its own, so this engine cannot tell whether dropping it would strand a
+    legitimate recipient. Instead the message carries "_target_pages" and
+    the relay narrows its own fan-out, where the per-client page identity
+    genuinely is known."""
+    targets = [c for c, p in connected_pages.items() if p == page]
+    if relay_websocket is not None and relay_websocket not in targets:
+        targets.append(relay_websocket)
+    if not targets:
+        return
+    data = json.dumps({**message, "_target_pages": [page]})
+    await asyncio.gather(*[c.send(data) for c in targets], return_exceptions=True)
+
+
+def dashboard_connected():
+    """Whether it's worth encoding preview images at all this cycle.
+
+    A local socket tagged "freefire_dashboard" is certain. A relay
+    connection's own tag is always "unknown", so reachability of the relay
+    is the most this engine can establish -- and erring toward "encode it"
+    there is the safer trade, since the alternative failure is a
+    relay-connected dashboard that silently never shows a preview."""
+    return "freefire_dashboard" in connected_pages.values() or relay_websocket is not None
+
+
 def presence_counts():
     counts = {}
     for page in connected_pages.values():
@@ -1539,6 +1616,9 @@ async def handle_client(websocket, path=None):
     except Exception:
         page = "unknown"
     connected_pages[websocket] = page
+    # A dashboard opening onto a frozen screen would otherwise sit blank,
+    # since previews are only sent when the crop changes.
+    last_preview_sent.clear()
     await broadcast_presence()
     await websocket.send(json.dumps({
         "type": "state_sync", "data": server_state, "locked": list(locked_fields),
@@ -1877,21 +1957,27 @@ async def ocr_loop():
                 killfeed_raw_text = None
                 sidetable_raw_text = None
 
-            if frame_counter % 2 == 0:
-                if killfeed_crop is not None:
-                    data_url = crop_to_data_url(killfeed_crop)
-                    if data_url:
-                        await broadcast({
-                            "type": "crop_preview", "region": FREEFIRE_KILLFEED_REGION_KEY,
-                            "image": data_url, "text": killfeed_raw_text or "",
-                        })
-                if sidetable_crop is not None:
-                    data_url = crop_to_data_url(sidetable_crop)
-                    if data_url:
-                        await broadcast({
-                            "type": "crop_preview", "region": FREEFIRE_SIDETABLE_REGION_KEY,
-                            "image": data_url, "text": sidetable_raw_text or "",
-                        })
+            # Previews go to the dashboard only, and only when the crop
+            # actually changed since the last one sent. Both guards are
+            # about latency, not tidiness: this block was pushing megabytes
+            # a poll into the relay connection, and every dashboard request
+            # -- fetch match, commit, capture lobby -- waited its turn
+            # behind that queue.
+            if frame_counter % 2 == 0 and dashboard_connected():
+                for region_key, crop, raw_text in (
+                    (FREEFIRE_KILLFEED_REGION_KEY, killfeed_crop, killfeed_raw_text),
+                    (FREEFIRE_SIDETABLE_REGION_KEY, sidetable_crop, sidetable_raw_text),
+                ):
+                    if crop is None:
+                        continue
+                    data_url = crop_to_data_url(crop, jpeg_quality=PREVIEW_JPEG_QUALITY)
+                    if not data_url or last_preview_sent.get(region_key) == data_url:
+                        continue
+                    last_preview_sent[region_key] = data_url
+                    await broadcast_to_page("freefire_dashboard", {
+                        "type": "crop_preview", "region": region_key,
+                        "image": data_url, "text": raw_text or "",
+                    })
 
             if changed:
                 save_state()
@@ -1917,12 +2003,21 @@ async def relay_client_loop():
         return
     separator = "&" if "?" in url else "?"
     connect_url = f"{url}{separator}token={token}"
+    global relay_websocket
     while True:
         try:
             async with websockets.connect(connect_url) as relay_ws:
                 print(f"Connected to cloud relay at {url}")
-                await handle_client(relay_ws)
+                # Recorded so broadcast_to_page() can always include it --
+                # it is the only client whose page= tag says nothing about
+                # who is really on the other end.
+                relay_websocket = relay_ws
+                try:
+                    await handle_client(relay_ws)
+                finally:
+                    relay_websocket = None
         except Exception as e:
+            relay_websocket = None
             print(f"Relay connection lost/failed ({e}); retrying in 3s...")
         await asyncio.sleep(3)
 
