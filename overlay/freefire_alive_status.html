@@ -52,11 +52,30 @@
     display: flex; align-items: center; justify-content: center;
   }
   .logo img { max-width: 26px; max-height: 25px; object-fit: contain; }
+  /* Narrowed from the full 142px gap up to the alive bars to make room
+     for a KILLS number -- the artwork itself has no column for this
+     (RANK / TEAM / ALIVE only), so it's fitted into the existing row
+     rather than waiting on updated art. */
   .name {
-    position: absolute; left: 1588px; width: 142px; height: 29px;
+    position: absolute; left: 1588px; width: 106px; height: 29px;
     display: flex; align-items: center;
     color: #1a1206; font-weight: 900; font-size: 15px; letter-spacing: 0.2px;
     text-transform: uppercase; white-space: nowrap; overflow: hidden;
+  }
+  .kills {
+    position: absolute; left: 1694px; width: 36px; height: 29px;
+    display: flex; align-items: center; justify-content: center;
+    color: #1a1206; font-weight: 900; font-size: 15px;
+    font-variant-numeric: tabular-nums;
+  }
+  /* One static label per column, not per row -- the header band the
+     artwork bakes in only says RANK / TEAM / ALIVE, so this is drawn to
+     match its style (white, bold, small) at the same x as the numbers
+     below it. */
+  #kills-header {
+    position: absolute; left: 1694px; top: 296px; width: 36px; height: 14px;
+    display: flex; align-items: center; justify-content: center;
+    color: #ffffff; font-weight: 800; font-size: 11px; letter-spacing: 0.5px;
   }
 
   /* The alive indicator is the supplied artwork, not bars drawn here --
@@ -98,6 +117,7 @@
 
 <div id="stage">
   <img id="backdrop" alt="">
+  <div id="kills-header">K</div>
   <div id="rows"></div>
 </div>
 
@@ -184,7 +204,7 @@ function apply(state){
     : new Set();
 
   const key = base + "|" + rows.map(r =>
-    [r.teamName, r.aliveCount, r.eliminated,
+    [r.teamName, r.aliveCount, r.eliminated, r.elims,
      active.has((r.teamName || "").trim().toUpperCase())].join("~")).join("|");
   if(key === lastKey) return;
   lastKey = key;
@@ -203,11 +223,17 @@ function apply(state){
       ? `<img src="${escapeHtml(team.logo)}" alt="">` : "";
     const badge = active.has((row.teamName || "").trim().toUpperCase())
       ? `<img class="cr-badge" src="${base}champion_rush.png" alt="">` : "";
+    // elims is null once the match has ended (the running score gets
+    // placement points folded in at that point and would read as an
+    // inflated "kills" number), so a blank cell beats a confidently wrong
+    // one -- same rule the rest of this codebase already follows.
+    const kills = row.elims == null ? "" : row.elims;
     return `
       <div class="row ${row.eliminated ? "out" : ""}" style="top:${ROW_TOPS[i]}px">
         ${badge}
         <div class="logo">${logo}</div>
         <div class="name">${escapeHtml(label)}</div>
+        <div class="kills">${kills}</div>
         <div class="alive" style="background-image:url('${base}${art}')"></div>
       </div>`;
   }).join("");

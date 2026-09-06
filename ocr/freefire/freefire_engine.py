@@ -2823,32 +2823,18 @@ async def ocr_loop():
             if sidetable_region and sidetable_region.get("w", 0) > 0 and sidetable_region.get("h", 0) > 0:
                 sidetable_crop = crop_to_bgr(sct, sidetable_region)
 
-            ocr_tasks = []
-            text_region_names = []
-            for name, crop in (("killfeed", killfeed_crop), ("sidetable", sidetable_crop)):
-                if crop is not None:
-                    ocr_tasks.append(loop.run_in_executor(ocr_executor, ocr_text, crop))
-                    text_region_names.append(name)
-
             changed = False
             log_sidetable_rows = None
-            if ocr_tasks:
-                results = await asyncio.gather(*ocr_tasks)
-                text_results = dict(zip(text_region_names, results))
-                killfeed_raw_text = text_results.get("killfeed")
-                sidetable_raw_text = text_results.get("sidetable")
-
-                ff_live = server_state["liveOps"]
-                if killfeed_raw_text is not None and killfeed_raw_text != ff_live.get("killfeedLastText", ""):
-                    ff_live["killfeedLastText"] = killfeed_raw_text
-                    changed = True
-                if sidetable_raw_text is not None and sidetable_raw_text != ff_live.get("sidetableLastText", ""):
-                    ff_live["sidetableLastText"] = sidetable_raw_text
-                    changed = True
+            killfeed_raw_text = None
+            sidetable_raw_text = None
 
             # Live kill feed from the client's debugger log. Cheap (a
             # forward read of whatever was appended since last poll), so it
-            # runs every cycle rather than on the slower OCR cadence.
+            # runs every cycle rather than on the slower OCR cadence. Moved
+            # to run BEFORE the OCR block below (it used to run after) so
+            # this tick already knows whether the log covered the kill feed
+            # and side table before deciding whether OCR needs to run at
+            # all -- see the note on ocr_tasks below for why that matters.
             global _debugger_offset, _debugger_path, _debugger_id_map
             debugger_folder = (server_state.get("settings", {}).get("debuggerFolder")
                                or server_state.get("settings", {}).get("matchResultFolder", ""))
@@ -2911,12 +2897,51 @@ async def ocr_loop():
                     if await handle_live_signals(signals, linked["gsNames"]):
                         changed = True
 
+            # Raw OCR text, for the dashboard's own "Last OCR reading"
+            # debug panel -- NOT for the actual broadcast graphics anymore.
+            # A debugger folder makes the kill feed here fully redundant
+            # (it's a straight text dump of the same feed the log already
+            # reads structured, with real names, headshot flags and UIDs),
+            # and the log-driven side table just proved out above makes the
+            # sidetable OCR pass redundant too, for THIS tick. Skipping both
+            # when the log already covers them was the actual fix for "the
+            # alive table isn't fast" -- two Tesseract passes (~0.2s and
+            # ~0.35s measured) were running on every single 1-second poll
+            # for output nothing downstream depended on any more, competing
+            # for the same executor threads as the log tailing and the
+            # structured fallback parse below. Still runs as a genuine
+            # fallback when there's no debugger folder configured at all,
+            # or (for the side table specifically) before a roster exists
+            # to link a squad to a name.
+            ocr_tasks = []
+            text_region_names = []
+            if killfeed_crop is not None and not debugger_folder:
+                ocr_tasks.append(loop.run_in_executor(ocr_executor, ocr_text, killfeed_crop))
+                text_region_names.append("killfeed")
+            if sidetable_crop is not None and not log_sidetable_rows:
+                ocr_tasks.append(loop.run_in_executor(ocr_executor, ocr_text, sidetable_crop))
+                text_region_names.append("sidetable")
+
+            if ocr_tasks:
+                results = await asyncio.gather(*ocr_tasks)
+                text_results = dict(zip(text_region_names, results))
+                killfeed_raw_text = text_results.get("killfeed")
+                sidetable_raw_text = text_results.get("sidetable")
+
+                ff_live = server_state["liveOps"]
+                if killfeed_raw_text is not None and killfeed_raw_text != ff_live.get("killfeedLastText", ""):
+                    ff_live["killfeedLastText"] = killfeed_raw_text
+                    changed = True
+                if sidetable_raw_text is not None and sidetable_raw_text != ff_live.get("sidetableLastText", ""):
+                    ff_live["sidetableLastText"] = sidetable_raw_text
+                    changed = True
+
             # Structured side-table parse -- FALLBACK ONLY, for whenever the
             # log-driven table above didn't have rows to give this tick (no
             # debugger folder configured, or the roster can't yet link a
             # squad to a name). It used to run unconditionally and
             # overwrite the log-driven table on every single poll -- since
-            # this runs strictly after that block, its uncalibrated,
+            # this ran strictly after that block, its uncalibrated,
             # OCR-derived rows (with the known-bad grey "alive" colour)
             # were clobbering the correct data every cycle it ran, which
             # was every cycle the side table region was calibrated. The
@@ -2937,9 +2962,7 @@ async def ocr_loop():
                     ff_live["sidetableUsedPalette"] = parsed["usedPalette"]
                     ff_live["sidetableSource"] = "ocr"
                     changed = True
-            else:
-                killfeed_raw_text = None
-                sidetable_raw_text = None
+
 
             # Previews go to the dashboard only, and only when the crop
             # actually changed since the last one sent. Both guards are
