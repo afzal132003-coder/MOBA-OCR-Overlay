@@ -97,6 +97,15 @@
     font-size:23px; text-transform:uppercase; line-height:1.05;
     white-space:normal; overflow:hidden; text-overflow:clip;
   }
+  /* Team logo, sitting inside the name cell just before the text -- NOT
+     the same slot as the Champion Rush badge, which sits further left,
+     outside the cell entirely. A team with no logo on file leaves this
+     empty rather than showing a broken-image icon. */
+  .team-logo{
+    position:absolute; width:32px; height:32px;
+    object-fit:contain; display:none;
+  }
+  .team-logo.on{ display:block; }
 </style>
 </head>
 <body>
@@ -144,9 +153,16 @@ SB_ROW_CENTRE.forEach((cy, i) => {
     sbStage.appendChild(el);
   };
   mk("rank", SB_COL.rank - NUM_W / 2, NUM_W, "rank");
-  mk("name", SB_NAME_X, SB_NAME_W, "name");
+  const sbLogoW = 40;
+  mk("name", SB_NAME_X + sbLogoW, SB_NAME_W - sbLogoW, "name");
   mk("kills", SB_COL.kills - NUM_W / 2, NUM_W);
   mk("total", SB_COL.total - NUM_W / 2, NUM_W);
+  const sbLogo = document.createElement("img");
+  sbLogo.className = "team-logo";
+  sbLogo.id = "sb-" + i + "-logo";
+  sbLogo.style.left = SB_NAME_X + "px";
+  sbLogo.style.top = (cy - 16) + "px";
+  sbStage.appendChild(sbLogo);
   const sbBadge = document.createElement("img");
   sbBadge.className = "badge";
   sbBadge.id = "sb-" + i + "-badge";
@@ -179,10 +195,19 @@ PT_BLOCKS.forEach((col, b) => {
       el.style.height = PT_ROW_H + "px";
       ptStage.appendChild(el);
     };
-    mk("name", col.name, col.nameW, "name");
+    // Logo takes the first ~38px of the name cell; the text starts after
+    // it, so the two never overlap regardless of how long the name is.
+    const logoW = 38;
+    mk("name", col.name + logoW, col.nameW - logoW, "name");
     ["matches", "booyah", "finishes", "total"].forEach(f => {
       mk(f, col[f] - NUM_W / 2, NUM_W);
     });
+    const logo = document.createElement("img");
+    logo.className = "team-logo";
+    logo.id = "pt-" + i + "-logo";
+    logo.style.left = col.name + "px";
+    logo.style.top = (cy - 16) + "px";
+    ptStage.appendChild(logo);
     const badge = document.createElement("img");
     badge.className = "badge";
     badge.id = "pt-" + i + "-badge";
@@ -241,6 +266,7 @@ function applyScoreboard(ff){
     setText("sb", i, "total", row.total == null ? 0 : row.total);
   }
   paintBadges("sb", rows.map(r => (r && r.fullName) || (r && r.name) || ""), ff);
+  paintLogos("sb", rows.map(r => (r && r.fullName) || (r && r.name) || ""), ff);
 
   // Nothing is drawn on the left-hand BOOYAH plate: the artwork already
   // has "BOOYAH" printed there, and overlaying the winning team's name on
@@ -281,6 +307,36 @@ function applyPointsTable(ff){
     setText("pt", i, "total", row.totalPoints || 0);
   }
   paintBadges("pt", standings.map(r => (r && r.teamName) || ""), ff);
+  paintLogos("pt", standings.map(r => (r && r.teamName) || ""), ff);
+}
+
+// Same lookup freefire_alive_status.html uses: joined by name against the
+// CURRENT roster, not baked into the committed match or the standings
+// aggregate. Standings have never carried a logo field at all, and a
+// committed match freezes whatever the roster held at commit time -- so
+// looking it up live is the only way an uploaded/changed logo shows up on
+// an already-committed match without needing that match re-committed.
+function logoFor(teamName, roster){
+  const want = (teamName || "").trim().toUpperCase();
+  const team = ((roster && roster.teams) || []).find(
+    t => (t.name || "").trim().toUpperCase() === want);
+  return team || null;
+}
+
+function paintLogos(prefix, names, ff){
+  const roster = ff.roster;
+  names.forEach((name, i) => {
+    const el = document.getElementById(prefix + "-" + i + "-logo");
+    if(!el) return;
+    const team = name ? logoFor(name, roster) : null;
+    const src = team && team.logo;
+    if(src){
+      if(el.getAttribute("src") !== src) el.src = src;
+      el.classList.add("on");
+    } else {
+      el.classList.remove("on");
+    }
+  });
 }
 
 /* Which teams have activated Champion Rush, by the name they are shown

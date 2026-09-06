@@ -70,7 +70,11 @@
     position:absolute; overflow:hidden;
     display:block; background:#6f000c;
   }
+  /* object-fit:cover suits the small face-crop icon. A full-body render
+     put in the same box needs contain instead, or it crops off the head
+     and feet -- so the "full" variant used when one is available. */
   .portrait img{ display:block; width:100%; height:100%; object-fit:cover; }
+  .portrait img.full{ object-fit:contain; }
   /* No character captured for this player: show the artwork's own empty
      frame rather than a red rectangle, so it reads as "not captured"
      instead of as a rendering fault. */
@@ -164,11 +168,26 @@ function set(i, field, value){
    stores the matched library entry's id, which is the filename of the
    reference art it matched, so the portrait is the game's own asset
    rather than a re-photographed screen crop. */
-function characterImage(rosterPlayer, gameNumber){
+function characterImage(rosterPlayer, gameNumber, ff){
   const loadouts = (rosterPlayer && rosterPlayer.loadouts) || {};
   const entry = loadouts[String(gameNumber)] || loadouts[gameNumber];
   const slot = entry && entry.slots && entry.slots.active;
   if(!slot || !slot.label) return "";
+
+  // Prefer the full-body render over the small icon crop when one has
+  // been named for this same character. The two libraries are joined by
+  // NAME, not id -- the icon and full-size dumps use unrelated id spaces,
+  // so this only works once an operator has named both the icon
+  // (assetNames) and a full-size render (fullSizeNames) the same thing.
+  const charName = (ff.assetNames || {})[slot.label];
+  if(charName){
+    const fullSizeNames = ff.fullSizeNames || {};
+    const fullSizeId = Object.keys(fullSizeNames).find(
+      id => fullSizeNames[id] === charName);
+    if(fullSizeId){
+      return "assets/FFM/Full Size Character/" + fullSizeId + ".png";
+    }
+  }
   return "assets/FFM/" + slot.label + ".png";
 }
 
@@ -230,10 +249,11 @@ function applyFreefire(ff){
     set(i, "pct", total ? (weight(p) / total * 100).toFixed(2) + "%" : "");
 
     const src = characterImage(
-      rosterPlayerFor(ff, winner.teamName, p.uid, p.name), gameNumber);
+      rosterPlayerFor(ff, winner.teamName, p.uid, p.name), gameNumber, ff);
     const img = document.getElementById("bs-" + i + "-img");
     if(src){
       if(img.getAttribute("src") !== src) img.src = src;
+      img.classList.toggle("full", src.includes("/Full Size Character/"));
       portrait.classList.remove("empty");
     } else {
       portrait.classList.add("empty");

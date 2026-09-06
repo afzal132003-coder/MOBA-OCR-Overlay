@@ -86,6 +86,14 @@
   .ff-asset code{display:block;color:#6b7590;font-size:10.5px;}
   .ff-asset input{width:100%;margin-top:3px;font-size:12px;padding:3px 6px;}
   .ff-asset.named{border-color:#3d5a44;}
+  .ff-fullsize{
+    display:flex;flex-direction:column;gap:6px;align-items:center;
+    padding:8px;border:1px solid #2b3348;border-radius:6px;background:#141a2b;
+  }
+  .ff-fullsize img{width:100%;max-height:150px;object-fit:contain;background:#0a0d18;border-radius:4px;}
+  .ff-fullsize code{color:#6b7590;font-size:10.5px;}
+  .ff-fullsize input{width:100%;font-size:12px;padding:3px 6px;}
+  .ff-fullsize.named{border-color:#3d5a44;}
   .ff-char-pick{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid #2b3348;}
   .ff-char-pick:first-child{border-top:none;}
   .ff-char-pick img{width:46px;height:46px;object-fit:contain;background:#0a0d18;border-radius:4px;}
@@ -1843,6 +1851,29 @@
         <div class="hint" id="ff_assetCount" style="padding-bottom:8px;"></div>
       </div>
       <div id="ff_assetGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-top:12px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Full-Size Character Renders</h2>
+      <p class="hint">Your own curated pull from <code>StreamingAssets/streaming/IconCDN/other</code>, kept in
+        <code>overlay/assets/FFM/Full Size Character</code>. Worth knowing: these ids are Free Fire's OUTFIT/skin
+        bundle renders, not one-per-character — the same character can have many of these, and the render is
+        mostly the outfit, not the face. There's no lookup table in the game's files tying a render back to a
+        character, so this has to be named by eye, the same way you named the icons. Type the character's name
+        (matching what you used above) and the Booyah card will use this render instead of the small icon crop
+        for anyone wearing it.</p>
+      <div class="row" style="gap:12px;align-items:flex-end;">
+        <div class="team-form" style="max-width:260px;">
+          <label>Filter</label>
+          <input type="text" id="ff_fullsizeFilter" placeholder="name or id">
+        </div>
+        <label class="hint" style="padding-bottom:8px;">
+          <input type="checkbox" id="ff_fullsizeUnnamedOnly"> Only show unnamed
+        </label>
+        <div class="hint" id="ff_fullsizeCount" style="padding-bottom:8px;"></div>
+      </div>
+      <datalist id="ff_charNameList"></datalist>
+      <div id="ff_fullsizeGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-top:12px;"></div>
     </div>
 
     <div class="card" id="ff_mapTaughtCard" style="display:none;">
@@ -4616,6 +4647,7 @@ function ffConnect(){
       ffRenderEvent(ffState);
       ffRenderMapping(ffState);
       ffRenderAssets(ffState);
+      ffRenderFullsize(ffState);
       ffRenderCharPickers(ffState);
       ffRenderChampionRush(ffState);
       ffUpdatePreviewStatus();
@@ -5733,6 +5765,71 @@ document.addEventListener("change", (e) => {
   if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
   ffWs.send(JSON.stringify({
     type: "freefire_asset_name",
+    assetId: input.dataset.id,
+    name: input.value.trim(),
+  }));
+});
+
+/* ---------- full-size character render naming ----------
+   Same job as the icon grid above, kept separate because the ids live in
+   a different id space (Free Fire's outfit/skin bundle renders, not the
+   icon library) and there is no data tying the two together -- an
+   operator has to type the character's name here exactly as they did for
+   the icons, which is why the datalist below is fed from THOSE names. */
+let ffLastFullsizeKey = "";
+
+function ffFullsizeSrc(id){ return "../overlay/assets/FFM/Full Size Character/" + id + ".png"; }
+
+function ffRenderFullsize(ff){
+  const names = ff.fullSizeNames || {};
+  const ids = (ff.fullSizeCatalogue || []).map(e => e.id);
+  const filter = (document.getElementById("ff_fullsizeFilter").value || "").toLowerCase().trim();
+  const unnamedOnly = document.getElementById("ff_fullsizeUnnamedOnly").checked;
+
+  // Suggestions come from the icon library's own names, so a typo here
+  // can't quietly create a character that will never match anything.
+  const knownNames = Array.from(new Set(Object.values(ff.assetNames || {}))).sort();
+  document.getElementById("ff_charNameList").innerHTML =
+    knownNames.map(n => '<option value="' + ffEscapeHtml(n) + '">').join("");
+
+  const key = JSON.stringify([ids, names, filter, unnamedOnly, knownNames]);
+  if(key === ffLastFullsizeKey) return;
+  ffLastFullsizeKey = key;
+
+  const named = ids.filter(id => names[id]).length;
+  document.getElementById("ff_fullsizeCount").textContent = ids.length
+    ? named + " of " + ids.length + " named"
+    : "No files found in Full Size Character — nothing to name yet.";
+
+  const shown = ids.filter(id => {
+    if(unnamedOnly && names[id]) return false;
+    if(!filter) return true;
+    return id.toLowerCase().includes(filter) ||
+           (names[id] || "").toLowerCase().includes(filter);
+  });
+
+  document.getElementById("ff_fullsizeGrid").innerHTML = shown.map(id =>
+    '<div class="ff-fullsize' + (names[id] ? ' named' : '') + '">' +
+      '<img src="' + ffFullsizeSrc(id) + '" alt="" loading="lazy">' +
+      '<code>' + ffEscapeHtml(id) + '</code>' +
+      '<input type="text" class="ff-fullsize-name" list="ff_charNameList" data-id="' +
+        ffEscapeHtml(id) + '" value="' + ffEscapeHtml(names[id] || "") +
+        '" placeholder="whose skin is this?">' +
+    '</div>').join("");
+}
+
+document.getElementById("ff_fullsizeFilter").addEventListener("input", () => {
+  if(ffState) ffRenderFullsize(ffState);
+});
+document.getElementById("ff_fullsizeUnnamedOnly").addEventListener("change", () => {
+  if(ffState) ffRenderFullsize(ffState);
+});
+document.addEventListener("change", (e) => {
+  const input = e.target.closest(".ff-fullsize-name");
+  if(!input) return;
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffWs.send(JSON.stringify({
+    type: "freefire_fullsize_name",
     assetId: input.dataset.id,
     name: input.value.trim(),
   }));

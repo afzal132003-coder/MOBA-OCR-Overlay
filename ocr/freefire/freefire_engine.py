@@ -117,6 +117,15 @@ FREEFIRE_ICON_LIBRARIES = {
 FREEFIRE_ASSETS_DIR = Path(__file__).parent.parent.parent / "overlay" / "assets" / "FFM"
 
 ASSET_NAMES_PATH = FREEFIRE_ASSETS_DIR / "names.json"
+# The operator's own curated pull of full-body character renders, kept
+# separate from the icon dump: source ids there (e.g. "710000117") are
+# Free Fire's OUTFIT/skin bundle renders, not a per-character identity --
+# one character has many skins, and the render is dominated by the
+# outfit, not the face. There is no lookup table in the game's own files
+# tying a skin render back to a base character, so this folder's naming
+# has to be done by eye, same as the icon library, and separately from it.
+FULLSIZE_DIR = FREEFIRE_ASSETS_DIR / "Full Size Character"
+FULLSIZE_NAMES_PATH = FULLSIZE_DIR / "names.json"
 
 
 def load_asset_names():
@@ -148,6 +157,34 @@ def save_asset_names(names):
             json.dump(merged, f, indent=2, ensure_ascii=False, sort_keys=True)
     except OSError as e:
         print(f"Could not write {ASSET_NAMES_PATH.name}: {e}")
+
+
+def load_fullsize_names():
+    try:
+        with open(FULLSIZE_NAMES_PATH, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+        return {str(k): str(v) for k, v in data.items() if isinstance(data, dict)}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def save_fullsize_names(names):
+    merged = {}
+    if FULLSIZE_DIR.is_dir():
+        for path in sorted(FULLSIZE_DIR.glob("*.png")):
+            merged[path.stem] = names.get(path.stem, "")
+    merged.update({k: v for k, v in names.items() if v})
+    try:
+        with open(FULLSIZE_NAMES_PATH, "w", encoding="utf-8") as f:
+            json.dump(merged, f, indent=2, ensure_ascii=False, sort_keys=True)
+    except OSError as e:
+        print(f"Could not write {FULLSIZE_NAMES_PATH.name}: {e}")
+
+
+def fullsize_catalogue():
+    if not FULLSIZE_DIR.is_dir():
+        return []
+    return [{"id": path.stem} for path in sorted(FULLSIZE_DIR.glob("*.png"))]
 
 
 def asset_catalogue():
@@ -315,10 +352,12 @@ def default_state():
         # into something pickable. Mirrored to assets/FFM/names.json so the
         # work survives a state reset and can be shared between machines.
         "assetNames": {},
+        "fullSizeNames": {},
         # What is actually in the dump, so the dashboard can render the
         # library without a directory listing of its own. Static per
         # install, refreshed at startup.
         "assetCatalogue": [],
+        "fullSizeCatalogue": [],
         # What the system currently cannot resolve, for the Mapping tab to
         # offer. Rebuilt from live state rather than accumulated, so an
         # entry disappears the moment it stops being a problem.
@@ -422,6 +461,11 @@ def load_state():
                 if from_file:
                     state["assetNames"] = from_file
                     print(f"Loaded {len(from_file)} asset name(s) from names.json.")
+            if not state.get("fullSizeNames"):
+                from_file = {k: v for k, v in load_fullsize_names().items() if v}
+                if from_file:
+                    state["fullSizeNames"] = from_file
+                    print(f"Loaded {len(from_file)} full-size character name(s).")
             return state
         except (json.JSONDecodeError, OSError):
             pass
@@ -443,6 +487,7 @@ server_state = load_state()
 # operator can drop new artwork into assets/FFM between sessions, and a
 # stale list would hide it.
 server_state["assetCatalogue"] = asset_catalogue()
+server_state["fullSizeCatalogue"] = fullsize_catalogue()
 locked_fields = set()
 
 
@@ -2471,6 +2516,19 @@ async def handle_client(websocket, path=None):
                     else:
                         names.pop(asset_id, None)
                     save_asset_names(names)
+                    save_state()
+                    await broadcast({"type": "state_sync", "data": server_state,
+                                     "locked": list(locked_fields)})
+            elif payload.get("type") == "freefire_fullsize_name":
+                asset_id = str(payload.get("assetId") or "").strip()
+                if asset_id:
+                    names = server_state.setdefault("fullSizeNames", {})
+                    name = (payload.get("name") or "").strip()
+                    if name:
+                        names[asset_id] = name
+                    else:
+                        names.pop(asset_id, None)
+                    save_fullsize_names(names)
                     save_state()
                     await broadcast({"type": "state_sync", "data": server_state,
                                      "locked": list(locked_fields)})
