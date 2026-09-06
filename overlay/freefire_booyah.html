@@ -2,102 +2,106 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Free Fire Max Booyah Overlay</title>
+<title>Free Fire Booyah Team Stats</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
 <style>
-  /* Same first-pass CSS-drawn approach as freefire_scoreboard.html -- no
-     baked background art exists for Free Fire yet. Always shows the rank-1
-     team of the most recently COMMITTED match (ff.matches, not a raw
-     unreviewed fetch) -- there's no separate mode toggle for this one,
-     it's a single-purpose "who just won" graphic. */
-  @font-face {
-    font-family: 'TT Supermolot Neue Trial';
-    src: url('assets/fonts/TTSupermolotNeueTrial-Regular.ttf') format('truetype');
-    font-weight: 400; font-style: normal;
+  /* Booyah team stats -- the winning squad of the most recently COMMITTED
+     match, four cards of one player each.
+     ---------------------------------------------------------------
+     Every number here has a different source, which is worth knowing when
+     one of them is missing:
+
+       ELIMINATIONS  the result file's own per-player KILL. Authoritative.
+       KNOCKS        counted from the game log's knockdown lines during
+                     the match and carried through the match-end fetch.
+                     Nothing else records these -- the result file has no
+                     knockdown column.
+       CONTRIBUTION  derived, see below.
+       character     the Num5 loadout capture for that game. This is the
+                     one thing the log cannot supply, so a player who was
+                     never captured shows an empty portrait rather than a
+                     wrong one.
+
+     CONTRIBUTION is (7 x eliminations + 3 x knocks) as a share of the
+     squad's total. Those weights were recovered from the design's own
+     reference card, which shows 13.21 / 22.50 / 26.43 / 37.86 for players
+     on 4+3, 6+7, 8+6 and 10+12 -- all four reproduce to the cent, and
+     they sum to 100. If the intended formula is something else, this is
+     the line to change.
+
+     The artwork is 1672x941, not 1920x1080, so the whole card is laid out
+     in the artwork's own pixels and scaled up as one piece. That keeps
+     every measurement below honest to the PNG instead of pre-multiplied
+     by a factor that would have to be redone if a package ships a
+     different size.
+
+     Measured from BOOYAH TEAM STATS.png: cards at x 134..803 and
+     867..1544, rows at y 227..474 and 507..750 (a 277px row pitch);
+     portrait box x 144..334 within the first card; name plate x 342..800,
+     y 240..294; the ELIMINATIONS and KNOCKS labels centre on x 450 and
+     662; CONTRIBUTION's label sits at y 410..430. */
+
+  html, body{
+    margin:0; padding:0; background:transparent; overflow:hidden;
+    width:1920px; height:1080px;
+    font-family:'Poppins','Segoe UI',Arial,sans-serif;
   }
-  @font-face {
-    font-family: 'TT Supermolot Neue Trial';
-    src: url('assets/fonts/TTSupermolotNeueTrial-Bold.ttf') format('truetype');
-    font-weight: 700; font-style: normal;
+
+  #stage{
+    position:absolute; top:0; left:0;
+    width:1672px; height:941px;
+    transform:scale(1.14833);        /* 1920 / 1672 */
+    transform-origin:top left;
+    opacity:0; transition:opacity .45s ease;
   }
-  @font-face {
-    font-family: 'TT Supermolot Neue Trial';
-    src: url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');
-    font-weight: 800; font-style: normal;
+  #stage.visible{ opacity:1; }
+
+  .bg{ position:absolute; top:0; left:0; width:1672px; height:941px; }
+
+  .card{ position:absolute; }
+
+  /* The deep red the reference cards use behind each portrait, sampled
+     from it (#6f000c). It has to be painted here rather than left to the
+     artwork: the character assets carry transparent margins, and without
+     a backing the blank's "PLAYER" placeholder shows through them. */
+  .portrait{
+    position:absolute; overflow:hidden;
+    display:block; background:#6f000c;
   }
-  @font-face {
-    font-family: 'TT Supermolot Neue Trial';
-    src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
-    font-weight: 900; font-style: normal;
+  .portrait img{ display:block; width:100%; height:100%; object-fit:cover; }
+  /* No character captured for this player: show the artwork's own empty
+     frame rather than a red rectangle, so it reads as "not captured"
+     instead of as a rendering fault. */
+  .portrait.empty{ background:transparent; }
+  .portrait.empty img{ display:none; }
+
+  .pname{
+    position:absolute;
+    display:flex; align-items:center; justify-content:center;
+    color:#1a1206; font-weight:800; font-size:30px;
+    letter-spacing:.2px; white-space:nowrap; overflow:hidden;
   }
 
-  :root{ --gold:#f0ca90; --purple:#8b5cf6; --bg1:#0c0a17; --bg2:#181430; --line:#332b52; --dim:#9aa4c0; }
-  html,body{ margin:0; padding:0; overflow:hidden; width:1920px; height:1080px;
-    font-family:'TT Supermolot Neue Trial', Arial, sans-serif;
-    background: radial-gradient(ellipse at 50% 40%, #2b2050 0%, var(--bg1) 62%); }
-
-  #stage{ position:relative; width:1920px; height:1080px; display:none; }
-  #stage.show{ display:block; }
-
-  .glow{ position:absolute; top:50%; left:50%; width:1200px; height:1200px;
-    transform:translate(-50%,-50%); border-radius:50%;
-    background:radial-gradient(circle, rgba(240,202,144,0.16) 0%, rgba(240,202,144,0) 60%);
-    animation: pulse 2.4s ease-in-out infinite; }
-  @keyframes pulse{ 0%,100%{ opacity:0.7; } 50%{ opacity:1; } }
-
-  .brand-tag{ position:absolute; top:66px; left:0; width:1920px; text-align:center;
-    color:var(--purple); font-weight:800; font-size:18px; letter-spacing:8px; text-transform:uppercase;
-    opacity:0; animation: fadeIn 0.5s ease forwards 0.1s; }
-
-  .booyah{ position:absolute; top:150px; left:0; width:1920px; text-align:center;
-    color:var(--gold); font-weight:900; font-size:150px; letter-spacing:6px; text-transform:uppercase;
-    text-shadow: 0 0 60px rgba(240,202,144,0.5);
-    opacity:0; transform:scale(0.85); animation: popIn 0.6s cubic-bezier(.2,.9,.3,1.3) forwards 0.2s; }
-
-  .winner{ position:absolute; top:340px; left:0; width:1920px; text-align:center;
-    color:#fff; font-weight:800; font-size:56px; letter-spacing:2px; text-transform:uppercase;
-    opacity:0; animation: fadeIn 0.5s ease forwards 0.5s; }
-
-  .subline{ position:absolute; top:414px; left:0; width:1920px; text-align:center;
-    color:var(--dim); font-weight:700; font-size:16px; letter-spacing:2px; text-transform:uppercase;
-    opacity:0; animation: fadeIn 0.5s ease forwards 0.6s; }
-
-  .stat-strip{ position:absolute; top:472px; left:50%; transform:translateX(-50%); display:flex; gap:14px;
-    opacity:0; animation: fadeIn 0.5s ease forwards 0.7s; }
-  .stat-chip{ background:rgba(24,20,48,0.72); border:1px solid var(--line); border-radius:10px;
-    padding:10px 22px; text-align:center; min-width:140px; }
-  .stat-chip .val{ color:var(--gold); font-weight:900; font-size:26px; }
-  .stat-chip .lbl{ color:var(--dim); font-weight:700; font-size:11px; letter-spacing:1.5px; text-transform:uppercase; margin-top:2px; }
-
-  .roster{ position:absolute; top:600px; left:50%; transform:translateX(-50%); display:flex; gap:18px; }
-  .player-card{ width:210px; background:rgba(24,20,48,0.72); border:1px solid var(--line); border-radius:12px;
-    padding:18px 14px; text-align:center; opacity:0; transform:translateY(14px);
-    animation: cardIn 0.4s ease forwards; }
-  .player-card:nth-child(1){ animation-delay:0.8s; }
-  .player-card:nth-child(2){ animation-delay:0.88s; }
-  .player-card:nth-child(3){ animation-delay:0.96s; }
-  .player-card:nth-child(4){ animation-delay:1.04s; }
-  .player-card .p-name{ color:#fff; font-weight:800; font-size:16px; text-transform:uppercase;
-    overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
-  .player-card .p-kills{ color:var(--gold); font-weight:900; font-size:22px; margin-top:8px; }
-  .player-card .p-kills-lbl{ color:var(--dim); font-weight:700; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; }
-
-  @keyframes fadeIn{ to{ opacity:1; } }
-  @keyframes popIn{ to{ opacity:1; transform:scale(1); } }
-  @keyframes cardIn{ to{ opacity:1; transform:translateY(0); } }
+  .stat{
+    position:absolute;
+    display:flex; align-items:center; justify-content:center;
+    color:#ffc400; font-weight:800; font-size:46px; line-height:1;
+    font-variant-numeric:tabular-nums;
+  }
+  .pct{
+    position:absolute;
+    display:flex; align-items:center; justify-content:flex-end;
+    color:#ffc400; font-weight:800; font-size:27px;
+    font-variant-numeric:tabular-nums;
+  }
 </style>
 </head>
 <body>
+
 <div id="stage">
-  <div class="glow"></div>
-  <div class="brand-tag">TITANIUM AERO — FREE FIRE MAX</div>
-  <div class="booyah">BOOYAH!!</div>
-  <div class="winner" id="ff_winnerName">TEAM NAME</div>
-  <div class="subline" id="ff_subline"></div>
-  <div class="stat-strip">
-    <div class="stat-chip"><div class="val" id="ff_totalKills">0</div><div class="lbl">Kills</div></div>
-    <div class="stat-chip"><div class="val" id="ff_totalPts">0</div><div class="lbl">Points</div></div>
-  </div>
-  <div class="roster" id="ff_roster"></div>
+  <img class="bg" id="bg" alt="">
 </div>
 
 <script>
@@ -109,56 +113,147 @@ const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
 const WS_URL = _relay
   ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_booyah"
   : "ws://localhost:8765?page=freefire_booyah";
-let ws;
 
+/* All in the artwork's own 1672x941 pixels -- see the note above. */
+const CARD_X = [134, 867];
+const CARD_Y = [227, 504];
+const P = {                     // relative to a card's top-left corner
+  portrait: { x: 10,  y: 15,  w: 190, h: 220 },
+  name:     { x: 208, y: 13,  w: 458, h: 54  },
+  elims:    { cx: 316, y: 118, w: 190, h: 56  },
+  knocks:   { cx: 528, y: 118, w: 190, h: 56  },
+  pct:      { x: 400, y: 190, w: 256, h: 32  },
+};
+
+const stage = document.getElementById("stage");
+for(let i = 0; i < 4; i++){
+  const col = i % 2, row = (i / 2) | 0;
+  const card = document.createElement("div");
+  card.className = "card";
+  card.style.left = CARD_X[col] + "px";
+  card.style.top = CARD_Y[row] + "px";
+  card.style.width = "669px";
+  card.style.height = "247px";
+  card.innerHTML =
+    '<div class="portrait empty" id="bs-' + i + '-portrait" style="' +
+      'left:' + P.portrait.x + 'px;top:' + P.portrait.y + 'px;' +
+      'width:' + P.portrait.w + 'px;height:' + P.portrait.h + 'px">' +
+      '<img id="bs-' + i + '-img" alt="">' +
+    '</div>' +
+    '<div class="pname" id="bs-' + i + '-name" style="' +
+      'left:' + P.name.x + 'px;top:' + P.name.y + 'px;' +
+      'width:' + P.name.w + 'px;height:' + P.name.h + 'px"></div>' +
+    '<div class="stat" id="bs-' + i + '-elims" style="' +
+      'left:' + (P.elims.cx - P.elims.w / 2) + 'px;top:' + P.elims.y + 'px;' +
+      'width:' + P.elims.w + 'px;height:' + P.elims.h + 'px"></div>' +
+    '<div class="stat" id="bs-' + i + '-knocks" style="' +
+      'left:' + (P.knocks.cx - P.knocks.w / 2) + 'px;top:' + P.knocks.y + 'px;' +
+      'width:' + P.knocks.w + 'px;height:' + P.knocks.h + 'px"></div>' +
+    '<div class="pct" id="bs-' + i + '-pct" style="' +
+      'left:' + P.pct.x + 'px;top:' + P.pct.y + 'px;' +
+      'width:' + P.pct.w + 'px;height:' + P.pct.h + 'px"></div>';
+  stage.appendChild(card);
+}
+
+function set(i, field, value){
+  const el = document.getElementById("bs-" + i + "-" + field);
+  if(el) el.textContent = value;
+}
+
+/* The captured character for this player in THIS game. The Num5 capture
+   stores the matched library entry's id, which is the filename of the
+   reference art it matched, so the portrait is the game's own asset
+   rather than a re-photographed screen crop. */
+function characterImage(rosterPlayer, gameNumber){
+  const loadouts = (rosterPlayer && rosterPlayer.loadouts) || {};
+  const entry = loadouts[String(gameNumber)] || loadouts[gameNumber];
+  const slot = entry && entry.slots && entry.slots.active;
+  if(!slot || !slot.label) return "";
+  return "assets/FFM/" + slot.label + ".png";
+}
+
+function rosterPlayerFor(ff, teamName, uid, ign){
+  const teams = ((ff.roster && ff.roster.teams) || []);
+  const team = teams.find(t => (t.name || "").trim().toUpperCase() ===
+    (teamName || "").trim().toUpperCase());
+  if(!team) return null;
+  const players = team.players || [];
+  return players.find(p => String(p.uid || "") === String(uid || "")) ||
+         players.find(p => (p.ign || "").trim().toUpperCase() ===
+           (ign || "").trim().toUpperCase()) || null;
+}
+
+let lastKey = "";
+
+function applyFreefire(ff){
+  const folder = (ff.event && ff.event.assetFolder) || "CLT";
+  const matches = ff.matches || [];
+  const latest = matches.length ? matches[matches.length - 1] : null;
+  const winner = latest && (latest.teams || [])
+    .slice().sort((a, b) => (a.rank || 99) - (b.rank || 99))[0];
+
+  const visible = !!(ff.display && ff.display.booyahStatsVisible) && !!winner;
+  document.getElementById("stage").classList.toggle("visible", visible);
+  if(!visible) return;
+
+  const players = (winner.players || []).slice(0, 4);
+  const gameNumber = matches.length;
+
+  // Weighted so a knockdown counts for less than a finish -- see the note
+  // at the top for where 7 and 3 come from.
+  const weight = p => 7 * (p.kills || 0) + 3 * (p.knocks || 0);
+  const total = players.reduce((sum, p) => sum + weight(p), 0);
+
+  const key = folder + "|" + JSON.stringify(players.map(p =>
+    [p.name, p.uid, p.kills, p.knocks]));
+  if(key === lastKey) return;
+  lastKey = key;
+
+  document.getElementById("bg").src =
+    "assets/freefire/" + folder + "/BOOYAH TEAM STATS.png";
+
+  for(let i = 0; i < 4; i++){
+    const p = players[i];
+    const portrait = document.getElementById("bs-" + i + "-portrait");
+    if(!p){
+      ["name", "elims", "knocks", "pct"].forEach(f => set(i, f, ""));
+      portrait.classList.add("empty");
+      continue;
+    }
+    set(i, "name", p.name || "");
+    set(i, "elims", p.kills == null ? 0 : p.kills);
+    // Blank, not zero, when knockdowns were never captured for this match
+    // -- a squad really can knock nobody, but "0" everywhere is far more
+    // likely to mean the engine wasn't reading the log that game, and a
+    // confident zero on air is worse than an empty box.
+    set(i, "knocks", p.knocks == null ? "" : p.knocks);
+    set(i, "pct", total ? (weight(p) / total * 100).toFixed(2) + "%" : "");
+
+    const src = characterImage(
+      rosterPlayerFor(ff, winner.teamName, p.uid, p.name), gameNumber);
+    const img = document.getElementById("bs-" + i + "-img");
+    if(src){
+      if(img.getAttribute("src") !== src) img.src = src;
+      portrait.classList.remove("empty");
+    } else {
+      portrait.classList.add("empty");
+    }
+  }
+}
+
+let ws;
 function connect(){
   ws = new WebSocket(WS_URL);
   ws.onmessage = (evt) => {
     const msg = JSON.parse(evt.data);
-    if(msg.type === "state_sync" && msg.data.freefire) applyFreefire(msg.data.freefire);
+    // The Free Fire engine's state_sync carries its state flat, not under
+    // a "freefire" key. The previous version of this page looked for that
+    // key and so never rendered anything.
+    if(msg.type === "state_sync") applyFreefire(msg.data);
   };
   ws.onclose = () => setTimeout(connect, 2000);
   ws.onerror = () => ws.close();
 }
-
-let lastMatchId = null;
-
-function applyFreefire(ff){
-  const latest = ff.matches && ff.matches.length ? ff.matches[ff.matches.length - 1] : null;
-  const stage = document.getElementById("stage");
-  if(!latest){
-    stage.classList.remove("show");
-    lastMatchId = null;
-    return;
-  }
-  const winner = (latest.teams || []).find(t => t.rank === 1) || latest.teams[0];
-  if(!winner){
-    stage.classList.remove("show");
-    return;
-  }
-  if(latest.matchId === lastMatchId) return; // already showing this match -- don't replay the entrance animation
-  lastMatchId = latest.matchId;
-
-  document.getElementById("ff_winnerName").textContent = winner.teamName;
-  document.getElementById("ff_subline").textContent = latest.context || "";
-  document.getElementById("ff_totalKills").textContent = winner.killScore;
-  document.getElementById("ff_totalPts").textContent = winner.totalScore;
-  document.getElementById("ff_roster").innerHTML = (winner.players || []).map(p => `
-    <div class="player-card">
-      <div class="p-name">${escapeHtml(p.name)}</div>
-      <div class="p-kills">${p.kills}</div>
-      <div class="p-kills-lbl">Kills</div>
-    </div>`).join("");
-
-  stage.classList.remove("show");
-  void stage.offsetWidth;
-  stage.classList.add("show");
-}
-
-function escapeHtml(str){
-  return String(str == null ? "" : str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
 connect();
 </script>
 </body>

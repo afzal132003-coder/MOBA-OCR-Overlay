@@ -73,6 +73,16 @@
     font-variant-numeric:tabular-nums; letter-spacing:.3px;
     text-shadow:none;
   }
+  /* Sits in the gap the artwork leaves after "GRAND FINALS -", so the
+     table says which game the standings run to. Measured: that subtitle
+     occupies y 242..276 and ends at x 955. Italic and gold to match the
+     word it continues. */
+  #pt-after{
+    position:absolute; left:985px; top:242px; height:34px;
+    display:flex; align-items:center;
+    color:#ffc400; font-weight:800; font-style:italic; font-size:29px;
+    letter-spacing:.5px; white-space:nowrap;
+  }
   #pt-stage .cell.name{
     justify-content:flex-start; display:flex;
     font-size:23px; text-transform:uppercase; line-height:1.05;
@@ -88,6 +98,7 @@
 
 <div class="stage" id="pt-stage">
   <img class="bg" id="pt-bg" alt="">
+  <div id="pt-after"></div>
 </div>
 
 <script>
@@ -214,9 +225,18 @@ function applyScoreboard(ff){
 
 function applyPointsTable(ff){
   const folder = (ff.event && ff.event.assetFolder) || "CLT";
-  const src = "assets/freefire/" + folder + "/POINTS TABLE.png";
+  const src = "assets/freefire/" + folder + "/overall standings.png";
   const bg = document.getElementById("pt-bg");
   if(bg.getAttribute("src") !== src) bg.src = src;
+
+  // How many games these standings cover. Taken from the committed
+  // matches rather than the event's "current game", which is the game
+  // being captured -- during game 4 the table on screen still only
+  // contains the three that have been committed, and saying otherwise
+  // would misdate it on air.
+  const played = (ff.matches || []).length;
+  document.getElementById("pt-after").textContent =
+    played ? "AFTER GAME " + played : "";
 
   const standings = ff.standings || [];
   for(let i = 0; i < PT_PER_BLOCK * PT_BLOCKS.length; i++){

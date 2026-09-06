@@ -226,7 +226,10 @@ def default_state():
                     "scoreboardVisible": True,
                     # The live 12-team side table overlay. Off by default:
                     # it belongs on air during a match, not between them.
-                    "aliveStatusVisible": False},
+                    "aliveStatusVisible": False,
+                    # The Booyah team stats card. Its own source, so it does
+                    # not contend with the scoreboard/points table pair.
+                    "booyahStatsVisible": False},
         # Pre-match roster, uploaded once per event as a CSV (team, ign,
         # uid per row). Each player's "loadout" is manual-entry text
         # fields (active/passive x3/pet/equipment); "loadoutScreenshot" is
@@ -570,6 +573,7 @@ def blank_live_match():
         "gsIgns": {},      # gsTeam -> {pid: ign}
         "gsDown": {},      # gsTeam -> {pid} currently dead and not revived
         "gsKills": {},     # gsTeam -> kills credited to that squad
+        "playerKnocks": {},# runtime player id -> knockdowns credited
         "wiped": [],       # gsTeam, in the order the client wiped them
     }
 
@@ -714,7 +718,16 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
         if end:
             live["matchId"] = end.group("match_id")
             live["ended"] = True
-            signal({"type": "match_end", "matchId": end.group("match_id")})
+            # Resolved to UIDs here, while the id map still belongs to the
+            # match that just finished -- runtime ids are reused by the
+            # next one.
+            by_uid = {}
+            for pid, count in live["playerKnocks"].items():
+                uid = (id_map.get(pid) or {}).get("uid")
+                if uid:
+                    by_uid[str(uid)] = count
+            signal({"type": "match_end", "matchId": end.group("match_id"),
+                    "knocks": by_uid})
             continue
 
         hs = DEBUGGER_HEADSHOT_REGEX.search(line)
@@ -744,6 +757,11 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
         if kill:
             team = gs_team_of(killer_id)
             live["gsKills"][team] = live["gsKills"].get(team, 0) + 1
+        else:
+            # Knockdowns are the only per-player stat the result file does
+            # not carry, so they are counted here and travel with the match
+            # end for the Booyah card.
+            live["playerKnocks"][killer_id] = live["playerKnocks"].get(killer_id, 0) + 1
         killer = id_map.get(killer_id, {})
         victim = id_map.get(victim_id, {})
         ts = DEBUGGER_TS_REGEX.match(line.strip())
@@ -1791,7 +1809,7 @@ def find_freefire_match_file(folder, match_id):
     return (None, None)
 
 
-def build_match_result_payload(folder, match_id=None):
+def build_match_result_payload(folder, match_id=None, knocks=None):
     """Reads and resolves a match result into the dashboard's review payload.
 
     Shared by the operator's Fetch button and the automatic fetch that runs
@@ -1813,6 +1831,10 @@ def build_match_result_payload(folder, match_id=None):
     teams = apply_roster_overrides(teams, server_state.get("roster", {}))
     policy = server_state.get("settings", {}).get("unmatchedPolicy", "flag")
     teams = apply_unmatched_policy(teams, policy)
+    if knocks:
+        for team in teams:
+            for player in team.get("players", []) or []:
+                player["knocks"] = knocks.get(str(player.get("uid") or ""), 0)
     return {
         "type": "freefire_match_result",
         "matchId": name_match.group("match_id"),
@@ -2276,6 +2298,11 @@ async def handle_client(websocket, path=None):
                     save_state()
                     await broadcast({"type": "state_sync", "data": server_state,
                                      "locked": list(locked_fields)})
+            elif payload.get("type") in ("booyah_stats_show", "booyah_stats_hide"):
+                server_state["display"]["booyahStatsVisible"] = (
+                    payload["type"] == "booyah_stats_show")
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") in ("alive_status_show", "alive_status_hide"):
                 server_state["display"]["aliveStatusVisible"] = (
                     payload["type"] == "alive_status_show")
@@ -2358,6 +2385,11 @@ async def handle_client(websocket, path=None):
 # retries for a few polls rather than giving up on the first miss.
 _pending_match_fetch = None
 _pending_match_tries = 0
+# Knockdowns for the match now waiting to be fetched. Snapshotted at the
+# match-end line rather than read later: the live state rolls over to the
+# next match as soon as its first line arrives, and the fetch may still be
+# retrying by then.
+_pending_match_knocks = {}
 MAX_AUTO_FETCH_TRIES = 15
 
 
@@ -2367,7 +2399,7 @@ async def handle_live_signals(signals, gs_names):
     Both behaviours here are opt-out via settings, because they put things
     on air by themselves: an operator who wants to call the elimination
     graphic manually should not have the engine doing it underneath them."""
-    global _pending_match_fetch, _pending_match_tries
+    global _pending_match_fetch, _pending_match_tries, _pending_match_knocks
     settings = server_state.get("settings", {})
     changed = False
 
@@ -2396,12 +2428,14 @@ async def handle_live_signals(signals, gs_names):
 
         elif signal["type"] == "match_end":
             _pending_match_fetch = signal["matchId"]
+            _pending_match_knocks = signal.get("knocks") or {}
             _pending_match_tries = 0
             print(f"[live] match {signal['matchId']} ended")
 
     if _pending_match_fetch and settings.get("autoFetchOnMatchEnd", True):
         folder = settings.get("matchResultFolder", "")
-        payload = build_match_result_payload(folder, _pending_match_fetch)
+        payload = build_match_result_payload(folder, _pending_match_fetch,
+                                             _pending_match_knocks)
         _pending_match_tries += 1
         if payload.get("teams"):
             payload["auto"] = True

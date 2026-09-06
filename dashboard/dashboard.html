@@ -1835,6 +1835,17 @@
         <button class="secondary" id="ff_aliveStatusHide">Pull Alive Status Down</button>
       </div>
       <div class="hint" id="ff_aliveStatusStatus" style="margin-top:6px;"></div>
+
+      <h3 style="margin-top:18px;">Booyah Team Stats</h3>
+      <p class="hint">Its own browser source (overlay/freefire_booyah.html) — the winning squad of the last
+        committed match, four cards with eliminations, knockdowns and contribution. Knockdowns come from the game
+        log during that match; the character portraits come from the Num5 loadout capture, so a player who wasn't
+        captured shows an empty frame rather than someone else's character.</p>
+      <div class="row" style="gap:8px;">
+        <button id="ff_booyahStatsShow">Push Booyah Stats Up</button>
+        <button class="secondary" id="ff_booyahStatsHide">Pull Booyah Stats Down</button>
+      </div>
+      <div class="hint" id="ff_booyahStatsStatus" style="margin-top:6px;"></div>
     </div>
   </div>
 
@@ -5594,6 +5605,22 @@ function ffSetAliveStatus(visible){
 }
 document.getElementById("ff_aliveStatusShow").addEventListener("click", () => ffSetAliveStatus(true));
 document.getElementById("ff_aliveStatusHide").addEventListener("click", () => ffSetAliveStatus(false));
+
+function ffSetBooyahStats(visible){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffWs.send(JSON.stringify({ type: visible ? "booyah_stats_show" : "booyah_stats_hide" }));
+  const matches = ((ffState && ffState.matches) || []);
+  const last = matches.length ? matches[matches.length - 1] : null;
+  const winner = last && (last.teams || []).slice()
+    .sort((a, b) => (a.rank || 99) - (b.rank || 99))[0];
+  document.getElementById("ff_booyahStatsStatus").textContent = visible
+    ? (winner
+        ? `Booyah stats pushed up — ${winner.teamName}, game ${matches.length}.`
+        : "Booyah stats pushed up, but no match has been committed yet — nothing to show until one is.")
+    : "Booyah stats pulled down.";
+}
+document.getElementById("ff_booyahStatsShow").addEventListener("click", () => ffSetBooyahStats(true));
+document.getElementById("ff_booyahStatsHide").addEventListener("click", () => ffSetBooyahStats(false));
 
 buildStatGrid();
 buildPlayerStatRows();
