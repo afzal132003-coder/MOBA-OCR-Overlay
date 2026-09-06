@@ -84,7 +84,13 @@ async def broadcast_presence():
         return
     raw = json.dumps({"type": "presence", "pages": presence_counts()})
     stale = []
-    for peer in connected:
+    # Iterate a SNAPSHOT, not the live dict. `await peer.send()` yields, and
+    # any client connecting or disconnecting during that yield mutates
+    # `connected` -- iterating it directly then raises "dictionary changed
+    # size during iteration", which kills the handler and drops that client
+    # with a 1011 internal error. It's load-dependent, so it looked fine
+    # with three clients and started biting at eleven.
+    for peer in list(connected):
         try:
             await peer.send(raw)
         except websockets.exceptions.ConnectionClosed:
@@ -153,7 +159,10 @@ async def handler(websocket):
                 last_state_sync = raw
 
             stale = []
-            for peer in connected:
+            # Snapshot for the same reason as broadcast_presence above --
+            # a peer joining or leaving mid-fanout must not blow up the
+            # send loop and disconnect whoever was being broadcast to.
+            for peer in list(connected):
                 if peer is websocket:
                     continue
                 if target_pages is not None and connected_pages.get(peer) not in target_pages:

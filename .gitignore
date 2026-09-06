@@ -12,3 +12,10 @@ ocr/*/moba_state.json
 
 # Loadout crops captured during a match -- large, regenerated per event.
 ocr/freefire/captures/
+
+# Design sources (PSD) and the vMix template package. Kept on disk but out
+# of git: they're ~29MB of files nothing loads at runtime, and this repo
+# auto-deploys, so every push would ship them. The exported PNGs the
+# overlays actually reference ARE committed.
+*.psd
+*.gtzip
