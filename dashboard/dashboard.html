@@ -1541,12 +1541,12 @@
       <h3 style="margin-top:16px;">Read from the game instead</h3>
       <p class="hint">Two ways to fill the boxes below without typing. <strong>From a result file</strong> is the
         reliable one — it carries exact team names, IGNs <em>and</em> UIDs — but a result file only exists once a
-        game has been played. Before that, <strong>capture the lobby</strong>: it reads the four squads currently on
-        screen, so scroll and capture again for the next four. UIDs aren't shown in the lobby's default view — flip
+        game has been played. Before that, <strong>capture the lobby</strong>: it reads the two fully-visible squads
+        currently on screen, so scroll and capture again for the next two. UIDs aren't shown in the lobby's default view — flip
         the game's own UID toggle and capture again to pair them on.</p>
       <div class="row" style="gap:8px;">
         <button class="secondary" id="ff_rosterFromResult">Fill From Latest Result File</button>
-        <button class="secondary" id="ff_lobbyCapture">Capture Lobby (4 on screen)</button>
+        <button class="secondary" id="ff_lobbyCapture">Capture Lobby (2 on screen)</button>
         <button class="secondary" id="ff_lobbyCaptureUid">Capture Lobby — UID pass</button>
       </div>
       <div id="ff_lobbyStatus" class="hint" style="margin-top:6px;"></div>
@@ -1618,8 +1618,8 @@
 
     <div class="card">
       <h2>Loadout Capture (Num5)</h2>
-      <p class="hint">Calibrate the seven loadout boxes first: <code>cd ocr/freefire &amp;&amp; python calibrate.py</code>
-        (or pass single keys like <code>freefire_loadout_active</code>). While armed, pressing Num5 anywhere — even
+      <p class="hint">Calibrate the eight loadout boxes first by running <code>calibrate_freefire_loadout.bat</code>
+        (or <code>python calibrate.py freefire_loadout_active</code> for a single box). While armed, pressing Num5 anywhere — even
         with the game focused, which needs the engine running as Administrator on Windows — captures the next
         player below, identifies each slot against the reference images in <code>overlay/assets/FFM</code>, and
         advances. Import the roster on the Pre-Match tab first, and set <strong>Current Game</strong> there so
@@ -4664,7 +4664,7 @@ function ffHandleLobbyCapture(msg){
   status.textContent =
     `${msg.uidPass ? "UID pass" : "Name pass"}: read ${blocks.length} squad(s), merged ${merged}.` +
     (full ? ` ${full} couldn't fit — all 12 slots are already filled.` : "") +
-    " Scroll the lobby and capture again for the next four. Review, then Save Roster.";
+    " Scroll the lobby and capture again for the next two. Review, then Save Roster.";
 }
 
 document.getElementById("ff_lobbyCapture").addEventListener("click", () => {

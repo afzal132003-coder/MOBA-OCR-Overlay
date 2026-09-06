@@ -518,17 +518,19 @@ def read_debugger_events(log_path, offset, id_map):
 # the result files that otherwise supply team names, IGNs and UIDs are
 # written after a match, so on day one there's nothing else to read.
 #
-# Only four squads are on screen at a time out of twelve, so this reads the
-# four visible blocks and the operator scrolls and captures again. Results
-# accumulate by team name rather than by position, since position means
-# nothing once the list has scrolled.
+# Reads the two fully-visible squad cards per capture and the operator
+# scrolls and captures again. Two rather than four: the lobby shows four
+# cards, but the lower pair sits behind the SPECTATOR LIST bar and is
+# routinely clipped, so a clipped card would contribute a half-read team
+# name and missing players. Results accumulate by team name rather than by
+# position, since position means nothing once the list has scrolled.
 #
 # UIDs aren't shown in the default view at all -- the lobby has its own
 # UID toggle that swaps the names for IDs. That makes a UID pass a separate
 # capture the operator opts into, pairing by row order within a block.
 # ---------------------------------------------------------------------------
 
-LOBBY_BLOCK_KEYS = [f"freefire_lobby_block{i}" for i in range(1, 5)]
+LOBBY_BLOCK_KEYS = [f"freefire_lobby_block{i}" for i in range(1, 3)]
 # Trailing rank/level tags ("MAX", "Lv.60") and the per-team score readout
 # sit on the same lines as the names and would otherwise be captured as
 # part of them.

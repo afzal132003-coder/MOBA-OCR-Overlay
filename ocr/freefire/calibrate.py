@@ -5,9 +5,9 @@ Lives in ocr/freefire/ alongside freefire_engine.py and freefire_config.json
 -- a different game from the MOBA calibration scripts (ocr/moba/) and
 Valorant's (ocr/valorant/), each grouped in their own folder with their
 own engine + config + state so they don't get tangled together. Takes one
-screenshot of your chosen monitor, then lets you drag a box around the
-killfeed and the 12-team side table. Saves pixel coordinates into
-freefire_config.json for freefire_engine.py to use.
+screenshot of your chosen monitor, then lets you drag a box around each
+region in turn. Saves pixel coordinates into freefire_config.json for
+freefire_engine.py to use.
 
 Run again any time your game window moves or resizes.
 
@@ -19,8 +19,8 @@ sitting on the wrong screen for most of it. Pass a category name to do just
 that group (each also has its own .bat next to this file):
 
     python calibrate.py ff-live         # killfeed + side table
-    python calibrate.py ff-loadout      # the 7 loadout slots
-    python calibrate.py ff-lobby        # pre-match lobby team/IGN blocks
+    python calibrate.py ff-loadout      # the 8 loadout boxes
+    python calibrate.py ff-lobby        # the 2 pre-match lobby squad cards
 
 A single region key still works for a one-box touch-up, and category names
 and keys can be mixed in one run:
@@ -41,12 +41,16 @@ CONFIG_PATH = Path(__file__).parent / "freefire_config.json"
 
 # Pre-match lobby: the roster can be read off the lobby screen before any
 # game has been played, which is the one moment the result files can't help
-# (they only exist afterwards). The lobby shows four squads at a time out
-# of twelve, so these are calibrated as the four visible BLOCKS and the
-# operator scrolls between captures -- calibrating twelve fixed team boxes
-# would be wrong, since which squads occupy those four slots changes as the
-# list scrolls.
-LOBBY_KEYS = [f"freefire_lobby_block{i}" for i in range(1, 5)]
+# (they only exist afterwards). Calibrated as the visible squad BLOCKS,
+# with the operator scrolling between captures -- twelve fixed team boxes
+# would be wrong, since which squads occupy those slots changes as the list
+# scrolls.
+#
+# TWO blocks, not four: the lobby shows four cards but the lower pair sits
+# behind the SPECTATOR LIST bar and is routinely clipped, so reading only
+# the fully-visible top pair and scrolling more often is the more reliable
+# trade.
+LOBBY_KEYS = [f"freefire_lobby_block{i}" for i in range(1, 3)]
 
 CATEGORIES = {
     "ff-live": [
@@ -73,14 +77,12 @@ REGION_ORDER = (
 CATEGORY_BLURB = {
     "ff-live": "LIVE IN-GAME boxes -- have a match actually running, with the killfeed and 12-team side table on screen.",
     "ff-loadout": "LOADOUT boxes -- have a player's loadout card on screen (the one Num5 captures).",
-    "ff-lobby": "PRE-MATCH LOBBY boxes -- have the lobby team list on screen, scrolled to the top.",
+    "ff-lobby": "PRE-MATCH LOBBY boxes (2 squad cards) -- have the lobby team list on screen, scrolled to the top.",
 }
 
 LABELS = {
-    "freefire_lobby_block1": "LOBBY BLOCK 1 (top-left squad card) - draw around ONE squad's whole block: its team name AND its player names underneath",
-    "freefire_lobby_block2": "LOBBY BLOCK 2 (top-right squad card) - same, the squad beside the first",
-    "freefire_lobby_block3": "LOBBY BLOCK 3 (bottom-left squad card)",
-    "freefire_lobby_block4": "LOBBY BLOCK 4 (bottom-right squad card)",
+    "freefire_lobby_block1": "LOBBY BLOCK 1 (top-LEFT squad card) - draw around ONE squad's whole block: its team name AND its player names underneath. Use a fully-visible card, not one clipped by the spectator bar",
+    "freefire_lobby_block2": "LOBBY BLOCK 2 (top-RIGHT squad card) - same, the squad beside the first",
     "freefire_killfeed": "KILLFEED / KNOCKOUT FEED (the scrolling elimination/knockdown log) - raw text only for now, draw around the whole feed area",
     "freefire_sidetable": "12-TEAM SIDE TABLE (alive status / kills per team) - raw text only for now, draw around the whole table",
     "freefire_loadout": "LOADOUT CARD, WHOLE (the full player HUD card) - kept as the overall visual record; the per-slot boxes below are what actually get identified",
