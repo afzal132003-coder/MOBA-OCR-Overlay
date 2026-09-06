@@ -1793,29 +1793,24 @@
     </div>
 
     <div class="card">
-      <h2>Quick Match Entry</h2>
-      <p class="hint">For when there's no result file to fetch, or you'd rather work from your own sheet. Set the
-        team order once below (drag the arrows to match your sheet's row order, or edit a name directly), then
-        copy two columns — <b>Place</b> and <b>Kills</b> — from your sheet and paste into the box underneath. A
-        header row in the pasted text is fine, it's ignored automatically. Rank points and totals are computed
-        with the same table the game itself uses (1st = 12, 2nd = 9, 3rd = 8 ... down to 0 for 11th/12th), so a
-        match entered here scores identically to one fetched from a file. It won't have per-player kills, knocks,
-        or characters, since there's no file to read those from — the Booyah card just skips them for that game.</p>
+      <h2>Export for Sheet</h2>
+      <p class="hint">For your own spreadsheet that feeds the vMix .gtz — a correction pass, not a replacement for
+        Fetch/Commit. Set the row order once below (drag the arrows to match your sheet's rows, or edit a name
+        directly), then Fetch or Commit a match as usual. This card reads whichever one is most current — the
+        reviewed-but-not-yet-committed match if there is one, otherwise the last committed one — and lays out
+        Place and Kills as plain text, one line per row, in the order above. Copy it and paste straight into your
+        sheet's two columns.</p>
       <datalist id="ff_qmeTeamList"></datalist>
       <div id="ff_qmeSlots"></div>
       <div class="row" style="gap:12px;margin-top:12px;align-items:flex-start;">
         <div class="team-form" style="flex:1;">
-          <label>Paste Place + Kills here (two columns from your sheet, one row per team, top to bottom)</label>
-          <textarea id="ff_qmePaste" rows="4" placeholder="Place	Kills
-1	20
-2	15
-3	12
-..." style="width:100%;font-family:monospace;font-size:12px;"></textarea>
+          <label id="ff_qmeSourceLabel">No match to export yet — fetch or commit one first.</label>
+          <textarea id="ff_qmeOutput" rows="12" readonly
+            style="width:100%;font-family:monospace;font-size:12px;background:#0a0d18;"></textarea>
         </div>
       </div>
       <div class="row" style="gap:8px;margin-top:8px;">
-        <button id="ff_qmeBuild">Build Review From This</button>
-        <button class="secondary" id="ff_qmeClear">Clear Place/Kills</button>
+        <button id="ff_qmeCopy">Copy to Clipboard</button>
       </div>
       <div class="hint" id="ff_qmeStatus" style="margin-top:6px;"></div>
     </div>
@@ -4742,6 +4737,7 @@ function ffConnect(){
       ffRenderLoadoutCapture(ffState);
       ffRenderEvent(ffState);
       ffQmeSeedFromRoster(ffState);
+      ffQmeUpdateExport();
       ffRenderMapping(ffState);
       ffRenderAssets(ffState);
       ffRenderFullsize(ffState);
@@ -5635,6 +5631,7 @@ function ffHandleMatchResult(msg){
     return;
   }
   ffPendingMatch = msg;
+  if(typeof ffQmeUpdateExport === "function") ffQmeUpdateExport();
   document.getElementById("ff_matchStatus").textContent =
     `Loaded ${msg.fileName} — ${msg.teams.length} teams, matchId ${msg.matchId}. Review below, then commit.`;
   document.getElementById("ff_reviewMatchId").textContent = `matchId ${msg.matchId} — ${msg.fileName}`;
@@ -5690,6 +5687,7 @@ document.getElementById("ff_commitMatch").addEventListener("click", () => {
   document.getElementById("ff_matchStatus").textContent = `Match ${ffPendingMatch.matchId} added to standings.`;
   document.getElementById("ff_reviewCard").style.display = "none";
   ffPendingMatch = null;
+  if(typeof ffQmeUpdateExport === "function") ffQmeUpdateExport();
 });
 
 let ffLastStandingsKey = "";
@@ -6233,20 +6231,20 @@ document.getElementById("ff_previewPull").addEventListener("click", () => {
   ffWs.send(JSON.stringify({ type: entry.hide }));
 });
 
-/* ---------- Quick Match Entry: paste Place+Kills from a sheet ----------
-   Builds a match in exactly the shape a fetched result would produce and
-   feeds it into the SAME review/commit flow (ffHandleMatchResult,
-   ffPendingMatch, the existing "Add This Match to Standings" button) --
-   no separate commit path to keep in sync with the real one.
+/* ---------- Export for Sheet: Place+Kills, ready to paste out ----------
+   The reverse of what was here before. Reads whichever match is most
+   current -- the one under review (ffPendingMatch) if there is one,
+   otherwise the last COMMITTED one -- and lays out Place and Kills as
+   plain tab-separated text, one line per configured row, so it can be
+   copied straight into an external sheet (the operator's own, which
+   feeds a vMix .gtz separately from this dashboard).
 
-   The placement -> points table below isn't a guess: it's the exact table
-   read out of ten real MatchResult files, all agreeing (1st=12 down to
-   1=for 10th, 0 for 11th/12th), and Total = Kills + that value held in
-   every one of them. */
-const FF_PLACEMENT_POINTS = {1:12, 2:9, 3:8, 4:7, 5:6, 6:5, 7:4, 8:3, 9:2, 10:1, 11:0, 12:0};
+   The row order below is just that: an ORDER. It exists so the output
+   lines land in the same sequence as the sheet's own rows, nothing more
+   -- unlike the tool this replaced, nothing here computes rank points or
+   builds a match to commit. */
 const FF_QME_SLOTS = 12;
 let ffQmeTeams = Array.from({length: FF_QME_SLOTS}, () => "");
-let ffQmeValues = Array.from({length: FF_QME_SLOTS}, () => ({place: "", kills: ""}));
 let ffQmeSeeded = false;
 
 function ffQmeRender(){
@@ -6256,42 +6254,25 @@ function ffQmeRender(){
         <button type="button" class="ff-qme-up" data-i="${i}" ${i === 0 ? "disabled" : ""}>▲</button>
         <button type="button" class="ff-qme-down" data-i="${i}" ${i === FF_QME_SLOTS - 1 ? "disabled" : ""}>▼</button>
       </div>
-      <div class="ff-qme-num">Slot ${i + 1}</div>
+      <div class="ff-qme-num">Row ${i + 1}</div>
       <input type="text" class="ff-qme-team" data-i="${i}" list="ff_qmeTeamList"
         placeholder="Team name" value="${ffEscapeHtml(name)}">
-      <input type="number" class="ff-qme-place" data-i="${i}" min="1" max="${FF_QME_SLOTS}"
-        placeholder="Place" value="${ffEscapeHtml(ffQmeValues[i].place)}">
-      <input type="number" class="ff-qme-kills" data-i="${i}" min="0"
-        placeholder="Kills" value="${ffEscapeHtml(ffQmeValues[i].kills)}">
-      <div class="ff-qme-derived" data-derived="${i}"></div>
     </div>`).join("");
-  ffQmeUpdateDerived();
-}
-
-function ffQmeUpdateDerived(){
-  ffQmeTeams.forEach((_, i) => {
-    const el = document.querySelector(`[data-derived="${i}"]`);
-    if(!el) return;
-    const place = parseInt(ffQmeValues[i].place, 10);
-    const kills = parseInt(ffQmeValues[i].kills, 10);
-    if(!place || isNaN(kills)){ el.textContent = ""; return; }
-    const rankPts = FF_PLACEMENT_POINTS[place];
-    if(rankPts == null){ el.textContent = "no placement for #" + place; return; }
-    el.textContent = rankPts + " rank pts → " + (kills + rankPts) + " total";
-  });
+  ffQmeUpdateExport();
 }
 
 // Seeded once from the roster, in roster order -- the operator can then
-// reorder or retype from there. Re-seeding on every state_sync would wipe
-// an in-progress edit, so it only fires the first time a roster shows up.
+// reorder or retype from there to match their sheet. Re-seeding on every
+// state_sync would wipe an in-progress reorder, so it only fires the
+// first time a roster shows up.
 function ffQmeSeedFromRoster(ff){
-  if(ffQmeSeeded) return;
   const teams = ((ff.roster && ff.roster.teams) || []).filter(t => t.name).map(t => t.name);
   if(!teams.length) return;
-  ffQmeSeeded = true;
-  ffQmeTeams = Array.from({length: FF_QME_SLOTS}, (_, i) => teams[i] || "");
   document.getElementById("ff_qmeTeamList").innerHTML =
     teams.map(n => '<option value="' + ffEscapeHtml(n) + '">').join("");
+  if(ffQmeSeeded) return;
+  ffQmeSeeded = true;
+  ffQmeTeams = Array.from({length: FF_QME_SLOTS}, (_, i) => teams[i] || "");
   ffQmeRender();
 }
 
@@ -6303,95 +6284,75 @@ document.addEventListener("click", (e) => {
   const j = up ? i - 1 : i + 1;
   if(j < 0 || j >= FF_QME_SLOTS) return;
   [ffQmeTeams[i], ffQmeTeams[j]] = [ffQmeTeams[j], ffQmeTeams[i]];
-  [ffQmeValues[i], ffQmeValues[j]] = [ffQmeValues[j], ffQmeValues[i]];
   ffQmeRender();
 });
 
 document.addEventListener("input", (e) => {
-  if(e.target.classList.contains("ff-qme-team")){
-    ffQmeTeams[Number(e.target.dataset.i)] = e.target.value;
-  } else if(e.target.classList.contains("ff-qme-place")){
-    ffQmeValues[Number(e.target.dataset.i)].place = e.target.value;
-    ffQmeUpdateDerived();
-  } else if(e.target.classList.contains("ff-qme-kills")){
-    ffQmeValues[Number(e.target.dataset.i)].kills = e.target.value;
-    ffQmeUpdateDerived();
-  }
+  if(!e.target.classList.contains("ff-qme-team")) return;
+  ffQmeTeams[Number(e.target.dataset.i)] = e.target.value;
+  ffQmeUpdateExport();
 });
 
-// Pulls Place/Kills pairs out of pasted spreadsheet text. Liberal on
-// purpose: a line contributes its first two numbers found anywhere in it,
-// so a header row ("Place\tKills"), a stray label column, or comma vs.
-// tab separated cells all just work rather than needing an exact format.
-function ffQmeParsePaste(text){
-  const rows = [];
-  text.split(/\r?\n/).forEach(line => {
-    const nums = line.match(/-?\d+/g);
-    if(nums && nums.length >= 2) rows.push([nums[0], nums[1]]);
-  });
-  return rows;
+// Which match to read from: the one currently under review wins, since
+// that's the freshest thing on screen and the whole point of this card is
+// catching a correction before commit; once committed, ffPendingMatch is
+// cleared (see the commit handler), so this falls back to the last
+// committed match automatically.
+function ffQmeSourceMatch(){
+  if(ffPendingMatch && ffPendingMatch.teams && ffPendingMatch.teams.length){
+    return { teams: ffPendingMatch.teams, label: "reviewed, not yet committed — " + (ffPendingMatch.fileName || ffPendingMatch.matchId) };
+  }
+  const matches = (ffState && ffState.matches) || [];
+  if(matches.length){
+    const last = matches[matches.length - 1];
+    if(last.teams && last.teams.length){
+      return { teams: last.teams, label: "last committed — game " + matches.length + ", matchId " + last.matchId };
+    }
+  }
+  return null;
 }
 
-document.getElementById("ff_qmePaste").addEventListener("paste", (e) => {
-  const text = (e.clipboardData || window.clipboardData).getData("text");
-  const rows = ffQmeParsePaste(text);
-  if(!rows.length) return;
-  e.preventDefault();
-  rows.slice(0, FF_QME_SLOTS).forEach((row, i) => {
-    ffQmeValues[i] = { place: row[0], kills: row[1] };
-  });
-  ffQmeRender();
-  document.getElementById("ff_qmeStatus").textContent =
-    `Filled ${Math.min(rows.length, FF_QME_SLOTS)} of ${FF_QME_SLOTS} slots from the pasted text.`;
-});
-
-document.getElementById("ff_qmeClear").addEventListener("click", () => {
-  ffQmeValues = Array.from({length: FF_QME_SLOTS}, () => ({place: "", kills: ""}));
-  document.getElementById("ff_qmePaste").value = "";
-  ffQmeRender();
-  document.getElementById("ff_qmeStatus").textContent = "";
-});
-
-document.getElementById("ff_qmeBuild").addEventListener("click", () => {
-  const statusEl = document.getElementById("ff_qmeStatus");
-  const rows = [];
-  for(let i = 0; i < FF_QME_SLOTS; i++){
-    const name = ffQmeTeams[i].trim();
-    const place = parseInt(ffQmeValues[i].place, 10);
-    const kills = parseInt(ffQmeValues[i].kills, 10);
-    if(!name && !ffQmeValues[i].place && !ffQmeValues[i].kills) continue; // skip a fully-blank slot
-    if(!name){ statusEl.textContent = `Slot ${i + 1} has a place/kills but no team name.`; return; }
-    if(!place || FF_PLACEMENT_POINTS[place] == null){
-      statusEl.textContent = `${name}: "${ffQmeValues[i].place}" isn't a valid placement (1-12).`;
-      return;
-    }
-    if(isNaN(kills) || kills < 0){
-      statusEl.textContent = `${name}: kills is missing or invalid.`;
-      return;
-    }
-    const rankScore = FF_PLACEMENT_POINTS[place];
-    rows.push({
-      teamName: name, fileTeamName: name, rank: place,
-      killScore: kills, rankScore, totalScore: kills + rankScore,
-      matched: true, shortName: "", logo: "", players: [],
-    });
-  }
-  if(!rows.length){ statusEl.textContent = "Nothing filled in yet."; return; }
-  const places = rows.map(r => r.rank);
-  if(new Set(places).size !== places.length){
-    statusEl.textContent = "Two teams have the same placement — check before building the review.";
+function ffQmeUpdateExport(){
+  const label = document.getElementById("ff_qmeSourceLabel");
+  const output = document.getElementById("ff_qmeOutput");
+  const source = ffQmeSourceMatch();
+  if(!source){
+    label.textContent = "No match to export yet — fetch or commit one first.";
+    output.value = "";
     return;
   }
-  rows.sort((a, b) => a.rank - b.rank);
+  label.textContent = "Exporting from: " + source.label;
 
-  const gameNumber = (ffState && ffState.event && ffState.event.currentGame) || 1;
-  ffHandleMatchResult({
-    matchId: "manual-" + Date.now(),
-    timestamp: new Date().toISOString(),
-    fileName: "(typed in manually — no result file)",
-    gameNumber, teams: rows, unmatchedTeams: [], error: null,
+  const byName = {};
+  source.teams.forEach(t => {
+    const key = (t.teamName || t.fileTeamName || "").trim().toUpperCase();
+    if(key) byName[key] = t;
   });
-  statusEl.textContent = `Built — review it below, then commit as usual.`;
+
+  const lines = ffQmeTeams.map(name => {
+    const t = name ? byName[name.trim().toUpperCase()] : null;
+    // A blank line for a row that didn't match, rather than skipping it
+    // outright -- skipping would shift every row below it out of
+    // alignment with the sheet, which is worse than one empty cell.
+    if(!t) return "";
+    return (t.rank != null ? t.rank : "") + "\t" + (t.killScore != null ? t.killScore : "");
+  });
+  output.value = lines.join("\n");
+}
+
+document.getElementById("ff_qmeCopy").addEventListener("click", async () => {
+  const statusEl = document.getElementById("ff_qmeStatus");
+  const output = document.getElementById("ff_qmeOutput");
+  output.select();
+  try {
+    await navigator.clipboard.writeText(output.value);
+    statusEl.textContent = "Copied — paste into your sheet.";
+  } catch (e) {
+    // Clipboard API can be blocked outside a secure context; the text is
+    // already selected above, so Ctrl+C still works as a fallback.
+    statusEl.textContent = "Couldn't use the clipboard automatically — the text is selected, press Ctrl+C.";
+  }
+  setTimeout(() => { statusEl.textContent = ""; }, 4000);
 });
 
 /* ---------- Free Fire logo placement (Graphic Fixing, FF's own copy) ----------
