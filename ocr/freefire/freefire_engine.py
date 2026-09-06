@@ -575,7 +575,7 @@ def find_latest_debugger_log(folder):
     return max(logs, key=lambda f: f.stat().st_mtime) if logs else None
 
 
-def read_debugger_events(log_path, offset, id_map, live=None):
+def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
     """Reads new lines since `offset`, updating id_map and `live` in place.
 
     Returns (events, new_offset, signals). A partial trailing line is left
@@ -585,11 +585,22 @@ def read_debugger_events(log_path, offset, id_map, live=None):
     `signals` are the things that need to happen OUTSIDE this function --
     a squad wipe to put on air, a match that just ended. They're returned
     rather than acted on because this runs on a worker thread, where
-    touching server_state or broadcasting would be a data race."""
+    touching server_state or broadcasting would be a data race.
+
+    emit=False still parses everything and builds the same state, but
+    returns no signals. That is how the first pass over an already-written
+    log is done: restarting the engine mid-event otherwise re-reads the
+    whole session from the top and replays every elimination in it, which
+    now means firing all of them onto the broadcast. History has to be
+    caught up on silently; only what happens after that goes on air."""
     events = []
     signals = []
     if live is None:
         live = blank_live_match()
+
+    def signal(payload):
+        if emit:
+            signals.append(payload)
 
     def roll_over_if_finished():
         """Starts a fresh match the first time the next one speaks.
@@ -604,7 +615,7 @@ def read_debugger_events(log_path, offset, id_map, live=None):
         if live["ended"]:
             live.clear()
             live.update(blank_live_match())
-            signals.append({"type": "match_start"})
+            signal({"type": "match_start"})
     try:
         size = log_path.stat().st_size
         # A smaller file than last time means the client rolled over to a
@@ -616,13 +627,13 @@ def read_debugger_events(log_path, offset, id_map, live=None):
             chunk = f.read()
             new_offset = f.tell()
     except OSError:
-        return [], offset
+        return [], offset, signals
 
     if "\n" in chunk:
         complete, _, remainder = chunk.rpartition("\n")
         new_offset -= len(remainder.encode("utf-8", errors="replace"))
     else:
-        return [], offset
+        return [], offset, signals
 
     headshots = {}
     for line in complete.splitlines():
@@ -662,7 +673,7 @@ def read_debugger_events(log_path, offset, id_map, live=None):
             if gs_team not in live["wiped"]:
                 live["wiped"].append(gs_team)
                 ts = DEBUGGER_TS_REGEX.match(line.strip())
-                signals.append({
+                signal({
                     "type": "team_wiped", "gsTeam": gs_team,
                     "order": len(live["wiped"]),
                     "total": len(live["teamNames"]) or 12,
@@ -692,7 +703,7 @@ def read_debugger_events(log_path, offset, id_map, live=None):
         if end:
             live["matchId"] = end.group("match_id")
             live["ended"] = True
-            signals.append({"type": "match_end", "matchId": end.group("match_id")})
+            signal({"type": "match_end", "matchId": end.group("match_id")})
             continue
 
         hs = DEBUGGER_HEADSHOT_REGEX.search(line)
@@ -2327,20 +2338,36 @@ async def ocr_loop():
                     Path(debugger_folder) / "Debugger"
                 ) or find_latest_debugger_log(debugger_folder)
                 if candidate is not None:
+                    catching_up = False
                     if candidate != _debugger_path:
-                        # New log file -- a fresh session. Start from the top
-                        # so the join lines that build the id mapping are
-                        # picked up; without them every later kill line
-                        # resolves to blank names.
+                        # New log file. Start from the top so the join lines
+                        # that build the id mapping are picked up; without
+                        # them every later kill line resolves to blank names.
+                        #
+                        # But everything already in the file has ALREADY
+                        # happened. On a restart mid-event that is the whole
+                        # session -- seven matches, seventy-seven squad
+                        # eliminations -- and with the graphic firing
+                        # automatically that would put every one of them on
+                        # air in a burst. So the catch-up pass is silent:
+                        # same parsing, same state, no signals.
                         _debugger_path = candidate
                         _debugger_offset = 0
                         _debugger_id_map = {}
                         _live_match.clear()
                         _live_match.update(blank_live_match())
+                        catching_up = True
                     new_events, _debugger_offset, signals = await loop.run_in_executor(
                         ocr_executor, read_debugger_events,
                         candidate, _debugger_offset, _debugger_id_map, _live_match,
+                        not catching_up,
                     )
+                    if catching_up:
+                        # The feed is history too -- it would flood the
+                        # dashboard with a session's worth of old kills.
+                        new_events = []
+                        print(f"[live] caught up on {candidate.name} "
+                              f"({_debugger_offset:,} bytes) -- watching from here")
                     if new_events:
                         feed = server_state["liveOps"].get("killEvents") or []
                         feed = (feed + new_events)[-MAX_KILL_EVENTS:]
