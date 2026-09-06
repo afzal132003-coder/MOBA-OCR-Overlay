@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Free Fire Alive Status</title>
+<style>
+  /* The 12-team live side table.
+     ---------------------------------------------------------------
+     Every number on this graphic comes from the game client's own
+     debugger log, not from OCR of the in-game table: team names from
+     OnTeamScoreInited, the running kill count from OnTeamScoreChanged,
+     deaths and revives from the kill/revive lines, and squad wipes from
+     PCInGameFlagManager -- which lands in the same millisecond as the
+     squad's last death. See freefire_engine.py's link_live_teams().
+
+     Geometry is measured from the artwork (assets/freefire/<event>/
+     ALIVE STATUS.png), not eyeballed. At 1920x1080 the table occupies
+     x 1520..1828, with a header band, twelve 29px-tall rows on a ~36.8px
+     pitch, and a legend footer. Row tops are listed exactly as measured
+     rather than computed from a pitch, because the artwork's spacing is
+     not perfectly uniform and drift would show by row twelve. */
+
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');
+    font-weight: 800; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
+    font-weight: 900; font-style: normal;
+  }
+
+  html, body {
+    margin: 0; padding: 0; background: transparent; overflow: hidden;
+    width: 1920px; height: 1080px;
+    font-family: 'TT Supermolot Neue Trial', Arial, sans-serif;
+  }
+
+  #stage { position: absolute; inset: 0; display: none; }
+  #stage.show { display: block; }
+
+  #backdrop { position: absolute; inset: 0; width: 1920px; height: 1080px; }
+
+  .row { position: absolute; height: 29px; }
+
+  /* No rank element: 01..12 are already printed in the artwork, so a row
+     is ranked by which slot it occupies, not by anything drawn here.
+     (Drawing it too produced "0101" on the first pass.) */
+  .logo {
+    position: absolute; left: 1554px; width: 30px; height: 29px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .logo img { max-width: 26px; max-height: 25px; object-fit: contain; }
+  .name {
+    position: absolute; left: 1588px; width: 142px; height: 29px;
+    display: flex; align-items: center;
+    color: #1a1206; font-weight: 900; font-size: 15px; letter-spacing: 0.2px;
+    text-transform: uppercase; white-space: nowrap; overflow: hidden;
+  }
+
+  /* The alive indicator is the supplied artwork, not bars drawn here --
+     0 alive uses Dead.png, 1..4 use N_alive.png. All five share one
+     content box (x 11..487, y 140..359 of a 500x500 canvas), so a single
+     crop maps any of them into the 76x29 dark slot: scale the 220px-tall
+     content to 29px (factor 0.13182), then offset so it sits centred. */
+  .alive {
+    position: absolute; left: 1732px; width: 76px; height: 29px;
+    background-repeat: no-repeat;
+    /* Maps the artwork's content box onto the dark slot with a 4px inset,
+       stretching each axis independently -- the standalone indicator is
+       477x220 (2.17:1) while the slot is 76x29 (2.62:1), and preserving
+       the aspect would leave the bars floating in the middle of the slot
+       instead of filling it the way the reference table does. They are
+       plain rectangles, so the stretch is invisible.
+         scaleX = 68/477, scaleY = 21/220 -> 500px canvas becomes
+         71.3 x 47.7, shifted so content x11,y140 lands at the inset. */
+    background-size: 71.28px 47.73px;
+    background-position: 2.43px -9.36px;
+  }
+
+  /* A wiped squad's whole row dims, so "who is still in" reads at a
+     glance rather than needing the four little bars to be counted. */
+  .row.out .name { opacity: 0.55; }
+  .row.out .logo img { filter: grayscale(1); opacity: 0.5; }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <img id="backdrop" alt="">
+  <div id="rows"></div>
+</div>
+
+<script>
+const _params = new URLSearchParams(location.search);
+if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
+if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_alive_status"
+  : "ws://localhost:8765?page=freefire_alive_status";
+
+// Measured from ALIVE STATUS.png -- see the note at the top.
+const ROW_TOPS = [322, 359, 395, 432, 469, 506, 543, 579, 616, 653, 689, 727];
+
+let ws;
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync") apply(msg.data);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+
+function assetBase(state){
+  const folder = (state.event && state.event.assetFolder) || "CLT";
+  return "assets/freefire/" + folder + "/";
+}
+
+function escapeHtml(s){
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c => (
+    {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]
+  ));
+}
+
+/* Rank order is the event standings when there are any, so the column
+   means the same thing here as on the points table. Before game one
+   there are no standings, so it falls back to the order the client
+   listed the teams -- stable, and never leaves the table blank. */
+function orderRows(rows, standings){
+  const rank = new Map();
+  (standings || []).forEach((s, i) => {
+    if(s && s.teamName) rank.set(s.teamName.trim().toUpperCase(), i);
+  });
+  return rows.slice().sort((a, b) => {
+    const ra = rank.has((a.teamName||"").trim().toUpperCase())
+      ? rank.get((a.teamName||"").trim().toUpperCase()) : 500;
+    const rb = rank.has((b.teamName||"").trim().toUpperCase())
+      ? rank.get((b.teamName||"").trim().toUpperCase()) : 500;
+    return ra - rb;
+  });
+}
+
+function logoFor(teamName, roster){
+  const want = (teamName || "").trim().toUpperCase();
+  const team = ((roster && roster.teams) || []).find(
+    t => (t.name || "").trim().toUpperCase() === want);
+  return team || null;
+}
+
+let lastKey = "";
+
+function apply(state){
+  const live = state.liveOps || {};
+  const rows = orderRows(live.sidetableRows || [], state.standings);
+  const base = assetBase(state);
+  const visible = state.display && state.display.aliveStatusVisible;
+
+  document.getElementById("stage").classList.toggle("show", !!visible && rows.length > 0);
+  if(!visible || !rows.length) return;
+
+  document.getElementById("backdrop").src = base + "ALIVE STATUS.png";
+
+  // Rebuild only when something actually changed. The engine syncs state
+  // every time any team's score moves, which during a busy fight is most
+  // seconds -- redrawing twelve rows each time makes the logos flicker.
+  const key = base + "|" + rows.map(r =>
+    [r.teamName, r.aliveCount, r.eliminated].join("~")).join("|");
+  if(key === lastKey) return;
+  lastKey = key;
+
+  const html = rows.slice(0, 12).map((row, i) => {
+    const team = logoFor(row.teamName, state.roster);
+    const label = (team && team.shortName) || row.teamName || "";
+    // aliveCount is null when the squad could not be linked to the roster
+    // (that link is what turns the client's squad number into a team).
+    // Showing the full four bars would be a confident lie, so an unknown
+    // count falls back to the empty indicator.
+    const alive = row.eliminated ? 0
+      : (row.aliveCount == null ? 0 : Math.max(0, Math.min(4, row.aliveCount)));
+    const art = alive === 0 ? "Dead.png" : alive + "_alive.png";
+    const logo = team && team.logo
+      ? `<img src="${escapeHtml(team.logo)}" alt="">` : "";
+    return `
+      <div class="row ${row.eliminated ? "out" : ""}" style="top:${ROW_TOPS[i]}px">
+        <div class="logo">${logo}</div>
+        <div class="name">${escapeHtml(label)}</div>
+        <div class="alive" style="background-image:url('${base}${art}')"></div>
+      </div>`;
+  }).join("");
+  document.getElementById("rows").innerHTML = html;
+}
+
+connect();
+</script>
+</body>
+</html>

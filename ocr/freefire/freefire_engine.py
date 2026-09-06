@@ -172,6 +172,12 @@ def default_state():
             # as the result files on a standard install; kept separate so a
             # setup that relocates one doesn't break the other.
             "debuggerFolder": "",
+            # Both of these put something on air without the operator
+            # pressing anything, so both can be switched off. On by default
+            # because the whole point is that the graphic lands at the
+            # moment it happened rather than whenever someone noticed.
+            "autoTeamEliminated": True,
+            "autoFetchOnMatchEnd": True,
             # What happens to a result row that couldn't be resolved against
             # the roster (unknown team, or a UID/name that isn't registered).
             # "allow" keeps the row using whatever the file said; "flag"
@@ -202,6 +208,12 @@ def default_state():
             "totalGames": 6,
             "currentGame": 1,
             "maps": [],
+            # Which artwork set the overlays draw from:
+            # overlay/assets/freefire/<assetFolder>/. Two or three different
+            # companies' events can run on the same day, each with its own
+            # graphics package, so the overlays can't hardcode one -- the
+            # operator names the event here and every overlay follows.
+            "assetFolder": "CLT",
         },
         # Which view freefire_scoreboard.html shows -- "match" (latest
         # committed match's own results) or "overall" (cumulative
@@ -211,7 +223,10 @@ def default_state():
         # standings graphic), pushed/pulled by the operator like every other
         # overlay rather than showing itself whenever data changes.
         "display": {"scoreboardMode": "match", "pointsTableVisible": False,
-                    "scoreboardVisible": True},
+                    "scoreboardVisible": True,
+                    # The live 12-team side table overlay. Off by default:
+                    # it belongs on air during a match, not between them.
+                    "aliveStatusVisible": False},
         # Pre-match roster, uploaded once per event as a CSV (team, ign,
         # uid per row). Each player's "loadout" is manual-entry text
         # fields (active/passive x3/pet/equipment); "loadoutScreenshot" is
@@ -250,6 +265,9 @@ def default_state():
         "teamEliminated": {
             "status": "idle", "shownUntil": None,
             "teamName": "", "rank": None, "photo": "",
+            # The squad's kill count at the moment it went out, shown under
+            # the name on the graphic.
+            "kills": 0,
         },
     }
 
@@ -473,6 +491,77 @@ DEBUGGER_HEADSHOT_REGEX = re.compile(
 )
 DEBUGGER_TS_REGEX = re.compile(r"^\[(?P<ts>[\d\-]+\s[\d:.]+)\]")
 
+# The client also narrates the whole match at team level, which is where
+# the 12-team side table's contents actually come from -- reading them off
+# the screen with OCR was always a lossy re-derivation of numbers the game
+# had already written down.
+#
+#   OnTeamScoreInited   the 12 team names, once, as the match loads
+#   OnTeamScoreChanged  a team's running score; broadcast for all 12
+#                       whenever any one of them changes
+#   PCInGameFlagManager a squad wipe. Checked against 5 full matches: each
+#                       of these lines lands in the SAME MILLISECOND as
+#                       that squad's last death, 11/11 in every match.
+#
+# Note OnTeamScoreChanged is the live KILL count during the match, but the
+# client adds placement points to it at the end -- the last value of the
+# match equals the result file's TotalScore, verified 12/12. So it is only
+# safe to read as "kills" while the match is still running.
+DEBUGGER_TEAM_INIT_REGEX = re.compile(
+    r"OnTeamScoreInited -> TeamName:\s*(?P<name>.+?)\s+TeamID:\s*(?P<tid>\d+)\s*$"
+)
+DEBUGGER_TEAM_SCORE_REGEX = re.compile(
+    r"OnTeamScoreChanged -> TeamID:\s*(?P<tid>\d+)\s+TeamScore:\s*(?P<score>\d+)"
+)
+DEBUGGER_TEAM_WIPE_REGEX = re.compile(
+    r"PCInGameFlagManager: Team (?P<gs_team>\d+) eliminated"
+)
+DEBUGGER_SPECTATOR_ADD_REGEX = re.compile(
+    r"\[UIModelSpectator\] AddPlayer id(?P<pid>\d+),name(?P<ign>.*?),gsTeam(?P<gs_team>\d+)"
+)
+# A dead player can come back -- Free Fire has revival points -- so a death
+# is not the same as being out, and the death count per squad runs well
+# past four. This is what puts a player back on the alive side.
+DEBUGGER_REVIVE_REGEX = re.compile(r"Revive Player\s+(?P<pid>\d+),")
+# Written the instant the match ends. Both the result file and the replay
+# JSON are on disk by the same second (checked across 7 matches), so this
+# line is a safe trigger to go and read them.
+DEBUGGER_MATCH_END_REGEX = re.compile(r"matchend matchid = (?P<match_id>\d+)")
+
+# The client packs the squad number into the high bits of a runtime player
+# id, so every kill, knock, death and revive line says which squad it
+# concerns without any lookup. Verified against every AddPlayer line in a
+# session's log, where the client states the team explicitly: 653/653.
+GS_TEAM_SHIFT = 24
+
+
+def gs_team_of(player_id):
+    """The squad number encoded in a runtime player id."""
+    try:
+        return int(player_id) >> GS_TEAM_SHIFT
+    except (TypeError, ValueError):
+        return 0
+
+
+def blank_live_match():
+    """Live match state derived from the log, rebuilt at each match start.
+
+    Two team numbering spaces exist and they do NOT agree -- TeamID (used
+    by the score lines) and gsTeam (used by player ids and wipe lines).
+    Measured on one match: they matched for 0 of 12 teams. Both are
+    therefore kept separately and only ever joined through the roster, in
+    link_live_teams()."""
+    return {
+        "matchId": None,
+        "ended": False,
+        "teamNames": {},   # TeamID -> name, from OnTeamScoreInited
+        "teamScores": {},  # TeamID -> running score
+        "gsIgns": {},      # gsTeam -> {pid: ign}
+        "gsDown": {},      # gsTeam -> {pid} currently dead and not revived
+        "gsKills": {},     # gsTeam -> kills credited to that squad
+        "wiped": [],       # gsTeam, in the order the client wiped them
+    }
+
 # Kept bounded: a full match produces hundreds of events and the whole lot
 # rides along in every state_sync.
 MAX_KILL_EVENTS = 60
@@ -486,13 +575,36 @@ def find_latest_debugger_log(folder):
     return max(logs, key=lambda f: f.stat().st_mtime) if logs else None
 
 
-def read_debugger_events(log_path, offset, id_map):
-    """Reads new lines since `offset`, updating id_map in place.
+def read_debugger_events(log_path, offset, id_map, live=None):
+    """Reads new lines since `offset`, updating id_map and `live` in place.
 
-    Returns (events, new_offset). A partial trailing line is left for the
-    next pass rather than parsed half-written -- the game is still
-    appending to this file while we read it."""
+    Returns (events, new_offset, signals). A partial trailing line is left
+    for the next pass rather than parsed half-written -- the game is still
+    appending to this file while we read it.
+
+    `signals` are the things that need to happen OUTSIDE this function --
+    a squad wipe to put on air, a match that just ended. They're returned
+    rather than acted on because this runs on a worker thread, where
+    touching server_state or broadcasting would be a data race."""
     events = []
+    signals = []
+    if live is None:
+        live = blank_live_match()
+
+    def roll_over_if_finished():
+        """Starts a fresh match the first time the next one speaks.
+
+        Deliberately NOT triggered by the team-name lines, which would be
+        the obvious choice: the client writes its Player Join lines BEFORE
+        OnTeamScoreInited, so resetting there threw away the very roster
+        the new match had just announced. That cost the squad-to-team
+        mapping for most of each match -- placement came out right for 20
+        of 77 eliminations. Rolling over on whichever line arrives first
+        instead: 77/77."""
+        if live["ended"]:
+            live.clear()
+            live.update(blank_live_match())
+            signals.append({"type": "match_start"})
     try:
         size = log_path.stat().st_size
         # A smaller file than last time means the client rolled over to a
@@ -516,10 +628,71 @@ def read_debugger_events(log_path, offset, id_map):
     for line in complete.splitlines():
         join = DEBUGGER_JOIN_REGEX.search(line)
         if join:
+            roll_over_if_finished()
             id_map[join.group("pid")] = {
                 "uid": join.group("uid"),
                 "ign": join.group("ign").strip(),
             }
+            live["gsIgns"].setdefault(gs_team_of(join.group("pid")), {})[
+                join.group("pid")] = join.group("ign").strip()
+            continue
+
+        # --- team-level narration: names, running scores, squad wipes ---
+        init = DEBUGGER_TEAM_INIT_REGEX.search(line)
+        if init:
+            roll_over_if_finished()
+            live["teamNames"][int(init.group("tid"))] = init.group("name").strip()
+            continue
+
+        score = DEBUGGER_TEAM_SCORE_REGEX.search(line)
+        if score:
+            live["teamScores"][int(score.group("tid"))] = int(score.group("score"))
+            continue
+
+        add = DEBUGGER_SPECTATOR_ADD_REGEX.search(line)
+        if add:
+            roll_over_if_finished()
+            live["gsIgns"].setdefault(int(add.group("gs_team")), {})[
+                add.group("pid")] = add.group("ign").strip()
+            continue
+
+        wipe = DEBUGGER_TEAM_WIPE_REGEX.search(line)
+        if wipe:
+            gs_team = int(wipe.group("gs_team"))
+            if gs_team not in live["wiped"]:
+                live["wiped"].append(gs_team)
+                ts = DEBUGGER_TS_REGEX.match(line.strip())
+                signals.append({
+                    "type": "team_wiped", "gsTeam": gs_team,
+                    "order": len(live["wiped"]),
+                    "total": len(live["teamNames"]) or 12,
+                    # The squad's own players travel WITH the signal rather
+                    # than being looked up afterwards. One read can contain
+                    # a whole match's tail plus the next match's opening
+                    # lines, and the roll-over in between reassigns every
+                    # gsTeam number -- resolving later then names the wrong
+                    # squad. Measured on a coarse replay: 67 of 71
+                    # placements right when resolved after the fact,
+                    # 71/71 when carried like this.
+                    "igns": list(live["gsIgns"].get(gs_team, {}).values()),
+                    # Carried for the same reason as the IGNs -- the squad
+                    # is out, so this is its final kill count.
+                    "kills": live["gsKills"].get(gs_team, 0),
+                    "time": ts.group("ts") if ts else "",
+                })
+            continue
+
+        revive = DEBUGGER_REVIVE_REGEX.search(line)
+        if revive:
+            pid = revive.group("pid")
+            live["gsDown"].get(gs_team_of(pid), set()).discard(pid)
+            continue
+
+        end = DEBUGGER_MATCH_END_REGEX.search(line)
+        if end:
+            live["matchId"] = end.group("match_id")
+            live["ended"] = True
+            signals.append({"type": "match_end", "matchId": end.group("match_id")})
             continue
 
         hs = DEBUGGER_HEADSHOT_REGEX.search(line)
@@ -534,6 +707,21 @@ def read_debugger_events(log_path, offset, id_map):
             continue
 
         killer_id, victim_id = match.group("killer"), match.group("victim")
+        # The client writes zone, fall and other self-inflicted deaths as
+        # "killed by" the victim themselves. They are real deaths, so they
+        # still count toward being knocked out, but they are NOT kills:
+        # crediting them put every affected squad one ahead of the result
+        # file. Excluding them made team kill counts exact -- 84/84 across
+        # seven matches, against 73/84 before -- and keeps a nonsense
+        # "X eliminated X" line out of the feed.
+        self_inflicted = killer_id == victim_id
+        if kill:
+            live["gsDown"].setdefault(gs_team_of(victim_id), set()).add(victim_id)
+        if self_inflicted:
+            continue
+        if kill:
+            team = gs_team_of(killer_id)
+            live["gsKills"][team] = live["gsKills"].get(team, 0) + 1
         killer = id_map.get(killer_id, {})
         victim = id_map.get(victim_id, {})
         ts = DEBUGGER_TS_REGEX.match(line.strip())
@@ -547,8 +735,10 @@ def read_debugger_events(log_path, offset, id_map):
             # operator can see failed to resolve.
             "resolved": bool(killer.get("ign") and victim.get("ign")),
             "headshot": headshots.get((killer_id, victim_id), False),
+            "killerTeam": gs_team_of(killer_id),
+            "victimTeam": gs_team_of(victim_id),
         })
-    return events, new_offset
+    return events, new_offset, signals
 
 
 # ---------------------------------------------------------------------------
@@ -1344,6 +1534,117 @@ def apply_roster_overrides(teams, roster):
     return teams
 
 
+def _ign_key(text):
+    return re.sub(r"[^a-z0-9]", "", (text or "").lower())
+
+
+def resolve_team_from_igns(igns, roster):
+    """The roster team most of these players belong to, or "".
+
+    A squad is identified by who is in it rather than by the number the
+    client gave it, because those numbers are reassigned every match."""
+    roster_teams = (roster or {}).get("teams", []) or []
+    votes = {}
+    for index, team in enumerate(roster_teams):
+        keys = {_ign_key(p.get("ign")) for p in (team.get("players") or [])}
+        for ign in igns or []:
+            if _ign_key(ign) in keys:
+                votes[index] = votes.get(index, 0) + 1
+    if not votes:
+        return ""
+    return (roster_teams[max(votes, key=votes.get)] or {}).get("name") or ""
+
+
+def link_live_teams(live, roster):
+    """Joins the client's two team numbering spaces through the roster.
+
+    TeamID carries the names and the running score. gsTeam carries the
+    players, their deaths and the wipe signal. Nothing in the log connects
+    the two -- measured on a real match, they agreed for 0 of 12 teams --
+    so the roster is used as the meeting point: a gsTeam is identified by
+    matching its players' IGNs, a TeamID by matching the name the client
+    printed, and where both land on the same roster team they are two
+    halves of one squad.
+
+    Returns {"rows": [...], "gsNames": {gsTeam: name}}. Rows keep the shape
+    parse_sidetable() produced, so the same consumers work off either
+    source and the OCR path stays a drop-in fallback.
+
+    With no roster configured this still returns usable rows -- the names
+    and scores come straight from the log -- just without the alive counts,
+    which are the half that needs the join."""
+    roster_teams = (roster or {}).get("teams", []) or []
+    ign_to_team = {}
+    for index, team in enumerate(roster_teams):
+        for player in team.get("players", []) or []:
+            key = _ign_key(player.get("ign"))
+            if key:
+                ign_to_team[key] = index
+
+    gs_to_roster = {}
+    for gs_team, players in live.get("gsIgns", {}).items():
+        votes = {}
+        for ign in players.values():
+            index = ign_to_team.get(_ign_key(ign))
+            if index is not None:
+                votes[index] = votes.get(index, 0) + 1
+        if votes:
+            gs_to_roster[gs_team] = max(votes, key=votes.get)
+
+    roster_to_gs = {}
+    for gs_team, index in gs_to_roster.items():
+        roster_to_gs.setdefault(index, gs_team)
+
+    ended = live.get("ended")
+    wiped = live.get("wiped", [])
+    rows = []
+    for tid, name in sorted(live.get("teamNames", {}).items()):
+        roster_team = match_roster_team(name, roster_teams)
+        index = roster_teams.index(roster_team) if roster_team in roster_teams else None
+        gs_team = roster_to_gs.get(index) if index is not None else None
+
+        bars = []
+        alive_count = None
+        if gs_team is not None:
+            squad = live.get("gsIgns", {}).get(gs_team, {})
+            down = live.get("gsDown", {}).get(gs_team, set())
+            size = len(squad) or len(((roster_team or {}).get("players")) or []) or 4
+            if gs_team in wiped:
+                bars = ["dead"] * size
+            else:
+                bars = ["dead"] * min(len(down), size)
+                bars += ["alive"] * (size - len(bars))
+            alive_count = sum(1 for b in bars if b == "alive")
+
+        rows.append({
+            "teamName": (roster_team or {}).get("name") or name,
+            # The client's running score is the kill count DURING the match
+            # and gains placement points at the end -- verified, the final
+            # value equals the result file's TotalScore 12/12. Publishing it
+            # as "elims" after the whistle would silently inflate every
+            # team, so it is withheld once the match has ended and the
+            # result file (which separates the two) takes over.
+            "elims": None if ended else live.get("teamScores", {}).get(tid),
+            "score": live.get("teamScores", {}).get(tid),
+            "bars": bars,
+            "barDetail": [{"status": b} for b in bars],
+            "aliveCount": alive_count,
+            "eliminated": gs_team in wiped if gs_team is not None else None,
+            "placement": (len(live.get("teamNames", {})) - wiped.index(gs_team))
+                         if (gs_team is not None and gs_team in wiped) else None,
+            "nameRead": True,
+            "rawText": name,
+            "teamId": tid,
+            "gsTeam": gs_team,
+            "source": "log",
+        })
+
+    gs_names = {}
+    for gs_team, index in gs_to_roster.items():
+        gs_names[gs_team] = (roster_teams[index] or {}).get("name") or ""
+    return {"rows": rows, "gsNames": gs_names}
+
+
 def parse_freefire_safezone(text):
     text = text.lstrip("\ufeff")
     m = FREEFIRE_SAFEZONE_COORD_REGEX.search(text)
@@ -1362,6 +1663,56 @@ def find_freefire_latest_match_file(folder):
         if m and (best is None or m.group("timestamp") > best[0]):
             best = (m.group("timestamp"), f, m)
     return (best[1], best[2]) if best else (None, None)
+
+
+def find_freefire_match_file(folder, match_id):
+    """The result file for one specific match, rather than the newest.
+
+    The match-end line in the log names the match that just finished, so
+    the auto-fetch can ask for exactly that one instead of hoping the
+    newest file on disk is it."""
+    folder_path = Path(folder) if folder else None
+    if not folder_path or not folder_path.is_dir():
+        return (None, None)
+    for f in folder_path.iterdir():
+        m = FREEFIRE_MATCH_FILENAME_REGEX.match(f.name)
+        if m and m.group("match_id") == str(match_id):
+            return (f, m)
+    return (None, None)
+
+
+def build_match_result_payload(folder, match_id=None):
+    """Reads and resolves a match result into the dashboard's review payload.
+
+    Shared by the operator's Fetch button and the automatic fetch that runs
+    when the log reports a match ended, so both deliver an identical
+    message and the dashboard needs no idea which one it came from."""
+    if match_id:
+        file_path, name_match = find_freefire_match_file(folder, match_id)
+    else:
+        file_path, name_match = find_freefire_latest_match_file(folder)
+    if not file_path:
+        which = f"for match {match_id}" if match_id else "MatchResult_*.log"
+        return {
+            "type": "freefire_match_result", "teams": [], "matchId": None,
+            "error": f"No result file {which} found in '{folder}'.",
+        }
+    teams = parse_freefire_match_result(file_path.read_text(encoding="utf-8-sig"))
+    # Resolve against the configured roster before the dashboard ever sees
+    # it -- see apply_roster_overrides.
+    teams = apply_roster_overrides(teams, server_state.get("roster", {}))
+    policy = server_state.get("settings", {}).get("unmatchedPolicy", "flag")
+    teams = apply_unmatched_policy(teams, policy)
+    return {
+        "type": "freefire_match_result",
+        "matchId": name_match.group("match_id"),
+        "timestamp": name_match.group("timestamp"),
+        "fileName": file_path.name,
+        "gameNumber": server_state.get("event", {}).get("currentGame", 1),
+        "teams": teams,
+        "unmatchedTeams": [t["fileTeamName"] for t in teams if not t.get("matched")],
+        "error": None if teams else "File found but no team blocks could be parsed from it.",
+    }
 
 
 def find_freefire_latest_safezone_file(folder, match_id):
@@ -1487,6 +1838,7 @@ main_loop = None
 _debugger_offset = 0
 _debugger_path = None
 _debugger_id_map = {}
+_live_match = blank_live_match()
 
 
 def flatten_roster_players(roster):
@@ -1666,30 +2018,9 @@ async def handle_client(websocket, path=None):
                 # the operator confirms it.
                 folder = payload.get("folder") or server_state.get("settings", {}).get("matchResultFolder", "")
                 try:
-                    file_path, name_match = find_freefire_latest_match_file(folder)
-                    if not file_path:
-                        await websocket.send(json.dumps({
-                            "type": "freefire_match_result", "teams": [], "matchId": None,
-                            "error": f"No MatchId_*.log.txt found in '{folder}'.",
-                        }))
-                    else:
-                        text = file_path.read_text(encoding="utf-8-sig")
-                        teams = parse_freefire_match_result(text)
-                        # Resolve against the configured roster before the
-                        # dashboard ever sees it -- see apply_roster_overrides.
-                        teams = apply_roster_overrides(teams, server_state.get("roster", {}))
-                        policy = server_state.get("settings", {}).get("unmatchedPolicy", "flag")
-                        teams = apply_unmatched_policy(teams, policy)
-                        await websocket.send(json.dumps({
-                            "type": "freefire_match_result",
-                            "matchId": name_match.group("match_id"),
-                            "timestamp": name_match.group("timestamp"),
-                            "fileName": file_path.name,
-                            "gameNumber": server_state.get("event", {}).get("currentGame", 1),
-                            "teams": teams,
-                            "unmatchedTeams": [t["fileTeamName"] for t in teams if not t.get("matched")],
-                            "error": None if teams else "File found but no team blocks could be parsed from it.",
-                        }))
+                    await websocket.send(json.dumps(
+                        build_match_result_payload(folder, payload.get("matchId"))
+                    ))
                 except Exception as e:
                     await websocket.send(json.dumps({
                         "type": "freefire_match_result", "teams": [], "matchId": None, "error": str(e),
@@ -1853,6 +2184,10 @@ async def handle_client(websocket, path=None):
                     te["rank"] = int(payload.get("rank")) if payload.get("rank") not in (None, "") else None
                 except (TypeError, ValueError):
                     te["rank"] = None
+                try:
+                    te["kills"] = int(payload.get("kills") or 0)
+                except (TypeError, ValueError):
+                    te["kills"] = 0
                 te["photo"] = payload.get("photo", "")
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
@@ -1865,6 +2200,71 @@ async def handle_client(websocket, path=None):
         connected_clients.discard(websocket)
         connected_pages.pop(websocket, None)
         await broadcast_presence()
+
+
+# Set when the log says a match ended, cleared once its result file has
+# been read. The file lands in the same second as the line across every
+# match checked, but "same second" isn't "already flushed", so the fetch
+# retries for a few polls rather than giving up on the first miss.
+_pending_match_fetch = None
+_pending_match_tries = 0
+MAX_AUTO_FETCH_TRIES = 15
+
+
+async def handle_live_signals(signals, gs_names):
+    """Acts on what the log just reported. Returns whether state changed.
+
+    Both behaviours here are opt-out via settings, because they put things
+    on air by themselves: an operator who wants to call the elimination
+    graphic manually should not have the engine doing it underneath them."""
+    global _pending_match_fetch, _pending_match_tries
+    settings = server_state.get("settings", {})
+    changed = False
+
+    for signal in signals:
+        if signal["type"] == "team_wiped" and settings.get("autoTeamEliminated", True):
+            name = resolve_team_from_igns(signal.get("igns"), server_state.get("roster", {}))
+            if not name:
+                name = gs_names.get(signal["gsTeam"], "")
+            if not name:
+                # Unresolved squad -- the roster is what turns a gsTeam
+                # number into a name, so with no roster loaded there is
+                # nothing to put on the graphic. Better to skip than to
+                # broadcast "Team 7".
+                continue
+            roster_team = match_roster_team(name, (server_state.get("roster") or {}).get("teams", []))
+            total = signal.get("total") or len(_live_match.get("teamNames", {})) or 12
+            te = server_state["teamEliminated"]
+            te["status"] = "shown"
+            te["shownUntil"] = int(time.time() * 1000) + TEAM_ELIMINATED_DISPLAY_SECONDS * 1000
+            te["teamName"] = name
+            te["rank"] = total - signal["order"] + 1
+            te["kills"] = signal.get("kills", 0)
+            te["photo"] = (roster_team or {}).get("logo") or ""
+            changed = True
+            print(f"[live] {name} eliminated -- placing {te['rank']}")
+
+        elif signal["type"] == "match_end":
+            _pending_match_fetch = signal["matchId"]
+            _pending_match_tries = 0
+            print(f"[live] match {signal['matchId']} ended")
+
+    if _pending_match_fetch and settings.get("autoFetchOnMatchEnd", True):
+        folder = settings.get("matchResultFolder", "")
+        payload = build_match_result_payload(folder, _pending_match_fetch)
+        _pending_match_tries += 1
+        if payload.get("teams"):
+            payload["auto"] = True
+            await broadcast_to_page("freefire_dashboard", payload)
+            print(f"[live] auto-fetched {payload['fileName']} "
+                  f"({len(payload['teams'])} teams) -- review and commit")
+            _pending_match_fetch = None
+        elif _pending_match_tries >= MAX_AUTO_FETCH_TRIES:
+            print(f"[live] gave up auto-fetching match {_pending_match_fetch}: "
+                  f"{payload.get('error')}")
+            _pending_match_fetch = None
+
+    return changed
 
 
 async def ocr_loop():
@@ -1930,14 +2330,27 @@ async def ocr_loop():
                         _debugger_path = candidate
                         _debugger_offset = 0
                         _debugger_id_map = {}
-                    new_events, _debugger_offset = await loop.run_in_executor(
+                        _live_match.clear()
+                        _live_match.update(blank_live_match())
+                    new_events, _debugger_offset, signals = await loop.run_in_executor(
                         ocr_executor, read_debugger_events,
-                        candidate, _debugger_offset, _debugger_id_map,
+                        candidate, _debugger_offset, _debugger_id_map, _live_match,
                     )
                     if new_events:
                         feed = server_state["liveOps"].get("killEvents") or []
                         feed = (feed + new_events)[-MAX_KILL_EVENTS:]
                         server_state["liveOps"]["killEvents"] = feed
+                        changed = True
+
+                    # The 12-team side table, straight from the client's own
+                    # narration rather than read back off the screen.
+                    linked = link_live_teams(_live_match, server_state.get("roster", {}))
+                    if linked["rows"] and linked["rows"] != server_state["liveOps"].get("sidetableRows"):
+                        server_state["liveOps"]["sidetableRows"] = linked["rows"]
+                        server_state["liveOps"]["sidetableSource"] = "log"
+                        changed = True
+
+                    if await handle_live_signals(signals, linked["gsNames"]):
                         changed = True
 
             # Structured side-table parse. Runs off the same crop the raw
