@@ -2831,6 +2831,7 @@ async def ocr_loop():
                     text_region_names.append(name)
 
             changed = False
+            log_sidetable_rows = None
             if ocr_tasks:
                 results = await asyncio.gather(*ocr_tasks)
                 text_results = dict(zip(text_region_names, results))
@@ -2895,10 +2896,12 @@ async def ocr_loop():
                     # The 12-team side table, straight from the client's own
                     # narration rather than read back off the screen.
                     linked = link_live_teams(_live_match, server_state.get("roster", {}))
-                    if linked["rows"] and linked["rows"] != server_state["liveOps"].get("sidetableRows"):
-                        server_state["liveOps"]["sidetableRows"] = linked["rows"]
-                        server_state["liveOps"]["sidetableSource"] = "log"
-                        changed = True
+                    if linked["rows"]:
+                        log_sidetable_rows = linked["rows"]
+                        if linked["rows"] != server_state["liveOps"].get("sidetableRows"):
+                            server_state["liveOps"]["sidetableRows"] = linked["rows"]
+                            server_state["liveOps"]["sidetableSource"] = "log"
+                            changed = True
 
                     squads = linked.get("unresolved", [])
                     if squads != server_state["pending"].get("squads"):
@@ -2908,10 +2911,22 @@ async def ocr_loop():
                     if await handle_live_signals(signals, linked["gsNames"]):
                         changed = True
 
-            # Structured side-table parse. Runs off the same crop the raw
-            # OCR above used, on the executor since it does its own OCR pass
-            # plus per-bar colour sampling.
-            if sidetable_crop is not None:
+            # Structured side-table parse -- FALLBACK ONLY, for whenever the
+            # log-driven table above didn't have rows to give this tick (no
+            # debugger folder configured, or the roster can't yet link a
+            # squad to a name). It used to run unconditionally and
+            # overwrite the log-driven table on every single poll -- since
+            # this runs strictly after that block, its uncalibrated,
+            # OCR-derived rows (with the known-bad grey "alive" colour)
+            # were clobbering the correct data every cycle it ran, which
+            # was every cycle the side table region was calibrated. The
+            # Live Alive Status overlay reads exactly this field, so this
+            # was silently overriding good data with bad the whole time
+            # the log-driven table has existed. Column/colour calibration
+            # for this path is no longer expected to be done -- the log
+            # table needs neither -- so this now only matters as a safety
+            # net before a roster exists to link squads against.
+            if sidetable_crop is not None and not log_sidetable_rows:
                 parsed = await loop.run_in_executor(
                     ocr_executor, parse_sidetable, sidetable_crop,
                     config.get("sidetable_columns"), config.get("sidetable_colors"),
@@ -2920,6 +2935,7 @@ async def ocr_loop():
                 if parsed["rows"] != ff_live.get("sidetableRows"):
                     ff_live["sidetableRows"] = parsed["rows"]
                     ff_live["sidetableUsedPalette"] = parsed["usedPalette"]
+                    ff_live["sidetableSource"] = "ocr"
                     changed = True
             else:
                 killfeed_raw_text = None
