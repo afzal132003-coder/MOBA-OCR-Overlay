@@ -79,6 +79,15 @@
     background-position: 2.43px -9.36px;
   }
 
+  /* Champion Rush emblem, sitting OUTSIDE the table to the left of the
+     team logo so it never crowds the name. Artwork comes from the selected
+     package as champion_rush.png; a package without one simply shows
+     nothing there. */
+  .cr-badge{
+    position: absolute; left: 1486px; width: 28px; height: 29px;
+    object-fit: contain;
+  }
+
   /* A wiped squad's whole row dims, so "who is still in" reads at a
      glance rather than needing the four little bars to be counted. */
   .row.out .name { opacity: 0.55; }
@@ -168,8 +177,15 @@ function apply(state){
   // Rebuild only when something actually changed. The engine syncs state
   // every time any team's score moves, which during a busy fight is most
   // seconds -- redrawing twelve rows each time makes the logos flicker.
+  const active = (state.display && state.display.championRushBadgeVisible)
+    ? new Set(((state.championRush || {}).totals || [])
+        .filter(t => t.activated)
+        .map(t => (t.teamName || "").trim().toUpperCase()))
+    : new Set();
+
   const key = base + "|" + rows.map(r =>
-    [r.teamName, r.aliveCount, r.eliminated].join("~")).join("|");
+    [r.teamName, r.aliveCount, r.eliminated,
+     active.has((r.teamName || "").trim().toUpperCase())].join("~")).join("|");
   if(key === lastKey) return;
   lastKey = key;
 
@@ -185,8 +201,11 @@ function apply(state){
     const art = alive === 0 ? "Dead.png" : alive + "_alive.png";
     const logo = team && team.logo
       ? `<img src="${escapeHtml(team.logo)}" alt="">` : "";
+    const badge = active.has((row.teamName || "").trim().toUpperCase())
+      ? `<img class="cr-badge" src="${base}champion_rush.png" alt="">` : "";
     return `
       <div class="row ${row.eliminated ? "out" : ""}" style="top:${ROW_TOPS[i]}px">
+        ${badge}
         <div class="logo">${logo}</div>
         <div class="name">${escapeHtml(label)}</div>
         <div class="alive" style="background-image:url('${base}${art}')"></div>

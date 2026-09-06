@@ -83,6 +83,15 @@
     color:#ffc400; font-weight:800; font-style:italic; font-size:29px;
     letter-spacing:.5px; white-space:nowrap;
   }
+  /* Champion Rush emblem, shown beside an activated team's name. The
+     artwork comes from the selected package as champion_rush.png; if a
+     package hasn't supplied one the image simply fails to load and the
+     name sits where it always did, rather than leaving a hole. */
+  .badge{
+    position:absolute; width:26px; height:26px;
+    object-fit:contain; display:none;
+  }
+  .badge.on{ display:block; }
   #pt-stage .cell.name{
     justify-content:flex-start; display:flex;
     font-size:23px; text-transform:uppercase; line-height:1.05;
@@ -138,6 +147,12 @@ SB_ROW_CENTRE.forEach((cy, i) => {
   mk("name", SB_NAME_X, SB_NAME_W, "name");
   mk("kills", SB_COL.kills - NUM_W / 2, NUM_W);
   mk("total", SB_COL.total - NUM_W / 2, NUM_W);
+  const sbBadge = document.createElement("img");
+  sbBadge.className = "badge";
+  sbBadge.id = "sb-" + i + "-badge";
+  sbBadge.style.left = (SB_NAME_X - 30) + "px";
+  sbBadge.style.top = (cy - 13) + "px";
+  sbStage.appendChild(sbBadge);
 });
 
 /* ---------- points table ---------- */
@@ -168,6 +183,12 @@ PT_BLOCKS.forEach((col, b) => {
     ["matches", "booyah", "finishes", "total"].forEach(f => {
       mk(f, col[f] - NUM_W / 2, NUM_W);
     });
+    const badge = document.createElement("img");
+    badge.className = "badge";
+    badge.id = "pt-" + i + "-badge";
+    badge.style.left = (col.name - 32) + "px";
+    badge.style.top = (cy - 13) + "px";
+    ptStage.appendChild(badge);
   });
 });
 
@@ -185,6 +206,7 @@ function applyScoreboard(ff){
     rows = (ff.standings || []).map((r, i) => ({
       rank: i + 1,
       name: r.shortName || r.teamName,
+      fullName: r.teamName,
       kills: r.totalKills,
       total: r.totalPoints,
     }));
@@ -192,11 +214,14 @@ function applyScoreboard(ff){
     // Sorted by the game's own rank rather than trusting file order --
     // the result file lists teams in an order that doesn't always match
     // their placement.
-    rows = latest ? latest.teams.slice()
+    // (latest.teams || []) -- a committed entry without a teams array
+    // would otherwise throw here and blank the whole graphic.
+    rows = latest ? (latest.teams || []).slice()
       .sort((a, b) => (a.rank || 99) - (b.rank || 99))
       .map(t => ({
         rank: t.rank,
         name: t.shortName || t.teamName,
+        fullName: t.teamName,
         kills: t.killScore,
         total: t.totalScore,
       })) : [];
@@ -215,6 +240,7 @@ function applyScoreboard(ff){
     setText("sb", i, "kills", row.kills == null ? 0 : row.kills);
     setText("sb", i, "total", row.total == null ? 0 : row.total);
   }
+  paintBadges("sb", rows.map(r => (r && r.fullName) || (r && r.name) || ""), ff);
 
   // Nothing is drawn on the left-hand BOOYAH plate: the artwork already
   // has "BOOYAH" printed there, and overlaying the winning team's name on
@@ -254,6 +280,31 @@ function applyPointsTable(ff){
     setText("pt", i, "finishes", row.totalKills || 0);
     setText("pt", i, "total", row.totalPoints || 0);
   }
+  paintBadges("pt", standings.map(r => (r && r.teamName) || ""), ff);
+}
+
+/* Which teams have activated Champion Rush, by the name they are shown
+   under. Empty unless the operator has ticked the emblem on, so the badge
+   never appears in an event that isn't running the format. */
+function championSet(ff){
+  const display = ff.display || {};
+  if(!display.championRushBadgeVisible) return new Set();
+  return new Set(((ff.championRush || {}).totals || [])
+    .filter(t => t.activated)
+    .map(t => (t.teamName || "").trim().toUpperCase()));
+}
+
+function paintBadges(prefix, names, ff){
+  const active = championSet(ff);
+  const folder = (ff.event && ff.event.assetFolder) || "CLT";
+  const src = "assets/freefire/" + folder + "/champion_rush.png";
+  names.forEach((name, i) => {
+    const el = document.getElementById(prefix + "-" + i + "-badge");
+    if(!el) return;
+    const on = !!name && active.has(name.trim().toUpperCase());
+    if(on && el.getAttribute("src") !== src) el.src = src;
+    el.classList.toggle("on", on);
+  });
 }
 
 function applyFreefire(ff){

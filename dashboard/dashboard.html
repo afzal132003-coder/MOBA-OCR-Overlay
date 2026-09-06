@@ -1608,6 +1608,23 @@
   <!-- ===================== LIVE IN-GAME OPS ===================== -->
   <div class="ff-tab-panel" id="fftab-liveops">
     <div class="card">
+      <h2>This Event Starts Now</h2>
+      <p class="hint">The game client keeps appending to one log all day. If an earlier event ran on this machine,
+        its matches, knockdowns and eliminations are still in that file — press this at the top of your show and
+        everything before this moment is ignored. Nothing already committed to standings is touched; this only
+        controls what the live log feed reads.</p>
+      <div class="row" style="gap:12px;align-items:flex-end;">
+        <div class="team-form" style="max-width:260px;">
+          <label>Ignore log entries before</label>
+          <input type="text" id="ff_debuggerStartAt" placeholder="2026-09-06 21:00:00">
+        </div>
+        <button id="ff_debuggerStartNow">Start From Now</button>
+        <button class="secondary" id="ff_debuggerStartClear">Read Whole Log</button>
+      </div>
+      <div class="hint" id="ff_debuggerCutoffStatus" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="card">
       <h2>Popup Triggers</h2>
       <p class="hint">Nothing in the game feed reliably signals a headshot milestone or a team elimination on its
         own yet, so these are manual — pick the player/team, optionally drop in a photo, and hit Show. Both
@@ -1751,6 +1768,22 @@
       <p class="hint" id="ff_standingsEmpty">No matches committed yet.</p>
       <div id="ff_standingsTable" style="overflow-x:auto;"></div>
     </div>
+
+    <div class="card">
+      <h2>Champion Rush</h2>
+      <p class="hint">A team activates Champion Rush the moment its total reaches the threshold. It is crowned
+        when it takes a Booyah in a game it <em>entered</em> already activated — so crossing the line and winning
+        in the same game activates but doesn't crown. Recomputed from committed matches, so it can't run ahead of
+        what you've reviewed.</p>
+      <div class="row" style="gap:16px;align-items:flex-end;">
+        <div class="team-form" style="max-width:170px;">
+          <label>Threshold (points)</label>
+          <input type="number" id="ff_crThreshold" min="1" value="110">
+        </div>
+        <button class="secondary" id="ff_crSave">Save Threshold</button>
+      </div>
+      <div id="ff_championRush" style="margin-top:14px;"></div>
+    </div>
   </div>
 
   <!-- ===================== MAPPING ===================== -->
@@ -1822,6 +1855,31 @@
   <!-- ===================== GRAPHIC ===================== -->
   <div class="ff-tab-panel" id="fftab-graphic">
     <div class="card">
+      <h2>Preview &amp; Push</h2>
+      <p class="hint">Every Free Fire graphic, rendered here from the same live state OBS is fed — so what you see
+        is what would go out. Check it, then push. The preview shows the graphic whether or not it's currently on
+        air, so you can QC something before anyone sees it.</p>
+      <div class="row" style="gap:12px;align-items:flex-end;">
+        <div class="team-form" style="max-width:320px;">
+          <label>Graphic</label>
+          <select id="ff_previewPick"></select>
+        </div>
+        <button id="ff_previewPush">Push Up</button>
+        <button class="secondary" id="ff_previewPull">Pull Down</button>
+        <button class="secondary" id="ff_previewReload">Reload Preview</button>
+      </div>
+      <div class="hint" id="ff_previewStatus" style="margin-top:8px;"></div>
+      <div id="ff_previewFrameWrap" style="position:relative;width:100%;max-width:960px;aspect-ratio:16/9;
+           margin-top:12px;border:1px solid #2b3348;border-radius:8px;overflow:hidden;
+           background:#0a0d18 repeating-conic-gradient(#12172a 0% 25%, #0a0d18 0% 50%) 0 0/28px 28px;">
+        <iframe id="ff_previewFrame" title="Graphic preview"
+          style="position:absolute;top:0;left:0;width:1920px;height:1080px;border:0;
+                 transform-origin:top left;pointer-events:none;"></iframe>
+      </div>
+      <p class="hint" id="ff_previewNote" style="margin-top:8px;"></p>
+    </div>
+
+    <div class="card">
       <h2>Graphics Package</h2>
       <p class="hint">The folder under <code>overlay/assets/freefire/</code> every Free Fire overlay draws its
         artwork from. Two or three companies' events can run on the same day with different graphics, so each one
@@ -1835,6 +1893,13 @@
         <button id="ff_assetFolderSave">Use This Package</button>
       </div>
       <div class="hint" id="ff_assetFolderStatus" style="margin-top:8px;"></div>
+      <label class="hint" style="display:block;margin-top:10px;">
+        <input type="checkbox" id="ff_championBadge">
+        Show the Champion Rush emblem beside teams that have activated
+      </label>
+      <p class="hint" style="margin-top:4px;">Uses <code>champion_rush.png</code> from the package — beside the
+        team name on the standings and scoreboard, and outside the row on the live alive table. A package without
+        that file shows nothing, so ticking this early is harmless.</p>
       <p class="hint" style="margin-top:10px;">Expected inside it:
         <code>ALIVE STATUS.png</code>, <code>1_alive.png</code>–<code>4_alive.png</code>, <code>Dead.png</code>,
         <code>elims.png</code>, <code>POINTS TABLE.png</code>, <code>TOP 4 ALIVE.png</code>.</p>
@@ -4552,6 +4617,8 @@ function ffConnect(){
       ffRenderMapping(ffState);
       ffRenderAssets(ffState);
       ffRenderCharPickers(ffState);
+      ffRenderChampionRush(ffState);
+      ffUpdatePreviewStatus();
       ffBuildPopupDropdowns(ffState);
     } else if(msg.type === "crop_preview"){
       const img = document.getElementById(`crop-${msg.region}`);
@@ -4617,8 +4684,8 @@ let ffRosterDraft = null;
 
 function ffBlankRoster(){
   return { teams: Array.from({length: FF_TEAM_SLOTS}, () => ({
-    name: "", shortName: "", logo: "",
-    players: Array.from({length: FF_PLAYER_SLOTS}, () => ({ ign: "", uid: "" })),
+    name: "", displayName: "", shortName: "", logo: "",
+    players: Array.from({length: FF_PLAYER_SLOTS}, () => ({ ign: "", displayIgn: "", uid: "" })),
   })) };
 }
 
@@ -4627,10 +4694,11 @@ function ffNormaliseRoster(teams){
   (teams || []).slice(0, FF_TEAM_SLOTS).forEach((t, i) => {
     const box = draft.teams[i];
     box.name = t.name || "";
+    box.displayName = t.displayName || "";
     box.shortName = t.shortName || "";
     box.logo = t.logo || "";
     (t.players || []).slice(0, FF_PLAYER_SLOTS).forEach((p, j) => {
-      box.players[j] = { ign: p.ign || "", uid: p.uid || "" };
+      box.players[j] = { ign: p.ign || "", displayIgn: p.displayIgn || "", uid: p.uid || "" };
     });
   });
   return draft;
@@ -4666,16 +4734,22 @@ function ffDrawRosterBoxes(){
             ${t.name.trim() || t.logo || t.players.some(p => p.ign || p.uid) ? "" : "disabled"}>Clear</button>
         </div>
         <input type="text" class="ff-roster-field" data-ti="${ti}" data-field="name"
-          placeholder="Team name" value="${ffEscapeHtml(t.name)}" style="margin-bottom:6px;">
+          placeholder="Team name (as the game writes it)" value="${ffEscapeHtml(t.name)}" style="margin-bottom:6px;">
+        <input type="text" class="ff-roster-field" data-ti="${ti}" data-field="displayName"
+          placeholder="Show as (optional)" value="${ffEscapeHtml(t.displayName || "")}" style="margin-bottom:6px;">
         <input type="text" class="ff-roster-field" data-ti="${ti}" data-field="shortName"
-          placeholder="Short name (shown on graphics)" value="${ffEscapeHtml(t.shortName)}" style="margin-bottom:8px;">
+          placeholder="Short name (small graphics)" value="${ffEscapeHtml(t.shortName)}" style="margin-bottom:8px;">
         ${t.players.map((p, pi) => `
           <div class="row" style="gap:6px;margin-bottom:5px;">
             <input type="text" class="ff-roster-player" data-ti="${ti}" data-pi="${pi}" data-field="ign"
               placeholder="${pi === 4 ? "IGN (sub)" : "IGN " + (pi+1)}" value="${ffEscapeHtml(p.ign)}" style="flex:2;">
+            <input type="text" class="ff-roster-player" data-ti="${ti}" data-pi="${pi}" data-field="displayIgn"
+              placeholder="Show as" value="${ffEscapeHtml(p.displayIgn || "")}" style="flex:2;">
             <input type="text" class="ff-roster-player" data-ti="${ti}" data-pi="${pi}" data-field="uid"
               placeholder="UID" value="${ffEscapeHtml(p.uid)}" style="flex:1;">
           </div>`).join("")}
+        <div class="hint" style="margin-top:2px;font-size:11px;">Left column is what the game writes and what
+          matching uses. "Show as" is what goes on air — leave it blank to use the real one. UIDs never change.</div>
       </div>`).join("")}
     </div>`;
 
@@ -5034,6 +5108,9 @@ function ffRenderEvent(ff){
   }
 
   setIfFree("ff_assetFolder", ev.assetFolder || "CLT");
+  setIfFree("ff_debuggerStartAt", (ff.settings && ff.settings.debuggerStartAt) || "");
+  document.getElementById("ff_championBadge").checked =
+    !!(ff.display && ff.display.championRushBadgeVisible);
   const st = ff.settings || {};
   // Default true to match the engine: a state saved before these existed
   // has neither key, and the engine treats missing as on.
@@ -5575,6 +5652,12 @@ document.addEventListener("click", (e) => {
   if(forget) ffSendAlias(forget.dataset.kind, forget.dataset.source, "");
 });
 
+document.getElementById("ff_championBadge").addEventListener("change", (e) => {
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffWs.send(JSON.stringify({
+    type: e.target.checked ? "champion_badge_show" : "champion_badge_hide" }));
+});
+
 document.getElementById("ff_assetFolderSave").addEventListener("click", () => {
   if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
   const folder = document.getElementById("ff_assetFolder").value.trim() || "CLT";
@@ -5739,6 +5822,174 @@ document.addEventListener("change", (e) => {
     slot: "active",
     label: sel.value,
   }));
+});
+
+/* ---------- log cutoff ---------- */
+function ffSendCutoff(value){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffWs.send(JSON.stringify({ type: "freefire_debugger_cutoff", startAt: value }));
+  document.getElementById("ff_debuggerCutoffStatus").textContent = value
+    ? "Reading only what the client logs from " + value + " onwards. Anything earlier is ignored."
+    : "Reading the whole log, including any earlier event on this machine today.";
+}
+function ffLocalStamp(){
+  const d = new Date(), pad = n => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " +
+         pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+}
+document.getElementById("ff_debuggerStartNow").addEventListener("click", () => {
+  const stamp = ffLocalStamp();
+  document.getElementById("ff_debuggerStartAt").value = stamp;
+  ffSendCutoff(stamp);
+});
+document.getElementById("ff_debuggerStartClear").addEventListener("click", () => {
+  document.getElementById("ff_debuggerStartAt").value = "";
+  ffSendCutoff("");
+});
+document.getElementById("ff_debuggerStartAt").addEventListener("change", (e) => {
+  ffSendCutoff(e.target.value.trim());
+});
+
+/* ---------- champion rush ---------- */
+let ffLastCrKey = "";
+function ffRenderChampionRush(ff){
+  const cr = ff.championRush || {};
+  const key = JSON.stringify(cr);
+  if(key === ffLastCrKey) return;
+  ffLastCrKey = key;
+
+  // Not setIfFree -- that helper is local to ffRenderEvent. Same guard
+  // though: never overwrite a field the operator is typing into.
+  const thresholdEl = document.getElementById("ff_crThreshold");
+  if(document.activeElement !== thresholdEl){
+    thresholdEl.value = cr.threshold || 110;
+  }
+
+  const totals = cr.totals || [];
+  const box = document.getElementById("ff_championRush");
+  if(!totals.length){
+    box.innerHTML = '<p class="hint" style="margin:0;">No matches committed yet.</p>';
+    return;
+  }
+  const crowned = cr.champion
+    ? '<p style="margin:0 0 10px;font-weight:700;color:#e0a44a;">' +
+      ffEscapeHtml(cr.champion) + ' are CHAMPIONS — Booyah in game ' + cr.championGame + '.</p>'
+    : '<p class="hint" style="margin:0 0 10px;">No champion yet — an activated team needs a Booyah.</p>';
+  box.innerHTML = crowned +
+    '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +
+    '<thead><tr style="text-align:left;color:#98a3bd;">' +
+      '<th style="padding:5px;">Team</th><th style="padding:5px;">Points</th>' +
+      '<th style="padding:5px;">Status</th></tr></thead><tbody>' +
+    totals.map(t =>
+      '<tr style="border-top:1px solid #2b3348;">' +
+        '<td style="padding:5px;font-weight:600;">' + ffEscapeHtml(t.teamName) + '</td>' +
+        '<td style="padding:5px;">' + t.points + '</td>' +
+        '<td style="padding:5px;">' + (t.teamName === cr.champion
+            ? '<span style="color:#e0a44a;font-weight:700;">CHAMPIONS</span>'
+            : t.activated
+              ? '<span style="color:#7fd6a0;font-weight:600;">Champion Rush active</span>'
+              : '<span style="color:#6b7590;">' + t.needs + ' more</span>') + '</td>' +
+      '</tr>').join("") + '</tbody></table>';
+}
+document.getElementById("ff_crSave").addEventListener("click", () => {
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  const threshold = Math.max(1, Number(document.getElementById("ff_crThreshold").value) || 110);
+  const settings = Object.assign({}, (ffState && ffState.settings) || {},
+    { championRushThreshold: threshold });
+  // Sent as a manual_update because the engine recomputes Champion Rush on
+  // every one of those -- the threshold changing has to re-crown, not wait
+  // for the next committed match.
+  ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { settings } } }));
+});
+
+/* ---------- preview & push ----------
+   The preview is the real overlay page in an iframe, connected to the same
+   relay, so it renders from the same state OBS gets rather than from a
+   mock-up that could drift from it. Each entry says which flag puts it on
+   air and which message toggles that flag; "always" means the graphic has
+   no push control of its own and shows whenever its data exists. */
+const FF_PREVIEWS = [
+  { id: "scoreboard", label: "Match Scoreboard", file: "freefire_scoreboard.html",
+    flag: "scoreboardVisible", show: "scoreboard_show", hide: "scoreboard_hide",
+    note: "Shares its browser source with the points table — pushing this pulls that down." },
+  { id: "points", label: "Overall Points Table", file: "freefire_scoreboard.html",
+    flag: "pointsTableVisible", show: "points_table_show", hide: "points_table_hide",
+    note: "Shares its browser source with the scoreboard — pushing this pulls that down." },
+  { id: "alive", label: "Live Alive Status", file: "freefire_alive_status.html",
+    flag: "aliveStatusVisible", show: "alive_status_show", hide: "alive_status_hide",
+    note: "Fed by the game log. Empty between matches, which is expected." },
+  { id: "booyah", label: "Booyah Team Stats", file: "freefire_booyah.html",
+    flag: "booyahStatsVisible", show: "booyah_stats_show", hide: "booyah_stats_hide",
+    note: "The winning squad of the last committed match." },
+  { id: "elim", label: "Team Eliminated", file: "freefire_team_eliminated.html",
+    flag: null, show: null, hide: "team_eliminated_hide",
+    note: "Fires by itself when a squad is wiped, and hides after a few seconds. Use the Live In-Game Ops tab to trigger one by hand." },
+  { id: "headshot", label: "Headshot Hunter", file: "freefire_headshot_hunter.html",
+    flag: null, show: null, hide: "headshot_hunter_hide",
+    note: "Triggered by hand from the Live In-Game Ops tab." },
+];
+
+function ffPreviewEntry(){
+  const id = document.getElementById("ff_previewPick").value;
+  return FF_PREVIEWS.find(p => p.id === id) || FF_PREVIEWS[0];
+}
+
+function ffPreviewUrl(entry){
+  const relay = localStorage.getItem("moba_relay") || "";
+  const token = localStorage.getItem("moba_token") || "";
+  let url = "../overlay/" + entry.file;
+  if(relay) url += "?relay=" + encodeURIComponent(relay) + "&token=" + encodeURIComponent(token);
+  return url;
+}
+
+function ffFitPreview(){
+  const wrap = document.getElementById("ff_previewFrameWrap");
+  const frame = document.getElementById("ff_previewFrame");
+  if(!wrap || !frame) return;
+  frame.style.transform = "scale(" + (wrap.clientWidth / 1920) + ")";
+}
+window.addEventListener("resize", ffFitPreview);
+
+function ffLoadPreview(){
+  const entry = ffPreviewEntry();
+  const frame = document.getElementById("ff_previewFrame");
+  frame.src = ffPreviewUrl(entry);
+  ffFitPreview();
+  document.getElementById("ff_previewNote").textContent = entry.note;
+  ffUpdatePreviewStatus();
+}
+
+function ffUpdatePreviewStatus(){
+  const entry = ffPreviewEntry();
+  const display = (ffState && ffState.display) || {};
+  const status = document.getElementById("ff_previewStatus");
+  const push = document.getElementById("ff_previewPush");
+  push.disabled = !entry.show;
+  if(!entry.flag){
+    status.textContent = "This one has no push control — it appears when it's triggered.";
+    return;
+  }
+  // The scoreboard defaults to on, matching the overlay: it predates the
+  // flag, so an unset value means visible rather than hidden.
+  const on = entry.id === "scoreboard"
+    ? display.scoreboardVisible !== false && !display.pointsTableVisible
+    : !!display[entry.flag];
+  status.textContent = on ? "Currently ON AIR." : "Not on air — preview only.";
+}
+
+document.getElementById("ff_previewPick").innerHTML =
+  FF_PREVIEWS.map(p => '<option value="' + p.id + '">' + ffEscapeHtml(p.label) + '</option>').join("");
+document.getElementById("ff_previewPick").addEventListener("change", ffLoadPreview);
+document.getElementById("ff_previewReload").addEventListener("click", ffLoadPreview);
+document.getElementById("ff_previewPush").addEventListener("click", () => {
+  const entry = ffPreviewEntry();
+  if(!entry.show || !(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffWs.send(JSON.stringify({ type: entry.show }));
+});
+document.getElementById("ff_previewPull").addEventListener("click", () => {
+  const entry = ffPreviewEntry();
+  if(!entry.hide || !(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffWs.send(JSON.stringify({ type: entry.hide }));
 });
 
 function ffRenderStandings(ff){

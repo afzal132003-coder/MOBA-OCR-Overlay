@@ -231,6 +231,16 @@ def default_state():
             # moment it happened rather than whenever someone noticed.
             "autoTeamEliminated": True,
             "autoFetchOnMatchEnd": True,
+            # Ignore everything the client logged before this moment.
+            # Two or three events can run on one machine in a day and the
+            # client keeps appending to the same log, so without a cutoff
+            # the 9pm show would inherit the 5pm one's matches, knockdowns
+            # and eliminations. Format matches the log's own timestamps,
+            # "YYYY-MM-DD HH:MM:SS"; blank means read the whole file.
+            "debuggerStartAt": "",
+            # Champion Rush: the points a team must reach before a Booyah
+            # can crown them. See compute_champion_rush.
+            "championRushThreshold": 110,
             # What happens to a result row that couldn't be resolved against
             # the roster (unknown team, or a UID/name that isn't registered).
             # "allow" keeps the row using whatever the file said; "flag"
@@ -277,6 +287,10 @@ def default_state():
         # overlay rather than showing itself whenever data changes.
         "display": {"scoreboardMode": "match", "pointsTableVisible": False,
                     "scoreboardVisible": True,
+                    # Champion Rush emblem beside an activated team's name.
+                    # Off by default: it is a format the operator opts into,
+                    # and the artwork may not exist in every package.
+                    "championRushBadgeVisible": False,
                     # The live 12-team side table overlay. Off by default:
                     # it belongs on air during a match, not between them.
                     "aliveStatusVisible": False,
@@ -309,6 +323,9 @@ def default_state():
         # offer. Rebuilt from live state rather than accumulated, so an
         # entry disappears the moment it stops being a problem.
         "pending": {"teams": [], "players": [], "squads": []},
+        # Derived from the committed matches -- see compute_champion_rush.
+        "championRush": {"threshold": 110, "activated": [], "champion": "",
+                         "championGame": None},
         # Raw OCR text only, refreshed every capture cycle once the
         # freefire_killfeed/freefire_sidetable regions are calibrated.
         # killfeedLastText/sidetableLastText stay as the raw OCR text (still
@@ -726,8 +743,15 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
     else:
         return [], offset, signals
 
+    # Compared as plain strings, which works because the client writes
+    # "[YYYY-MM-DD HH:MM:SS.mmm]" -- a format that sorts chronologically --
+    # and because a regex per line over a 26 MB file is not free.
+    cutoff = (server_state.get("settings", {}).get("debuggerStartAt") or "").strip()[:19]
+
     headshots = {}
     for line in complete.splitlines():
+        if cutoff and line[:1] == "[" and line[1:20] < cutoff:
+            continue
         join = DEBUGGER_JOIN_REGEX.search(line)
         if join:
             roll_over_if_finished()
@@ -1663,7 +1687,12 @@ def apply_roster_overrides(teams, roster):
         roster_team = match_roster_team(file_team_name, roster_teams)
         team["matched"] = roster_team is not None
         if roster_team:
-            team["teamName"] = roster_team.get("name") or file_team_name
+            # displayName is what goes on air; name stays the thing the
+            # matcher works against. They are separate so an operator can
+            # write "The MVPs" for the graphics without breaking the match
+            # against the file's "THE MVPS".
+            team["teamName"] = (roster_team.get("displayName")
+                                or roster_team.get("name") or file_team_name)
             team["shortName"] = roster_team.get("shortName") or ""
             team["logo"] = roster_team.get("logo") or ""
         for player in team.get("players", []):
@@ -1672,7 +1701,12 @@ def apply_roster_overrides(teams, roster):
             roster_player = match_roster_player(player, roster_team)
             player["matched"] = roster_player is not None
             if roster_player:
-                player["name"] = roster_player.get("ign") or file_player_name
+                # Same split as the team above: displayIgn is for air, ign
+                # is what the matcher uses, and the UID is untouched by
+                # either -- so a player can be shown under a different name
+                # without losing their identity across games.
+                player["name"] = (roster_player.get("displayIgn")
+                                  or roster_player.get("ign") or file_player_name)
                 player["photo"] = roster_player.get("photo") or ""
     record_pending_from_result(teams)
     return teams
@@ -1937,6 +1971,57 @@ def find_freefire_latest_safezone_file(folder, match_id):
     return (best[1], best[2]) if best else (None, None)
 
 
+def compute_champion_rush(matches, threshold=110):
+    """Champion Rush: reach the threshold, then win a game to be crowned.
+
+    Two separate things happen, in order. A team ACTIVATES the moment its
+    running total reaches the threshold. A team is CROWNED when it takes a
+    Booyah in a game it ENTERED already activated -- which is why the
+    points from a match are added only after that match's Booyah has been
+    checked. Crossing the line and winning in the same game activates but
+    does not crown; the win has to come afterwards, which is the whole
+    shape of the format.
+
+    Returns the activation order, who was crowned and in which game, and
+    each team's running total, so the dashboard can show how close the
+    rest are rather than only naming the leader."""
+    totals = {}
+    activated = []
+    activated_at = {}
+    champion, champion_game = "", None
+
+    for index, match in enumerate(matches, 1):
+        teams = match.get("teams", []) or []
+
+        if champion == "":
+            for team in teams:
+                name = (team.get("teamName") or "").strip()
+                if name and team.get("rank") == 1 and name in activated_at:
+                    champion, champion_game = name, index
+                    break
+
+        for team in teams:
+            name = (team.get("teamName") or "").strip()
+            if not name:
+                continue
+            totals[name] = totals.get(name, 0) + (team.get("totalScore") or 0)
+            if totals[name] >= threshold and name not in activated_at:
+                activated_at[name] = index
+                activated.append({"teamName": name, "game": index,
+                                  "points": totals[name]})
+
+    return {
+        "threshold": threshold,
+        "activated": activated,
+        "champion": champion,
+        "championGame": champion_game,
+        "totals": [{"teamName": n, "points": p,
+                    "activated": n in activated_at,
+                    "needs": max(0, threshold - p)}
+                   for n, p in sorted(totals.items(), key=lambda kv: -kv[1])],
+    }
+
+
 def compute_freefire_standings(matches):
     agg = {}
     for match in matches:
@@ -2169,6 +2254,7 @@ async def apply_loadout_capture(team_index, player_index, crops):
 
 
 async def handle_client(websocket, path=None):
+    global _debugger_offset, _debugger_path
     connected_clients.add(websocket)
     try:
         query = parse_qs(urlparse(websocket.request.path).query)
@@ -2196,6 +2282,10 @@ async def handle_client(websocket, path=None):
                     server_state.update(data["freefire"])
                     server_state["standings"] = compute_freefire_standings(
                         server_state.get("matches", [])
+                    )
+                    server_state["championRush"] = compute_champion_rush(
+                        server_state.get("matches", []),
+                        server_state.get("settings", {}).get("championRushThreshold", 110),
                     )
                     # Bootstrap the roster from committed results when it's
                     # still empty. A result file already carries exactly what
@@ -2345,6 +2435,29 @@ async def handle_client(websocket, path=None):
                 server_state["display"]["pointsTableVisible"] = False
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "freefire_debugger_cutoff":
+                # Everything derived from the log is per-match and rebuilt
+                # from it, so moving the cutoff has to drop what was
+                # derived under the old one -- otherwise the previous
+                # event's squads and scores sit in the live table until the
+                # next match happens to overwrite them.
+                cutoff = (payload.get("startAt") or "").strip()
+                server_state.setdefault("settings", {})["debuggerStartAt"] = cutoff
+                _live_match.clear()
+                _live_match.update(blank_live_match())
+                # Re-read from the top: the cutoff may have moved BACK, and
+                # the lines it now admits are behind the current offset.
+                # The catch-up pass this triggers is silent, so nothing
+                # from the newly-admitted stretch goes on air.
+                _debugger_path = None
+                _debugger_offset = 0
+                server_state["liveOps"]["sidetableRows"] = []
+                server_state["liveOps"]["killEvents"] = []
+                server_state["pending"]["squads"] = []
+                save_state()
+                print(f"[live] ignoring log entries before {cutoff or 'the start of the file'}")
+                await broadcast({"type": "state_sync", "data": server_state,
+                                 "locked": list(locked_fields)})
             elif payload.get("type") == "freefire_asset_name":
                 # Name one icon. Written straight through to names.json as
                 # well as the state, so the naming lives beside the artwork
@@ -2418,6 +2531,11 @@ async def handle_client(websocket, path=None):
                     save_state()
                     await broadcast({"type": "state_sync", "data": server_state,
                                      "locked": list(locked_fields)})
+            elif payload.get("type") in ("champion_badge_show", "champion_badge_hide"):
+                server_state["display"]["championRushBadgeVisible"] = (
+                    payload["type"] == "champion_badge_show")
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") in ("booyah_stats_show", "booyah_stats_hide"):
                 server_state["display"]["booyahStatsVisible"] = (
                     payload["type"] == "booyah_stats_show")
