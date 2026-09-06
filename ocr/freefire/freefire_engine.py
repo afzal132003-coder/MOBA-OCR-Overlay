@@ -232,6 +232,17 @@ def default_state():
         # fields (active/passive x3/pet/equipment); "loadoutScreenshot" is
         # the Num5-captured HUD card image -- see loadoutCapture below.
         "roster": {"teams": []},
+        # Operator-taught corrections for names the matcher cannot resolve
+        # on its own. "LT ESPORT" in a result file against "LT ESPORTS" in
+        # the roster is the everyday case; a player who changed IGN
+        # mid-event is the other. Kept separate from the roster so a roster
+        # re-import never wipes what was taught, and consulted BEFORE the
+        # fuzzy matcher, so an explicit mapping always wins over a guess.
+        "aliases": {"teams": {}, "players": {}, "squads": {}},
+        # What the system currently cannot resolve, for the Mapping tab to
+        # offer. Rebuilt from live state rather than accumulated, so an
+        # entry disappears the moment it stops being a problem.
+        "pending": {"teams": [], "players": [], "squads": []},
         # Raw OCR text only, refreshed every capture cycle once the
         # freefire_killfeed/freefire_sidetable regions are calibrated.
         # killfeedLastText/sidetableLastText stay as the raw OCR text (still
@@ -1432,12 +1443,39 @@ def normalize_for_match(value):
     return re.sub(r"[^a-z0-9]", "", (value or "").lower())
 
 
+def team_aliases():
+    return ((server_state.get("aliases") or {}).get("teams") or {})
+
+
+def player_aliases():
+    return ((server_state.get("aliases") or {}).get("players") or {})
+
+
+def squad_aliases():
+    """IGN -> roster team name, taught when an operator maps a squad the
+    matcher could not place. Squad resolution only ever needs to know which
+    team a player is on, so this is kept as its own map rather than being
+    forced through the roster's UID identity."""
+    return ((server_state.get("aliases") or {}).get("squads") or {})
+
+
 def match_roster_team(file_team_name, roster_teams):
     """Returns the roster team dict this result-file team name refers to,
-    or None if nothing matches confidently enough."""
+    or None if nothing matches confidently enough.
+
+    An operator-taught alias is checked first and short-circuits the rest:
+    the whole point of teaching one is that the automatic matching got it
+    wrong or gave up, so letting the fuzzy pass have another say would
+    defeat it."""
     target = normalize_for_match(file_team_name)
     if not target:
         return None
+
+    mapped = team_aliases().get(_ign_key(file_team_name))
+    if mapped:
+        for team in roster_teams:
+            if (team.get("name") or "").strip() == mapped:
+                return team
 
     candidates = []
     for team in roster_teams:
@@ -1542,7 +1580,40 @@ def apply_roster_overrides(teams, roster):
             if roster_player:
                 player["name"] = roster_player.get("ign") or file_player_name
                 player["photo"] = roster_player.get("photo") or ""
+    record_pending_from_result(teams)
     return teams
+
+
+def record_pending_from_result(teams):
+    """Files anything a result import could not resolve for the Mapping tab.
+
+    Merged rather than replaced, and keyed by the source name, so a team
+    that failed to match in game 3 is still offered after game 4 imports
+    cleanly -- an operator who was busy at the time can come back to it.
+    Anything the operator has since taught an alias for drops out."""
+    pending = server_state.setdefault(
+        "pending", {"teams": [], "players": [], "squads": []})
+    known_teams = team_aliases()
+    known_players = player_aliases()
+
+    by_name = {t["name"]: t for t in pending.get("teams", []) if t.get("name")}
+    by_ign = {p["ign"]: p for p in pending.get("players", []) if p.get("ign")}
+
+    for team in teams:
+        source = (team.get("fileTeamName") or "").strip()
+        if source and not team.get("matched") and _ign_key(source) not in known_teams:
+            by_name[source] = {"name": source, "seenAs": team.get("teamName", "")}
+        for player in team.get("players", []) or []:
+            ign = (player.get("fileName") or "").strip()
+            if ign and not player.get("matched") and _ign_key(ign) not in known_players:
+                by_ign[ign] = {
+                    "ign": ign,
+                    "uid": str(player.get("uid") or ""),
+                    "team": source,
+                }
+
+    pending["teams"] = sorted(by_name.values(), key=lambda t: t["name"].upper())
+    pending["players"] = sorted(by_ign.values(), key=lambda p: p["ign"].upper())
 
 
 def _ign_key(text):
@@ -1555,11 +1626,21 @@ def resolve_team_from_igns(igns, roster):
     A squad is identified by who is in it rather than by the number the
     client gave it, because those numbers are reassigned every match."""
     roster_teams = (roster or {}).get("teams", []) or []
+    aliases = player_aliases()
+    taught = squad_aliases()
     votes = {}
     for index, team in enumerate(roster_teams):
-        keys = {_ign_key(p.get("ign")) for p in (team.get("players") or [])}
+        name = (team.get("name") or "").strip()
         for ign in igns or []:
-            if _ign_key(ign) in keys:
+            if taught.get(_ign_key(ign)) == name:
+                votes[index] = votes.get(index, 0) + 1
+        keys = {_ign_key(p.get("ign")) for p in (team.get("players") or [])}
+        uids = {str(p.get("uid") or "").strip() for p in (team.get("players") or [])}
+        for ign in igns or []:
+            key = _ign_key(ign)
+            # A taught player mapping points at a UID, which is what
+            # actually identifies someone across an IGN change.
+            if key in keys or aliases.get(key) in uids:
                 votes[index] = votes.get(index, 0) + 1
     if not votes:
         return ""
@@ -1592,11 +1673,16 @@ def link_live_teams(live, roster):
             if key:
                 ign_to_team[key] = index
 
+    taught = squad_aliases()
+    name_to_index = {(t.get("name") or "").strip(): i
+                     for i, t in enumerate(roster_teams)}
     gs_to_roster = {}
     for gs_team, players in live.get("gsIgns", {}).items():
         votes = {}
         for ign in players.values():
             index = ign_to_team.get(_ign_key(ign))
+            if index is None:
+                index = name_to_index.get(taught.get(_ign_key(ign)))
             if index is not None:
                 votes[index] = votes.get(index, 0) + 1
         if votes:
@@ -1653,7 +1739,20 @@ def link_live_teams(live, roster):
     gs_names = {}
     for gs_team, index in gs_to_roster.items():
         gs_names[gs_team] = (roster_teams[index] or {}).get("name") or ""
-    return {"rows": rows, "gsNames": gs_names}
+
+    # Squads present in the match that no roster team claims. These are the
+    # ones whose alive count shows as unknown and whose elimination graphic
+    # is skipped, so they are exactly what the Mapping tab needs to offer.
+    unresolved = []
+    for gs_team, players in sorted(live.get("gsIgns", {}).items()):
+        if gs_team in gs_to_roster or not players:
+            continue
+        unresolved.append({
+            "gsTeam": gs_team,
+            "igns": sorted(players.values()),
+            "eliminated": gs_team in wiped,
+        })
+    return {"rows": rows, "gsNames": gs_names, "unresolved": unresolved}
 
 
 def parse_freefire_safezone(text):
@@ -2142,6 +2241,35 @@ async def handle_client(websocket, path=None):
                 server_state["display"]["pointsTableVisible"] = False
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "freefire_map_alias":
+                # Teach (or, with a blank target, forget) one mapping. Done
+                # as its own message rather than a manual_update so the
+                # matching pending entry is dropped in the same step -- a
+                # taught name that stayed on the to-do list would keep
+                # asking to be mapped forever.
+                kind = payload.get("kind")
+                source = (payload.get("source") or "").strip()
+                target = (payload.get("target") or "").strip()
+                if kind in ("teams", "players", "squads") and source:
+                    aliases = server_state.setdefault(
+                        "aliases", {"teams": {}, "players": {}, "squads": {}})
+                    table = aliases.setdefault(kind, {})
+                    if target:
+                        table[_ign_key(source)] = target
+                    else:
+                        table.pop(_ign_key(source), None)
+
+                    pending = server_state.setdefault(
+                        "pending", {"teams": [], "players": [], "squads": []})
+                    if kind == "teams":
+                        pending["teams"] = [t for t in pending.get("teams", [])
+                                            if _ign_key(t.get("name")) != _ign_key(source)]
+                    elif kind == "players":
+                        pending["players"] = [p for p in pending.get("players", [])
+                                              if _ign_key(p.get("ign")) != _ign_key(source)]
+                    save_state()
+                    await broadcast({"type": "state_sync", "data": server_state,
+                                     "locked": list(locked_fields)})
             elif payload.get("type") in ("alive_status_show", "alive_status_hide"):
                 server_state["display"]["aliveStatusVisible"] = (
                     payload["type"] == "alive_status_show")
@@ -2380,6 +2508,11 @@ async def ocr_loop():
                     if linked["rows"] and linked["rows"] != server_state["liveOps"].get("sidetableRows"):
                         server_state["liveOps"]["sidetableRows"] = linked["rows"]
                         server_state["liveOps"]["sidetableSource"] = "log"
+                        changed = True
+
+                    squads = linked.get("unresolved", [])
+                    if squads != server_state["pending"].get("squads"):
+                        server_state["pending"]["squads"] = squads
                         changed = True
 
                     if await handle_live_signals(signals, linked["gsNames"]):

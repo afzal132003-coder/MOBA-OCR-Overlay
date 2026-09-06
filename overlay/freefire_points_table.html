@@ -2,67 +2,72 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Free Fire Overall Standings</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
+<title>Free Fire Points Table</title>
 <style>
-  /*
-    Overall standings -- an OBS Browser Source driven by freefire_engine.py's
-    computed standings, drawn over the operator's own artwork
-    (assets/freefire/overall standings.png).
+  /* Overall standings.
+     ---------------------------------------------------------------
+     Draws on the graphics package the operator selected -- the artwork
+     comes from assets/freefire/<event.assetFolder>/POINTS TABLE.png,
+     not a fixed file, so a different company's event on the same day gets
+     its own design without this page being touched.
 
-    Geometry is MEASURED off that artwork rather than transcribed from a
-    design file: its gold header labels give the column centres, and the
-    twelve violet row plates give the row centres. An earlier version of
-    this page was built from a vMix .gtzip template instead, and converting
-    that template's coordinates put every row progressively out of
-    alignment -- the template renders the background through a scale the
-    numbers don't describe. Measuring the artwork is the only version that
-    lines up, so it's what this uses.
+     The layout is two blocks of six, ranks 1-6 on the left and 7-12 on the
+     right, which is what the artwork draws. Every coordinate below was
+     measured off that PNG rather than eyeballed: the header plate sits at
+     y 348..411, the six row rules fall at y 488, 567, 646, 725, 805 and
+     885, and the two blocks span x 93..949 and x 970..1826. Column
+     centres come from the header labels themselves, so the numbers sit
+     under the words that name them.
 
-    Rank numbers are drawn here (unlike the older artwork, this design
-    leaves the "#" column empty).
-  */
+     Note the earlier version of this page was a single column of twelve
+     rows, matching a different design. Swapping only the background image
+     would have left every value in the wrong place. */
 
-  html, body{
-    margin:0; padding:0; background:transparent; overflow:hidden;
-    width:1920px; height:1080px;
-    font-family:'Poppins','Segoe UI',Arial,sans-serif;
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');
+    font-weight: 800; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
+    font-weight: 900; font-style: normal;
   }
 
-  #stage{
-    position:relative; width:1920px; height:1080px;
-    opacity:0; transition:opacity 0.45s ease;
+  html, body {
+    margin: 0; padding: 0; background: transparent; overflow: hidden;
+    width: 1920px; height: 1080px;
+    font-family: 'TT Supermolot Neue Trial', Arial, sans-serif;
   }
-  #stage.visible{ opacity:1; }
 
-  .bg{ position:absolute; top:0; left:0; width:1920px; height:1080px; }
+  #stage { position: absolute; inset: 0; display: none; }
+  #stage.visible { display: block; }
 
-  .cell{
-    position:absolute;
-    display:flex; align-items:center; justify-content:center;
-    color:#ffffff;
-    font-weight:700;
-    font-size:26px;
-    line-height:1;
-    white-space:nowrap;
-    text-shadow:0 2px 4px rgba(0,0,0,0.55);
+  .bg { position: absolute; top: 0; left: 0; width: 1920px; height: 1080px; }
+
+  .cell {
+    position: absolute;
+    display: flex; align-items: center; justify-content: center;
+    color: #ffc400;
+    font-weight: 800; font-size: 25px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: .3px;
+    white-space: nowrap;
   }
-  .cell.rank{ font-size:27px; color:#ffc21f; }
-  /* Team names are left-aligned on their plate and clipped rather than
-     shrunk, so every row keeps one consistent type size no matter how long
-     a sponsor-laden name is. */
-  .cell.name{
-    justify-content:flex-start;
-    overflow:hidden; text-overflow:ellipsis; display:block;
+  .cell.name {
+    justify-content: flex-start;
+    color: #ffc400; font-weight: 800; font-size: 23px;
+    text-transform: uppercase;
+    line-height: 1.05;
+    white-space: normal;       /* a long name wraps rather than clipping */
+    overflow: hidden;
   }
 </style>
 </head>
 <body>
 
 <div id="stage">
-  <img class="bg" id="bg" src="assets/freefire/overall standings.png" alt="">
+  <img class="bg" id="bg" alt="">
 </div>
 
 <script>
@@ -75,79 +80,45 @@ const WS_URL = _relay
   ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_points_table"
   : "ws://localhost:8765?page=freefire_points_table";
 
-// Column centres, measured from the artwork's own gold header labels.
-const COL_CENTRE = {
-  rank: 407,
-  matches: 831,
-  booyah: 986,
-  placement: 1147,
-  kills: 1307,
-  total: 1466,
-};
-// The team-name plate runs from the rank column to where MATCHES PLAYED
-// begins; text is inset slightly so it doesn't touch the plate's edge.
-const NAME_X = 470;
-const NAME_W = 285;
+/* Measured from POINTS TABLE.png -- see the note at the top. */
+const ROW_CENTRE = [450, 528, 607, 686, 766, 846];
+const ROW_H = 62;
+/* No rank column: 01..12 are already printed in the artwork, so a row is
+   ranked by the slot it occupies. Drawing them again put a second set of
+   digits on top of the first. */
+const BLOCKS = [
+  { name: 200,  nameW: 178, matches: 430,  booyah: 588,  finishes: 760,  total: 902  },
+  { name: 1072, nameW: 178, matches: 1302, booyah: 1460, finishes: 1632, total: 1773 },
+];
 const NUM_W = 150;
-
-// Row centres, from the twelve violet plates in the artwork.
-const ROW_CENTRE = [314, 376, 439, 500, 562, 625, 687, 749, 812, 873, 936, 998];
-const ROW_H = 44;
-const TEAMS = ROW_CENTRE.length;
+const PER_BLOCK = ROW_CENTRE.length;
+const TEAMS = PER_BLOCK * BLOCKS.length;
 
 const stage = document.getElementById("stage");
-ROW_CENTRE.forEach((cy, i) => {
-  const top = cy - ROW_H / 2;
-  const mk = (field, left, width, cls) => {
-    const el = document.createElement("div");
-    el.id = `pt-${i}-${field}`;
-    el.className = "cell" + (cls ? " " + cls : "");
-    el.style.left = left + "px";
-    el.style.top = top + "px";
-    el.style.width = width + "px";
-    el.style.height = ROW_H + "px";
-    if(cls === "name") el.style.lineHeight = ROW_H + "px";
-    stage.appendChild(el);
-  };
-  mk("rank", COL_CENTRE.rank - NUM_W / 2, NUM_W, "rank");
-  mk("name", NAME_X, NAME_W, "name");
-  ["matches", "booyah", "placement", "kills", "total"].forEach(f => {
-    mk(f, COL_CENTRE[f] - NUM_W / 2, NUM_W);
+BLOCKS.forEach((col, b) => {
+  ROW_CENTRE.forEach((cy, r) => {
+    const i = b * PER_BLOCK + r;
+    const top = cy - ROW_H / 2;
+    const mk = (field, left, width, cls) => {
+      const el = document.createElement("div");
+      el.id = "pt-" + i + "-" + field;
+      el.className = "cell" + (cls ? " " + cls : "");
+      el.style.left = left + "px";
+      el.style.top = top + "px";
+      el.style.width = width + "px";
+      el.style.height = ROW_H + "px";
+      stage.appendChild(el);
+    };
+    mk("name", col.name, col.nameW, "name");
+    ["matches", "booyah", "finishes", "total"].forEach(f => {
+      mk(f, col[f] - NUM_W / 2, NUM_W);
+    });
   });
 });
 
 function setText(i, field, value){
-  const el = document.getElementById(`pt-${i}-${field}`);
+  const el = document.getElementById("pt-" + i + "-" + field);
   if(el) el.textContent = value;
-}
-
-function applyState(state){
-  const ff = state || {};
-  document.getElementById("stage").classList.toggle(
-    "visible", !!(ff.display && ff.display.pointsTableVisible)
-  );
-
-  const standings = ff.standings || [];
-  for(let i = 0; i < TEAMS; i++){
-    const row = standings[i];
-    if(!row){
-      // Blank, not zeros. An unused slot means "no team here"; printing 00s
-      // would read as a team that played and scored nothing. The rank
-      // number goes too, so the table visibly ends where the field does.
-      ["rank","name","matches","booyah","placement","kills","total"]
-        .forEach(f => setText(i, f, ""));
-      continue;
-    }
-    setText(i, "rank", String(i + 1).padStart(2, "0"));
-    // Short name preferred -- the plate fits roughly 14 characters, and a
-    // full sponsor-laden name would clip.
-    setText(i, "name", (row.shortName || row.teamName || "").toUpperCase());
-    setText(i, "matches", row.matches || 0);
-    setText(i, "booyah", row.booyahs || 0);
-    setText(i, "placement", row.placementPoints || 0);
-    setText(i, "kills", row.totalKills || 0);
-    setText(i, "total", row.totalPoints || 0);
-  }
 }
 
 let ws;
@@ -160,6 +131,40 @@ function connect(){
   ws.onclose = () => setTimeout(connect, 2000);
   ws.onerror = () => ws.close();
 }
+
+function applyState(state){
+  const ff = state || {};
+  document.getElementById("stage").classList.toggle(
+    "visible", !!(ff.display && ff.display.pointsTableVisible)
+  );
+
+  const folder = (ff.event && ff.event.assetFolder) || "CLT";
+  const src = "assets/freefire/" + folder + "/POINTS TABLE.png";
+  const bg = document.getElementById("bg");
+  if(bg.getAttribute("src") !== src) bg.src = src;
+
+  const standings = ff.standings || [];
+  for(let i = 0; i < TEAMS; i++){
+    const row = standings[i];
+    if(!row){
+      // Blank, not zeros. An unused slot means "no team here"; printing 0s
+      // would read as a team that played and scored nothing. The rank
+      // number goes too, so the table visibly ends where the field does.
+      ["name", "matches", "booyah", "finishes", "total"]
+        .forEach(f => setText(i, f, ""));
+      continue;
+    }
+    setText(i, "name", (row.teamName || row.shortName || "").toUpperCase());
+    setText(i, "matches", row.matches || 0);
+    setText(i, "booyah", row.booyahs || 0);
+    // "Finishes" on this design is the kill total -- the artwork's own
+    // wording for it. Placement points are folded into TOTAL, which is
+    // what the column beside it shows.
+    setText(i, "finishes", row.totalKills || 0);
+    setText(i, "total", row.totalPoints || 0);
+  }
+}
+
 connect();
 </script>
 </body>

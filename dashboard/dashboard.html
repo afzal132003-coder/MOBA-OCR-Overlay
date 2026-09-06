@@ -62,6 +62,21 @@
   .tabbar button.active, .ff-tab-btn.active, .val-tab-btn.active{
     background:linear-gradient(180deg,#8b7bff,#6d59f5);color:#0a0d18;border-color:transparent;
   }
+  .ff-pending-dot{display:none;}
+  .ff-pending-dot.on{
+    display:inline-block;min-width:18px;padding:0 5px;margin-left:6px;
+    border-radius:9px;background:#e0a44a;color:#1b1408;
+    font-size:11px;font-weight:700;line-height:18px;text-align:center;vertical-align:middle;
+  }
+  .ff-map-row{
+    display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+    padding:10px 0;border-top:1px solid #2b3348;
+  }
+  .ff-map-row:first-child{border-top:none;}
+  .ff-map-what{flex:1 1 260px;min-width:220px;}
+  .ff-map-what b{display:block;font-size:14px;}
+  .ff-map-what span{color:#6b7590;font-size:12px;}
+  .ff-map-row select{min-width:210px;}
   .tab-panel, .ff-tab-panel, .val-tab-panel{display:none;background:transparent;padding-top:4px;}
   .tab-panel.active, .ff-tab-panel.active, .val-tab-panel.active{display:block;}
 
@@ -1473,6 +1488,8 @@
     <button class="ff-tab-btn active" data-fftab="prematch">Pre-Match</button>
     <button class="ff-tab-btn" data-fftab="liveops">Live In-Game Ops</button>
     <button class="ff-tab-btn" data-fftab="postmatch">Post-Match</button>
+    <button class="ff-tab-btn" data-fftab="mapping">Mapping <span class="ff-pending-dot" id="ff_mappingCount"></span></button>
+    <button class="ff-tab-btn" data-fftab="graphic">Graphic</button>
   </div>
 
   <!-- ===================== PRE-MATCH ===================== -->
@@ -1507,11 +1524,6 @@
         </div>
       </div>
       <div class="row" style="gap:16px;margin-top:10px;">
-        <div class="team-form" style="max-width:260px;">
-          <label>Graphics package</label>
-          <input type="text" id="ff_assetFolder" placeholder="CLT" list="ff_assetFolderList">
-          <datalist id="ff_assetFolderList"><option value="CLT"></datalist>
-        </div>
         <div class="team-form" style="max-width:520px;">
           <label>Automatic on-air actions</label>
           <label class="hint" style="display:block;margin-top:4px;">
@@ -1524,11 +1536,9 @@
           </label>
         </div>
       </div>
-      <p class="hint" style="margin-top:6px;">Graphics package is the folder under
-        <code>overlay/assets/freefire/</code> every Free Fire overlay draws its artwork from — set it per event, so
-        two companies running on the same day each get their own look. The elimination graphic reads the wipe
-        straight out of the game client, so it lands while the kill is still on screen; untick it if you would
-        rather call it by hand.</p>
+      <p class="hint" style="margin-top:6px;">The elimination graphic reads the wipe straight out of the game
+        client, so it lands while the kill is still on screen; untick it if you would rather call it by hand.
+        The artwork these use is set on the <strong>Graphic</strong> tab.</p>
       <div class="row" style="gap:16px;margin-top:10px;">
         <div class="team-form" style="max-width:420px;">
           <label>Unregistered teams/players in a result</label>
@@ -1724,6 +1734,67 @@
       <h2>Overall Standings</h2>
       <p class="hint" id="ff_standingsEmpty">No matches committed yet.</p>
       <div id="ff_standingsTable" style="overflow-x:auto;"></div>
+    </div>
+  </div>
+
+  <!-- ===================== MAPPING ===================== -->
+  <div class="ff-tab-panel" id="fftab-mapping">
+    <div class="card">
+      <h2>Mapping</h2>
+      <p class="hint">Everything the system currently can't place on its own. A squad it can't name has no
+        elimination graphic and no alive count; a team or player it can't match doesn't reach the standings under
+        the right name. Map it once here and it stays mapped — these are kept separate from the roster, so
+        re-importing a roster never wipes them.</p>
+      <div id="ff_mappingEmpty" class="hint">Nothing pending — everything in the current match and the imported
+        results resolved on its own.</div>
+    </div>
+
+    <div class="card" id="ff_mapSquadsCard" style="display:none;">
+      <h2>Squads in this match</h2>
+      <p class="hint">Live from the game log. These squads are playing right now but no roster team claims their
+        players, so they're the ones missing from the alive table.</p>
+      <div id="ff_mapSquads"></div>
+    </div>
+
+    <div class="card" id="ff_mapTeamsCard" style="display:none;">
+      <h2>Team names from result files</h2>
+      <p class="hint">The name in the file didn't match any roster team confidently enough to use.</p>
+      <div id="ff_mapTeams"></div>
+    </div>
+
+    <div class="card" id="ff_mapPlayersCard" style="display:none;">
+      <h2>Players from result files</h2>
+      <p class="hint">Usually an IGN change mid-event. Mapping to a roster player keys on their UID, which survives
+        further name changes.</p>
+      <div id="ff_mapPlayers"></div>
+    </div>
+
+    <div class="card" id="ff_mapTaughtCard" style="display:none;">
+      <h2>Mapped so far</h2>
+      <p class="hint">Taught mappings win over the automatic matcher. Remove one to hand it back.</p>
+      <div id="ff_mapTaught"></div>
+    </div>
+  </div>
+
+  <!-- ===================== GRAPHIC ===================== -->
+  <div class="ff-tab-panel" id="fftab-graphic">
+    <div class="card">
+      <h2>Graphics Package</h2>
+      <p class="hint">The folder under <code>overlay/assets/freefire/</code> every Free Fire overlay draws its
+        artwork from. Two or three companies' events can run on the same day with different graphics, so each one
+        gets its own folder and you name it here — the overlays follow without being reconfigured.</p>
+      <div class="row" style="gap:16px;align-items:flex-end;">
+        <div class="team-form" style="max-width:280px;">
+          <label>Folder name</label>
+          <input type="text" id="ff_assetFolder" placeholder="CLT" list="ff_assetFolderList">
+          <datalist id="ff_assetFolderList"><option value="CLT"></datalist>
+        </div>
+        <button id="ff_assetFolderSave">Use This Package</button>
+      </div>
+      <div class="hint" id="ff_assetFolderStatus" style="margin-top:8px;"></div>
+      <p class="hint" style="margin-top:10px;">Expected inside it:
+        <code>ALIVE STATUS.png</code>, <code>1_alive.png</code>–<code>4_alive.png</code>, <code>Dead.png</code>,
+        <code>elims.png</code>, <code>POINTS TABLE.png</code>, <code>TOP 4 ALIVE.png</code>.</p>
     </div>
 
     <div class="card">
@@ -4422,6 +4493,7 @@ function ffConnect(){
       ffRenderLoadouts(ffState);
       ffRenderLoadoutCapture(ffState);
       ffRenderEvent(ffState);
+      ffRenderMapping(ffState);
       ffBuildPopupDropdowns(ffState);
     } else if(msg.type === "crop_preview"){
       const img = document.getElementById(`crop-${msg.region}`);
@@ -5320,6 +5392,140 @@ document.getElementById("ff_commitMatch").addEventListener("click", () => {
 });
 
 let ffLastStandingsKey = "";
+
+/* ---------- Mapping tab ----------
+   Three kinds of unresolved thing, all rendered the same way: what it is,
+   a dropdown of what it could be, and a button that teaches it. The count
+   on the tab button exists so an operator doesn't have to open the tab to
+   find out whether anything needs them -- during a match, a squad that
+   can't be named is silently missing from the alive table, which is easy
+   not to notice until the graphic is already on air. */
+let ffLastMappingKey = "";
+
+function ffTeamOptions(ff){
+  const teams = ((ff.roster && ff.roster.teams) || []).filter(t => t.name);
+  return ['<option value="">-- pick a team --</option>'].concat(
+    teams.map(t => '<option value="' + ffEscapeHtml(t.name) + '">' +
+      ffEscapeHtml(t.name) + '</option>')).join("");
+}
+
+function ffPlayerOptions(ff){
+  const teams = ((ff.roster && ff.roster.teams) || []).filter(t => t.name);
+  return ['<option value="">-- pick a player --</option>'].concat(teams.map(t => {
+    const players = (t.players || []).filter(p => p.ign && p.uid);
+    if(!players.length) return "";
+    return '<optgroup label="' + ffEscapeHtml(t.name) + '">' + players.map(p =>
+      '<option value="' + ffEscapeHtml(String(p.uid)) + '">' + ffEscapeHtml(p.ign) +
+      '</option>').join("") + '</optgroup>';
+  })).join("");
+}
+
+function ffSendAlias(kind, source, target){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffWs.send(JSON.stringify({ type: "freefire_map_alias", kind: kind, source: source, target: target }));
+}
+
+function ffRenderMapping(ff){
+  const pending = ff.pending || {};
+  const aliases = ff.aliases || {};
+  const squads = pending.squads || [];
+  const teams = pending.teams || [];
+  const players = pending.players || [];
+  const taught = []
+    .concat(Object.entries(aliases.squads || {}).map(e => ["squads", e[0], e[1]]))
+    .concat(Object.entries(aliases.teams || {}).map(e => ["teams", e[0], e[1]]))
+    .concat(Object.entries(aliases.players || {}).map(e => ["players", e[0], e[1]]));
+
+  // Rebuilding on every state_sync would wipe a half-made selection out
+  // from under the operator -- the engine syncs on nearly every kill.
+  const key = JSON.stringify([squads, teams, players, taught,
+    ((ff.roster && ff.roster.teams) || []).map(t => t.name)]);
+  if(key === ffLastMappingKey) return;
+  ffLastMappingKey = key;
+
+  const total = squads.length + teams.length + players.length;
+  const dot = document.getElementById("ff_mappingCount");
+  dot.textContent = total || "";
+  dot.classList.toggle("on", total > 0);
+  document.getElementById("ff_mappingEmpty").style.display = total ? "none" : "block";
+
+  document.getElementById("ff_mapSquadsCard").style.display = squads.length ? "block" : "none";
+  document.getElementById("ff_mapSquads").innerHTML = squads.map(sq =>
+    '<div class="ff-map-row">' +
+      '<div class="ff-map-what"><b>Squad ' + sq.gsTeam +
+        (sq.eliminated ? " - already eliminated" : "") + '</b>' +
+        '<span>' + ((sq.igns || []).map(ffEscapeHtml).join(", ") || "no players seen yet") + '</span></div>' +
+      '<select data-kind="squads" data-source="' + ffEscapeHtml((sq.igns || []).join("|")) + '">' +
+        ffTeamOptions(ff) + '</select>' +
+      '<button class="secondary ff-map-go">Map</button>' +
+    '</div>').join("");
+
+  document.getElementById("ff_mapTeamsCard").style.display = teams.length ? "block" : "none";
+  document.getElementById("ff_mapTeams").innerHTML = teams.map(t =>
+    '<div class="ff-map-row">' +
+      '<div class="ff-map-what"><b>' + ffEscapeHtml(t.name) + '</b>' +
+        '<span>from a result file' +
+        (t.seenAs && t.seenAs !== t.name ? ", currently shown as " + ffEscapeHtml(t.seenAs) : "") +
+        '</span></div>' +
+      '<select data-kind="teams" data-source="' + ffEscapeHtml(t.name) + '">' +
+        ffTeamOptions(ff) + '</select>' +
+      '<button class="secondary ff-map-go">Map</button>' +
+    '</div>').join("");
+
+  document.getElementById("ff_mapPlayersCard").style.display = players.length ? "block" : "none";
+  document.getElementById("ff_mapPlayers").innerHTML = players.map(p =>
+    '<div class="ff-map-row">' +
+      '<div class="ff-map-what"><b>' + ffEscapeHtml(p.ign) + '</b>' +
+        '<span>UID ' + ffEscapeHtml(p.uid || "unknown") +
+        (p.team ? " - listed under " + ffEscapeHtml(p.team) : "") + '</span></div>' +
+      '<select data-kind="players" data-source="' + ffEscapeHtml(p.ign) + '">' +
+        ffPlayerOptions(ff) + '</select>' +
+      '<button class="secondary ff-map-go">Map</button>' +
+    '</div>').join("");
+
+  document.getElementById("ff_mapTaughtCard").style.display = taught.length ? "block" : "none";
+  document.getElementById("ff_mapTaught").innerHTML = taught.map(row =>
+    '<div class="ff-map-row">' +
+      '<div class="ff-map-what"><b>' + ffEscapeHtml(row[1]) + '</b><span>' +
+        (row[0] === "players" ? "player to UID " : row[0] === "squads" ? "squad player to " : "team to ") +
+        ffEscapeHtml(row[2]) + '</span></div>' +
+      '<button class="secondary ff-map-forget" data-kind="' + row[0] +
+        '" data-source="' + ffEscapeHtml(row[1]) + '">Remove</button>' +
+    '</div>').join("");
+}
+
+document.addEventListener("click", (e) => {
+  const go = e.target.closest(".ff-map-go");
+  if(go){
+    const row = go.closest(".ff-map-row");
+    const sel = row.querySelector("select");
+    if(!sel || !sel.value) return;
+    const kind = sel.dataset.kind;
+    if(kind === "squads"){
+      // A squad is taught one player at a time: what resolution actually
+      // needs is "this IGN is on that team", and every member is evidence.
+      sel.dataset.source.split("|").filter(Boolean)
+        .forEach(ign => ffSendAlias("squads", ign, sel.value));
+    } else {
+      ffSendAlias(kind, sel.dataset.source, sel.value);
+    }
+    go.textContent = "Mapped";
+    go.disabled = true;
+    return;
+  }
+  const forget = e.target.closest(".ff-map-forget");
+  if(forget) ffSendAlias(forget.dataset.kind, forget.dataset.source, "");
+});
+
+document.getElementById("ff_assetFolderSave").addEventListener("click", () => {
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  const folder = document.getElementById("ff_assetFolder").value.trim() || "CLT";
+  const event = Object.assign({}, (ffState && ffState.event) || {}, { assetFolder: folder });
+  ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { event: event } } }));
+  document.getElementById("ff_assetFolderStatus").textContent =
+    "Overlays now drawing from overlay/assets/freefire/" + folder +
+    "/ - refresh the OBS sources if they were already open.";
+});
 
 function ffRenderStandings(ff){
   const standings = ff.standings || [];
