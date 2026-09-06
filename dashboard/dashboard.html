@@ -77,6 +77,22 @@
   .ff-map-what b{display:block;font-size:14px;}
   .ff-map-what span{color:#6b7590;font-size:12px;}
   .ff-map-row select{min-width:210px;}
+  .ff-asset{
+    display:flex;gap:9px;align-items:center;
+    padding:7px 9px;border:1px solid #2b3348;border-radius:6px;background:#141a2b;
+  }
+  .ff-asset img{width:44px;height:44px;object-fit:contain;background:#0a0d18;border-radius:4px;flex:0 0 auto;}
+  .ff-asset .meta{flex:1 1 auto;min-width:0;}
+  .ff-asset code{display:block;color:#6b7590;font-size:10.5px;}
+  .ff-asset input{width:100%;margin-top:3px;font-size:12px;padding:3px 6px;}
+  .ff-asset.named{border-color:#3d5a44;}
+  .ff-char-pick{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid #2b3348;}
+  .ff-char-pick:first-child{border-top:none;}
+  .ff-char-pick img{width:46px;height:46px;object-fit:contain;background:#0a0d18;border-radius:4px;}
+  .ff-char-pick .who{flex:1 1 180px;min-width:150px;}
+  .ff-char-pick .who b{display:block;font-size:14px;}
+  .ff-char-pick .who span{color:#6b7590;font-size:12px;}
+  .ff-char-pick select{min-width:220px;}
   .tab-panel, .ff-tab-panel, .val-tab-panel{display:none;background:transparent;padding-top:4px;}
   .tab-panel.active, .ff-tab-panel.active, .val-tab-panel.active{display:block;}
 
@@ -1767,6 +1783,33 @@
       <p class="hint">Usually an IGN change mid-event. Mapping to a roster player keys on their UID, which survives
         further name changes.</p>
       <div id="ff_mapPlayers"></div>
+    </div>
+
+    <div class="card">
+      <h2>Booyah Card Characters</h2>
+      <p class="hint">The winning squad of the last committed match. A player the Num5 capture missed shows an
+        empty frame on the graphic — pick their character here instead. A manual pick is marked as such, so a
+        later real capture visibly replaces a human decision rather than quietly agreeing with it.</p>
+      <div id="ff_charPickers" class="hint">No match committed yet — there's no Booyah squad to fill in.</div>
+    </div>
+
+    <div class="card">
+      <h2>Character &amp; Equipment Names</h2>
+      <p class="hint">The asset dump is named by Free Fire's own numeric ids, which nobody can pick from a
+        dropdown. Name each one once and it becomes selectable everywhere. Saved to
+        <code>overlay/assets/FFM/names.json</code> as well as to the engine, so the work survives a reset and
+        moves between machines.</p>
+      <div class="row" style="gap:12px;align-items:flex-end;">
+        <div class="team-form" style="max-width:260px;">
+          <label>Filter</label>
+          <input type="text" id="ff_assetFilter" placeholder="name or id">
+        </div>
+        <label class="hint" style="padding-bottom:8px;">
+          <input type="checkbox" id="ff_assetUnnamedOnly"> Only show unnamed
+        </label>
+        <div class="hint" id="ff_assetCount" style="padding-bottom:8px;"></div>
+      </div>
+      <div id="ff_assetGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-top:12px;"></div>
     </div>
 
     <div class="card" id="ff_mapTaughtCard" style="display:none;">
@@ -4507,6 +4550,8 @@ function ffConnect(){
       ffRenderLoadoutCapture(ffState);
       ffRenderEvent(ffState);
       ffRenderMapping(ffState);
+      ffRenderAssets(ffState);
+      ffRenderCharPickers(ffState);
       ffBuildPopupDropdowns(ffState);
     } else if(msg.type === "crop_preview"){
       const img = document.getElementById(`crop-${msg.region}`);
@@ -5538,6 +5583,162 @@ document.getElementById("ff_assetFolderSave").addEventListener("click", () => {
   document.getElementById("ff_assetFolderStatus").textContent =
     "Overlays now drawing from overlay/assets/freefire/" + folder +
     "/ - refresh the OBS sources if they were already open.";
+});
+
+/* ---------- character & equipment naming ----------
+   The dump ships as 84 files named by Free Fire's numeric asset ids, with
+   an empty names.json beside them waiting to be filled: 80 characters
+   (101xxxxxx female, 102xxxxxx male) and 4 equipment icons. No pets are
+   in the dump at all, so nothing here offers a pet slot until some are.
+
+   Naming is what makes the manual picker usable -- an operator cannot
+   choose "102000031" from a dropdown, but they can choose "Alok". */
+const FF_ASSET_KIND = id =>
+  /^10[12]/.test(id) ? "character" : (/^\d+$/.test(id) ? "unknown" : "equipment");
+
+let ffAssetIds = null;          // discovered once, then cached
+let ffLastAssetKey = "";
+
+function ffAssetSrc(id){ return "../overlay/assets/FFM/" + id + ".png"; }
+
+/* The dashboard has no directory listing, so the id list comes from the
+   engine's own state the first time it sends one; until then the grid
+   says so rather than rendering empty. */
+function ffRenderAssets(ff){
+  const names = ff.assetNames || {};
+  const ids = (ff.assetCatalogue || []).map(e => e.id);
+  const filter = (document.getElementById("ff_assetFilter").value || "").toLowerCase().trim();
+  const unnamedOnly = document.getElementById("ff_assetUnnamedOnly").checked;
+
+  const key = JSON.stringify([ids, names, filter, unnamedOnly]);
+  if(key === ffLastAssetKey) return;
+  ffLastAssetKey = key;
+
+  const named = ids.filter(id => names[id]).length;
+  document.getElementById("ff_assetCount").textContent = ids.length
+    ? `${named} of ${ids.length} named — ` +
+      `${ids.filter(i => FF_ASSET_KIND(i) === "character").length} characters, ` +
+      `${ids.filter(i => FF_ASSET_KIND(i) === "equipment").length} equipment, no pets in the dump`
+    : "Waiting for the engine — restart it if this stays empty.";
+
+  const shown = ids.filter(id => {
+    if(unnamedOnly && names[id]) return false;
+    if(!filter) return true;
+    return id.toLowerCase().includes(filter) ||
+           (names[id] || "").toLowerCase().includes(filter);
+  });
+
+  document.getElementById("ff_assetGrid").innerHTML = shown.map(id =>
+    '<div class="ff-asset' + (names[id] ? ' named' : '') + '">' +
+      '<img src="' + ffAssetSrc(id) + '" alt="" loading="lazy">' +
+      '<div class="meta"><code>' + ffEscapeHtml(id) + '</code>' +
+        '<input type="text" class="ff-asset-name" data-id="' + ffEscapeHtml(id) + '" ' +
+        'value="' + ffEscapeHtml(names[id] || "") + '" placeholder="name it"></div>' +
+    '</div>').join("");
+}
+
+document.getElementById("ff_assetFilter").addEventListener("input", () => {
+  if(ffState) ffRenderAssets(ffState);
+});
+document.getElementById("ff_assetUnnamedOnly").addEventListener("change", () => {
+  if(ffState) ffRenderAssets(ffState);
+});
+
+document.addEventListener("change", (e) => {
+  const input = e.target.closest(".ff-asset-name");
+  if(!input) return;
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffWs.send(JSON.stringify({
+    type: "freefire_asset_name",
+    assetId: input.dataset.id,
+    name: input.value.trim(),
+  }));
+});
+
+/* ---------- manual character pick for the Booyah card ---------- */
+let ffLastCharKey = "";
+
+function ffCharacterOptions(ff, selected){
+  const names = ff.assetNames || {};
+  const ids = (ff.assetCatalogue || [])
+    .filter(e => e.kind === "character").map(e => e.id);
+  // Named ones first and alphabetical; the rest by id, so an unnamed
+  // library is still usable while the naming is being done.
+  const withName = ids.filter(id => names[id])
+    .sort((a, b) => names[a].localeCompare(names[b]));
+  const without = ids.filter(id => !names[id]);
+  const opt = id => '<option value="' + id + '"' +
+    (id === selected ? " selected" : "") + '>' +
+    ffEscapeHtml(names[id] || id) + '</option>';
+  return '<option value="">— no character —</option>' +
+    withName.map(opt).join("") +
+    (without.length ? '<optgroup label="Unnamed">' + without.map(opt).join("") + '</optgroup>' : "");
+}
+
+function ffRenderCharPickers(ff){
+  const matches = ff.matches || [];
+  const latest = matches.length ? matches[matches.length - 1] : null;
+  const winner = latest && (latest.teams || []).slice()
+    .sort((a, b) => (a.rank || 99) - (b.rank || 99))[0];
+  const box = document.getElementById("ff_charPickers");
+  if(!winner){
+    box.className = "hint";
+    box.textContent = "No match committed yet — there's no Booyah squad to fill in.";
+    ffLastCharKey = "";
+    return;
+  }
+
+  const game = String(matches.length);
+  const names = ff.assetNames || {};
+  const players = (winner.players || []).slice(0, 4).map(p => {
+    const rp = ((((ff.roster || {}).teams) || [])
+      .find(t => (t.name || "").trim().toUpperCase() ===
+        (winner.teamName || "").trim().toUpperCase()) || {});
+    const rosterPlayer = ((rp.players) || []).find(
+      x => String(x.uid || "") === String(p.uid || "")) || null;
+    const slot = rosterPlayer && rosterPlayer.loadouts &&
+      rosterPlayer.loadouts[game] && rosterPlayer.loadouts[game].slots &&
+      rosterPlayer.loadouts[game].slots.active;
+    return {
+      name: p.name, uid: p.uid,
+      label: (slot && slot.label) || "",
+      manual: !!(slot && slot.manual),
+    };
+  });
+
+  const key = JSON.stringify([game, winner.teamName, players, names,
+    (ff.assetCatalogue || []).length]);
+  if(key === ffLastCharKey) return;
+  ffLastCharKey = key;
+
+  box.className = "";
+  box.innerHTML = '<p class="hint" style="margin:0 0 8px;">' +
+    ffEscapeHtml(winner.teamName || "") + ' — game ' + game + '</p>' +
+    players.map(p =>
+    '<div class="ff-char-pick">' +
+      (p.label
+        ? '<img src="' + ffAssetSrc(p.label) + '" alt="">'
+        : '<img alt="">') +
+      '<div class="who"><b>' + ffEscapeHtml(p.name || "") + '</b>' +
+        '<span>' + (p.label
+            ? (p.manual ? "picked by hand" : "identified from the capture")
+            : "not captured") + '</span></div>' +
+      '<select class="ff-char-sel" data-uid="' + ffEscapeHtml(String(p.uid || "")) +
+        '" data-game="' + game + '">' + ffCharacterOptions(ff, p.label) + '</select>' +
+    '</div>').join("");
+}
+
+document.addEventListener("change", (e) => {
+  const sel = e.target.closest(".ff-char-sel");
+  if(!sel) return;
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffWs.send(JSON.stringify({
+    type: "freefire_set_character",
+    uid: sel.dataset.uid,
+    gameNumber: sel.dataset.game,
+    slot: "active",
+    label: sel.value,
+  }));
 });
 
 function ffRenderStandings(ff){

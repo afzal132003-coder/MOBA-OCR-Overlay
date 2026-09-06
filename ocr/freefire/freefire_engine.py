@@ -115,6 +115,59 @@ FREEFIRE_ICON_LIBRARIES = {
 # that convention fits the dump as it already exists rather than making
 # the operator reorganise 84 files to suit the code.
 FREEFIRE_ASSETS_DIR = Path(__file__).parent.parent.parent / "overlay" / "assets" / "FFM"
+
+ASSET_NAMES_PATH = FREEFIRE_ASSETS_DIR / "names.json"
+
+
+def load_asset_names():
+    """Reads assets/FFM/names.json, the dump's own id -> name stub.
+
+    Returns {} rather than raising if it is missing or malformed: naming is
+    a convenience layered on top of the icon matching, and a bad file
+    should cost the operator a dropdown label, not the engine."""
+    try:
+        with open(ASSET_NAMES_PATH, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+        return {str(k): str(v) for k, v in data.items() if isinstance(data, dict)}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def save_asset_names(names):
+    """Writes the naming back beside the artwork it describes.
+
+    Every id in the folder is kept as a key even when unnamed, so the file
+    stays a complete checklist of what still needs a name rather than only
+    listing what is done."""
+    merged = {}
+    for path in sorted(FREEFIRE_ASSETS_DIR.glob("*.png")):
+        merged[path.stem] = names.get(path.stem, "")
+    merged.update({k: v for k, v in names.items() if v})
+    try:
+        with open(ASSET_NAMES_PATH, "w", encoding="utf-8") as f:
+            json.dump(merged, f, indent=2, ensure_ascii=False, sort_keys=True)
+    except OSError as e:
+        print(f"Could not write {ASSET_NAMES_PATH.name}: {e}")
+
+
+def asset_catalogue():
+    """Every icon in the dump, grouped the way the operator has to think
+    about it. Ids beginning 101/102 are Free Fire's female/male character
+    ranges; everything non-numeric in the dump so far is equipment."""
+    entries = []
+    for path in sorted(FREEFIRE_ASSETS_DIR.glob("*.png")):
+        asset_id = path.stem
+        if asset_id.startswith("101"):
+            kind = "character"
+        elif asset_id.startswith("102"):
+            kind = "character"
+        elif asset_id.isdigit():
+            kind = "unknown"
+        else:
+            kind = "equipment"
+        entries.append({"id": asset_id, "kind": kind})
+    return entries
+
 # Optional {"101000005": "Kelly", ...} beside the images. Matching works
 # without it (labels are just the numeric IDs), but a broadcast graphic
 # needs a real name, and this lets those be filled in incrementally
@@ -242,6 +295,16 @@ def default_state():
         # re-import never wipes what was taught, and consulted BEFORE the
         # fuzzy matcher, so an explicit mapping always wins over a guess.
         "aliases": {"teams": {}, "players": {}, "squads": {}},
+        # Asset id -> the character/equipment name an operator has given it.
+        # The dump is named by Free Fire's own numeric ids, which nobody can
+        # read off a dropdown, so naming them once turns the whole library
+        # into something pickable. Mirrored to assets/FFM/names.json so the
+        # work survives a state reset and can be shared between machines.
+        "assetNames": {},
+        # What is actually in the dump, so the dashboard can render the
+        # library without a directory listing of its own. Static per
+        # install, refreshed at startup.
+        "assetCatalogue": [],
         # What the system currently cannot resolve, for the Mapping tab to
         # offer. Rebuilt from live state rather than accumulated, so an
         # entry disappears the moment it stops being a problem.
@@ -333,6 +396,15 @@ def load_state():
                     state["roster"] = {"teams": bootstrapped}
                     print(f"Roster was empty on load -- bootstrapped "
                           f"{len(bootstrapped)} teams from committed results.")
+            # names.json is the shared record of what each asset id is, so
+            # it seeds an empty state rather than the state being the only
+            # copy. A state that already has names keeps them: it is the
+            # one being edited live.
+            if not state.get("assetNames"):
+                from_file = {k: v for k, v in load_asset_names().items() if v}
+                if from_file:
+                    state["assetNames"] = from_file
+                    print(f"Loaded {len(from_file)} asset name(s) from names.json.")
             return state
         except (json.JSONDecodeError, OSError):
             pass
@@ -350,6 +422,10 @@ def save_state():
 
 
 server_state = load_state()
+# Rebuilt every start rather than trusted from the saved state: the
+# operator can drop new artwork into assets/FFM between sessions, and a
+# stale list would hide it.
+server_state["assetCatalogue"] = asset_catalogue()
 locked_fields = set()
 
 
@@ -2269,6 +2345,50 @@ async def handle_client(websocket, path=None):
                 server_state["display"]["pointsTableVisible"] = False
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "freefire_asset_name":
+                # Name one icon. Written straight through to names.json as
+                # well as the state, so the naming lives beside the artwork
+                # and a machine that has never run this engine still has it.
+                asset_id = str(payload.get("assetId") or "").strip()
+                if asset_id:
+                    names = server_state.setdefault("assetNames", {})
+                    name = (payload.get("name") or "").strip()
+                    if name:
+                        names[asset_id] = name
+                    else:
+                        names.pop(asset_id, None)
+                    save_asset_names(names)
+                    save_state()
+                    await broadcast({"type": "state_sync", "data": server_state,
+                                     "locked": list(locked_fields)})
+            elif payload.get("type") == "freefire_set_character":
+                # Manual override for a slot the Num5 capture never got.
+                # Recorded as manual so the dashboard can show which cards
+                # were chosen by hand rather than identified, and so a later
+                # real capture is visibly replacing a human decision.
+                uid = str(payload.get("uid") or "").strip()
+                game = str(payload.get("gameNumber") or "")
+                slot = payload.get("slot") or "active"
+                label = (payload.get("label") or "").strip()
+                target = None
+                for team in (server_state.get("roster") or {}).get("teams", []) or []:
+                    for player in team.get("players", []) or []:
+                        if str(player.get("uid") or "").strip() == uid:
+                            target = player
+                            break
+                    if target:
+                        break
+                if target is not None and game:
+                    entry = target.setdefault("loadouts", {}).setdefault(game, {})
+                    slots = entry.setdefault("slots", {})
+                    if label:
+                        slots[slot] = {"label": label, "confidence": 1.0,
+                                       "lowConfidence": False, "manual": True}
+                    else:
+                        slots.pop(slot, None)
+                    save_state()
+                    await broadcast({"type": "state_sync", "data": server_state,
+                                     "locked": list(locked_fields)})
             elif payload.get("type") == "freefire_map_alias":
                 # Teach (or, with a blank target, forget) one mapping. Done
                 # as its own message rather than a manual_update so the
