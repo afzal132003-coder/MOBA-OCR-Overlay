@@ -159,7 +159,10 @@ SB_ROW_CENTRE.forEach((cy, i) => {
   mk("rank", SB_COL.rank - NUM_W / 2, NUM_W, "rank");
   // Reserved width = left padding + logo + gap before the text, so the
   // logo never crowds either the row's left edge or the name.
-  const sbLogoSize = 34, sbLogoPad = 6, sbLogoGap = 10;
+  // Tightened after checking against the operator's own reference: a
+  // 10-12px gap read as the logo floating apart from the name instead of
+  // sitting fitted against it.
+  const sbLogoSize = 34, sbLogoPad = 6, sbLogoGap = 6;
   const sbLogoReserve = sbLogoPad + sbLogoSize + sbLogoGap;
   mk("name", SB_NAME_X + sbLogoReserve, SB_NAME_W - sbLogoReserve, "name");
   mk("kills", SB_COL.kills - NUM_W / 2, NUM_W);
@@ -207,7 +210,8 @@ PT_BLOCKS.forEach((col, b) => {
     // Reserved width = left padding + logo + gap before the text, so a
     // long team name still starts clear of the logo instead of the two
     // fighting for the same pixels.
-    const logoSize = 46, logoPad = 4, logoGap = 12;
+    // Same tightening as the scoreboard's logo above.
+    const logoSize = 46, logoPad = 4, logoGap = 6;
     const logoReserve = logoPad + logoSize + logoGap;
     mk("name", col.name + logoReserve, col.nameW - logoReserve, "name");
     ["matches", "booyah", "finishes", "total"].forEach(f => {
