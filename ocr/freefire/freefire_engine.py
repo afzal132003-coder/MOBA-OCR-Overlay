@@ -156,6 +156,10 @@ def default_state():
     return {
         "settings": {
             "matchResultFolder": "", "safezoneFolder": "",
+            # Where the client writes its debugger-*.log files. Same folder
+            # as the result files on a standard install; kept separate so a
+            # setup that relocates one doesn't break the other.
+            "debuggerFolder": "",
             # What happens to a result row that couldn't be resolved against
             # the roster (unknown team, or a UID/name that isn't registered).
             # "allow" keeps the row using whatever the file said; "flag"
@@ -191,7 +195,11 @@ def default_state():
         # committed match's own results) or "overall" (cumulative
         # standings). freefire_booyah.html has no mode: it always shows
         # the latest committed match's rank-1 team.
-        "display": {"scoreboardMode": "match"},
+        # pointsTableVisible drives freefire_points_table.html (the overall
+        # standings graphic), pushed/pulled by the operator like every other
+        # overlay rather than showing itself whenever data changes.
+        "display": {"scoreboardMode": "match", "pointsTableVisible": False,
+                    "scoreboardVisible": True},
         # Pre-match roster, uploaded once per event as a CSV (team, ign,
         # uid per row). Each player's "loadout" is manual-entry text
         # fields (active/passive x3/pet/equipment); "loadoutScreenshot" is
@@ -205,6 +213,9 @@ def default_state():
         "liveOps": {
             "killfeedLastText": "", "sidetableLastText": "",
             "sidetableRows": [], "sidetableUsedPalette": False,
+            # Structured kill/knock feed read from the client's debugger
+            # log -- real IGNs, not OCR. See read_debugger_events.
+            "killEvents": [],
         },
         # Sequential Num5 loadout capture. "pointer" indexes into the
         # flattened roster (team-then-player order, see
@@ -231,12 +242,54 @@ def default_state():
     }
 
 
+def roster_from_matches(matches):
+    """Builds a roster from committed match results.
+
+    Uses the file's ORIGINAL names (fileTeamName/fileName) in preference to
+    the resolved ones: a roster is what results get matched against, so
+    seeding it with names that were themselves the output of matching would
+    be circular -- and with an empty roster nothing resolved anyway, so the
+    resolved fields are just copies. Later matches fill in players missing
+    from earlier ones (a squad that fielded a substitute), without
+    disturbing anyone already recorded."""
+    teams = {}
+    for match in matches:
+        for team in match.get("teams", []):
+            name = (team.get("fileTeamName") or team.get("teamName") or "").strip()
+            if not name:
+                continue
+            entry = teams.setdefault(name, {"name": name, "shortName": "", "logo": "", "players": []})
+            known = {p["uid"] for p in entry["players"] if p.get("uid")}
+            for player in team.get("players", []):
+                uid = str(player.get("uid") or "").strip()
+                ign = (player.get("fileName") or player.get("name") or "").strip()
+                if not (uid or ign) or (uid and uid in known):
+                    continue
+                entry["players"].append({"ign": ign, "uid": uid})
+                if uid:
+                    known.add(uid)
+    return list(teams.values())
+
+
 def load_state():
     if STATE_PATH.exists():
         try:
             with open(STATE_PATH, "r", encoding="utf-8") as f:
                 loaded = json.load(f)
-            return deep_merge_defaults(loaded, default_state())
+            state = deep_merge_defaults(loaded, default_state())
+            # Bootstrap the roster on startup too, not only when a match is
+            # committed. Hooking this to the commit path alone left an
+            # already-committed match unable to seed anything: the state
+            # came back with matches but an empty roster and stayed that
+            # way until the operator happened to commit again. Same
+            # empty-only guard, so a curated roster is never touched.
+            if not (state.get("roster", {}).get("teams") or []):
+                bootstrapped = roster_from_matches(state.get("matches", []))
+                if bootstrapped:
+                    state["roster"] = {"teams": bootstrapped}
+                    print(f"Roster was empty on load -- bootstrapped "
+                          f"{len(bootstrapped)} teams from committed results.")
+            return state
         except (json.JSONDecodeError, OSError):
             pass
     return default_state()
@@ -341,6 +394,193 @@ def ocr_text(img_bgr):
     analysis handle it (no hard black/white digit threshold -- that's
     tuned for tiny plain numbers, not full lines of game-UI text)."""
     return " ".join(line["text"] for line in ocr_lines(img_bgr)).strip()
+
+
+# ---------------------------------------------------------------------------
+# Live kill feed, read from the client's own debugger log.
+#
+# This supersedes OCR'ing the on-screen killfeed for anything structured.
+# The client writes, to a plain text log it maintains itself:
+#
+#   Player Join, 6645536022, 117440522, SUMON::30,False
+#   Player 117440553 Dead, killed by 67108888
+#   Player '117440553' Knock Down, by '67108869'
+#   @zwj PlayKnockDownGunTrace killer=67108869 victim=117440553 headshot=True
+#
+# The join lines are the key: they tie the runtime player id used by every
+# combat line to the account UID and IGN, and those UIDs match the
+# post-match result file exactly (verified against a real match). So a kill
+# resolves to real names with no OCR and no guessing, which the on-screen
+# killfeed can't offer -- that returned things like
+# 'ARYAN "Y U ae YutaFckHard~' from the same match.
+#
+# Strictly read-only and append-aware: the file is open in the running
+# game, so this only ever reads forward from the last offset it saw and
+# never writes, truncates or locks anything.
+# ---------------------------------------------------------------------------
+
+DEBUGGER_JOIN_REGEX = re.compile(
+    r"Player Join,\s*(?P<uid>\d+),\s*(?P<pid>\d+),\s*(?P<ign>.*?),\s*\w+\s*$"
+)
+DEBUGGER_KILL_REGEX = re.compile(
+    r"Player\s+(?P<victim>\d+)\s+Dead,\s+killed by\s+(?P<killer>\d+)"
+)
+DEBUGGER_KNOCK_REGEX = re.compile(
+    r"Player\s+'(?P<victim>\d+)'\s+Knock Down,\s*by\s*'(?P<killer>\d+)'"
+)
+DEBUGGER_HEADSHOT_REGEX = re.compile(
+    r"PlayKnockDownGunTrace\s+killer=(?P<killer>\d+)\s+victim=(?P<victim>\d+)\s+headshot=(?P<hs>True|False)"
+)
+DEBUGGER_TS_REGEX = re.compile(r"^\[(?P<ts>[\d\-]+\s[\d:.]+)\]")
+
+# Kept bounded: a full match produces hundreds of events and the whole lot
+# rides along in every state_sync.
+MAX_KILL_EVENTS = 60
+
+
+def find_latest_debugger_log(folder):
+    path = Path(folder) if folder else None
+    if not path or not path.is_dir():
+        return None
+    logs = [f for f in path.glob("debugger-*.log") if f.is_file()]
+    return max(logs, key=lambda f: f.stat().st_mtime) if logs else None
+
+
+def read_debugger_events(log_path, offset, id_map):
+    """Reads new lines since `offset`, updating id_map in place.
+
+    Returns (events, new_offset). A partial trailing line is left for the
+    next pass rather than parsed half-written -- the game is still
+    appending to this file while we read it."""
+    events = []
+    try:
+        size = log_path.stat().st_size
+        # A smaller file than last time means the client rolled over to a
+        # new log; start from the beginning rather than seeking past the end.
+        if size < offset:
+            offset = 0
+        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+            f.seek(offset)
+            chunk = f.read()
+            new_offset = f.tell()
+    except OSError:
+        return [], offset
+
+    if "\n" in chunk:
+        complete, _, remainder = chunk.rpartition("\n")
+        new_offset -= len(remainder.encode("utf-8", errors="replace"))
+    else:
+        return [], offset
+
+    headshots = {}
+    for line in complete.splitlines():
+        join = DEBUGGER_JOIN_REGEX.search(line)
+        if join:
+            id_map[join.group("pid")] = {
+                "uid": join.group("uid"),
+                "ign": join.group("ign").strip(),
+            }
+            continue
+
+        hs = DEBUGGER_HEADSHOT_REGEX.search(line)
+        if hs:
+            headshots[(hs.group("killer"), hs.group("victim"))] = hs.group("hs") == "True"
+            continue
+
+        kill = DEBUGGER_KILL_REGEX.search(line)
+        knock = None if kill else DEBUGGER_KNOCK_REGEX.search(line)
+        match = kill or knock
+        if not match:
+            continue
+
+        killer_id, victim_id = match.group("killer"), match.group("victim")
+        killer = id_map.get(killer_id, {})
+        victim = id_map.get(victim_id, {})
+        ts = DEBUGGER_TS_REGEX.match(line.strip())
+        events.append({
+            "type": "kill" if kill else "knock",
+            "time": ts.group("ts") if ts else "",
+            "killerIgn": killer.get("ign", ""), "killerUid": killer.get("uid", ""),
+            "victimIgn": victim.get("ign", ""), "victimUid": victim.get("uid", ""),
+            # Unresolved ids are surfaced rather than hidden: a name that
+            # silently reads as blank on a graphic is worse than one an
+            # operator can see failed to resolve.
+            "resolved": bool(killer.get("ign") and victim.get("ign")),
+            "headshot": headshots.get((killer_id, victim_id), False),
+        })
+    return events, new_offset
+
+
+# ---------------------------------------------------------------------------
+# Pre-match lobby read.
+#
+# The lobby is the only place a roster exists BEFORE any game is played --
+# the result files that otherwise supply team names, IGNs and UIDs are
+# written after a match, so on day one there's nothing else to read.
+#
+# Only four squads are on screen at a time out of twelve, so this reads the
+# four visible blocks and the operator scrolls and captures again. Results
+# accumulate by team name rather than by position, since position means
+# nothing once the list has scrolled.
+#
+# UIDs aren't shown in the default view at all -- the lobby has its own
+# UID toggle that swaps the names for IDs. That makes a UID pass a separate
+# capture the operator opts into, pairing by row order within a block.
+# ---------------------------------------------------------------------------
+
+LOBBY_BLOCK_KEYS = [f"freefire_lobby_block{i}" for i in range(1, 5)]
+# Trailing rank/level tags ("MAX", "Lv.60") and the per-team score readout
+# sit on the same lines as the names and would otherwise be captured as
+# part of them.
+LOBBY_NOISE_REGEX = re.compile(
+    r"\b(MAX|LV\.?\s*\d+|SCORE\s*[:.]?\s*\d+)\b", re.IGNORECASE,
+)
+# Leading list numbers only ("1.", "2)"). Deliberately conservative: an
+# earlier version also stripped leading v/V/> to catch the tick glyph beside
+# a squad leader, and it silently ate the first letter of a real IGN
+# ("Vyx.Aryav>01" -> "yx.Aryav>01"). A stray tick left on a name is
+# something the operator can see and fix during review; a name quietly
+# missing its first character looks correct and isn't.
+LOBBY_LEAD_JUNK_REGEX = re.compile(r"^\s*\d{1,2}\s*[\.\)]\s*")
+
+
+def clean_lobby_line(text):
+    cleaned = LOBBY_NOISE_REGEX.sub(" ", text or "")
+    cleaned = LOBBY_LEAD_JUNK_REGEX.sub("", cleaned)
+    return re.sub(r"\s{2,}", " ", cleaned).strip()
+
+
+def parse_lobby_block(img_bgr):
+    """One squad card -> {"teamName", "players": [ign, ...]}.
+
+    The first legible line is the team name and the rest are players --
+    positional rather than pattern-based, because a team name and an IGN
+    are the same kind of string and nothing distinguishes them by content.
+    Capped at five so a stray line picked up from the next card down
+    can't inflate a squad."""
+    lines = ocr_lines(img_bgr) if img_bgr is not None and img_bgr.size else []
+    ordered = [clean_lobby_line(l["text"]) for l in sorted(lines, key=lambda l: l["cy"])]
+    ordered = [t for t in ordered if t]
+    if not ordered:
+        return None
+    return {"teamName": ordered[0], "players": ordered[1:6]}
+
+
+def capture_lobby_blocks(regions_cfg, uid_pass=False):
+    """Reads all four visible lobby blocks in one screen grab."""
+    blocks = []
+    with mss.mss() as sct:
+        for key in LOBBY_BLOCK_KEYS:
+            region = regions_cfg.get(key)
+            if not region or region.get("w", 0) <= 0 or region.get("h", 0) <= 0:
+                blocks.append(None)
+                continue
+            crop = crop_to_bgr(sct, region)
+            parsed = parse_lobby_block(crop)
+            if parsed:
+                parsed["uidPass"] = uid_pass
+            blocks.append(parsed)
+    return blocks
 
 
 # ---------------------------------------------------------------------------
@@ -834,12 +1074,27 @@ FREEFIRE_TEAM_LINE_REGEX = re.compile(
 FREEFIRE_PLAYER_LINE_REGEX = re.compile(
     r"NAME:\s*(?P<name>.*?)\s*ID:\s*(?P<id>\d+)\s*KILL:\s*(?P<kill>\d+)\s*$"
 )
+# Results live in "MatchResult_<id>_<stamp>.log", confirmed against a real
+# finished match. Two things this got wrong before, both of which produced
+# the same misleading "no file found"/"nothing parsed" result:
+#
+#   1. The prefix. The client writes TWO files per match: "MatchId_..." at
+#      match START, which stays empty forever (3 bytes, just a BOM), and
+#      "MatchResult_..." at match END, which holds the actual table. This
+#      matched the former, so it only ever found an empty file.
+#   2. The extension is plain ".log", not ".log.txt".
+#
+# MatchId_ is deliberately NOT accepted as an alternative. The finder picks
+# the newest file by timestamp, and a new match's empty MatchId_ marker is
+# newer than the previous match's real MatchResult_ -- so allowing both
+# would make the previous result unreadable the moment the next game
+# started, which is exactly when an operator goes looking for it.
 FREEFIRE_MATCH_FILENAME_REGEX = re.compile(
-    r"^MatchId_(?P<match_id>\d+)_(?P<timestamp>\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2})\.log\.txt$",
+    r"^MatchResult_(?P<match_id>\d+)_(?P<timestamp>\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2})\.log(?:\.txt)?$",
     re.IGNORECASE,
 )
 FREEFIRE_SAFEZONE_FILENAME_REGEX = re.compile(
-    r"^SafeZone_(?P<match_id>\d+)_(?P<timestamp>\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2})\.log\.txt$",
+    r"^SafeZone_(?P<match_id>\d+)_(?P<timestamp>\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2})\.log(?:\.txt)?$",
     re.IGNORECASE,
 )
 FREEFIRE_SAFEZONE_COORD_REGEX = re.compile(r"(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)")
@@ -1058,15 +1313,28 @@ def compute_freefire_standings(matches):
             if not name:
                 continue
             row = agg.setdefault(name, {
-                "teamName": name, "matches": 0, "totalKills": 0,
-                "totalPoints": 0, "bestRank": None,
+                "teamName": name, "shortName": team.get("shortName", ""),
+                "matches": 0, "totalKills": 0, "placementPoints": 0,
+                "totalPoints": 0, "bestRank": None, "booyahs": 0,
             })
             row["matches"] += 1
             row["totalKills"] += team.get("killScore", 0)
+            # Placement points come from the file's own RankScore, not
+            # derived as (total - kills): the game client already bakes its
+            # placement table into the file, and recomputing it would
+            # silently disagree the moment a format or scoring rule differs.
+            row["placementPoints"] += team.get("rankScore", 0)
             row["totalPoints"] += team.get("totalScore", 0)
+            if team.get("shortName") and not row.get("shortName"):
+                row["shortName"] = team["shortName"]
             rank = team.get("rank")
             if rank is not None and (row["bestRank"] is None or rank < row["bestRank"]):
                 row["bestRank"] = rank
+            # BOOYAH = a first-place finish. Counted here rather than
+            # derived later from bestRank, which only records the single
+            # best result and so can't distinguish one win from five.
+            if rank == 1:
+                row["booyahs"] += 1
     standings = list(agg.values())
     standings.sort(key=lambda r: (-r["totalPoints"], -r["totalKills"]))
     return standings
@@ -1102,6 +1370,13 @@ async def broadcast_presence():
 # ---------------------------------------------------------------------------
 
 main_loop = None
+
+# Debugger-log tail position and runtime-id -> player mapping. Module level
+# because the mapping is built from join lines seen once at match start and
+# must survive every later poll that reads only new combat lines.
+_debugger_offset = 0
+_debugger_path = None
+_debugger_id_map = {}
 
 
 def flatten_roster_players(roster):
@@ -1249,6 +1524,20 @@ async def handle_client(websocket, path=None):
                     server_state["standings"] = compute_freefire_standings(
                         server_state.get("matches", [])
                     )
+                    # Bootstrap the roster from committed results when it's
+                    # still empty. A result file already carries exactly what
+                    # the roster needs -- team name, IGN and UID for all 12
+                    # squads -- so making the operator retype it (or even
+                    # click an import) after the first game is busywork.
+                    # Guarded on "empty" so it can never overwrite a roster
+                    # someone has curated: short names, logos and IGN
+                    # overrides are all things the result file doesn't know.
+                    if not (server_state.get("roster", {}).get("teams") or []):
+                        bootstrapped = roster_from_matches(server_state.get("matches", []))
+                        if bootstrapped:
+                            server_state["roster"] = {"teams": bootstrapped}
+                            print(f"Roster was empty -- bootstrapped {len(bootstrapped)} "
+                                  f"teams from the committed match result.")
                 for field in payload.get("lock", []):
                     locked_fields.add(field)
                 for field in payload.get("unlock", []):
@@ -1354,6 +1643,50 @@ async def handle_client(websocket, path=None):
                     "images": images,
                     "error": None if images else "No saved crops found for that player/game.",
                 }))
+            elif payload.get("type") == "freefire_capture_lobby":
+                # Read-only: hands the parsed blocks back for review and
+                # never touches the roster itself. Merging is the
+                # dashboard's call, since only the operator can tell a
+                # genuine new squad from an OCR variant of one already
+                # captured on an earlier scroll.
+                uid_pass = bool(payload.get("uidPass"))
+                try:
+                    loop = asyncio.get_running_loop()
+                    blocks = await loop.run_in_executor(
+                        ocr_executor, capture_lobby_blocks,
+                        config.get("regions", {}), uid_pass,
+                    )
+                    calibrated = sum(
+                        1 for k in LOBBY_BLOCK_KEYS
+                        if (config.get("regions", {}).get(k) or {}).get("w", 0) > 0
+                    )
+                    await websocket.send(json.dumps({
+                        "type": "freefire_lobby_capture",
+                        "blocks": blocks, "uidPass": uid_pass,
+                        "error": None if calibrated else
+                                 "No lobby blocks calibrated yet -- run calibrate.py ff-lobby first.",
+                    }))
+                except Exception as e:
+                    await websocket.send(json.dumps({
+                        "type": "freefire_lobby_capture", "blocks": [], "uidPass": uid_pass,
+                        "error": str(e),
+                    }))
+            elif payload.get("type") == "scoreboard_show":
+                server_state["display"]["scoreboardVisible"] = True
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "scoreboard_hide":
+                server_state["display"]["scoreboardVisible"] = False
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "points_table_show":
+                server_state["display"]["pointsTableVisible"] = True
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "points_table_hide":
+                server_state["display"]["pointsTableVisible"] = False
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") == "loadout_capture_arm":
                 server_state["loadoutCapture"]["active"] = True
                 save_state()
@@ -1464,6 +1797,35 @@ async def ocr_loop():
                 if sidetable_raw_text is not None and sidetable_raw_text != ff_live.get("sidetableLastText", ""):
                     ff_live["sidetableLastText"] = sidetable_raw_text
                     changed = True
+
+            # Live kill feed from the client's debugger log. Cheap (a
+            # forward read of whatever was appended since last poll), so it
+            # runs every cycle rather than on the slower OCR cadence.
+            global _debugger_offset, _debugger_path, _debugger_id_map
+            debugger_folder = (server_state.get("settings", {}).get("debuggerFolder")
+                               or server_state.get("settings", {}).get("matchResultFolder", ""))
+            if debugger_folder:
+                candidate = find_latest_debugger_log(
+                    Path(debugger_folder) / "Debugger"
+                ) or find_latest_debugger_log(debugger_folder)
+                if candidate is not None:
+                    if candidate != _debugger_path:
+                        # New log file -- a fresh session. Start from the top
+                        # so the join lines that build the id mapping are
+                        # picked up; without them every later kill line
+                        # resolves to blank names.
+                        _debugger_path = candidate
+                        _debugger_offset = 0
+                        _debugger_id_map = {}
+                    new_events, _debugger_offset = await loop.run_in_executor(
+                        ocr_executor, read_debugger_events,
+                        candidate, _debugger_offset, _debugger_id_map,
+                    )
+                    if new_events:
+                        feed = server_state["liveOps"].get("killEvents") or []
+                        feed = (feed + new_events)[-MAX_KILL_EVENTS:]
+                        server_state["liveOps"]["killEvents"] = feed
+                        changed = True
 
             # Structured side-table parse. Runs off the same crop the raw
             # OCR above used, on the executor since it does its own OCR pass
