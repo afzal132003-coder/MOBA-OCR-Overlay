@@ -1537,6 +1537,19 @@
       <textarea id="ff_rosterPaste" rows="4" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:6px;border:1px solid #2b3348;background:#0a0d18;color:#eef2fb;font-size:13px;font-family:monospace;" placeholder="team,ign,uid&#10;Team Tufan,SAIKYO.01,2281027273&#10;Team Tufan,TT_TUFAN,126560212"></textarea>
       <button class="secondary" id="ff_rosterParse">Parse Roster</button>
       <div id="ff_rosterStatus" class="hint"></div>
+
+      <h3 style="margin-top:16px;">Read from the game instead</h3>
+      <p class="hint">Two ways to fill the boxes below without typing. <strong>From a result file</strong> is the
+        reliable one — it carries exact team names, IGNs <em>and</em> UIDs — but a result file only exists once a
+        game has been played. Before that, <strong>capture the lobby</strong>: it reads the four squads currently on
+        screen, so scroll and capture again for the next four. UIDs aren't shown in the lobby's default view — flip
+        the game's own UID toggle and capture again to pair them on.</p>
+      <div class="row" style="gap:8px;">
+        <button class="secondary" id="ff_rosterFromResult">Fill From Latest Result File</button>
+        <button class="secondary" id="ff_lobbyCapture">Capture Lobby (4 on screen)</button>
+        <button class="secondary" id="ff_lobbyCaptureUid">Capture Lobby — UID pass</button>
+      </div>
+      <div id="ff_lobbyStatus" class="hint" style="margin-top:6px;"></div>
       <div id="ff_rosterTable" style="overflow-x:auto;margin-top:10px;"></div>
       <button id="ff_rosterSave" style="display:none;">Save Roster</button>
     </div>
@@ -1695,10 +1708,25 @@
         selected here. freefire_booyah.html always shows the latest committed match's winner on its own, no toggle
         needed.</p>
       <div class="row" style="gap:8px;">
+        <button id="ff_scoreboardShow">Push Scoreboard Up</button>
+        <button class="secondary" id="ff_scoreboardHide">Pull Scoreboard Down</button>
+      </div>
+      <p class="hint" style="margin-top:8px;">And which data it shows:</p>
+      <div class="row" style="gap:8px;">
         <button class="secondary" id="ff_showMatchMode">Show Match Scoreboard</button>
         <button class="secondary" id="ff_showOverallMode">Show Overall Standings</button>
       </div>
       <div class="hint" id="ff_modeStatus"></div>
+
+      <h3 style="margin-top:18px;">Overall Points Table</h3>
+      <p class="hint">A separate OBS Browser Source (overlay/freefire_points_table.html) rendering your points-table
+        design, filled from the committed standings — ranks 1-6 on the left, 7-12 on the right. Push it up when you
+        want it on screen; it doesn't appear on its own just because the numbers changed.</p>
+      <div class="row" style="gap:8px;">
+        <button id="ff_pointsTableShow">Push Points Table Up</button>
+        <button class="secondary" id="ff_pointsTableHide">Pull Points Table Down</button>
+      </div>
+      <div class="hint" id="ff_pointsTableStatus" style="margin-top:6px;"></div>
     </div>
   </div>
 
@@ -4369,11 +4397,18 @@ function ffConnect(){
         document.getElementById("ff_sidetableLastText").textContent = (msg.text && msg.text.trim()) ? msg.text : "(nothing read this frame)";
       }
     } else if(msg.type === "freefire_match_result"){
-      ffHandleMatchResult(msg);
+      if(ffRosterFromResultPending){
+        ffRosterFromResultPending = false;
+        ffFillRosterFromResult(msg);
+      } else {
+        ffHandleMatchResult(msg);
+      }
     } else if(msg.type === "freefire_safezone_result"){
       ffHandleSafezoneResult(msg);
     } else if(msg.type === "freefire_loadout_capture"){
       ffRenderLoadoutReview(msg);
+    } else if(msg.type === "freefire_lobby_capture"){
+      ffHandleLobbyCapture(msg);
     }
   };
 }
@@ -4401,18 +4436,134 @@ function ffParseRosterCsv(text){
   return { teams, rowCount };
 }
 
+/* ---------- Roster: 12-team box editor ----------
+ * A Free Fire lobby is always 12 squads, so the roster is laid out as 12
+ * fixed boxes rather than a table that grows with whatever was imported.
+ * That way an empty box is visibly a team still to be filled in, instead
+ * of the roster just looking "short" and nobody noticing until a result
+ * fails to match.
+ *
+ * Editing is live: every field writes straight into ffRosterDraft, so a
+ * CSV/TXT import and hand-typed corrections are the same thing to the rest
+ * of the page. Nothing reaches the engine until Save. */
+const FF_TEAM_SLOTS = 12;
+const FF_PLAYER_SLOTS = 5;   // 4 play; the 5th covers a substitute
+let ffRosterDraft = null;
+
+function ffBlankRoster(){
+  return { teams: Array.from({length: FF_TEAM_SLOTS}, () => ({
+    name: "", shortName: "", logo: "",
+    players: Array.from({length: FF_PLAYER_SLOTS}, () => ({ ign: "", uid: "" })),
+  })) };
+}
+
+function ffNormaliseRoster(teams){
+  const draft = ffBlankRoster();
+  (teams || []).slice(0, FF_TEAM_SLOTS).forEach((t, i) => {
+    const box = draft.teams[i];
+    box.name = t.name || "";
+    box.shortName = t.shortName || "";
+    box.logo = t.logo || "";
+    (t.players || []).slice(0, FF_PLAYER_SLOTS).forEach((p, j) => {
+      box.players[j] = { ign: p.ign || "", uid: p.uid || "" };
+    });
+  });
+  return draft;
+}
+
 function ffRenderRosterPreview(teams){
+  ffRosterDraft = ffNormaliseRoster(teams);
+  ffDrawRosterBoxes();
+}
+
+function ffDrawRosterBoxes(){
   const container = document.getElementById("ff_rosterTable");
-  if(!teams.length){ container.innerHTML = ""; return; }
-  const rows = teams.map(t => `
-    <tr style="border-top:1px solid #2b3348;">
-      <td style="padding:6px;font-weight:700;">${ffEscapeHtml(t.name)}</td>
-      <td style="padding:6px;color:#98a3bd;">${t.players.map(p => `${ffEscapeHtml(p.ign)} (${ffEscapeHtml(p.uid)})`).join(", ")}</td>
-    </tr>`).join("");
+  if(!ffRosterDraft) ffRosterDraft = ffBlankRoster();
+  const filled = ffRosterDraft.teams.filter(t => t.name.trim()).length;
+
   container.innerHTML = `
-    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#98a3bd;">
-      <th style="padding:6px;">Team</th><th style="padding:6px;">Players (IGN / UID)</th>
-    </tr></thead><tbody>${rows}</tbody></table>`;
+    <div class="hint" style="margin-bottom:10px;">${filled} of ${FF_TEAM_SLOTS} teams filled in.</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;">
+    ${ffRosterDraft.teams.map((t, ti) => `
+      <div style="border:1px solid ${t.name.trim() ? "#2b3348" : "#3a2b52"};border-radius:12px;padding:12px;
+        background:rgba(10,13,24,0.5);">
+        <div class="row" style="gap:8px;align-items:center;margin-bottom:8px;">
+          <div style="width:26px;height:26px;border-radius:50%;background:#7d6bff;color:#0a0d18;display:flex;
+            align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0;">${ti+1}</div>
+          <img id="ff_rosterLogo_${ti}" src="${t.logo || ""}"
+            style="width:34px;height:34px;border-radius:8px;object-fit:contain;flex-shrink:0;
+            background:#0a0d18;border:1px solid #2b3348;${t.logo ? "" : "opacity:0.35;"}">
+          <button type="button" class="secondary ff-roster-logo-btn" data-ti="${ti}"
+            style="font-size:10px;padding:4px 8px;margin-top:0;">Logo</button>
+        </div>
+        <input type="text" class="ff-roster-field" data-ti="${ti}" data-field="name"
+          placeholder="Team name" value="${ffEscapeHtml(t.name)}" style="margin-bottom:6px;">
+        <input type="text" class="ff-roster-field" data-ti="${ti}" data-field="shortName"
+          placeholder="Short name (shown on graphics)" value="${ffEscapeHtml(t.shortName)}" style="margin-bottom:8px;">
+        ${t.players.map((p, pi) => `
+          <div class="row" style="gap:6px;margin-bottom:5px;">
+            <input type="text" class="ff-roster-player" data-ti="${ti}" data-pi="${pi}" data-field="ign"
+              placeholder="${pi === 4 ? "IGN (sub)" : "IGN " + (pi+1)}" value="${ffEscapeHtml(p.ign)}" style="flex:2;">
+            <input type="text" class="ff-roster-player" data-ti="${ti}" data-pi="${pi}" data-field="uid"
+              placeholder="UID" value="${ffEscapeHtml(p.uid)}" style="flex:1;">
+          </div>`).join("")}
+      </div>`).join("")}
+    </div>`;
+
+  // Any edit stages the draft, which stops an incoming state_sync from
+  // redrawing the boxes out from under someone mid-type.
+  const stage = () => {
+    ffParsedRoster = ffRosterDraft;
+    document.getElementById("ff_rosterSave").style.display = "inline-block";
+  };
+  container.querySelectorAll(".ff-roster-field").forEach(el => {
+    el.addEventListener("input", () => {
+      ffRosterDraft.teams[+el.dataset.ti][el.dataset.field] = el.value;
+      stage();
+    });
+  });
+  container.querySelectorAll(".ff-roster-player").forEach(el => {
+    el.addEventListener("input", () => {
+      ffRosterDraft.teams[+el.dataset.ti].players[+el.dataset.pi][el.dataset.field] = el.value;
+      stage();
+    });
+  });
+  container.querySelectorAll(".ff-roster-logo-btn").forEach(btn => {
+    btn.addEventListener("click", () => ffPickTeamLogo(+btn.dataset.ti));
+  });
+}
+
+/* Logos are downscaled before being stored. They ride along in state_sync
+ * to every connected page, and 12 full-resolution logos is megabytes going
+ * out on every broadcast -- the same payload bloat that had to be undone on
+ * the Valorant side after it showed up as real bandwidth cost mid-match.
+ * 128px is larger than any graphic actually renders them at. */
+function ffPickTeamLogo(teamIndex){
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.addEventListener("change", () => {
+    const file = input.files && input.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const max = 128;
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        ffRosterDraft.teams[teamIndex].logo = canvas.toDataURL("image/png");
+        ffDrawRosterBoxes();
+        document.getElementById("ff_rosterSave").style.display = "inline-block";
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+  input.click();
 }
 
 function ffParseRosterText(text){
@@ -4437,23 +4588,159 @@ document.getElementById("ff_rosterFile").addEventListener("change", (e) => {
   };
   reader.readAsText(file);
 });
-document.getElementById("ff_rosterSave").addEventListener("click", () => {
-  if(!ffParsedRoster || !ffState) return;
-  ffState.roster = ffParsedRoster;
-  ffSendManualUpdate(ffState);
-  document.getElementById("ff_rosterStatus").textContent = "Roster saved.";
+/* ---------- Roster: fill from the game ----------
+ * Both paths MERGE into the draft rather than replacing it: the lobby only
+ * ever shows four squads at a time, so a capture is always partial, and a
+ * replace would wipe the eleven-twelfths already collected on earlier
+ * scrolls. Matching is by team name so it survives the list re-ordering
+ * between captures. */
+function ffMergeTeamIntoDraft(teamName, players, uidPass){
+  if(!ffRosterDraft) ffRosterDraft = ffBlankRoster();
+  const norm = s => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const target = norm(teamName);
+  if(!target) return false;
+
+  let box = ffRosterDraft.teams.find(t => norm(t.name) === target);
+  if(!box) box = ffRosterDraft.teams.find(t => !t.name.trim());
+  if(!box) return false;   // all twelve slots already taken by other squads
+  if(!box.name.trim()) box.name = teamName;
+
+  players.forEach((value, i) => {
+    if(i >= FF_PLAYER_SLOTS || !value) return;
+    // A UID pass fills the uid column against the same row position, since
+    // the lobby lists the same players in the same order in both views.
+    if(uidPass) box.players[i].uid = value.replace(/\D/g, "") || box.players[i].uid;
+    else box.players[i].ign = value;
+  });
+  return true;
+}
+
+function ffFillRosterFromResult(msg){
+  const status = document.getElementById("ff_lobbyStatus");
+  if(msg.error && !(msg.teams || []).length){ status.textContent = msg.error; return; }
+  const teams = msg.teams || [];
+  if(!teams.length){ status.textContent = "Result file read, but no teams parsed from it."; return; }
+
+  // The result file is authoritative and complete (all 12 squads at once),
+  // so this REPLACES the draft rather than merging -- unlike a lobby
+  // capture, there's no earlier partial state worth preserving. Logos and
+  // short names already set are carried over, since the file has neither.
+  const previous = (ffRosterDraft && ffRosterDraft.teams) || [];
+  const norm = s => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  ffRosterDraft = ffNormaliseRoster(teams.map(t => {
+    const carried = previous.find(p => norm(p.name) === norm(t.fileTeamName || t.teamName));
+    return {
+      name: t.teamName || t.fileTeamName || "",
+      shortName: t.shortName || (carried ? carried.shortName : ""),
+      logo: t.logo || (carried ? carried.logo : ""),
+      players: (t.players || []).map(p => ({ ign: p.name || "", uid: p.uid || "" })),
+    };
+  }));
+  ffParsedRoster = ffRosterDraft;
+  ffDrawRosterBoxes();
+  document.getElementById("ff_rosterSave").style.display = "inline-block";
+  const playerCount = teams.reduce((n, t) => n + (t.players || []).length, 0);
+  status.textContent =
+    `Filled ${teams.length} team(s) and ${playerCount} player(s) from ${msg.fileName || "the result file"}, ` +
+    `including UIDs. Add short names and logos, then Save Roster.`;
+}
+
+function ffHandleLobbyCapture(msg){
+  const status = document.getElementById("ff_lobbyStatus");
+  if(msg.error){ status.textContent = msg.error; return; }
+  const blocks = (msg.blocks || []).filter(Boolean);
+  if(!blocks.length){
+    status.textContent = "Nothing read — check the lobby blocks are calibrated and the list is on screen.";
+    return;
+  }
+  let merged = 0, full = 0;
+  blocks.forEach(b => {
+    if(ffMergeTeamIntoDraft(b.teamName, b.players || [], msg.uidPass)) merged++;
+    else full++;
+  });
+  ffParsedRoster = ffRosterDraft;
+  ffDrawRosterBoxes();
+  document.getElementById("ff_rosterSave").style.display = "inline-block";
+  status.textContent =
+    `${msg.uidPass ? "UID pass" : "Name pass"}: read ${blocks.length} squad(s), merged ${merged}.` +
+    (full ? ` ${full} couldn't fit — all 12 slots are already filled.` : "") +
+    " Scroll the lobby and capture again for the next four. Review, then Save Roster.";
+}
+
+document.getElementById("ff_lobbyCapture").addEventListener("click", () => {
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffWs.send(JSON.stringify({ type: "freefire_capture_lobby", uidPass: false }));
+  document.getElementById("ff_lobbyStatus").textContent = "Capturing lobby…";
+});
+document.getElementById("ff_lobbyCaptureUid").addEventListener("click", () => {
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffWs.send(JSON.stringify({ type: "freefire_capture_lobby", uidPass: true }));
+  document.getElementById("ff_lobbyStatus").textContent = "Capturing lobby (UID pass)…";
 });
 
+/* Fills the boxes from the most recent match-result file -- exact strings
+ * including UIDs, so this is the preferred path once any game has run. */
+document.getElementById("ff_rosterFromResult").addEventListener("click", () => {
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffRosterFromResultPending = true;
+  ffWs.send(JSON.stringify({ type: "freefire_fetch_match" }));
+  document.getElementById("ff_lobbyStatus").textContent = "Reading latest result file…";
+});
+let ffRosterFromResultPending = false;
+
+document.getElementById("ff_rosterSave").addEventListener("click", () => {
+  if(!ffRosterDraft || !ffState) return;
+  // Empty boxes are dropped on save -- the 12 slots exist so gaps are
+  // visible while editing, but a nameless team has nothing to match
+  // against and would only pollute the roster the engine resolves results
+  // with. Same for player rows left blank.
+  ffState.roster = { teams: ffRosterDraft.teams
+    .filter(t => (t.name || "").trim())
+    .map(t => ({
+      name: t.name.trim(),
+      shortName: (t.shortName || "").trim(),
+      logo: t.logo || "",
+      players: t.players.filter(p => (p.ign || "").trim() || (p.uid || "").trim())
+        .map(p => ({ ign: (p.ign || "").trim(), uid: (p.uid || "").trim() })),
+    })) };
+  ffSendManualUpdate(ffState);
+  const kept = ffState.roster.teams.length;
+  document.getElementById("ff_rosterStatus").textContent =
+    `Roster saved — ${kept} team${kept === 1 ? "" : "s"}.`;
+  ffParsedRoster = null;   // saved state is now the source of truth again
+});
+
+let ffLastRosterKey = "";
+
 function ffRenderRoster(ff){
-  // Keeps the preview table in sync with whatever's actually saved, once
-  // no local unsaved parse is staged.
+  // Keeps the boxes in sync with what's actually saved, unless the operator
+  // has unsaved edits staged -- redrawing then would wipe what they're
+  // partway through typing.
   if(ffParsedRoster) return;
+  // 12 boxes x 5 players x 2 inputs is 120 fields to rebuild; skip it
+  // unless the saved roster actually changed, since the live kill feed
+  // pushes a new state several times a second during a fight.
+  const key = JSON.stringify((ff.roster && ff.roster.teams) || []);
+  if(key === ffLastRosterKey) return;
+  ffLastRosterKey = key;
+
   if(ff.roster && ff.roster.teams && ff.roster.teams.length) ffRenderRosterPreview(ff.roster.teams);
+  else if(!ffRosterDraft) ffRenderRosterPreview([]);
 }
 
 /* ---------- Live Ops: loadouts ---------- */
+// Same reasoning as ffLastLoadoutKey: this table carries an input per
+// field across 48 players, and rebuilding it on every kill-feed-driven
+// state_sync both stutters and would blow away whatever the operator was
+// mid-way through typing into it.
+let ffLastLoadoutTableKey = "";
+
 function ffRenderLoadouts(ff){
   const teams = (ff.roster && ff.roster.teams) || [];
+  const key = JSON.stringify(teams.map(t => [t.name, (t.players || []).map(p => [p.ign, p.loadout])]));
+  if(key === ffLastLoadoutTableKey) return;
+  ffLastLoadoutTableKey = key;
+
   const container = document.getElementById("ff_loadoutTable");
   const emptyEl = document.getElementById("ff_loadoutEmpty");
   if(!teams.length){
@@ -4592,6 +4879,15 @@ const FF_SLOT_LABELS = {
   passive3: "Passive 3", pet: "Pet", equipment: "Equipment",
 };
 
+// Rebuilding the 48-cell grid means innerHTML plus re-attaching a listener
+// per cell. That was fine when state_sync only arrived on operator actions,
+// but the live kill feed now pushes a new state on every kill and
+// knockdown -- several a second during a fight -- and redoing all of it
+// that often makes the whole dashboard stutter. This key covers everything
+// the grid actually draws from, so unrelated state churn (kill events,
+// standings, side-table rows) no longer triggers a rebuild.
+let ffLastLoadoutKey = "";
+
 function ffRenderLoadoutCapture(ff){
   const flat = ffFlattenRosterPlayers(ff.roster);
   const grid = document.getElementById("ff_loadoutCaptureGrid");
@@ -4599,6 +4895,14 @@ function ffRenderLoadoutCapture(ff){
   const statusEl = document.getElementById("ff_loadoutCaptureStatus");
   const lc = ff.loadoutCapture || { active: false, pointer: 0 };
   const currentGame = String((ff.event && ff.event.currentGame) || 1);
+
+  const key = JSON.stringify([
+    lc.active, lc.pointer, currentGame,
+    flat.map(e => [e.team.name, e.player.ign,
+                   (e.player.loadouts || {})[currentGame] || null]),
+  ]);
+  if(key === ffLastLoadoutKey) return;
+  ffLastLoadoutKey = key;
 
   if(!flat.length){
     grid.innerHTML = "";
@@ -4933,8 +5237,13 @@ document.getElementById("ff_commitMatch").addEventListener("click", () => {
   ffPendingMatch = null;
 });
 
+let ffLastStandingsKey = "";
+
 function ffRenderStandings(ff){
   const standings = ff.standings || [];
+  const key = JSON.stringify(standings);
+  if(key === ffLastStandingsKey) return;
+  ffLastStandingsKey = key;
   document.getElementById("ff_standingsEmpty").style.display = standings.length ? "none" : "block";
   if(!standings.length){ document.getElementById("ff_standingsTable").innerHTML = ""; return; }
   const rows = standings.map((r, i) => `
@@ -4964,6 +5273,24 @@ function ffSetScoreboardMode(mode){
 }
 document.getElementById("ff_showMatchMode").addEventListener("click", () => ffSetScoreboardMode("match"));
 document.getElementById("ff_showOverallMode").addEventListener("click", () => ffSetScoreboardMode("overall"));
+
+document.getElementById("ff_scoreboardShow").addEventListener("click", () => {
+  if(ffWs && ffWs.readyState === WebSocket.OPEN) ffWs.send(JSON.stringify({type:"scoreboard_show"}));
+});
+document.getElementById("ff_scoreboardHide").addEventListener("click", () => {
+  if(ffWs && ffWs.readyState === WebSocket.OPEN) ffWs.send(JSON.stringify({type:"scoreboard_hide"}));
+});
+
+function ffSetPointsTable(visible){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffWs.send(JSON.stringify({ type: visible ? "points_table_show" : "points_table_hide" }));
+  const teams = ((ffState && ffState.standings) || []).length;
+  document.getElementById("ff_pointsTableStatus").textContent = visible
+    ? `Points table pushed up — showing ${teams} team${teams === 1 ? "" : "s"} from the committed standings.`
+    : "Points table pulled down.";
+}
+document.getElementById("ff_pointsTableShow").addEventListener("click", () => ffSetPointsTable(true));
+document.getElementById("ff_pointsTableHide").addEventListener("click", () => ffSetPointsTable(false));
 
 buildStatGrid();
 buildPlayerStatRows();
@@ -6878,6 +7205,7 @@ const OVERLAY_LINKS = [
   {game:"MOBA", name:"Post Match Recap", file:"overlay/postmatch.html"},
   {game:"MOBA", name:"MVP Stats", file:"overlay/mvp_stats.html"},
   {game:"Free Fire", name:"Scoreboard", file:"overlay/freefire_scoreboard.html"},
+  {game:"Free Fire", name:"Points Table", file:"overlay/freefire_points_table.html"},
   {game:"Free Fire", name:"Booyah", file:"overlay/freefire_booyah.html"},
   {game:"Free Fire", name:"Headshot Hunter", file:"overlay/freefire_headshot_hunter.html"},
   {game:"Free Fire", name:"Team Eliminated", file:"overlay/freefire_team_eliminated.html"},
