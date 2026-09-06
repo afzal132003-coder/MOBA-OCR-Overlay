@@ -2805,7 +2805,14 @@ async def ocr_loop():
     """Only captures the two Free Fire live-ops regions -- there's no
     numeric HUD pipeline here at all, unlike ocr_engine.py's REGION_ORDER
     loop, since none of that applies to Free Fire."""
-    interval = config.get("poll_interval_seconds", 1.0)
+    # 0.25s (4/sec), not the 1.0s this used to default to. Measured
+    # against the real calibrated setup with OCR out of the loop (see the
+    # comment above the OCR gating below): finding the log, tailing it,
+    # joining the roster, and serializing the state_sync payload together
+    # cost ~4ms -- under 2% of even a 0.25s budget. The 1.0s figure dated
+    # back to when OCR ran every tick and needed the room; nothing left
+    # in the normal case needs it anymore.
+    interval = config.get("poll_interval_seconds", 0.25)
     loop = asyncio.get_running_loop()
 
     with mss.mss() as sct:

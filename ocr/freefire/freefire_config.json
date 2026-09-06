@@ -1,7 +1,7 @@
 {
   "monitor": 2,
   "tesseract_path": "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
-  "poll_interval_seconds": 1.0,
+  "poll_interval_seconds": 0.25,
   "server_host": "localhost",
   "server_port": 8765,
   "relay": {
@@ -11,10 +11,10 @@
   },
   "regions": {
     "freefire_loadout": {
-      "x": -1213,
-      "y": 905,
+      "x": -1212,
+      "y": 875,
       "w": 663,
-      "h": 129
+      "h": 159
     },
     "freefire_loadout_ign": {
       "x": -1211,
@@ -23,16 +23,16 @@
       "h": 46
     },
     "freefire_loadout_active": {
-      "x": -808,
-      "y": 909,
-      "w": 70,
-      "h": 70
+      "x": -807,
+      "y": 911,
+      "w": 71,
+      "h": 66
     },
     "freefire_loadout_passive1": {
-      "x": -813,
-      "y": 986,
+      "x": -815,
+      "y": 985,
       "w": 54,
-      "h": 48
+      "h": 51
     },
     "freefire_loadout_passive2": {
       "x": -760,
@@ -41,34 +41,46 @@
       "h": 55
     },
     "freefire_loadout_passive3": {
-      "x": -707,
-      "y": 989,
-      "w": 54,
-      "h": 67
+      "x": -708,
+      "y": 986,
+      "w": 53,
+      "h": 48
     },
     "freefire_loadout_pet": {
-      "x": -654,
-      "y": 989,
-      "w": 53,
-      "h": 53
+      "x": -655,
+      "y": 988,
+      "w": 54,
+      "h": 45
     },
     "freefire_loadout_equipment": {
       "x": -602,
-      "y": 990,
-      "w": 51,
-      "h": 55
+      "y": 986,
+      "w": 50,
+      "h": 50
     },
     "freefire_killfeed": {
-      "x": -598,
-      "y": 88,
-      "w": 598,
-      "h": 177
+      "x": -662,
+      "y": 94,
+      "w": 662,
+      "h": 168
     },
     "freefire_sidetable": {
       "x": -330,
-      "y": 264,
+      "y": 262,
       "w": 330,
-      "h": 709
+      "h": 716
+    },
+    "freefire_lobby_block1": {
+      "x": -1206,
+      "y": 222,
+      "w": 567,
+      "h": 319
+    },
+    "freefire_lobby_block2": {
+      "x": -609,
+      "y": 222,
+      "w": 568,
+      "h": 319
     }
   },
   "sidetable_colors": {
@@ -86,6 +98,20 @@
       43.0,
       45.4,
       58.4
+    ]
+  },
+  "sidetable_columns": {
+    "team": [
+      0.2914,
+      0.5368
+    ],
+    "elims": [
+      0.5491,
+      0.7715
+    ],
+    "alive": [
+      0.7776,
+      1.0
     ]
   }
 }
