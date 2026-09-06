@@ -1548,6 +1548,7 @@
         <button class="secondary" id="ff_rosterFromResult">Fill From Latest Result File</button>
         <button class="secondary" id="ff_lobbyCapture">Capture Lobby (2 on screen)</button>
         <button class="secondary" id="ff_lobbyCaptureUid">Capture Lobby — UID pass</button>
+        <button class="danger" id="ff_rosterClearAll">Clear All Team Info</button>
       </div>
       <div id="ff_lobbyStatus" class="hint" style="margin-top:6px;"></div>
       <div id="ff_rosterTable" style="overflow-x:auto;margin-top:10px;"></div>
@@ -4495,6 +4496,10 @@ function ffDrawRosterBoxes(){
             background:#0a0d18;border:1px solid #2b3348;${t.logo ? "" : "opacity:0.35;"}">
           <button type="button" class="secondary ff-roster-logo-btn" data-ti="${ti}"
             style="font-size:10px;padding:4px 8px;margin-top:0;">Logo</button>
+          <button type="button" class="secondary ff-roster-clear-btn" data-ti="${ti}"
+            title="Clear this team's name, logo and all its players"
+            style="font-size:10px;padding:4px 8px;margin-top:0;margin-left:auto;"
+            ${t.name.trim() || t.logo || t.players.some(p => p.ign || p.uid) ? "" : "disabled"}>Clear</button>
         </div>
         <input type="text" class="ff-roster-field" data-ti="${ti}" data-field="name"
           placeholder="Team name" value="${ffEscapeHtml(t.name)}" style="margin-bottom:6px;">
@@ -4530,6 +4535,22 @@ function ffDrawRosterBoxes(){
   });
   container.querySelectorAll(".ff-roster-logo-btn").forEach(btn => {
     btn.addEventListener("click", () => ffPickTeamLogo(+btn.dataset.ti));
+  });
+  container.querySelectorAll(".ff-roster-clear-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const ti = +btn.dataset.ti;
+      const label = ffRosterDraft.teams[ti].name.trim() || `slot ${ti + 1}`;
+      if(!confirm(`Clear ${label}? This wipes its name, short name, logo and all 5 player rows.`)) return;
+      // Blank the slot rather than removing it -- the grid is deliberately
+      // 12 fixed boxes so a gap reads as "team still to fill in", and
+      // splicing would shuffle every team below into a different box.
+      ffRosterDraft.teams[ti] = {
+        name: "", shortName: "", logo: "",
+        players: Array.from({length: FF_PLAYER_SLOTS}, () => ({ ign: "", uid: "" })),
+      };
+      stage();
+      ffDrawRosterBoxes();
+    });
   });
 }
 
@@ -4666,6 +4687,21 @@ function ffHandleLobbyCapture(msg){
     (full ? ` ${full} couldn't fit — all 12 slots are already filled.` : "") +
     " Scroll the lobby and capture again for the next two. Review, then Save Roster.";
 }
+
+document.getElementById("ff_rosterClearAll").addEventListener("click", () => {
+  const filled = ffRosterDraft
+    ? ffRosterDraft.teams.filter(t => (t.name || "").trim()).length : 0;
+  if(!confirm(`Clear ALL team info? This wipes ${filled} team(s) -- names, short names, `
+    + `logos and every player row -- from all 12 boxes.\n\nNothing is sent to the engine `
+    + `until you press Save Roster, so this can be undone by simply not saving.`)) return;
+
+  ffRosterDraft = ffBlankRoster();
+  ffParsedRoster = ffRosterDraft;
+  ffDrawRosterBoxes();
+  document.getElementById("ff_rosterSave").style.display = "inline-block";
+  document.getElementById("ff_lobbyStatus").textContent =
+    "All 12 boxes cleared locally. Press Save Roster to apply, or reload the page to get the saved roster back.";
+});
 
 document.getElementById("ff_lobbyCapture").addEventListener("click", () => {
   if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
