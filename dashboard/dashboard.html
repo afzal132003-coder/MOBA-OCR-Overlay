@@ -5920,11 +5920,19 @@ function ffRenderFullsize(ff){
 
   // Suggestions come from the icon library's own names, so a typo here
   // can't quietly create a character that will never match anything.
+  // Updated unconditionally (cheap -- just a <datalist>, not the grid)
+  // and deliberately kept OUT of the dedup key below: naming an icon in
+  // the OTHER grid changes this list on every state_sync while someone
+  // might be mid-keystroke typing a fullsize name here, and rebuilding
+  // the grid destroys the actual <input> element they're typing into --
+  // before it has ever fired a change event, so nothing was sent to the
+  // server. That's what "I typed a name and it got erased" turned out to
+  // be: the icon grid and this grid updating each other's redraw key.
   const knownNames = Array.from(new Set(Object.values(ff.assetNames || {}))).sort();
   document.getElementById("ff_charNameList").innerHTML =
     knownNames.map(n => '<option value="' + ffEscapeHtml(n) + '">').join("");
 
-  const key = JSON.stringify([ids, names, filter, unnamedOnly, knownNames]);
+  const key = JSON.stringify([ids, names, filter, unnamedOnly]);
   if(key === ffLastFullsizeKey) return;
   ffLastFullsizeKey = key;
 
