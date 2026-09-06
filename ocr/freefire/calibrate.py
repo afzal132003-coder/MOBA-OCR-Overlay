@@ -46,11 +46,22 @@ CONFIG_PATH = Path(__file__).parent / "freefire_config.json"
 # would be wrong, since which squads occupy those slots changes as the list
 # scrolls.
 #
-# TWO blocks, not four: the lobby shows four cards but the lower pair sits
-# behind the SPECTATOR LIST bar and is routinely clipped, so reading only
-# the fully-visible top pair and scrolling more often is the more reliable
+# TWO cards, not four: the lobby shows four but the lower pair sits behind
+# the SPECTATOR LIST bar and is routinely clipped, so reading only the
+# fully-visible top pair and scrolling more often is the more reliable
 # trade.
-LOBBY_KEYS = [f"freefire_lobby_block{i}" for i in range(1, 3)]
+#
+# Each card is TWO boxes -- team name and the player-name column -- rather
+# than one box around the whole card. One box was measurably worse: it
+# necessarily spans the squad logo, the leader tick and the MAX badges, and
+# OCR read those as text. A real capture came back with "sv ARISE ESPORTS"
+# for the team and 'ARs.KHAN', 'v', ']', 'ARs.LORD', ']' for the players --
+# the tick and badge fragments crowding out two of the four real names.
+# Boxes drawn around text only give OCR nothing else to find.
+LOBBY_KEYS = [
+    "freefire_lobby_block1_team", "freefire_lobby_block1_players",
+    "freefire_lobby_block2_team", "freefire_lobby_block2_players",
+]
 
 CATEGORIES = {
     "ff-live": [
@@ -81,8 +92,10 @@ CATEGORY_BLURB = {
 }
 
 LABELS = {
-    "freefire_lobby_block1": "LOBBY BLOCK 1 (top-LEFT squad card) - draw around ONE squad's whole block: its team name AND its player names underneath. Use a fully-visible card, not one clipped by the spectator bar",
-    "freefire_lobby_block2": "LOBBY BLOCK 2 (top-RIGHT squad card) - same, the squad beside the first",
+    "freefire_lobby_block1_team": "LOBBY CARD 1 (top-LEFT): TEAM NAME text ONLY - exclude the squad logo on its left and the 'Score: N' on its right",
+    "freefire_lobby_block1_players": "LOBBY CARD 1 (top-LEFT): the 4 PLAYER NAMES as one tall box - names only, exclude the tick marks on the left and the MAX badges on the right",
+    "freefire_lobby_block2_team": "LOBBY CARD 2 (top-RIGHT): TEAM NAME text ONLY - exclude logo and score",
+    "freefire_lobby_block2_players": "LOBBY CARD 2 (top-RIGHT): the 4 PLAYER NAMES as one tall box - names only, no ticks, no MAX badges",
     "freefire_killfeed": "KILLFEED / KNOCKOUT FEED (the scrolling elimination/knockdown log) - raw text only for now, draw around the whole feed area",
     "freefire_sidetable": "12-TEAM SIDE TABLE (alive status / kills per team) - raw text only for now, draw around the whole table",
     "freefire_loadout": "LOADOUT CARD, WHOLE (the full player HUD card) - kept as the overall visual record; the per-slot boxes below are what actually get identified",

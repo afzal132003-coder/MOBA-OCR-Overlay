@@ -530,7 +530,14 @@ def read_debugger_events(log_path, offset, id_map):
 # capture the operator opts into, pairing by row order within a block.
 # ---------------------------------------------------------------------------
 
-LOBBY_BLOCK_KEYS = [f"freefire_lobby_block{i}" for i in range(1, 3)]
+# Each card is two boxes: the team name and the player-name column. See
+# calibrate.py for why one whole-card box read the tick glyph and MAX
+# badges as player names.
+LOBBY_CARDS = [
+    {"team": "freefire_lobby_block1_team", "players": "freefire_lobby_block1_players"},
+    {"team": "freefire_lobby_block2_team", "players": "freefire_lobby_block2_players"},
+]
+LOBBY_BLOCK_KEYS = [k for card in LOBBY_CARDS for k in card.values()]
 # Trailing rank/level tags ("MAX", "Lv.60") and the per-team score readout
 # sit on the same lines as the names and would otherwise be captured as
 # part of them.
@@ -552,37 +559,61 @@ def clean_lobby_line(text):
     return re.sub(r"\s{2,}", " ", cleaned).strip()
 
 
-def parse_lobby_block(img_bgr):
-    """One squad card -> {"teamName", "players": [ign, ...]}.
+def is_plausible_lobby_name(text):
+    """Rejects OCR fragments that aren't names.
 
-    The first legible line is the team name and the rest are players --
-    positional rather than pattern-based, because a team name and an IGN
-    are the same kind of string and nothing distinguishes them by content.
-    Capped at five so a stray line picked up from the next card down
-    can't inflate a squad."""
-    lines = ocr_lines(img_bgr) if img_bgr is not None and img_bgr.size else []
+    Needed even with tight boxes: a real capture produced 'v', ']' and 'Vv'
+    as separate lines -- the squad leader's tick glyph and the MAX badge
+    borders read as text -- and those were being stored as players, pushing
+    real names out of the four slots. Requires a couple of alphanumerics
+    and rejects strings that are mostly punctuation, which no Free Fire IGN
+    is (they lean on letters and digits even when decorated)."""
+    if not text:
+        return False
+    stripped = text.strip()
+    if len(stripped) < 3:
+        return False
+    alnum = sum(c.isalnum() for c in stripped)
+    return alnum >= 2 and alnum >= len(stripped) * 0.4
+
+
+def read_lobby_lines(img_bgr):
+    """Cleaned, plausible text lines from a lobby crop, top to bottom."""
+    if img_bgr is None or img_bgr.size == 0:
+        return []
+    lines = ocr_lines(img_bgr)
     ordered = [clean_lobby_line(l["text"]) for l in sorted(lines, key=lambda l: l["cy"])]
-    ordered = [t for t in ordered if t]
-    if not ordered:
-        return None
-    return {"teamName": ordered[0], "players": ordered[1:6]}
+    return [t for t in ordered if is_plausible_lobby_name(t)]
 
 
 def capture_lobby_blocks(regions_cfg, uid_pass=False):
-    """Reads all four visible lobby blocks in one screen grab."""
-    blocks = []
+    """Reads both visible lobby cards in one screen grab.
+
+    Team name and players come from separate calibrated boxes, so a card
+    with an unreadable name still contributes its players and vice versa --
+    with a single box, one bad read took the whole squad with it."""
+    cards = []
     with mss.mss() as sct:
-        for key in LOBBY_BLOCK_KEYS:
-            region = regions_cfg.get(key)
-            if not region or region.get("w", 0) <= 0 or region.get("h", 0) <= 0:
-                blocks.append(None)
+        for card in LOBBY_CARDS:
+            def crop(key):
+                region = regions_cfg.get(key)
+                if not region or region.get("w", 0) <= 0 or region.get("h", 0) <= 0:
+                    return None
+                return crop_to_bgr(sct, region)
+
+            team_lines = read_lobby_lines(crop(card["team"]))
+            player_lines = read_lobby_lines(crop(card["players"]))
+            if not team_lines and not player_lines:
+                cards.append(None)
                 continue
-            crop = crop_to_bgr(sct, region)
-            parsed = parse_lobby_block(crop)
-            if parsed:
-                parsed["uidPass"] = uid_pass
-            blocks.append(parsed)
-    return blocks
+            cards.append({
+                "teamName": team_lines[0] if team_lines else "",
+                # Capped at five: a stray line bleeding in from the card
+                # below shouldn't inflate a squad past its roster slots.
+                "players": player_lines[:5],
+                "uidPass": uid_pass,
+            })
+    return cards
 
 
 # ---------------------------------------------------------------------------
