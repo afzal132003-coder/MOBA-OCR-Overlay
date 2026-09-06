@@ -1799,9 +1799,10 @@
 
     <div class="card">
       <h2>Graphics</h2>
-      <p class="hint">freefire_scoreboard.html (as an OBS Browser Source) shows whichever of these two views is
-        selected here. freefire_booyah.html always shows the latest committed match's winner on its own, no toggle
-        needed.</p>
+      <p class="hint"><strong>One browser source</strong> — <code>overlay/freefire_scoreboard.html</code> — carries
+        both the match scoreboard and the overall points table. Pushing either one pulls the other down, since they
+        share the source. An older source pointing at <code>freefire_points_table.html</code> still works; it
+        forwards here. freefire_booyah.html is separate and always shows the latest committed match's winner.</p>
       <div class="row" style="gap:8px;">
         <button id="ff_scoreboardShow">Push Scoreboard Up</button>
         <button class="secondary" id="ff_scoreboardHide">Pull Scoreboard Down</button>
@@ -1814,9 +1815,10 @@
       <div class="hint" id="ff_modeStatus"></div>
 
       <h3 style="margin-top:18px;">Overall Points Table</h3>
-      <p class="hint">A separate OBS Browser Source (overlay/freefire_points_table.html) rendering your points-table
-        design, filled from the committed standings — ranks 1-6 on the left, 7-12 on the right. Push it up when you
-        want it on screen; it doesn't appear on its own just because the numbers changed.</p>
+      <p class="hint">Rendered on the selected graphics package's <code>POINTS TABLE.png</code> and filled from
+        the committed standings — ranks 1-6 on the left, 7-12 on the right. Shares the scoreboard's browser source,
+        so pushing it up pulls the scoreboard down. It doesn't appear on its own just because the numbers
+        changed.</p>
       <div class="row" style="gap:8px;">
         <button id="ff_pointsTableShow">Push Points Table Up</button>
         <button class="secondary" id="ff_pointsTableHide">Pull Points Table Down</button>
@@ -7511,6 +7513,7 @@ const OVERLAY_LINKS = [
   {game:"Free Fire", name:"Headshot Hunter", file:"overlay/freefire_headshot_hunter.html"},
   {game:"Free Fire", name:"Team Eliminated", file:"overlay/freefire_team_eliminated.html"},
   {game:"Free Fire", name:"Alive Status (live side table)", file:"overlay/freefire_alive_status.html"},
+  {game:"Free Fire", name:"Scoreboard + Points Table (one source)", file:"overlay/freefire_scoreboard.html"},
   {game:"Valorant", name:"In-Game HUD + Hoax Overlay + Map Veto", file:"overlay/valorant_ingame.html"},
   {game:"Valorant", name:"Team Chemistry Stats (Post-Match)", file:"overlay/valorant_teamchemistry.html"},
   {game:"Valorant", name:"MVP", file:"overlay/valorant_mvp.html"},

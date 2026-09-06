@@ -4,168 +4,21 @@
 <meta charset="UTF-8">
 <title>Free Fire Points Table</title>
 <style>
-  /* Overall standings.
-     ---------------------------------------------------------------
-     Draws on the graphics package the operator selected -- the artwork
-     comes from assets/freefire/<event.assetFolder>/POINTS TABLE.png,
-     not a fixed file, so a different company's event on the same day gets
-     its own design without this page being touched.
+  /* The points table and the match scoreboard now share ONE browser
+     source -- freefire_scoreboard.html carries both, each with its own
+     push/pull control, only one up at a time.
 
-     The layout is two blocks of six, ranks 1-6 on the left and 7-12 on the
-     right, which is what the artwork draws. Every coordinate below was
-     measured off that PNG rather than eyeballed: the header plate sits at
-     y 348..411, the six row rules fall at y 488, 567, 646, 725, 805 and
-     885, and the two blocks span x 93..949 and x 970..1826. Column
-     centres come from the header labels themselves, so the numbers sit
-     under the words that name them.
-
-     Note the earlier version of this page was a single column of twelve
-     rows, matching a different design. Swapping only the background image
-     would have left every value in the wrong place. */
-
-  @font-face {
-    font-family: 'TT Supermolot Neue Trial';
-    src: url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');
-    font-weight: 800; font-style: normal;
-  }
-  @font-face {
-    font-family: 'TT Supermolot Neue Trial';
-    src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
-    font-weight: 900; font-style: normal;
-  }
-
-  html, body {
-    margin: 0; padding: 0; background: transparent; overflow: hidden;
-    width: 1920px; height: 1080px;
-    font-family: 'TT Supermolot Neue Trial', Arial, sans-serif;
-  }
-
-  #stage { position: absolute; inset: 0; display: none; }
-  #stage.visible { display: block; }
-
-  .bg { position: absolute; top: 0; left: 0; width: 1920px; height: 1080px; }
-
-  .cell {
-    position: absolute;
-    display: flex; align-items: center; justify-content: center;
-    color: #ffc400;
-    font-weight: 800; font-size: 25px;
-    font-variant-numeric: tabular-nums;
-    letter-spacing: .3px;
-    white-space: nowrap;
-  }
-  .cell.name {
-    justify-content: flex-start;
-    color: #ffc400; font-weight: 800; font-size: 23px;
-    text-transform: uppercase;
-    line-height: 1.05;
-    white-space: normal;       /* a long name wraps rather than clipping */
-    overflow: hidden;
-  }
+     This file stays as a forwarder rather than being deleted, because an
+     OBS source already pointing at it would otherwise go blank mid-event
+     with no obvious cause. The query string carries the relay and token,
+     so it has to be passed along; location.replace keeps the redirect out
+     of history, which matters if anyone ever opens this in a real tab. */
+  html, body{ margin:0; padding:0; background:transparent; }
 </style>
 </head>
 <body>
-
-<div id="stage">
-  <img class="bg" id="bg" alt="">
-</div>
-
 <script>
-const _params = new URLSearchParams(location.search);
-if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
-if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
-const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
-const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
-const WS_URL = _relay
-  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_points_table"
-  : "ws://localhost:8765?page=freefire_points_table";
-
-/* Measured from POINTS TABLE.png -- see the note at the top. */
-const ROW_CENTRE = [450, 528, 607, 686, 766, 846];
-const ROW_H = 62;
-/* No rank column: 01..12 are already printed in the artwork, so a row is
-   ranked by the slot it occupies. Drawing them again put a second set of
-   digits on top of the first. */
-const BLOCKS = [
-  { name: 200,  nameW: 178, matches: 430,  booyah: 588,  finishes: 760,  total: 902  },
-  { name: 1072, nameW: 178, matches: 1302, booyah: 1460, finishes: 1632, total: 1773 },
-];
-const NUM_W = 150;
-const PER_BLOCK = ROW_CENTRE.length;
-const TEAMS = PER_BLOCK * BLOCKS.length;
-
-const stage = document.getElementById("stage");
-BLOCKS.forEach((col, b) => {
-  ROW_CENTRE.forEach((cy, r) => {
-    const i = b * PER_BLOCK + r;
-    const top = cy - ROW_H / 2;
-    const mk = (field, left, width, cls) => {
-      const el = document.createElement("div");
-      el.id = "pt-" + i + "-" + field;
-      el.className = "cell" + (cls ? " " + cls : "");
-      el.style.left = left + "px";
-      el.style.top = top + "px";
-      el.style.width = width + "px";
-      el.style.height = ROW_H + "px";
-      stage.appendChild(el);
-    };
-    mk("name", col.name, col.nameW, "name");
-    ["matches", "booyah", "finishes", "total"].forEach(f => {
-      mk(f, col[f] - NUM_W / 2, NUM_W);
-    });
-  });
-});
-
-function setText(i, field, value){
-  const el = document.getElementById("pt-" + i + "-" + field);
-  if(el) el.textContent = value;
-}
-
-let ws;
-function connect(){
-  ws = new WebSocket(WS_URL);
-  ws.onmessage = (evt) => {
-    const msg = JSON.parse(evt.data);
-    if(msg.type === "state_sync") applyState(msg.data);
-  };
-  ws.onclose = () => setTimeout(connect, 2000);
-  ws.onerror = () => ws.close();
-}
-
-function applyState(state){
-  const ff = state || {};
-  document.getElementById("stage").classList.toggle(
-    "visible", !!(ff.display && ff.display.pointsTableVisible)
-  );
-
-  const folder = (ff.event && ff.event.assetFolder) || "CLT";
-  const src = "assets/freefire/" + folder + "/POINTS TABLE.png";
-  const bg = document.getElementById("bg");
-  if(bg.getAttribute("src") !== src) bg.src = src;
-
-  const standings = ff.standings || [];
-  for(let i = 0; i < TEAMS; i++){
-    const row = standings[i];
-    if(!row){
-      // Blank, not zeros. An unused slot means "no team here"; printing 0s
-      // would read as a team that played and scored nothing. The rank
-      // number goes too, so the table visibly ends where the field does.
-      ["name", "matches", "booyah", "finishes", "total"]
-        .forEach(f => setText(i, f, ""));
-      continue;
-    }
-    setText(i, "name", (row.teamName || row.shortName || "").toUpperCase());
-    setText(i, "matches", row.matches || 0);
-    setText(i, "booyah", row.booyahs || 0);
-    // "Finishes" on this design is the kill total -- the artwork's own
-    // wording for it. Placement points are folded into TOTAL, which is
-    // what the column beside it shows.
-    setText(i, "finishes", row.totalKills || 0);
-    setText(i, "total", row.totalPoints || 0);
-  }
-}
-
-connect();
+location.replace("freefire_scoreboard.html" + location.search);
 </script>
 </body>
 </html>

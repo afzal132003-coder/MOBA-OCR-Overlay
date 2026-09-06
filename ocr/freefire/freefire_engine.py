@@ -2226,7 +2226,11 @@ async def handle_client(websocket, path=None):
                         "error": str(e),
                     }))
             elif payload.get("type") == "scoreboard_show":
+                # The scoreboard and the points table share one browser
+                # source, so pushing either one pulls the other down --
+                # on a single source they would otherwise stack.
                 server_state["display"]["scoreboardVisible"] = True
+                server_state["display"]["pointsTableVisible"] = False
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") == "scoreboard_hide":
@@ -2234,7 +2238,9 @@ async def handle_client(websocket, path=None):
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") == "points_table_show":
+                # See scoreboard_show -- one source, one graphic at a time.
                 server_state["display"]["pointsTableVisible"] = True
+                server_state["display"]["scoreboardVisible"] = False
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") == "points_table_hide":

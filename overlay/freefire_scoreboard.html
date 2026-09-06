@@ -8,23 +8,34 @@
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
 <style>
   /*
-    Matchwise standings, drawn over the operator's own artwork
-    (assets/freefire/postmatch-gamestats.png). This replaces the earlier
-    CSS-drawn placeholder, which existed only because no artwork had been
-    supplied yet -- its own note said to swap it for the real thing once
-    reference art arrived, which is what this is.
+    ONE browser source, two graphics.
+    ---------------------------------------------------------------
+    This page carries both the match/overall scoreboard and the overall
+    points table, so OBS needs a single source for the two of them instead
+    of a pair that have to be kept in step. Each has its own stage and its
+    own push/pull flag from the dashboard, and only one is ever up at a
+    time -- the engine pulls the other down when either is pushed, because
+    on one source they would otherwise sit on top of each other.
 
-    Geometry is MEASURED off that artwork (its gold header labels give the
-    column centres, its twelve violet plates give the row centres) rather
-    than transcribed from a design file. On the sibling points-table page,
-    converting coordinates out of a vMix template instead of measuring put
-    every row progressively out of alignment, so this doesn't repeat it.
+    overlay/freefire_points_table.html still exists and forwards here, so
+    an OBS source already pointing at it keeps working.
 
-    The artwork's table carries four columns -- #, TEAM NAME, KILLS,
-    TOTAL -- which both display modes can fill, so the dashboard's existing
-    match/overall toggle still works: "match" shows the latest committed
-    match's own result, "overall" shows cumulative standings, same columns
-    either way.
+    Geometry for both is MEASURED off the artwork rather than transcribed
+    from a design file. An earlier attempt to convert coordinates out of a
+    vMix template put every row progressively out of alignment, so neither
+    of these repeats it.
+
+      Scoreboard: the artwork's gold header labels give the column
+      centres, its twelve violet plates give the row centres. Four columns
+      -- #, TEAM NAME, KILLS, TOTAL -- which both display modes fill, so
+      the dashboard's match/overall toggle works either way.
+
+      Points table: two blocks of six, which is what the CLT design draws.
+      Header plate at y 348..411, row rules at y 488/567/646/725/805/885,
+      blocks at x 93..949 and x 970..1826, column centres taken from the
+      header labels so each number sits under the word naming it. Its
+      background follows the selected graphics package; the scoreboard's
+      does not yet, because no package has supplied a blank for it.
   */
 
   html, body{
@@ -33,11 +44,12 @@
     font-family:'Poppins','Segoe UI',Arial,sans-serif;
   }
 
-  #stage{
-    position:relative; width:1920px; height:1080px;
+  .stage{
+    position:absolute; top:0; left:0; width:1920px; height:1080px;
     opacity:0; transition:opacity 0.45s ease;
+    pointer-events:none;
   }
-  #stage.visible{ opacity:1; }
+  .stage.visible{ opacity:1; }
 
   .bg{ position:absolute; top:0; left:0; width:1920px; height:1080px; }
 
@@ -53,12 +65,29 @@
     justify-content:flex-start;
     overflow:hidden; text-overflow:ellipsis; display:block;
   }
+
+  /* The points table's own type: gold on black plates, and no rank cell --
+     01..12 are printed in that artwork already. */
+  #pt-stage .cell{
+    color:#ffc400; font-weight:800; font-size:25px;
+    font-variant-numeric:tabular-nums; letter-spacing:.3px;
+    text-shadow:none;
+  }
+  #pt-stage .cell.name{
+    justify-content:flex-start; display:flex;
+    font-size:23px; text-transform:uppercase; line-height:1.05;
+    white-space:normal; overflow:hidden; text-overflow:clip;
+  }
 </style>
 </head>
 <body>
 
-<div id="stage">
-  <img class="bg" id="bg" src="assets/freefire/postmatch-gamestats.png" alt="">
+<div class="stage" id="sb-stage">
+  <img class="bg" id="sb-bg" src="assets/freefire/postmatch-gamestats.png" alt="">
+</div>
+
+<div class="stage" id="pt-stage">
+  <img class="bg" id="pt-bg" alt="">
 </div>
 
 <script>
@@ -71,41 +100,72 @@ const WS_URL = _relay
   ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_scoreboard"
   : "ws://localhost:8765?page=freefire_scoreboard";
 
-// Measured off the artwork's own header labels and row plates.
-const COL_CENTRE = { rank: 1103, kills: 1534, total: 1667 };
-const NAME_X = 1150;
-const NAME_W = 330;
+/* ---------- scoreboard ---------- */
+const SB_COL = { rank: 1103, kills: 1534, total: 1667 };
+const SB_NAME_X = 1150;
+const SB_NAME_W = 330;
 const NUM_W = 140;
-const ROW_CENTRE = [351, 408, 465, 520, 577, 634, 691, 748, 805, 862, 919, 976];
-const ROW_H = 44;
-const TEAMS = ROW_CENTRE.length;
+const SB_ROW_CENTRE = [351, 408, 465, 520, 577, 634, 691, 748, 805, 862, 919, 976];
+const SB_ROW_H = 44;
+const TEAMS = SB_ROW_CENTRE.length;
 
-const stage = document.getElementById("stage");
-ROW_CENTRE.forEach((cy, i) => {
-  const top = cy - ROW_H / 2;
+const sbStage = document.getElementById("sb-stage");
+SB_ROW_CENTRE.forEach((cy, i) => {
+  const top = cy - SB_ROW_H / 2;
   const mk = (field, left, width, cls) => {
     const el = document.createElement("div");
-    el.id = `sb-${i}-${field}`;
+    el.id = "sb-" + i + "-" + field;
     el.className = "cell" + (cls ? " " + cls : "");
     el.style.left = left + "px";
     el.style.top = top + "px";
     el.style.width = width + "px";
-    el.style.height = ROW_H + "px";
-    if(cls === "name") el.style.lineHeight = ROW_H + "px";
-    stage.appendChild(el);
+    el.style.height = SB_ROW_H + "px";
+    if(cls === "name") el.style.lineHeight = SB_ROW_H + "px";
+    sbStage.appendChild(el);
   };
-  mk("rank", COL_CENTRE.rank - NUM_W / 2, NUM_W, "rank");
-  mk("name", NAME_X, NAME_W, "name");
-  mk("kills", COL_CENTRE.kills - NUM_W / 2, NUM_W);
-  mk("total", COL_CENTRE.total - NUM_W / 2, NUM_W);
+  mk("rank", SB_COL.rank - NUM_W / 2, NUM_W, "rank");
+  mk("name", SB_NAME_X, SB_NAME_W, "name");
+  mk("kills", SB_COL.kills - NUM_W / 2, NUM_W);
+  mk("total", SB_COL.total - NUM_W / 2, NUM_W);
 });
 
-function setText(i, field, value){
-  const el = document.getElementById(`sb-${i}-${field}`);
+/* ---------- points table ---------- */
+const PT_ROW_CENTRE = [450, 528, 607, 686, 766, 846];
+const PT_ROW_H = 62;
+const PT_BLOCKS = [
+  { name: 200,  nameW: 178, matches: 430,  booyah: 588,  finishes: 760,  total: 902  },
+  { name: 1072, nameW: 178, matches: 1302, booyah: 1460, finishes: 1632, total: 1773 },
+];
+const PT_PER_BLOCK = PT_ROW_CENTRE.length;
+
+const ptStage = document.getElementById("pt-stage");
+PT_BLOCKS.forEach((col, b) => {
+  PT_ROW_CENTRE.forEach((cy, r) => {
+    const i = b * PT_PER_BLOCK + r;
+    const top = cy - PT_ROW_H / 2;
+    const mk = (field, left, width, cls) => {
+      const el = document.createElement("div");
+      el.id = "pt-" + i + "-" + field;
+      el.className = "cell" + (cls ? " " + cls : "");
+      el.style.left = left + "px";
+      el.style.top = top + "px";
+      el.style.width = width + "px";
+      el.style.height = PT_ROW_H + "px";
+      ptStage.appendChild(el);
+    };
+    mk("name", col.name, col.nameW, "name");
+    ["matches", "booyah", "finishes", "total"].forEach(f => {
+      mk(f, col[f] - NUM_W / 2, NUM_W);
+    });
+  });
+});
+
+function setText(prefix, i, field, value){
+  const el = document.getElementById(prefix + "-" + i + "-" + field);
   if(el) el.textContent = value;
 }
 
-function applyFreefire(ff){
+function applyScoreboard(ff){
   const mode = (ff.display && ff.display.scoreboardMode) || "match";
   const latest = ff.matches && ff.matches.length ? ff.matches[ff.matches.length - 1] : null;
 
@@ -136,13 +196,13 @@ function applyFreefire(ff){
     if(!row){
       // Blank, not zeros -- an unused slot means "no team here", and 0s
       // would read as a team that played and scored nothing.
-      ["rank","name","kills","total"].forEach(f => setText(i, f, ""));
+      ["rank", "name", "kills", "total"].forEach(f => setText("sb", i, f, ""));
       continue;
     }
-    setText(i, "rank", String(row.rank ?? (i + 1)).padStart(2, "0"));
-    setText(i, "name", (row.name || "").toUpperCase());
-    setText(i, "kills", row.kills ?? 0);
-    setText(i, "total", row.total ?? 0);
+    setText("sb", i, "rank", String(row.rank == null ? i + 1 : row.rank).padStart(2, "0"));
+    setText("sb", i, "name", (row.name || "").toUpperCase());
+    setText("sb", i, "kills", row.kills == null ? 0 : row.kills);
+    setText("sb", i, "total", row.total == null ? 0 : row.total);
   }
 
   // Nothing is drawn on the left-hand BOOYAH plate: the artwork already
@@ -150,14 +210,46 @@ function applyFreefire(ff){
   // top of it just collides with the baked text. If that plate is meant to
   // carry the winner's name, the word needs removing from the PNG first --
   // that's an artwork decision, not something to paper over here.
+}
 
-  // Defaults to VISIBLE. This page had no push/pull control before, so
-  // gating it on a flag that isn't set yet would leave it permanently
-  // blank on an existing setup -- "!== false" means it keeps showing until
-  // someone actively pulls it down.
-  document.getElementById("stage").classList.toggle(
-    "visible", !(ff.display && ff.display.scoreboardVisible === false)
-  );
+function applyPointsTable(ff){
+  const folder = (ff.event && ff.event.assetFolder) || "CLT";
+  const src = "assets/freefire/" + folder + "/POINTS TABLE.png";
+  const bg = document.getElementById("pt-bg");
+  if(bg.getAttribute("src") !== src) bg.src = src;
+
+  const standings = ff.standings || [];
+  for(let i = 0; i < PT_PER_BLOCK * PT_BLOCKS.length; i++){
+    const row = standings[i];
+    if(!row){
+      ["name", "matches", "booyah", "finishes", "total"]
+        .forEach(f => setText("pt", i, f, ""));
+      continue;
+    }
+    setText("pt", i, "name", (row.teamName || row.shortName || "").toUpperCase());
+    setText("pt", i, "matches", row.matches || 0);
+    setText("pt", i, "booyah", row.booyahs || 0);
+    // "Finishes" on this design is the kill total -- the artwork's own
+    // wording. Placement points are folded into TOTAL beside it.
+    setText("pt", i, "finishes", row.totalKills || 0);
+    setText("pt", i, "total", row.totalPoints || 0);
+  }
+}
+
+function applyFreefire(ff){
+  applyScoreboard(ff);
+  applyPointsTable(ff);
+
+  const display = ff.display || {};
+  const pointsUp = !!display.pointsTableVisible;
+  // The scoreboard defaults to VISIBLE: it had no push/pull control
+  // originally, so gating it on a flag that isn't set yet would leave an
+  // existing setup permanently blank. The points table, which does have
+  // one, wins the source while it is up.
+  const boardUp = display.scoreboardVisible !== false && !pointsUp;
+
+  document.getElementById("pt-stage").classList.toggle("visible", pointsUp);
+  document.getElementById("sb-stage").classList.toggle("visible", boardUp);
 }
 
 let ws;
