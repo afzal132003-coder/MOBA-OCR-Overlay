@@ -1776,6 +1776,20 @@
       </div>
       <div id="ff_matchStatus" class="hint"></div>
       <div id="ff_safezoneStatus" class="hint"></div>
+
+      <h3 style="margin-top:16px;">Re-add an Earlier Match</h3>
+      <p class="hint">Every result file in the folder, not just the newest — for putting a game back after
+        Clear All Matches, or one that got missed. Clearing standings never touches the files on disk, so
+        anything here can always be brought back.</p>
+      <div class="row" style="gap:12px;align-items:flex-end;">
+        <div class="team-form" style="flex:1;max-width:420px;">
+          <label>Result file</label>
+          <select id="ff_matchListPick"><option value="">— list files first —</option></select>
+        </div>
+        <button class="secondary" id="ff_matchListRefresh">List Result Files</button>
+        <button id="ff_matchListFetch">Fetch Selected</button>
+      </div>
+      <div class="hint" id="ff_matchListStatus" style="margin-top:6px;"></div>
     </div>
 
     <div class="card">
@@ -5566,6 +5580,42 @@ document.getElementById("ff_fetchMatch").addEventListener("click", () => {
   ffWs.send(JSON.stringify({type: "freefire_fetch_match", folder}));
 });
 
+document.getElementById("ff_matchListRefresh").addEventListener("click", () => {
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  const folder = document.getElementById("ff_matchFolder").value;
+  document.getElementById("ff_matchListStatus").textContent = "Listing result files...";
+  ffWs.send(JSON.stringify({ type: "freefire_list_matches", folder }));
+});
+
+document.getElementById("ff_matchListFetch").addEventListener("click", () => {
+  const matchId = document.getElementById("ff_matchListPick").value;
+  if(!matchId) return;
+  const folder = document.getElementById("ff_matchFolder").value;
+  document.getElementById("ff_matchListStatus").textContent = "Fetching " + matchId + "...";
+  ffWs.send(JSON.stringify({ type: "freefire_fetch_match", folder, matchId }));
+});
+
+function ffHandleMatchList(msg){
+  const sel = document.getElementById("ff_matchListPick");
+  const files = msg.files || [];
+  if(!files.length){
+    sel.innerHTML = '<option value="">No result files found in that folder</option>';
+    document.getElementById("ff_matchListStatus").textContent = "";
+    return;
+  }
+  sel.innerHTML = files.map(f => {
+    // "2026-09-06-21-37-33" -> "21:37:33" -- the date's the same for
+    // every file in one night's folder, so only the time earns its
+    // place in a dropdown label; matchId stays for telling apart two
+    // games that finished in the same minute.
+    const time = (f.timestamp.match(/(\d{2})-(\d{2})-(\d{2})$/) || []).slice(1).join(":") || f.timestamp;
+    const label = time + (f.committed ? "  (already in standings)" : "") + "  — " + f.matchId;
+    return `<option value="${ffEscapeHtml(f.matchId)}">${ffEscapeHtml(label)}</option>`;
+  }).join("");
+  document.getElementById("ff_matchListStatus").textContent =
+    `${files.length} result file${files.length === 1 ? "" : "s"} found — pick one and Fetch Selected.`;
+}
+
 document.getElementById("ff_fetchSafezone").addEventListener("click", () => {
   const folder = document.getElementById("ff_safezoneFolder").value;
   const matchId = ffState ? ffState.currentMatchId : null;
@@ -6355,14 +6405,35 @@ document.getElementById("ff_qmeBuild").addEventListener("click", () => {
    here: no multi-select, no snap guides, no per-element resize handle
    (a size field covers it, since every row's logo scales together). */
 const FFGFX_SCALE = 960 / 1920;
+// Every row's position, mirroring the SAME constants freefire_scoreboard.html
+// builds its rows from (PT_ROW_CENTRE/PT_BLOCKS, SB_ROW_CENTRE/SB_NAME_X) --
+// so the preview shows all twelve logo slots, not just one. Only the FIRST
+// is actually draggable; the rest are read-only ghosts that move with it,
+// since all twelve always share one offset (see applyLogoOverride in
+// freefire_scoreboard.html).
+const FFGFX_PT_ROW_CENTRE = [450, 528, 607, 686, 766, 846];
+const FFGFX_PT_BLOCK_NAME_X = [200, 1072];
+const FFGFX_SB_ROW_CENTRE = [351, 408, 465, 520, 577, 634, 691, 748, 805, 862, 919, 976];
+const FFGFX_SB_NAME_X = 1150;
+
+function ffgfxPtPositions(){
+  const positions = [];
+  FFGFX_PT_BLOCK_NAME_X.forEach(nameX => {
+    FFGFX_PT_ROW_CENTRE.forEach(cy => positions.push({ left: nameX + 4, top: cy }));
+  });
+  return positions;
+}
+function ffgfxSbPositions(){
+  return FFGFX_SB_ROW_CENTRE.map(cy => ({ left: FFGFX_SB_NAME_X + 6, top: cy }));
+}
+
 const FFGFX_PAGES = {
   pointsTableLogo: {
     label: "Overall Points Table",
     bg: () => "../overlay/assets/freefire/" +
       ((ffState && ffState.event && ffState.event.assetFolder) || "CLT") + "/overall standings.png",
-    // Matches the FIRST row's logo geometry in freefire_scoreboard.html --
-    // col.name(200) + logoPad(4), PT_ROW_CENTRE[0](450) - logoSize/2.
-    base: { left: 204, top: 427, size: 46 },
+    size: 46,
+    positions: ffgfxPtPositions(),
   },
   scoreboardLogo: {
     label: "Match Scoreboard",
@@ -6370,8 +6441,8 @@ const FFGFX_PAGES = {
     // still draws on the single shared postmatch-gamestats.png (see the
     // note in freefire_scoreboard.html; no CLT blank exists for it yet).
     bg: () => "../overlay/assets/freefire/postmatch-gamestats.png",
-    // SB_NAME_X(1150) + sbLogoPad(6), SB_ROW_CENTRE[0](351) - sbLogoSize/2.
-    base: { left: 1156, top: 334, size: 34 },
+    size: 34,
+    positions: ffgfxSbPositions(),
   },
 };
 let ffgfxCurrentPage = "pointsTableLogo";
@@ -6400,25 +6471,42 @@ function ffgfxLoadPage(pageKey){
 // pixel of movement (found by testing -- a 40px drag was only moving the
 // box 16px worth, because every step after the first landed on a
 // freshly-created element with no capture and no listener bound to it).
+// One draggable box for row 1, plus a read-only "ghost" at every other
+// row -- all twelve always share the SAME offset (see applyLogoOverride
+// in freefire_scoreboard.html), so this shows the whole column moving
+// together instead of leaving eleven rows looking unaccounted for.
 function ffgfxDrawBox(){
   const stage = document.getElementById("ffgfx_stage");
-  stage.innerHTML = `<div class="gfx-box" id="ffgfx_box"><span class="gfx-label">LOGO</span></div>`;
+  const page = FFGFX_PAGES[ffgfxCurrentPage];
+  stage.innerHTML = page.positions.map((pos, i) => i === 0
+    ? `<div class="gfx-box" id="ffgfx_box"><span class="gfx-label">DRAG ME</span></div>`
+    : `<div class="gfx-box" id="ffgfx_ghost_${i}"
+         style="pointer-events:none;opacity:0.6;border-style:dashed;"></div>`
+  ).join("");
   ffgfxPositionBox();
   ffgfxWireDrag();
 }
 
-// Repositions the EXISTING box in place -- safe to call as often as
+// Repositions every row's box in place -- safe to call as often as
 // mousemove fires, since it never touches the DOM tree the drag's pointer
-// capture depends on.
+// capture depends on (no element is created or removed here).
 function ffgfxPositionBox(){
-  const box = document.getElementById("ffgfx_box");
-  if(!box) return;
   const page = FFGFX_PAGES[ffgfxCurrentPage];
-  const size = page.base.size * ffgfxPending.scale * FFGFX_SCALE;
-  box.style.left = (page.base.left + ffgfxPending.dx) * FFGFX_SCALE + "px";
-  box.style.top = (page.base.top + ffgfxPending.dy) * FFGFX_SCALE + "px";
-  box.style.width = size + "px";
-  box.style.height = size + "px";
+  const size = page.size * ffgfxPending.scale * FFGFX_SCALE;
+  page.positions.forEach((pos, i) => {
+    const el = document.getElementById(i === 0 ? "ffgfx_box" : "ffgfx_ghost_" + i);
+    if(!el) return;
+    // Centred on the row's real anchor point regardless of scale --
+    // matches the real overlay, which grows the logo from CSS
+    // transform-origin:center rather than from a corner, so a size
+    // change doesn't drift the box away from where it's anchored.
+    const centreX = (pos.left + page.size / 2 + ffgfxPending.dx) * FFGFX_SCALE;
+    const centreY = (pos.top + ffgfxPending.dy) * FFGFX_SCALE;
+    el.style.left = (centreX - size / 2) + "px";
+    el.style.top = (centreY - size / 2) + "px";
+    el.style.width = size + "px";
+    el.style.height = size + "px";
+  });
 }
 
 function ffgfxWireDrag(){

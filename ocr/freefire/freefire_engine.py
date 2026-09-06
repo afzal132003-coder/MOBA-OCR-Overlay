@@ -2360,6 +2360,30 @@ async def handle_client(websocket, path=None):
                 await broadcast({
                     "type": "state_sync", "data": server_state, "locked": list(locked_fields),
                 })
+            elif payload.get("type") == "freefire_list_matches":
+                # Every result file in the folder, not just the newest --
+                # for re-adding an earlier game after it's been cleared
+                # from standings (by mistake or on purpose) or missed.
+                # Clearing standings never touches these files, so nothing
+                # here is actually lost by that action; this is just the
+                # way back.
+                folder = payload.get("folder") or server_state.get("settings", {}).get("matchResultFolder", "")
+                folder_path = Path(folder) if folder else None
+                files = []
+                if folder_path and folder_path.is_dir():
+                    for f in folder_path.iterdir():
+                        m = FREEFIRE_MATCH_FILENAME_REGEX.match(f.name)
+                        if m:
+                            files.append({
+                                "matchId": m.group("match_id"),
+                                "timestamp": m.group("timestamp"),
+                                "fileName": f.name,
+                            })
+                    files.sort(key=lambda r: r["timestamp"], reverse=True)
+                already = {m.get("matchId") for m in server_state.get("matches", [])}
+                for f in files:
+                    f["committed"] = f["matchId"] in already
+                await websocket.send(json.dumps({"type": "freefire_match_list", "files": files}))
             elif payload.get("type") == "freefire_fetch_match":
                 # Read-only lookup -- does NOT touch server_state. The
                 # dashboard reviews the parsed result and commits it via a
