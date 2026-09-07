@@ -1635,6 +1635,10 @@
         — same drag mechanic as the other games' Graphic tabs. The 5-row stat/photo groups (drag any one of them)
         move all 5 rows of that team together, since the grid repeats identically per row. Click a box, then use
         Scale below to resize just that one.</p>
+      <div class="team-form" style="max-width:280px;margin-bottom:10px;">
+        <label>Show only</label>
+        <select id="dota2gfx_filter"></select>
+      </div>
       <div id="dota2gfx_stage_wrap" style="position:relative;width:960px;height:540px;
            background:#000;border:1px solid #2b3348;border-radius:8px;overflow:hidden;">
         <img id="dota2gfx_bg" src="../overlay/assets/dota2_postmatch_blank.png"
@@ -9201,7 +9205,34 @@ function dota2gfxDrawStage(){
   ).join("");
   Object.keys(DOTA2_GFX_GEOM).forEach(dota2gfxPositionBox);
   dota2gfxWireDrag();
+  dota2gfxApplyFilter();
 }
+
+// "Show only" dropdown -- several boxes overlap tightly (the KDA/Net
+// Worth/Damage/Photo/Player Name groups all sit close together per row),
+// making the right one hard to grab by clicking alone. Picking one here
+// dims and disables pointer events on every OTHER box instead of removing
+// them, so their position is still visible for reference while dragging.
+function dota2gfxPopulateFilter(){
+  const sel = document.getElementById("dota2gfx_filter");
+  if(sel.options.length) return; // populate once
+  sel.innerHTML = '<option value="">All sections</option>' +
+    Object.entries(DOTA2_GFX_GEOM).map(([key, geo]) => `<option value="${key}">${geo.label}</option>`).join("");
+}
+
+function dota2gfxApplyFilter(){
+  const chosen = document.getElementById("dota2gfx_filter").value;
+  Object.keys(DOTA2_GFX_GEOM).forEach(key => {
+    const el = document.getElementById("dota2gfx_box_" + key);
+    if(!el) return;
+    const isChosen = !chosen || key === chosen;
+    el.style.opacity = isChosen ? "1" : "0.25";
+    el.style.pointerEvents = isChosen ? "auto" : "none";
+  });
+  if(chosen) dota2gfxSelect(chosen);
+}
+
+document.getElementById("dota2gfx_filter").addEventListener("change", dota2gfxApplyFilter);
 
 // Safe to call as often as pointermove fires -- never touches the DOM tree
 // the drag's pointer capture depends on.
@@ -9334,6 +9365,7 @@ document.getElementById("dota2gfx_scale").addEventListener("input", (e) => {
 });
 
 function dota2gfxLoad(){
+  dota2gfxPopulateFilter();
   dota2gfxPending = JSON.parse(JSON.stringify(
     (dota2State && dota2State.graphicOverrides && dota2State.graphicOverrides.postmatch) || {}));
   dota2gfxSelected = null;
