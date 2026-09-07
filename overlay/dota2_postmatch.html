@@ -184,7 +184,7 @@ function buildRows(containerId, side){
     row.className = "d2-row";
     row.style.top = ROW_Y[i] + "px";
     row.innerHTML = `
-      <div class="d2-photo-wrap">
+      <div class="d2-photo-wrap" id="${side}-${i}-photowrap">
         <img id="${side}-${i}-photo" alt="">
       </div>
       <div class="d2-val d2-kda" id="${side}-${i}-kda">—</div>
@@ -252,9 +252,17 @@ function applyState(state){
 // KDA column" should move all 5 KDA cells together.
 const DOTA2_GFX_GROUPS = {};
 ["team1", "team2"].forEach(team => {
-  ["kda", "networth", "damage", "photo", "ign"].forEach(field => {
+  ["kda", "networth", "damage", "ign"].forEach(field => {
     DOTA2_GFX_GROUPS[`${team}-${field}`] = [0, 1, 2, 3, 4].map(i => `${team}-${i}-${field}`);
   });
+  // "photo" targets the WRAPPER (…-photowrap), not the <img> itself --
+  // the img has its own floating CSS animation (d2PhotoFloat) that also
+  // sets `transform` every keyframe, which silently overwrote any saved
+  // override applied directly to the img: the save/broadcast path was
+  // fine, the value just never stayed visible on screen. The wrapper has
+  // no competing animation, so an override applied there sticks while the
+  // img keeps floating independently inside it.
+  DOTA2_GFX_GROUPS[`${team}-photo`] = [0, 1, 2, 3, 4].map(i => `${team}-${i}-photowrap`);
 });
 
 function applyGraphicOverrides(overrides, elementIds){

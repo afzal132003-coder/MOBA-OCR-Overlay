@@ -1625,6 +1625,8 @@
         <img id="dota2gfx_bg" src="../overlay/assets/dota2_postmatch_blank.png"
              style="position:absolute;top:0;left:0;width:960px;height:540px;object-fit:fill;" alt="">
         <div id="dota2gfx_stage" style="position:absolute;inset:0;"></div>
+        <div id="dota2gfx_guide_v" style="position:absolute;top:0;bottom:0;width:0;border-left:1px dashed #3ddc6a;display:none;pointer-events:none;z-index:5;"></div>
+        <div id="dota2gfx_guide_h" style="position:absolute;left:0;right:0;height:0;border-top:1px dashed #3ddc6a;display:none;pointer-events:none;z-index:5;"></div>
       </div>
       <div class="row" style="gap:16px;align-items:flex-end;margin-top:10px;">
         <span id="dota2gfx_selected" class="hint" style="margin:0;min-width:220px;">Click a box to select it.</span>
@@ -8801,6 +8803,32 @@ function dota2FillHeroSelects(){
 }
 dota2FillHeroSelects();
 
+// Same paste-fill behavior as MOBA's wirePlayerPasteFill / Valorant's
+// wireValPlayerPasteFill -- pasting a multi-line block of IGNs into an
+// EMPTY player-name field fills that field and the ones after it (same
+// team only), in order, instead of needing five separate pastes. Only
+// triggers on an empty target so a one-field correction never cascades
+// into the next players just because the clipboard had extra lines.
+function wireDota2PlayerPasteFill(){
+  ["team1","team2"].forEach(team => {
+    const inputs = Array.from(document.querySelectorAll(`.dota2-pname[data-team="${team}"]`))
+      .sort((a,b) => Number(a.dataset.i) - Number(b.dataset.i));
+    inputs.forEach((input, i) => {
+      input.addEventListener("paste", (e) => {
+        if(input.value.trim().length > 0) return;
+        const text = (e.clipboardData || window.clipboardData).getData("text");
+        const lines = text.split(/\r\n|\r|\n/).map(l => l.trim()).filter(l => l.length > 0);
+        if(lines.length <= 1) return;
+        e.preventDefault();
+        for(let j = 0; j < lines.length && i + j < inputs.length; j++){
+          inputs[i + j].value = lines[j];
+        }
+      });
+    });
+  });
+}
+wireDota2PlayerPasteFill();
+
 function dota2ApplyRoster(roster){
   document.getElementById("dota2_t1name").value = roster.team1.name || "";
   document.getElementById("dota2_t2name").value = roster.team2.name || "";
@@ -9098,6 +9126,45 @@ function dota2gfxSelect(key){
   scaleInput.value = (dota2gfxPending[key] && dota2gfxPending[key].scale) || 1;
 }
 
+// Center of a box in 1920-space, including its own pending dx/dy -- used
+// both to position it and to check whether it lines up with any OTHER
+// box (its mirrored counterpart on the opposite side, most usefully).
+function dota2gfxBoxCenter(key){
+  const geo = DOTA2_GFX_GEOM[key];
+  const o = dota2gfxPending[key] || {};
+  return {x: geo.left + geo.width / 2 + (o.dx || 0), y: geo.top + geo.height / 2 + (o.dy || 0)};
+}
+
+const DOTA2_GFX_SNAP_PX = 6; // 1920-space pixels -- how close counts as "aligned"
+
+function dota2gfxUpdateGuides(draggedKey){
+  const center = dota2gfxBoxCenter(draggedKey);
+  const guideV = document.getElementById("dota2gfx_guide_v");
+  const guideH = document.getElementById("dota2gfx_guide_h");
+  let snappedX = null, snappedY = null;
+
+  Object.keys(DOTA2_GFX_GEOM).forEach(otherKey => {
+    if(otherKey === draggedKey) return;
+    const oc = dota2gfxBoxCenter(otherKey);
+    if(snappedX === null && Math.abs(oc.x - center.x) <= DOTA2_GFX_SNAP_PX) snappedX = oc.x;
+    if(snappedY === null && Math.abs(oc.y - center.y) <= DOTA2_GFX_SNAP_PX) snappedY = oc.y;
+  });
+
+  if(snappedX !== null){
+    guideV.style.left = (snappedX * DOTA2_GFX_SCALE) + "px";
+    guideV.style.display = "block";
+  } else {
+    guideV.style.display = "none";
+  }
+  if(snappedY !== null){
+    guideH.style.top = (snappedY * DOTA2_GFX_SCALE) + "px";
+    guideH.style.display = "block";
+  } else {
+    guideH.style.display = "none";
+  }
+  return {snappedX, snappedY};
+}
+
 function dota2gfxWireDrag(){
   Object.keys(DOTA2_GFX_GEOM).forEach(key => {
     const box = document.getElementById("dota2gfx_box_" + key);
@@ -9112,14 +9179,25 @@ function dota2gfxWireDrag(){
       // max-width:100%, so a narrower screen renders smaller than 960px
       // and a fixed ratio would make the box drift from the cursor.
       const liveScale = document.getElementById("dota2gfx_stage_wrap").getBoundingClientRect().width / 1920;
+      const geo = DOTA2_GFX_GEOM[key];
       const onMove = (ev) => {
         dota2gfxPending[key].dx = Math.round(startDx + (ev.clientX - startX) / liveScale);
         dota2gfxPending[key].dy = Math.round(startDy + (ev.clientY - startY) / liveScale);
+        // Snap: if this box's center now lines up (within a few px) with
+        // any other box's center -- most usefully its mirror on the
+        // opposite side -- pull it exactly onto that line and show a
+        // guide, the same "does this match the box across from it" check
+        // requested for this tab.
+        const {snappedX, snappedY} = dota2gfxUpdateGuides(key);
+        if(snappedX !== null) dota2gfxPending[key].dx = Math.round(snappedX - (geo.left + geo.width / 2));
+        if(snappedY !== null) dota2gfxPending[key].dy = Math.round(snappedY - (geo.top + geo.height / 2));
         dota2gfxPositionBox(key);
       };
       const onUp = () => {
         box.removeEventListener("pointermove", onMove);
         box.removeEventListener("pointerup", onUp);
+        document.getElementById("dota2gfx_guide_v").style.display = "none";
+        document.getElementById("dota2gfx_guide_h").style.display = "none";
       };
       box.addEventListener("pointermove", onMove);
       box.addEventListener("pointerup", onUp);
