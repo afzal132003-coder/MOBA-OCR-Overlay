@@ -53,13 +53,13 @@
   .coming-soon h2{color:#7d6bff;text-transform:uppercase;letter-spacing:0.5px;margin-top:0;}
 
   .tabbar{display:flex;gap:8px;margin:16px 0 0;}
-  .tabbar button, .ff-tab-btn, .val-tab-btn{
+  .tabbar button, .ff-tab-btn, .val-tab-btn, .dota2-tab-btn{
     background:rgba(20,26,40,0.7);color:#98a3bd;border:1px solid #2b3348;border-bottom:none;
     padding:10px 18px;border-radius:10px 10px 0 0;font-weight:600;cursor:pointer;
     font-size:12px;text-transform:uppercase;letter-spacing:0.6px;font-family:inherit;
     box-shadow:none;margin-top:0;
   }
-  .tabbar button.active, .ff-tab-btn.active, .val-tab-btn.active{
+  .tabbar button.active, .ff-tab-btn.active, .val-tab-btn.active, .dota2-tab-btn.active{
     background:linear-gradient(180deg,#8b7bff,#6d59f5);color:#0a0d18;border-color:transparent;
   }
   .ff-pending-dot{display:none;}
@@ -115,8 +115,12 @@
   .ff-char-pick .who b{display:block;font-size:14px;}
   .ff-char-pick .who span{color:#6b7590;font-size:12px;}
   .ff-char-pick select{min-width:220px;}
-  .tab-panel, .ff-tab-panel, .val-tab-panel{display:none;background:transparent;padding-top:4px;}
-  .tab-panel.active, .ff-tab-panel.active, .val-tab-panel.active{display:block;}
+  .tab-panel, .ff-tab-panel, .val-tab-panel, .dota2-tab-panel{display:none;background:transparent;padding-top:4px;}
+  .tab-panel.active, .ff-tab-panel.active, .val-tab-panel.active, .dota2-tab-panel.active{display:block;}
+  .dota2-prow{display:flex;gap:6px;align-items:center;margin-bottom:6px;}
+  .dota2-prow .dota2-pname{flex:1;}
+  select.dota2-hero{background:#0a0d18;border:1px solid #2b3348;color:#98a3bd;padding:6px 8px;
+    border-radius:4px;font-size:12px;width:150px;}
 
   /* Cards read as lit glass panels: a faint top-edge highlight where the
      ambient light would catch, a soft drop shadow for depth, and a
@@ -1501,10 +1505,104 @@
 </div>
 
 <div class="category-panel" id="category-dota2">
-  <div class="coming-soon">
-    <h2>Dota 2</h2>
-    <p class="hint">Tools for this game are coming soon.</p>
+
+  <div class="hint" style="margin-bottom:10px;">
+    Connects separately, to <code>dota2_engine.py</code> (its own process, own port/relay page) — start that on
+    a Dota 2 day. Post-match only: set the roster once before the match, then after the game capture Net
+    Worth/K/D/A on the Overview tab and Damage on the Damage tab.
+    Status: <span id="dota2Status" class="disconnected" style="font-weight:800;">DISCONNECTED</span>
   </div>
+
+  <div class="ff-tabbar" style="display:flex;gap:8px;">
+    <button class="dota2-tab-btn active" data-d2tab="prematch">Pre-Match</button>
+    <button class="dota2-tab-btn" data-d2tab="postmatch">Post-Match</button>
+    <button class="dota2-tab-btn" data-d2tab="graphic">Graphic</button>
+  </div>
+
+  <!-- ===================== PRE-MATCH ===================== -->
+  <div class="dota2-tab-panel active" id="d2tab-prematch">
+    <div class="card">
+      <h2>Team Setup</h2>
+      <div style="display:flex;gap:20px;">
+        <div style="flex:1;">
+          <h3 style="font-size:13px;color:#98a3bd;margin:0 0 8px;">Team 1 (left)</h3>
+          <input type="text" id="dota2_t1name" placeholder="Team name" style="font-weight:700;">
+          <div style="display:flex;align-items:center;gap:10px;margin:6px 0 10px;">
+            <img id="dota2_t1logoPreview" style="width:44px;height:44px;object-fit:contain;border:1px solid #2b3348;border-radius:6px;background:#0a0d18;display:none;">
+            <button type="button" class="secondary" id="dota2_t1logoPick">Upload Logo</button>
+          </div>
+          <div class="dota2-prow"><input type="text" class="dota2-pname" data-team="team1" data-i="0" placeholder="Player 1 IGN"><select class="dota2-hero" data-team="team1" data-i="0"></select></div>
+          <div class="dota2-prow"><input type="text" class="dota2-pname" data-team="team1" data-i="1" placeholder="Player 2 IGN"><select class="dota2-hero" data-team="team1" data-i="1"></select></div>
+          <div class="dota2-prow"><input type="text" class="dota2-pname" data-team="team1" data-i="2" placeholder="Player 3 IGN"><select class="dota2-hero" data-team="team1" data-i="2"></select></div>
+          <div class="dota2-prow"><input type="text" class="dota2-pname" data-team="team1" data-i="3" placeholder="Player 4 IGN"><select class="dota2-hero" data-team="team1" data-i="3"></select></div>
+          <div class="dota2-prow"><input type="text" class="dota2-pname" data-team="team1" data-i="4" placeholder="Player 5 IGN"><select class="dota2-hero" data-team="team1" data-i="4"></select></div>
+        </div>
+        <div style="flex:1;">
+          <h3 style="font-size:13px;color:#98a3bd;margin:0 0 8px;">Team 2 (right)</h3>
+          <input type="text" id="dota2_t2name" placeholder="Team name" style="font-weight:700;">
+          <div style="display:flex;align-items:center;gap:10px;margin:6px 0 10px;">
+            <img id="dota2_t2logoPreview" style="width:44px;height:44px;object-fit:contain;border:1px solid #2b3348;border-radius:6px;background:#0a0d18;display:none;">
+            <button type="button" class="secondary" id="dota2_t2logoPick">Upload Logo</button>
+          </div>
+          <div class="dota2-prow"><input type="text" class="dota2-pname" data-team="team2" data-i="0" placeholder="Player 1 IGN"><select class="dota2-hero" data-team="team2" data-i="0"></select></div>
+          <div class="dota2-prow"><input type="text" class="dota2-pname" data-team="team2" data-i="1" placeholder="Player 2 IGN"><select class="dota2-hero" data-team="team2" data-i="1"></select></div>
+          <div class="dota2-prow"><input type="text" class="dota2-pname" data-team="team2" data-i="2" placeholder="Player 3 IGN"><select class="dota2-hero" data-team="team2" data-i="2"></select></div>
+          <div class="dota2-prow"><input type="text" class="dota2-pname" data-team="team2" data-i="3" placeholder="Player 4 IGN"><select class="dota2-hero" data-team="team2" data-i="3"></select></div>
+          <div class="dota2-prow"><input type="text" class="dota2-pname" data-team="team2" data-i="4" placeholder="Player 5 IGN"><select class="dota2-hero" data-team="team2" data-i="4"></select></div>
+        </div>
+      </div>
+      <p class="hint">The hero dropdown next to each IGN is what the post-match graphic shows instead of a
+        player photo — pick it here before or during the game, it's saved with the roster.</p>
+      <button id="dota2_saveRoster" style="margin-top:10px;">Save Roster</button>
+      <div id="dota2_status" class="hint" style="margin-top:8px;"></div>
+    </div>
+  </div>
+
+  <!-- ===================== POST-MATCH ===================== -->
+  <div class="dota2-tab-panel" id="d2tab-postmatch">
+
+    <div class="card">
+      <h2>Capture 1 — Net Worth &amp; K/D/A</h2>
+      <p class="hint">Have the post-match <b>Overview</b> tab up (K/D/A, Net Worth, team score, duration all
+        visible), then Capture. Each row shows whichever player was in that on-screen position — Dota 2 sorts
+        this screen by net worth, not roster order, so use the "who" dropdown on every row to say which roster
+        player it actually is.</p>
+      <button id="dota2_captureNetKda">Capture From Screen Now</button>
+      <div id="dota2_netkda_status" class="hint"></div>
+      <div id="dota2_netkda_table" style="margin-top:14px;overflow-x:auto;"></div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <h2>Capture 2 — Damage</h2>
+      <p class="hint">Switch to the Damage tab of the post-match screen, then Capture. This merges into the
+        same rows above by screen position — it does not need its own "who" assignment, it inherits whatever
+        row order Capture 1 already resolved.</p>
+      <button id="dota2_captureDamage">Capture From Screen Now</button>
+      <div id="dota2_damage_status" class="hint"></div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <button id="dota2_applyMapping">Apply Row Assignments</button>
+      <span class="hint">Locks in the "who" picks above and pushes final Net Worth / K/D/A / Damage per player to the overlay.</span>
+      <div id="dota2_apply_status" class="hint" style="margin-top:6px;"></div>
+    </div>
+
+  </div>
+
+  <!-- ===================== GRAPHIC ===================== -->
+  <div class="dota2-tab-panel" id="d2tab-graphic">
+    <div class="card">
+      <h2>Graphic Fixing — Post Match</h2>
+      <p class="hint">Nudge any element's position/scale on <code>overlay/dota2_postmatch.html</code> without
+        touching the file — same additive dx/dy/scale overlay the other games' Graphic tabs use, applied on top
+        of the element's normal layout.</p>
+      <div id="dota2gfx_rows"></div>
+      <button id="dota2gfx_save" style="margin-top:10px;">Save</button>
+      <button class="secondary" id="dota2gfx_reset">Reset This Page to Default</button>
+      <span id="dota2gfx_status" class="hint" style="margin:0;"></span>
+    </div>
+  </div>
+
 </div>
 
 <div class="category-panel" id="category-hok">
@@ -2277,6 +2375,13 @@ const FF_WS_URL = _relay
 const VAL_WS_URL = _relay
   ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=valorant_dashboard"
   : "ws://localhost:8765?page=valorant_dashboard";
+// Dota 2 tab's own connection -- dota2_engine.py is its own process on its
+// own local port (8766, not 8765), same isolation reasoning as FF/Valorant
+// above; over the relay it's just another &page= tag on the same shared
+// socket everyone else uses.
+const DOTA2_WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=dota2_dashboard"
+  : "ws://localhost:8766";
 
 function changeConnection(){
   const currentRelay = localStorage.getItem("moba_relay") || "";
@@ -2383,6 +2488,17 @@ document.querySelectorAll(".val-tab-btn").forEach(btn => {
     document.querySelectorAll(".val-tab-panel").forEach(p => p.classList.remove("active"));
     btn.classList.add("active");
     document.getElementById("valtab-" + btn.dataset.valtab).classList.add("active");
+  });
+});
+
+/* ---------- Dota 2 sub-tabs (same isolated-class-names reasoning) ---------- */
+document.querySelectorAll(".dota2-tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".dota2-tab-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".dota2-tab-panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("d2tab-" + btn.dataset.d2tab).classList.add("active");
+    if(btn.dataset.d2tab === "graphic") dota2gfxLoad();
   });
 });
 
@@ -8537,6 +8653,7 @@ const OVERLAY_LINKS = [
   {game:"MOBA", name:"Prematch / Draft Board", file:"overlay/prematch.html"},
   {game:"MOBA", name:"Post Match Recap", file:"overlay/postmatch.html"},
   {game:"MOBA", name:"MVP Stats", file:"overlay/mvp_stats.html"},
+  {game:"Dota 2", name:"Post Match", file:"overlay/dota2_postmatch.html"},
   {game:"Free Fire", name:"Scoreboard", file:"overlay/freefire_scoreboard.html"},
   {game:"Free Fire", name:"Points Table", file:"overlay/freefire_points_table.html"},
   {game:"Free Fire", name:"Booyah", file:"overlay/freefire_booyah.html"},
@@ -8593,6 +8710,328 @@ function buildOverlayLinksTable(){
   });
 }
 buildOverlayLinksTable();
+
+/* ---------- Dota 2 (its own WebSocket -- see DOTA2_WS_URL above -- own
+   port/relay page, own globals, post-match only). Roster is entered once
+   (name, logo, 5 IGNs, 5 hero picks per team); capture happens in two
+   passes (Net Worth+K/D/A on the Overview tab, Damage on the Damage tab,
+   merged server-side); each captured row then needs a "who" pick because
+   Dota 2's post-match screen sorts players by net worth, not by whatever
+   order the roster was entered in. */
+const DOTA2_HEROES = [["abaddon","Abaddon"],["alchemist","Alchemist"],["ancient_apparition","Ancient Apparition"],
+["antimage","Anti-Mage"],["arc_warden","Arc Warden"],["axe","Axe"],["bane","Bane"],["batrider","Batrider"],
+["beastmaster","Beastmaster"],["bloodseeker","Bloodseeker"],["bounty_hunter","Bounty Hunter"],
+["brewmaster","Brewmaster"],["bristleback","Bristleback"],["broodmother","Broodmother"],
+["centaur","Centaur Warrunner"],["chaos_knight","Chaos Knight"],["chen","Chen"],["clinkz","Clinkz"],
+["clockwerk","Clockwerk"],["crystal_maiden","Crystal Maiden"],["dark_seer","Dark Seer"],
+["dark_willow","Dark Willow"],["dawnbreaker","Dawnbreaker"],["dazzle","Dazzle"],
+["death_prophet","Death Prophet"],["disruptor","Disruptor"],["doom_bringer","Doom"],
+["dragon_knight","Dragon Knight"],["drow_ranger","Drow Ranger"],["earth_spirit","Earth Spirit"],
+["earthshaker","Earthshaker"],["elder_titan","Elder Titan"],["ember_spirit","Ember Spirit"],
+["enchantress","Enchantress"],["enigma","Enigma"],["faceless_void","Faceless Void"],
+["grimstroke","Grimstroke"],["gyrocopter","Gyrocopter"],["hoodwink","Hoodwink"],["huskar","Huskar"],
+["invoker","Invoker"],["io","Io"],["jakiro","Jakiro"],["juggernaut","Juggernaut"],
+["keeper_of_the_light","Keeper of the Light"],["kez","Kez"],["kunkka","Kunkka"],["largo","Largo"],
+["legion_commander","Legion Commander"],["leshrac","Leshrac"],["lich","Lich"],
+["life_stealer","Lifestealer"],["lina","Lina"],["lion","Lion"],["lone_druid","Lone Druid"],
+["luna","Luna"],["lycan","Lycan"],["magnataur","Magnus"],["marci","Marci"],["mars","Mars"],
+["medusa","Medusa"],["meepo","Meepo"],["mirana","Mirana"],["monkey_king","Monkey King"],
+["morphling","Morphling"],["muerta","Muerta"],["naga_siren","Naga Siren"],["furion","Nature's Prophet"],
+["necrolyte","Necrophos"],["night_stalker","Night Stalker"],["nyx_assassin","Nyx Assassin"],
+["ogre_magi","Ogre Magi"],["omniknight","Omniknight"],["oracle","Oracle"],
+["obsidian_destroyer","Outworld Destroyer"],["pangolier","Pangolier"],["phantom_assassin","Phantom Assassin"],
+["phantom_lancer","Phantom Lancer"],["phoenix","Phoenix"],["primal_beast","Primal Beast"],["puck","Puck"],
+["pudge","Pudge"],["pugna","Pugna"],["queenofpain","Queen of Pain"],["razor","Razor"],["riki","Riki"],
+["ringmaster","Ringmaster"],["rubick","Rubick"],["sand_king","Sand King"],["shadow_demon","Shadow Demon"],
+["nevermore","Shadow Fiend"],["shadow_shaman","Shadow Shaman"],["silencer","Silencer"],
+["skywrath_mage","Skywrath Mage"],["slardar","Slardar"],["slark","Slark"],["snapfire","Snapfire"],
+["sniper","Sniper"],["spectre","Spectre"],["spirit_breaker","Spirit Breaker"],["storm_spirit","Storm Spirit"],
+["sven","Sven"],["techies","Techies"],["templar_assassin","Templar Assassin"],["terrorblade","Terrorblade"],
+["tidehunter","Tidehunter"],["shredder","Timbersaw"],["tinker","Tinker"],["tiny","Tiny"],
+["treant","Treant Protector"],["troll_warlord","Troll Warlord"],["tusk","Tusk"],
+["abyssal_underlord","Underlord"],["undying","Undying"],["ursa","Ursa"],["vengefulspirit","Vengeful Spirit"],
+["venomancer","Venomancer"],["viper","Viper"],["visage","Visage"],["void_spirit","Void Spirit"],
+["warlock","Warlock"],["weaver","Weaver"],["windrunner","Windranger"],["winter_wyvern","Winter Wyvern"],
+["witch_doctor","Witch Doctor"],["skeleton_king","Wraith King"],["zuus","Zeus"]];
+
+let dota2Ws;
+let dota2State = null;
+let dota2LastCapture = null; // raw capture_result.data, indexed by on-screen row (0-4 per team)
+
+function dota2FillHeroSelects(){
+  const opts = '<option value="">— pick hero —</option>' +
+    DOTA2_HEROES.map(([slug,name]) => `<option value="${slug}">${name}</option>`).join("");
+  document.querySelectorAll("select.dota2-hero").forEach(el => { if(!el.innerHTML) el.innerHTML = opts; });
+}
+dota2FillHeroSelects();
+
+function dota2ApplyRoster(roster){
+  document.getElementById("dota2_t1name").value = roster.team1.name || "";
+  document.getElementById("dota2_t2name").value = roster.team2.name || "";
+  ["team1","team2"].forEach(team => {
+    const logo = roster[team].logo;
+    const img = document.getElementById(`dota2_${team === "team1" ? "t1" : "t2"}logoPreview`);
+    if(logo){ img.src = logo; img.style.display = "inline-block"; } else { img.style.display = "none"; }
+  });
+  document.querySelectorAll(".dota2-pname").forEach(el => {
+    const team = el.dataset.team, i = Number(el.dataset.i);
+    if(document.activeElement !== el) el.value = (roster[team].players || [])[i] || "";
+  });
+  document.querySelectorAll("select.dota2-hero").forEach(el => {
+    const team = el.dataset.team, i = Number(el.dataset.i);
+    if(document.activeElement !== el) el.value = (roster[team].heroes || [])[i] || "";
+  });
+}
+
+function dota2ReadRoster(){
+  const t1logo = document.getElementById("dota2_t1logoPreview");
+  const t2logo = document.getElementById("dota2_t2logoPreview");
+  const roster = {
+    team1: {name: document.getElementById("dota2_t1name").value,
+            logo: t1logo.style.display !== "none" ? t1logo.src : "",
+            players: ["", "", "", "", ""], heroes: ["", "", "", "", ""]},
+    team2: {name: document.getElementById("dota2_t2name").value,
+            logo: t2logo.style.display !== "none" ? t2logo.src : "",
+            players: ["", "", "", "", ""], heroes: ["", "", "", "", ""]},
+  };
+  document.querySelectorAll(".dota2-pname").forEach(el => {
+    roster[el.dataset.team].players[Number(el.dataset.i)] = el.value;
+  });
+  document.querySelectorAll("select.dota2-hero").forEach(el => {
+    roster[el.dataset.team].heroes[Number(el.dataset.i)] = el.value;
+  });
+  return roster;
+}
+
+// Same resize-before-store pattern as ffPickTeamLogo -- 128px is larger
+// than any graphic actually renders a logo at, keeps state_sync small.
+function dota2PickLogo(team){
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.addEventListener("change", () => {
+    const file = input.files && input.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const max = 128;
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL("image/png");
+        const preview = document.getElementById(`dota2_${team === "team1" ? "t1" : "t2"}logoPreview`);
+        preview.src = dataUrl; preview.style.display = "inline-block";
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+  input.click();
+}
+document.getElementById("dota2_t1logoPick").addEventListener("click", () => dota2PickLogo("team1"));
+document.getElementById("dota2_t2logoPick").addEventListener("click", () => dota2PickLogo("team2"));
+
+document.getElementById("dota2_saveRoster").addEventListener("click", () => {
+  if(!(dota2Ws && dota2Ws.readyState === WebSocket.OPEN)) return;
+  dota2Ws.send(JSON.stringify({type: "save_roster", roster: dota2ReadRoster()}));
+  document.getElementById("dota2_status").textContent = "Roster saved.";
+});
+
+// "Who" dropdown options for one raw captured row -- every roster slot
+// across both teams, same team|index encoding Valorant's import table
+// already uses for exactly the same reason (a captured row's real identity
+// isn't known until the operator says so).
+function dota2WhoOptionsHtml(selectedTeam, selectedIdx){
+  const opts = [];
+  ["team1","team2"].forEach(team => {
+    const roster = (dota2State && dota2State[team]) || {players:["","","","",""]};
+    const label = team === "team1" ? "T1" : "T2";
+    for(let i=0;i<5;i++){
+      const name = roster.players[i] || `Player ${i+1}`;
+      const selected = (team === selectedTeam && i === selectedIdx) ? "selected" : "";
+      opts.push(`<option value="${team}|${i}" ${selected}>${label}: ${name}</option>`);
+    }
+  });
+  return opts.join("");
+}
+
+function dota2HighlightDuplicateWho(){
+  const selects = Array.from(document.querySelectorAll(".dota2-who"));
+  const counts = {};
+  selects.forEach(s => { counts[s.value] = (counts[s.value] || 0) + 1; });
+  selects.forEach(s => { s.style.borderColor = counts[s.value] > 1 ? "#c0453f" : ""; });
+}
+
+function dota2RenderCaptureTable(cap){
+  const container = document.getElementById("dota2_netkda_table");
+  if(!cap){ container.innerHTML = ""; return; }
+  container.innerHTML = "";
+  const table = document.createElement("table");
+  table.style.cssText = "width:100%;border-collapse:collapse;font-size:13px;";
+  table.innerHTML = `
+    <thead><tr style="text-align:left;color:#98a3bd;">
+      <th style="padding:6px;">Screen Row</th>
+      <th style="padding:6px;">Who (roster player)</th>
+      <th style="padding:6px;">K/D/A</th>
+      <th style="padding:6px;">Net Worth</th>
+      <th style="padding:6px;">Damage</th>
+    </tr></thead>
+    <tbody></tbody>
+  `;
+  const tbody = table.querySelector("tbody");
+  ["team1","team2"].forEach(team => {
+    (cap[team].players || []).forEach((p, i) => {
+      const tr = document.createElement("tr");
+      tr.style.borderTop = "1px solid #2b3348";
+      const label = team === "team1" ? "T1" : "T2";
+      const kda = p ? `${p.kills ?? "—"}/${p.deaths ?? "—"}/${p.assists ?? "—"}` : "—";
+      tr.innerHTML = `
+        <td style="padding:6px;color:#6b7590;">${label} row ${i+1}</td>
+        <td style="padding:6px;"><select class="dota2-who" data-team="${team}" data-i="${i}" style="width:180px;">${dota2WhoOptionsHtml(team, i)}</select></td>
+        <td style="padding:6px;">${kda}</td>
+        <td style="padding:6px;">${p && p.networth != null ? p.networth : "—"}</td>
+        <td style="padding:6px;">${p && p.damage != null ? p.damage : "—"}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  });
+  container.appendChild(table);
+  dota2HighlightDuplicateWho();
+  container.querySelectorAll(".dota2-who").forEach(sel => {
+    sel.addEventListener("change", () => dota2HighlightDuplicateWho());
+  });
+}
+
+document.getElementById("dota2_captureNetKda").addEventListener("click", () => {
+  if(!(dota2Ws && dota2Ws.readyState === WebSocket.OPEN)) return;
+  document.getElementById("dota2_netkda_status").textContent = "Capturing...";
+  dota2Ws.send(JSON.stringify({type: "capture", category: "net-kda"}));
+});
+document.getElementById("dota2_captureDamage").addEventListener("click", () => {
+  if(!(dota2Ws && dota2Ws.readyState === WebSocket.OPEN)) return;
+  document.getElementById("dota2_damage_status").textContent = "Capturing...";
+  dota2Ws.send(JSON.stringify({type: "capture", category: "damage"}));
+});
+
+// Reads the "who" dropdowns (one per raw screen row) and inverts them into
+// order[rosterIndex] = rawRowIndex per team, then sends that mapping so the
+// engine reorders lastCapture into roster position order -- same
+// "identity is a lookup, not a move" reasoning as Valorant's import table.
+document.getElementById("dota2_applyMapping").addEventListener("click", () => {
+  if(!(dota2Ws && dota2Ws.readyState === WebSocket.OPEN)) return;
+  const mapping = {team1: [null,null,null,null,null], team2: [null,null,null,null,null]};
+  document.querySelectorAll(".dota2-who").forEach(sel => {
+    const rawTeam = sel.dataset.team, rawIdx = Number(sel.dataset.i);
+    const [rosterTeam, rosterIdxStr] = sel.value.split("|");
+    if(rosterTeam === rawTeam){
+      mapping[rosterTeam][Number(rosterIdxStr)] = rawIdx;
+    }
+  });
+  dota2Ws.send(JSON.stringify({type: "map_capture", team1: mapping.team1, team2: mapping.team2}));
+  document.getElementById("dota2_apply_status").textContent = "Applied — overlay updated.";
+});
+
+function dota2Connect(){
+  dota2Ws = new WebSocket(DOTA2_WS_URL);
+  dota2Ws.onopen = () => {
+    document.getElementById("dota2Status").textContent = "CONNECTED";
+    document.getElementById("dota2Status").className = "connected";
+  };
+  dota2Ws.onclose = () => {
+    document.getElementById("dota2Status").textContent = "DISCONNECTED";
+    document.getElementById("dota2Status").className = "disconnected";
+    setTimeout(dota2Connect, 2000);
+  };
+  dota2Ws.onerror = () => dota2Ws.close();
+  dota2Ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state"){
+      dota2ApplyRoster(msg.data.roster);
+    } else if(msg.type === "state_sync"){
+      dota2State = msg.data;
+      dota2gfxOnStateSync(dota2State);
+    } else if(msg.type === "capture_result"){
+      if(msg.error){
+        document.getElementById("dota2_netkda_status").textContent = "Error: " + msg.error;
+        document.getElementById("dota2_damage_status").textContent = "Error: " + msg.error;
+        return;
+      }
+      dota2LastCapture = msg.data;
+      document.getElementById("dota2_netkda_status").textContent = "Captured.";
+      document.getElementById("dota2_damage_status").textContent = "Captured — merged into rows above.";
+      dota2RenderCaptureTable(dota2LastCapture);
+    }
+  };
+}
+dota2Connect();
+
+/* ---------- Dota 2 Graphic Fixing: dx/dy/scale nudges, one row per
+   element, additive on top of the overlay's own CSS layout. A numeric
+   form rather than a full drag-on-screenshot editor (like MOBA/FF/Valorant
+   have) -- same underlying graphicOverrides.postmatch mechanism, far less
+   code for a page with this few adjustable elements. */
+const DOTA2_GFX_ELEMENTS = [
+  ["logo-left","Left Logo"], ["logo-right","Right Logo"],
+  ["name-left","Left Team Name"], ["name-right","Right Team Name"],
+  ["score-left","Left Score"], ["score-right","Right Score"],
+  ["pom-duration","Duration"],
+  ["stat-left-networth","Left Net Worth"], ["stat-right-networth","Right Net Worth"],
+  ["stat-left-damage","Left Damage"], ["stat-right-damage","Right Damage"],
+  ["stat-left-kills","Left Kills"], ["stat-right-kills","Right Kills"],
+];
+let dota2gfxPending = {};
+
+function dota2gfxRenderRows(){
+  const container = document.getElementById("dota2gfx_rows");
+  container.innerHTML = DOTA2_GFX_ELEMENTS.map(([id,label]) => {
+    const o = dota2gfxPending[id] || {};
+    return `
+      <div class="ff-map-row">
+        <div class="ff-map-what"><b>${label}</b><span>${id}</span></div>
+        <label>dx <input type="number" class="dota2gfx-input" data-id="${id}" data-field="dx" value="${o.dx || 0}" style="width:70px;"></label>
+        <label>dy <input type="number" class="dota2gfx-input" data-id="${id}" data-field="dy" value="${o.dy || 0}" style="width:70px;"></label>
+        <label>scale <input type="number" step="0.05" class="dota2gfx-input" data-id="${id}" data-field="scale" value="${o.scale || 1}" style="width:70px;"></label>
+      </div>`;
+  }).join("");
+  container.querySelectorAll(".dota2gfx-input").forEach(inp => {
+    inp.addEventListener("input", () => {
+      const id = inp.dataset.id, field = inp.dataset.field;
+      dota2gfxPending[id] = dota2gfxPending[id] || {};
+      dota2gfxPending[id][field] = Number(inp.value) || 0;
+    });
+  });
+}
+
+function dota2gfxLoad(){
+  dota2gfxPending = JSON.parse(JSON.stringify(
+    (dota2State && dota2State.graphicOverrides && dota2State.graphicOverrides.postmatch) || {}));
+  dota2gfxRenderRows();
+}
+
+function dota2gfxOnStateSync(state){
+  // Only re-render the form from a live update if it isn't the source of
+  // that update -- otherwise every keystroke's own round trip would reset
+  // the very field being typed into.
+  if(document.querySelectorAll(".dota2gfx-input:focus").length) return;
+}
+
+document.getElementById("dota2gfx_save").addEventListener("click", () => {
+  if(!(dota2Ws && dota2Ws.readyState === WebSocket.OPEN)) return;
+  dota2Ws.send(JSON.stringify({type: "save_graphic_overrides", page: "postmatch", overrides: dota2gfxPending}));
+  document.getElementById("dota2gfx_status").textContent = "Saved.";
+});
+document.getElementById("dota2gfx_reset").addEventListener("click", () => {
+  dota2gfxPending = {};
+  dota2gfxRenderRows();
+  if(dota2Ws && dota2Ws.readyState === WebSocket.OPEN){
+    dota2Ws.send(JSON.stringify({type: "save_graphic_overrides", page: "postmatch", overrides: {}}));
+  }
+  document.getElementById("dota2gfx_status").textContent = "Reset.";
+});
 </script>
 </body>
 </html>

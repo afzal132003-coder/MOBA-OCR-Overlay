@@ -56,6 +56,11 @@
 
   .bg-frame{ position:absolute; top:0; left:0; width:1920px; height:1080px; pointer-events:none; }
 
+  .header-logo{ position:absolute; top:291px; width:60px; height:60px;
+    border-radius:50%; object-fit:contain; display:none; }
+  #logo-left{ left:145px; }
+  #logo-right{ left:1715px; }
+
   .team-block{ position:absolute; top:298px; width:132px; height:38px;
     display:flex; align-items:center; justify-content:center; }
   #block-left{ left:249px; }
@@ -126,6 +131,8 @@
 <div id="stage">
   <img class="bg-frame" src="assets/postmatch_blank.png" alt="">
 
+  <img class="header-logo" id="logo-left" alt="">
+  <img class="header-logo" id="logo-right" alt="">
   <div class="team-block" id="block-left">
     <div class="team-name" id="name-left">TEAM 1</div>
   </div>
@@ -252,6 +259,12 @@ skeleton_king:"Wraith King",zuus:"Zeus"};
 
 function renderSide(side, teamKey, pom, state){
   setText(`name-${side}`, state[teamKey].name || teamKey.toUpperCase());
+  const logo = document.getElementById(`logo-${side}`);
+  if(state[teamKey].logo){
+    logo.src = state[teamKey].logo; logo.style.display = "block";
+  } else {
+    logo.style.display = "none";
+  }
 
   const players = state[teamKey].players || [];
   const heroes = state[teamKey].heroes || [];
@@ -281,6 +294,28 @@ function renderSide(side, teamKey, pom, state){
   }
 }
 
+// Per-element position/scale nudges saved from the dashboard's Graphic
+// tab -- purely additive on top of each element's base CSS position/size,
+// applied as a transform so it never disturbs the underlying layout math.
+// Same mechanism as overlay/postmatch.html's own applyGraphicOverrides().
+function applyGraphicOverrides(overrides, elementIds){
+  (elementIds || []).forEach(id => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    const o = (overrides && overrides[id]) || {};
+    const dx = o.dx || 0, dy = o.dy || 0, scale = o.scale || 1;
+    el.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+    el.style.transformOrigin = "top left";
+  });
+}
+
+const DOTA2_GFX_ELEMENT_IDS = [
+  "logo-left", "logo-right", "name-left", "name-right", "score-left", "score-right", "pom-duration",
+  "stat-left-networth", "stat-right-networth",
+  "stat-left-damage", "stat-right-damage",
+  "stat-left-kills", "stat-right-kills",
+];
+
 function applyState(state){
   const pom = state.postMatch;
 
@@ -307,6 +342,8 @@ function applyState(state){
 
   renderSide("left", leftTeam, pom, state);
   renderSide("right", rightTeam, pom, state);
+
+  applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.postmatch, DOTA2_GFX_ELEMENT_IDS);
 }
 
 function setResult(side, wins){

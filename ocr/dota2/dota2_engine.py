@@ -142,16 +142,26 @@ def ocr_networth(img_bgr):
 # Whole-scoreboard capture.
 # ---------------------------------------------------------------------------
 
-def capture_postmatch(config=None):
-    """Grabs and OCRs every calibrated region in one pass -- both the
-    "postgame-net-kda" category (K/D/A, Net Worth, team score, duration)
-    and "postgame-damage" (whichever tab shows damage), if calibrated.
-    Returns a dict shaped for the operator to then assign names onto --
-    slot order is top-to-bottom, matching the scoreboard's own row order,
-    same as the 5 fixed player rows Free Fire's roster already assumes
-    per squad."""
+def blank_player():
+    return {"kills": None, "deaths": None, "assists": None, "networth": None, "damage": None}
+
+
+def capture_postmatch(config=None, category=None):
+    """Grabs and OCRs the calibrated regions for one screen at a time --
+    "net-kda" (K/D/A, Net Worth, team score, duration -- all on the Overview
+    tab) or "damage" (the Damage tab). category=None reads everything, for
+    the standalone manual check at the bottom of this file; the live server
+    below always passes one or the other, because reading BOTH in the same
+    pass would OCR whichever tab is actually on screen for keys that belong
+    to the OTHER tab -- garbage, not None, since a calibrated region has
+    real pixels under it regardless of which screen is showing. Returns a
+    dict shaped for the operator to then assign names onto -- slot order is
+    top-to-bottom, matching the scoreboard's own row order, same as the 5
+    fixed player rows Free Fire's roster already assumes per squad."""
     config = config or load_config()
     regions = config.get("regions", {})
+    read_net_kda = category in (None, "net-kda")
+    read_damage = category in (None, "damage")
 
     def region_crop(sct, key):
         r = regions.get(key)
@@ -165,43 +175,76 @@ def capture_postmatch(config=None):
         "duration": None,
     }
 
-    def blank_player():
-        return {"kills": None, "deaths": None, "assists": None, "networth": None, "damage": None}
-
     with mss.mss() as sct:
         for team_key in ("team1", "team2"):
             for i in range(TEAM_SLOTS):
                 player = blank_player()
                 got_anything = False
 
-                kda_crop = region_crop(sct, f"dota2_{team_key}_p{i}_kda")
-                if kda_crop is not None:
-                    got_anything = True
-                    kda = ocr_kda(kda_crop)
-                    if kda:
-                        player["kills"], player["deaths"], player["assists"] = kda
+                if read_net_kda:
+                    kda_crop = region_crop(sct, f"dota2_{team_key}_p{i}_kda")
+                    if kda_crop is not None:
+                        got_anything = True
+                        kda = ocr_kda(kda_crop)
+                        if kda:
+                            player["kills"], player["deaths"], player["assists"] = kda
 
-                nw_crop = region_crop(sct, f"dota2_{team_key}_p{i}_networth")
-                if nw_crop is not None:
-                    got_anything = True
-                    player["networth"] = ocr_networth(nw_crop)
+                    nw_crop = region_crop(sct, f"dota2_{team_key}_p{i}_networth")
+                    if nw_crop is not None:
+                        got_anything = True
+                        player["networth"] = ocr_networth(nw_crop)
 
-                dmg_crop = region_crop(sct, f"dota2_{team_key}_p{i}_damage")
-                if dmg_crop is not None:
-                    got_anything = True
-                    player["damage"] = ocr_number(dmg_crop)
+                if read_damage:
+                    dmg_crop = region_crop(sct, f"dota2_{team_key}_p{i}_damage")
+                    if dmg_crop is not None:
+                        got_anything = True
+                        player["damage"] = ocr_number(dmg_crop)
 
                 result[team_key]["players"][i] = player if got_anything else None
 
-            score_crop = region_crop(sct, f"dota2_{team_key}_score")
-            if score_crop is not None:
-                result[team_key]["score"] = ocr_number(score_crop)
+            if read_net_kda:
+                score_crop = region_crop(sct, f"dota2_{team_key}_score")
+                if score_crop is not None:
+                    result[team_key]["score"] = ocr_number(score_crop)
 
-        duration_crop = region_crop(sct, "dota2_duration")
-        if duration_crop is not None:
-            result["duration"] = ocr_duration(duration_crop)
+        if read_net_kda:
+            duration_crop = region_crop(sct, "dota2_duration")
+            if duration_crop is not None:
+                result["duration"] = ocr_duration(duration_crop)
 
     return result
+
+
+def merge_capture(old, new):
+    """Folds a category-scoped capture into whatever was already captured,
+    field by field, so capturing Damage after Net Worth/KDA (or vice versa)
+    doesn't blank out the other category's numbers -- each capture only
+    populates the fields its own screen actually showed, leaving the rest
+    None, and None never overwrites a real value here."""
+    if old is None:
+        return new
+    merged = {
+        "team1": {"score": new["team1"]["score"] if new["team1"]["score"] is not None else old["team1"]["score"],
+                  "players": []},
+        "team2": {"score": new["team2"]["score"] if new["team2"]["score"] is not None else old["team2"]["score"],
+                  "players": []},
+        "duration": new["duration"] if new["duration"] is not None else old["duration"],
+    }
+    for team_key in ("team1", "team2"):
+        old_players = old[team_key]["players"] or [None] * TEAM_SLOTS
+        new_players = new[team_key]["players"] or [None] * TEAM_SLOTS
+        for i in range(TEAM_SLOTS):
+            op, np = old_players[i], new_players[i]
+            if op is None and np is None:
+                merged[team_key]["players"].append(None)
+                continue
+            base = dict(op) if op else blank_player()
+            if np:
+                for k, v in np.items():
+                    if v is not None:
+                        base[k] = v
+            merged[team_key]["players"].append(base)
+    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -223,10 +266,14 @@ PORT = 8766  # separate from freefire (8765) / moba+valorant's port, its own pro
 def default_state():
     return {
         "roster": {
-            "team1": {"name": "", "players": ["", "", "", "", ""], "heroes": ["", "", "", "", ""]},
-            "team2": {"name": "", "players": ["", "", "", "", ""], "heroes": ["", "", "", "", ""]},
+            "team1": {"name": "", "logo": "", "players": ["", "", "", "", ""], "heroes": ["", "", "", "", ""]},
+            "team2": {"name": "", "logo": "", "players": ["", "", "", "", ""], "heroes": ["", "", "", "", ""]},
         },
         "lastCapture": None,
+        # Per-page {elementId: {dx, dy, scale}} nudges from the dashboard's
+        # Graphic tab -- same additive-transform mechanism MOBA's
+        # postmatch.html already reads via applyGraphicOverrides().
+        "graphicOverrides": {},
     }
 
 
@@ -289,11 +336,13 @@ def build_overlay_state(state):
         r = roster[key]
         return {
             "name": r.get("name", ""),
+            "logo": r.get("logo", ""),
             "players": r.get("players", ["", "", "", "", ""]),
             "heroes": r.get("heroes", ["", "", "", "", ""]),
         }
 
-    out = {"team1": team_block("team1"), "team2": team_block("team2"), "postMatch": None}
+    out = {"team1": team_block("team1"), "team2": team_block("team2"), "postMatch": None,
+           "graphicOverrides": state.get("graphicOverrides", {})}
 
     cap = state.get("lastCapture")
     if not cap:
@@ -334,8 +383,29 @@ def build_overlay_state(state):
     return out
 
 
+# Shared across every connection (dashboard tab(s), the postmatch overlay,
+# the relay uplink) rather than loaded fresh per-connection -- a
+# connection-local copy meant two simultaneously-open clients could each
+# hold a stale snapshot and silently clobber each other's save on write.
+# Loaded once below, mutated in place, persisted on every change.
+server_state = load_state()
+
+
+def reorder_capture_team(cap, team_key, order):
+    """order[rosterIndex] = which raw captured row (0-4, on-screen top to
+    bottom) belongs at that roster position -- the post-match screen sorts
+    by net worth/kills, not by whatever order the roster was entered in, so
+    row position alone can't be trusted to mean "this roster player"; the
+    operator's per-row "who" pick in the dashboard supplies this mapping.
+    None in a slot leaves that roster position empty (no row assigned)."""
+    old_players = cap[team_key]["players"] or [None] * TEAM_SLOTS
+    cap[team_key]["players"] = [
+        (old_players[idx] if idx is not None and 0 <= idx < len(old_players) else None)
+        for idx in order
+    ]
+
+
 async def handle_client(websocket):
-    server_state = load_state()
     CONNECTED.add(websocket)
     try:
         await websocket.send(json.dumps({"type": "state", "data": server_state}))
@@ -349,7 +419,7 @@ async def handle_client(websocket):
             if payload.get("type") == "save_roster":
                 server_state["roster"] = payload.get("roster", server_state["roster"])
                 save_state(server_state)
-                await websocket.send(json.dumps({"type": "state", "data": server_state}))
+                await broadcast({"type": "state", "data": server_state})
                 await broadcast({"type": "state_sync", "data": build_overlay_state(server_state)})
 
             elif payload.get("type") == "capture":
@@ -359,14 +429,65 @@ async def handle_client(websocket):
                         "type": "capture_result", "error": "No regions calibrated yet -- run calibrate.py first.",
                     }))
                     continue
-                data = capture_postmatch(cfg)
-                data = label_with_roster(data, server_state["roster"])
-                server_state["lastCapture"] = data
+                category = payload.get("category")  # "net-kda" | "damage" | None (both)
+                fresh = capture_postmatch(cfg, category=category)
+                merged = merge_capture(server_state.get("lastCapture"), fresh)
+                merged = label_with_roster(merged, server_state["roster"])
+                server_state["lastCapture"] = merged
                 save_state(server_state)
-                await websocket.send(json.dumps({"type": "capture_result", "data": data}))
+                await websocket.send(json.dumps({"type": "capture_result", "data": merged}))
+                await broadcast({"type": "state_sync", "data": build_overlay_state(server_state)})
+
+            elif payload.get("type") == "save_graphic_overrides":
+                page = payload.get("page", "postmatch")
+                server_state.setdefault("graphicOverrides", {})[page] = payload.get("overrides", {})
+                save_state(server_state)
+                await broadcast({"type": "state_sync", "data": build_overlay_state(server_state)})
+
+            elif payload.get("type") == "map_capture":
+                cap = server_state.get("lastCapture")
+                if not cap:
+                    continue
+                for team_key in ("team1", "team2"):
+                    order = payload.get(team_key)
+                    if order is not None:
+                        reorder_capture_team(cap, team_key, order)
+                cap = label_with_roster(cap, server_state["roster"])
+                server_state["lastCapture"] = cap
+                save_state(server_state)
+                await websocket.send(json.dumps({"type": "capture_result", "data": cap}))
                 await broadcast({"type": "state_sync", "data": build_overlay_state(server_state)})
     finally:
         CONNECTED.discard(websocket)
+
+
+async def relay_client_loop():
+    """Optional, additive: if dota2_config.json has a "relay" section with
+    enabled=true, also connect OUT to the cloud relay as a client, so the
+    postmatch overlay (running on a different PC -- OBS/vMix box, not the
+    OCR PC) and a remote dashboard tab get the same live state. Reuses
+    handle_client() unchanged, same pattern as freefire_engine.py's own
+    relay_client_loop() -- no-op if relay isn't configured."""
+    import websockets
+    cfg = load_config()
+    relay_cfg = cfg.get("relay", {})
+    if not relay_cfg.get("enabled"):
+        return
+    url = relay_cfg.get("url", "")
+    token = relay_cfg.get("token", "")
+    if not url or not token:
+        print("Relay is enabled in dota2_config.json but 'url'/'token' aren't both set -- skipping relay connection.")
+        return
+    separator = "&" if "?" in url else "?"
+    connect_url = f"{url}{separator}token={token}&page=dota2_engine"
+    while True:
+        try:
+            async with websockets.connect(connect_url) as relay_ws:
+                print(f"Connected to cloud relay at {url}")
+                await handle_client(relay_ws)
+        except Exception as e:
+            print(f"Relay connection lost/failed ({e}); retrying in 3s...")
+        await asyncio.sleep(3)
 
 
 async def main():
@@ -374,7 +495,7 @@ async def main():
     print(f"Dota 2 post-match server on ws://localhost:{PORT}")
     print("Open dota2_dashboard.html in a browser.")
     async with websockets.serve(handle_client, "localhost", PORT):
-        await asyncio.Future()
+        await asyncio.gather(relay_client_loop(), asyncio.Future())
 
 
 if __name__ == "__main__":

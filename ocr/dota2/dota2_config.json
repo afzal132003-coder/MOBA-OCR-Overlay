@@ -1,5 +1,10 @@
 {
-  "monitor": 1,
+  "monitor": 2,
   "tesseract_path": "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
+  "relay": {
+    "enabled": true,
+    "url": "wss://titanium-relay.duckdns.org",
+    "token": "7NAmOd7tkqRC7IUcgdG3fHeWtmpQw82z"
+  },
   "regions": {}
 }
