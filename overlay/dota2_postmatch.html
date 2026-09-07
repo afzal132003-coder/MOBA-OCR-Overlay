@@ -5,25 +5,22 @@
 <title>Dota 2 Post Match Overlay</title>
 <style>
   /*
-    Same postmatch_blank.png template as MOBA's overlay/postmatch.html --
-    user's own call ("you can directly use the post game graphic of the
-    moba") to reuse it rather than build new art, isolated per-file/per-port
-    the same way Free Fire/Valorant/MOBA are isolated from each other, not
-    sharing state with postmatch.html.
+    Background is assets/dota2_postmatch_blank.png, exported straight from
+    the postmach-dota2.psd the operator supplied -- a 10-row grid (5 per
+    team), each row already carrying baked "KDA / NET WORTH / DAMAGE"
+    caption labels at exact positions measured out of that PSD (see the
+    ROWS table below, values are the PSD's own layer bboxes, not guesses).
+    Only the header (team logo/name/score/duration) and the character-photo
+    slots are NOT in the PSD -- those positions are this file's own design
+    choice, flagged in the Graphic Fixing tab as needing nudging more than
+    the PSD-exact grid does.
 
-    Stat mapping vs the MOBA original, since Dota 2 doesn't have the same
-    three stats:
-      row1 "Gold"       -> Net Worth (summed across the team's 5 players)
-      row2 "Structures" -> Damage (summed across the team's 5 players --
-                            no structure data is captured, damage fills
-                            the slot instead)
-      row3 "Kills"       -> Kills (the team's post-match score IS the kill
-                            count in Dota 2, so this one needs no
-                            reinterpretation)
-    Per-player dealt/taken slots: only one damage figure is captured per
-    player (no separate dealt/taken), so "dealt" carries that number and
-    "taken" carries the K/D/A string instead -- more useful than leaving it
-    blank, even though the baked label under it still reads "TAKEN".
+    Row layout, left-to-right within each row's own 902px-wide box:
+      team1 (left col):  [photo+IGN 288px] [KDA] [NET WORTH] [DAMAGE]
+      team2 (right col): [KDA] [NET WORTH] [DAMAGE] [photo+IGN 283px]
+    -- mirrored so each team's own portrait sits at the OUTER edge of the
+    canvas, stats toward the center, matching the operator's own layout
+    description.
   */
   @font-face {
     font-family: 'TT Supermolot Neue Trial';
@@ -46,7 +43,7 @@
     font-weight: 900; font-style: normal;
   }
 
-  :root{ --gold:#f0ca90; --white:#ffffff; }
+  :root{ --gold:#f3cd93; --white:#ffffff; }
   html,body{ margin:0; padding:0; background:transparent; overflow:hidden;
     width:1920px; height:1080px; font-family:'TT Supermolot Neue Trial', Arial, sans-serif; }
 
@@ -56,130 +53,83 @@
 
   .bg-frame{ position:absolute; top:0; left:0; width:1920px; height:1080px; pointer-events:none; }
 
-  .header-logo{ position:absolute; top:291px; width:60px; height:60px;
-    border-radius:50%; object-fit:contain; display:none; }
-  #logo-left{ left:145px; }
-  #logo-right{ left:1715px; }
+  /* ---- header (this file's own design -- not in the PSD) ---- */
+  .header-logo{ position:absolute; top:73px; width:140px; height:129px;
+    object-fit:contain; display:none; }
+  #logo-left{ left:62px; }
+  #logo-right{ left:1718px; }
 
-  .team-block{ position:absolute; top:298px; width:132px; height:38px;
-    display:flex; align-items:center; justify-content:center; }
-  #block-left{ left:249px; }
-  #block-right{ left:1540px; }
-  .team-block .team-name{
-    color:var(--white); font-weight:700; font-size:14px; text-transform:uppercase; letter-spacing:0.3px;
-    overflow:hidden; white-space:nowrap; text-overflow:ellipsis; min-width:0; }
+  .team-name{ position:absolute; top:110px; width:400px; height:30px;
+    display:flex; align-items:center; color:var(--white); font-weight:800;
+    font-size:22px; text-transform:uppercase; letter-spacing:0.4px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #name-left{ left:240px; justify-content:flex-start; }
+  #name-right{ left:1280px; justify-content:flex-end; }
 
-  .result-diamonds{ position:absolute; top:296px; width:80px; height:51px;
-    display:flex; align-items:center; justify-content:center; gap:8px; }
-  #diamonds-left{ left:428px; }
-  #diamonds-right{ left:1414px; width:78px; height:48px; }
-  .result-diamonds svg{ width:34px; height:44px; flex-shrink:0; }
+  .team-score{ position:absolute; top:95px; width:110px; height:52px;
+    display:flex; align-items:center; color:var(--gold); font-weight:900; font-size:42px; }
+  #score-left{ left:790px; justify-content:flex-end; }
+  #score-right{ left:1020px; justify-content:flex-start; }
 
-  .result-text{ position:absolute; top:311px; width:140px; height:24px;
-    display:flex; align-items:center;
-    font-weight:800; font-size:15px; font-style:italic; text-transform:uppercase; letter-spacing:1px; }
-  .result-text.win{ color:#ffffff; }
-  .result-text.lose{ color:#9aa0ab; }
-  #result-left{ left:552px; justify-content:flex-start; }
-  #result-right{ left:1228px; justify-content:flex-end; }
+  #pom-duration{ position:absolute; left:900px; top:155px; width:120px; height:20px;
+    display:flex; align-items:center; justify-content:center;
+    color:var(--white); opacity:0.75; font-weight:700; font-size:13px; letter-spacing:0.5px; }
 
-  .score-block{ position:absolute; left:864px; top:298px; width:195px;
-    display:flex; flex-direction:column; align-items:center; }
-  .score-row{ display:flex; align-items:center; gap:14px; line-height:1; }
-  .score-row .score{ color:var(--white); font-weight:900; font-size:38px; line-height:1; }
-  .score-row .dash{ color:var(--gold); font-weight:900; font-size:26px; line-height:1; }
-  .score-block .meta{ display:flex; flex-direction:column; align-items:center; color:var(--white); opacity:0.85; margin-top:8px; }
-  .score-block .meta .label{ font-size:9px; text-transform:uppercase; letter-spacing:1px; opacity:0.7; line-height:1.3; }
-  .score-block .meta .value{ font-size:13px; font-weight:800; line-height:1.2; margin-top:2px; }
+  /* ---- the 10-row grid (PSD-exact) ---- */
+  .d2-row{ position:absolute; width:902px; height:145px; }
+  #team1-rows{ position:absolute; top:0; left:53px; }
+  #team2-rows{ position:absolute; top:0; left:968px; }
 
-  .stat-val{ position:absolute; width:130px; height:30px; display:flex; align-items:center;
-    color:var(--white); font-weight:900; font-size:24px; }
-  .stat-val.left{ left:790px; justify-content:flex-end; }
-  .stat-val.right{ left:1000px; justify-content:flex-start; }
-  .stat-row-1{ top:481px; } .stat-row-2{ top:621px; } .stat-row-3{ top:762px; }
+  .d2-val{ position:absolute; top:95px; height:40px;
+    display:flex; align-items:center; color:var(--white); font-weight:800; font-size:24px; }
+  .d2-kda{ left:288px; width:90px; }
+  .d2-networth{ left:380px; width:155px; }
+  .d2-damage.team1{ left:537px; width:200px; }
+  .d2-damage.team2{ left:537px; width:82px; }
 
-  .players-col{ position:absolute; top:391px; width:564px; }
-  #col-team1{ left:113px; }
-  #col-team2{ left:1246px; }
-  .player-row{ position:absolute; width:564px; height:100px; }
-
-  .photo-wrap{ position:absolute; top:0; width:180px; height:100px; overflow:hidden; }
-  #col-team1 .photo-wrap{ left:0; }
-  #col-team2 .photo-wrap{ right:0; }
-  .photo-wrap img.hero-photo{ width:100%; height:100%; object-fit:cover; object-position:50% 15%; display:none;
-    transform-origin:center center; animation:pickFloat 5s ease-in-out infinite; }
-  @keyframes pickFloat{
-    0%,100%{ transform:scale(1.12) translateY(2px) rotate(-0.5deg) skewY(-0.6deg); }
-    50%{ transform:scale(1.12) translateY(-2px) rotate(0.5deg) skewY(0.6deg); }
+  /* ---- character photo + IGN caption (this file's own design) ----
+     Photo fills the row's full height; the IGN caption is a bar overlaid
+     at the TOP of the photo (not the bottom, per the operator's layout),
+     semi-transparent so it reads over any portrait. object-position/scale
+     defaults below are tuned against the steamstatic hero renders actually
+     in overlay/assets/dota2_heroes/ (consistent square, full-body, head in
+     the upper third) -- same "default framing + per-element override via
+     Graphic Fixing" approach Valorant's own character slots use, rather
+     than hand-pre-cropping each of the 127 portraits. */
+  .d2-photo-wrap{ position:absolute; top:0; width:288px; height:145px; overflow:hidden; }
+  #team1-rows .d2-photo-wrap{ left:0; }
+  #team2-rows .d2-photo-wrap{ left:619px; width:283px; }
+  .d2-photo-wrap img{ width:100%; height:100%; object-fit:cover; object-position:50% 8%;
+    display:none; transform-origin:center 8%; animation:d2PhotoFloat 5s ease-in-out infinite; }
+  @keyframes d2PhotoFloat{
+    0%,100%{ transform:scale(1.18) translateY(2px) rotate(-0.4deg); }
+    50%{ transform:scale(1.18) translateY(-2px) rotate(0.4deg); }
   }
-  .photo-caption{ position:absolute; left:0; right:0; bottom:0; background:rgba(0,0,0,0.65);
-    padding:3px 6px; box-sizing:border-box; display:none; }
-  .photo-caption .pname{ color:#fff; font-weight:800; font-size:11px; text-transform:uppercase;
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .photo-caption .hname{ color:var(--gold); font-weight:600; font-size:10px; text-transform:uppercase;
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-
-  .dmg-val{ position:absolute; top:51px; height:25px; width:120px;
-    color:var(--gold); font-weight:800; font-size:23px; text-align:center; }
-  #col-team1 .dmg-val.dealt{ left:220px; }
-  #col-team1 .dmg-val.taken{ left:410px; font-size:15px; }
-  #col-team2 .dmg-val.dealt{ left:54px; }
-  #col-team2 .dmg-val.taken{ left:228px; font-size:15px; }
+  .d2-ign{ position:absolute; top:0; left:0; right:0; padding:5px 8px;
+    background:rgba(6,9,22,0.72); color:var(--white); font-weight:700; font-size:13px;
+    text-transform:uppercase; letter-spacing:0.3px; white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis; display:none; }
 </style>
 </head>
 <body>
 <div id="stage">
-  <img class="bg-frame" src="assets/postmatch_blank.png" alt="">
+  <img class="bg-frame" src="assets/dota2_postmatch_blank.png" alt="">
 
   <img class="header-logo" id="logo-left" alt="">
   <img class="header-logo" id="logo-right" alt="">
-  <div class="team-block" id="block-left">
-    <div class="team-name" id="name-left">TEAM 1</div>
-  </div>
-  <div class="team-block" id="block-right">
-    <div class="team-name" id="name-right">TEAM 2</div>
-  </div>
+  <div class="team-name" id="name-left"></div>
+  <div class="team-name" id="name-right"></div>
+  <div class="team-score" id="score-left">0</div>
+  <div class="team-score" id="score-right">0</div>
+  <div id="pom-duration">00:00</div>
 
-  <div class="result-diamonds" id="diamonds-left">
-    <svg viewBox="0 0 20 20"><polygon points="10,0 20,10 10,20 0,10"/></svg>
-    <svg viewBox="0 0 20 20"><polygon points="10,0 20,10 10,20 0,10"/></svg>
-  </div>
-  <span class="result-text" id="result-left">VICTORY</span>
-
-  <div class="result-diamonds" id="diamonds-right">
-    <svg viewBox="0 0 20 20"><polygon points="10,0 20,10 10,20 0,10"/></svg>
-    <svg viewBox="0 0 20 20"><polygon points="10,0 20,10 10,20 0,10"/></svg>
-  </div>
-  <span class="result-text" id="result-right">DEFEAT</span>
-
-  <div class="score-block">
-    <div class="score-row">
-      <span class="score" id="score-left">0</span>
-      <span class="dash">-</span>
-      <span class="score" id="score-right">0</span>
-    </div>
-    <div class="meta">
-      <span class="label">Game Time</span>
-      <span class="value" id="pom-duration">00:00</span>
-    </div>
-  </div>
-
-  <div class="stat-val left stat-row-1" id="stat-left-networth">0</div>
-  <div class="stat-val right stat-row-1" id="stat-right-networth">0</div>
-  <div class="stat-val left stat-row-2" id="stat-left-damage">0</div>
-  <div class="stat-val right stat-row-2" id="stat-right-damage">0</div>
-  <div class="stat-val left stat-row-3" id="stat-left-kills">0</div>
-  <div class="stat-val right stat-row-3" id="stat-right-kills">0</div>
-
-  <div class="players-col" id="col-team1"></div>
-  <div class="players-col" id="col-team2"></div>
+  <div id="team1-rows"></div>
+  <div id="team2-rows"></div>
 </div>
 
 <script>
-// Same relay pattern as the other overlays, own localStorage keys so it
-// doesn't collide with MOBA's postmatch.html if both ever load in the same
-// browser profile. Defaults to the Dota2 engine's own port (8766), not
-// MOBA's 8765.
+const ROW_Y = [223, 377, 529, 684, 836];
+
 const _params = new URLSearchParams(location.search);
 if (_params.get("relay")) { try { localStorage.setItem("dota2_relay", _params.get("relay")); } catch(e) {} }
 if (_params.get("token")) { try { localStorage.setItem("dota2_token", _params.get("token")); } catch(e) {} }
@@ -205,99 +155,82 @@ function setText(id, value){
   if(el && el.textContent !== String(value)) el.textContent = value;
 }
 
-function buildColumn(containerId, side){
+function fmt(n){
+  return n == null ? "0" : Number(n).toLocaleString();
+}
+
+function buildRows(containerId, side){
   const container = document.getElementById(containerId);
   container.innerHTML = "";
   for(let i=0;i<5;i++){
     const row = document.createElement("div");
-    row.className = "player-row";
-    row.style.top = (i*106) + "px";
+    row.className = "d2-row";
+    row.style.top = ROW_Y[i] + "px";
     row.innerHTML = `
-      <div class="photo-wrap">
-        <img class="hero-photo" id="${side}-${i}-heroimg">
-        <div class="photo-caption" id="${side}-${i}-caption">
-          <div class="pname" id="${side}-${i}-name"></div>
-          <div class="hname" id="${side}-${i}-heroname"></div>
-        </div>
+      <div class="d2-photo-wrap">
+        <img id="${side}-${i}-photo" alt="">
+        <div class="d2-ign" id="${side}-${i}-ign"></div>
       </div>
-      <div class="dmg-val dealt" id="${side}-${i}-dealt">0</div>
-      <div class="dmg-val taken" id="${side}-${i}-taken">0</div>
+      <div class="d2-val d2-kda" id="${side}-${i}-kda">—</div>
+      <div class="d2-val d2-networth" id="${side}-${i}-networth">—</div>
+      <div class="d2-val d2-damage ${side === "team1" ? "team1" : "team2"}" id="${side}-${i}-damage">—</div>
     `;
     container.appendChild(row);
   }
 }
 
-const HERO_NAMES = {abaddon:"Abaddon",alchemist:"Alchemist",ancient_apparition:"Ancient Apparition",
-antimage:"Anti-Mage",arc_warden:"Arc Warden",axe:"Axe",bane:"Bane",batrider:"Batrider",
-beastmaster:"Beastmaster",bloodseeker:"Bloodseeker",bounty_hunter:"Bounty Hunter",brewmaster:"Brewmaster",
-bristleback:"Bristleback",broodmother:"Broodmother",centaur:"Centaur Warrunner",chaos_knight:"Chaos Knight",
-chen:"Chen",clinkz:"Clinkz",clockwerk:"Clockwerk",crystal_maiden:"Crystal Maiden",dark_seer:"Dark Seer",
-dark_willow:"Dark Willow",dawnbreaker:"Dawnbreaker",dazzle:"Dazzle",death_prophet:"Death Prophet",
-disruptor:"Disruptor",doom_bringer:"Doom",dragon_knight:"Dragon Knight",drow_ranger:"Drow Ranger",
-earth_spirit:"Earth Spirit",earthshaker:"Earthshaker",elder_titan:"Elder Titan",ember_spirit:"Ember Spirit",
-enchantress:"Enchantress",enigma:"Enigma",faceless_void:"Faceless Void",grimstroke:"Grimstroke",
-gyrocopter:"Gyrocopter",hoodwink:"Hoodwink",huskar:"Huskar",invoker:"Invoker",io:"Io",jakiro:"Jakiro",
-juggernaut:"Juggernaut",keeper_of_the_light:"Keeper of the Light",kez:"Kez",kunkka:"Kunkka",largo:"Largo",
-legion_commander:"Legion Commander",leshrac:"Leshrac",lich:"Lich",life_stealer:"Lifestealer",lina:"Lina",
-lion:"Lion",lone_druid:"Lone Druid",luna:"Luna",lycan:"Lycan",magnataur:"Magnus",marci:"Marci",mars:"Mars",
-medusa:"Medusa",meepo:"Meepo",mirana:"Mirana",monkey_king:"Monkey King",morphling:"Morphling",
-muerta:"Muerta",naga_siren:"Naga Siren",furion:"Nature's Prophet",necrolyte:"Necrophos",
-night_stalker:"Night Stalker",nyx_assassin:"Nyx Assassin",ogre_magi:"Ogre Magi",omniknight:"Omniknight",
-oracle:"Oracle",obsidian_destroyer:"Outworld Destroyer",pangolier:"Pangolier",
-phantom_assassin:"Phantom Assassin",phantom_lancer:"Phantom Lancer",phoenix:"Phoenix",
-primal_beast:"Primal Beast",puck:"Puck",pudge:"Pudge",pugna:"Pugna",queenofpain:"Queen of Pain",
-razor:"Razor",riki:"Riki",ringmaster:"Ringmaster",rubick:"Rubick",sand_king:"Sand King",
-shadow_demon:"Shadow Demon",nevermore:"Shadow Fiend",shadow_shaman:"Shadow Shaman",silencer:"Silencer",
-skywrath_mage:"Skywrath Mage",slardar:"Slardar",slark:"Slark",snapfire:"Snapfire",sniper:"Sniper",
-spectre:"Spectre",spirit_breaker:"Spirit Breaker",storm_spirit:"Storm Spirit",sven:"Sven",techies:"Techies",
-templar_assassin:"Templar Assassin",terrorblade:"Terrorblade",tidehunter:"Tidehunter",shredder:"Timbersaw",
-tinker:"Tinker",tiny:"Tiny",treant:"Treant Protector",troll_warlord:"Troll Warlord",tusk:"Tusk",
-abyssal_underlord:"Underlord",undying:"Undying",ursa:"Ursa",vengefulspirit:"Vengeful Spirit",
-venomancer:"Venomancer",viper:"Viper",visage:"Visage",void_spirit:"Void Spirit",warlock:"Warlock",
-weaver:"Weaver",windrunner:"Windranger",winter_wyvern:"Winter Wyvern",witch_doctor:"Witch Doctor",
-skeleton_king:"Wraith King",zuus:"Zeus"};
-
-function renderSide(side, teamKey, pom, state){
-  setText(`name-${side}`, state[teamKey].name || teamKey.toUpperCase());
-  const logo = document.getElementById(`logo-${side}`);
-  if(state[teamKey].logo){
-    logo.src = state[teamKey].logo; logo.style.display = "block";
-  } else {
-    logo.style.display = "none";
-  }
-
-  const players = state[teamKey].players || [];
-  const heroes = state[teamKey].heroes || [];
-  const pomPlayers = (pom && pom.players && pom.players[teamKey]) || [];
-
+function renderTeamRows(team, roster, pomPlayers){
+  const heroes = (roster && roster.heroes) || [];
+  const players = (roster && roster.players) || [];
   for(let i=0;i<5;i++){
-    const prefix = `${side}-${i}`;
-    const p = pomPlayers[i] || {damage: null, kdaText: ""};
-    setText(`${prefix}-dealt`, p.damage == null ? "0" : p.damage);
-    setText(`${prefix}-taken`, p.kdaText || "");
+    const prefix = `${team}-${i}`;
+    const p = (pomPlayers && pomPlayers[i]) || {};
 
-    const heroImg = document.getElementById(`${prefix}-heroimg`);
-    const caption = document.getElementById(`${prefix}-caption`);
+    setText(`${prefix}-kda`, p.kdaText || "—");
+    setText(`${prefix}-networth`, p.networth != null ? fmt(p.networth) : "—");
+    setText(`${prefix}-damage`, p.damage != null ? fmt(p.damage) : "—");
+
+    const photo = document.getElementById(`${prefix}-photo`);
+    const ign = document.getElementById(`${prefix}-ign`);
     const slug = heroes[i];
-    if(heroImg){
-      if(slug){
-        heroImg.src = `assets/dota2_heroes/${encodeURIComponent(slug)}.png`;
-        heroImg.style.display = "block";
-        heroImg.onerror = () => { heroImg.style.display = "none"; };
-      } else {
-        heroImg.style.display = "none";
-      }
-      setText(`${prefix}-name`, players[i] || "");
-      setText(`${prefix}-heroname`, HERO_NAMES[slug] || "");
-      caption.style.display = (players[i] || slug) ? "block" : "none";
+    if(slug){
+      photo.src = `assets/dota2_heroes/${encodeURIComponent(slug)}.png`;
+      photo.style.display = "block";
+      photo.onerror = () => { photo.style.display = "none"; };
+    } else {
+      photo.style.display = "none";
     }
+    const name = (p.name || players[i] || "");
+    setText(`${prefix}-ign`, name);
+    ign.style.display = name ? "block" : "none";
   }
 }
 
+function applyState(state){
+  const pom = state.postMatch;
+
+  setText("name-left", (state.team1 && state.team1.name) || "TEAM 1");
+  setText("name-right", (state.team2 && state.team2.name) || "TEAM 2");
+  setText("score-left", pom ? (pom.team1Score ?? 0) : 0);
+  setText("score-right", pom ? (pom.team2Score ?? 0) : 0);
+  setText("pom-duration", (pom && pom.duration) || "00:00");
+
+  const logoLeft = document.getElementById("logo-left");
+  const logoRight = document.getElementById("logo-right");
+  if(state.team1 && state.team1.logo){ logoLeft.src = state.team1.logo; logoLeft.style.display = "block"; }
+  else logoLeft.style.display = "none";
+  if(state.team2 && state.team2.logo){ logoRight.src = state.team2.logo; logoRight.style.display = "block"; }
+  else logoRight.style.display = "none";
+
+  const pomPlayers = pom && pom.players ? pom.players : {team1: [], team2: []};
+  renderTeamRows("team1", state.team1, pomPlayers.team1);
+  renderTeamRows("team2", state.team2, pomPlayers.team2);
+
+  applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.postmatch, DOTA2_GFX_ELEMENT_IDS);
+}
+
 // Per-element position/scale nudges saved from the dashboard's Graphic
-// tab -- purely additive on top of each element's base CSS position/size,
-// applied as a transform so it never disturbs the underlying layout math.
-// Same mechanism as overlay/postmatch.html's own applyGraphicOverrides().
+// tab -- purely additive on top of each element's base CSS position/size.
 function applyGraphicOverrides(overrides, elementIds){
   (elementIds || []).forEach(id => {
     const el = document.getElementById(id);
@@ -310,52 +243,12 @@ function applyGraphicOverrides(overrides, elementIds){
 }
 
 const DOTA2_GFX_ELEMENT_IDS = [
-  "logo-left", "logo-right", "name-left", "name-right", "score-left", "score-right", "pom-duration",
-  "stat-left-networth", "stat-right-networth",
-  "stat-left-damage", "stat-right-damage",
-  "stat-left-kills", "stat-right-kills",
+  "logo-left", "logo-right", "name-left", "name-right",
+  "score-left", "score-right", "pom-duration",
 ];
 
-function applyState(state){
-  const pom = state.postMatch;
-
-  const leftTeam = "team1", rightTeam = "team2";
-  const leftScore = pom ? pom.team1Score : 0;
-  const rightScore = pom ? pom.team2Score : 0;
-  const leftStats = (pom && pom.stats && pom.stats[leftTeam]) || {networth:0, damage:0, kills:0};
-  const rightStats = (pom && pom.stats && pom.stats[rightTeam]) || {networth:0, damage:0, kills:0};
-
-  setText("pom-duration", (pom && pom.duration) || "00:00");
-  setText("score-left", leftScore ?? 0);
-  setText("score-right", rightScore ?? 0);
-
-  setText("stat-left-networth", leftStats.networth);
-  setText("stat-right-networth", rightStats.networth);
-  setText("stat-left-damage", leftStats.damage);
-  setText("stat-right-damage", rightStats.damage);
-  setText("stat-left-kills", leftStats.kills);
-  setText("stat-right-kills", rightStats.kills);
-
-  const leftWins = (leftScore || 0) >= (rightScore || 0);
-  setResult("left", leftWins);
-  setResult("right", !leftWins);
-
-  renderSide("left", leftTeam, pom, state);
-  renderSide("right", rightTeam, pom, state);
-
-  applyGraphicOverrides(state.graphicOverrides && state.graphicOverrides.postmatch, DOTA2_GFX_ELEMENT_IDS);
-}
-
-function setResult(side, wins){
-  const text = document.getElementById(`result-${side}`);
-  text.textContent = wins ? "VICTORY" : "DEFEAT";
-  text.className = "result-text " + (wins ? "win" : "lose");
-  const color = wins ? "#f0ca90" : "#8a93ab";
-  document.querySelectorAll(`#diamonds-${side} polygon`).forEach(p => p.setAttribute("fill", color));
-}
-
-buildColumn("col-team1", "left");
-buildColumn("col-team2", "right");
+buildRows("team1-rows", "team1");
+buildRows("team2-rows", "team2");
 connect();
 </script>
 </body>

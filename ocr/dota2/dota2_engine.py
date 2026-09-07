@@ -356,11 +356,12 @@ def build_overlay_state(state):
         rows = []
         for p in cap[team]["players"]:
             if not p:
-                rows.append({"damage": None, "kdaText": ""})
+                rows.append({"damage": None, "networth": None, "kdaText": "", "name": ""})
                 continue
             kda = (f"{p['kills']}/{p['deaths']}/{p['assists']}"
                    if p.get("kills") is not None else "")
-            rows.append({"damage": p.get("damage"), "kdaText": kda})
+            rows.append({"damage": p.get("damage"), "networth": p.get("networth"),
+                         "kdaText": kda, "name": p.get("name", "")})
         return rows
 
     d = cap.get("duration") or {}
