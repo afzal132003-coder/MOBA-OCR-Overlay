@@ -121,8 +121,9 @@
   .d2-photo-wrap{ position:absolute; top:-14px; width:220px; height:173px; overflow:visible; }
   #team1-rows .d2-photo-wrap{ left:-6px; }
   #team2-rows .d2-photo-wrap{ left:668px; }
-  .d2-photo-wrap img{ width:100%; height:100%; object-fit:contain; object-position:50% 100%;
-    display:none; transform-origin:center bottom; animation:d2PhotoFloat 5s ease-in-out infinite; }
+  .d2-photo-wrap video{ width:100%; height:100%; object-fit:contain; object-position:50% 100%;
+    display:none; transform-origin:center bottom; animation:d2PhotoFloat 5s ease-in-out infinite;
+    background:transparent; }
   @keyframes d2PhotoFloat{
     0%,100%{ transform:translateY(2px) rotate(-0.4deg); }
     50%{ transform:translateY(-2px) rotate(0.4deg); }
@@ -196,7 +197,7 @@ function buildRows(containerId, side){
     row.style.top = ROW_Y[i] + "px";
     row.innerHTML = `
       <div class="d2-photo-wrap" id="${side}-${i}-photowrap">
-        <img id="${side}-${i}-photo" alt="">
+        <video id="${side}-${i}-photo" autoplay loop muted playsinline disablepictureinpicture></video>
       </div>
       <div class="d2-val d2-kda" id="${side}-${i}-kda">—</div>
       <div class="d2-val d2-networth" id="${side}-${i}-networth">—</div>
@@ -220,12 +221,23 @@ function renderTeamRows(team, roster, pomPlayers){
 
     const photo = document.getElementById(`${prefix}-photo`);
     const slug = heroes[i];
-    if(slug){
-      photo.src = `assets/dota2_heroes/${encodeURIComponent(slug)}.png`;
-      photo.style.display = "block";
-      photo.onerror = () => { photo.style.display = "none"; };
-    } else {
+    if(!slug){
+      photo.removeAttribute("data-slug");
       photo.style.display = "none";
+    } else {
+      photo.style.display = "block";
+      if(photo.dataset.slug !== slug){
+        // Only reload when the pick actually changed -- reassigning .src
+        // on every single state_sync (several times a second) would
+        // restart the loop from frame 0 constantly instead of ever
+        // actually playing.
+        photo.dataset.slug = slug;
+        photo.poster = `assets/dota2_heroes/${encodeURIComponent(slug)}.png`;
+        photo.src = `assets/dota2_heroes/${encodeURIComponent(slug)}.webm`;
+        photo.onerror = () => { photo.style.display = "none"; };
+        photo.load();
+        photo.play().catch(() => {});
+      }
     }
     setText(`${prefix}-ign`, p.name || players[i] || "");
   }
