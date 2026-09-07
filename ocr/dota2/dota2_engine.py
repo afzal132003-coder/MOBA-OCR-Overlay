@@ -223,8 +223,8 @@ PORT = 8766  # separate from freefire (8765) / moba+valorant's port, its own pro
 def default_state():
     return {
         "roster": {
-            "team1": {"name": "", "players": ["", "", "", "", ""]},
-            "team2": {"name": "", "players": ["", "", "", "", ""]},
+            "team1": {"name": "", "players": ["", "", "", "", ""], "heroes": ["", "", "", "", ""]},
+            "team2": {"name": "", "players": ["", "", "", "", ""], "heroes": ["", "", "", "", ""]},
         },
         "lastCapture": None,
     }
@@ -261,32 +261,112 @@ def label_with_roster(capture, roster):
     return capture
 
 
+CONNECTED = set()
+
+
+async def broadcast(msg):
+    """Pushes to every connected client (dashboard + the postmatch overlay
+    browser source alike) -- the overlay never presses Capture itself, it
+    just listens, same push-on-change pattern the MOBA relay already uses."""
+    if not CONNECTED:
+        return
+    payload = json.dumps(msg)
+    for ws in list(CONNECTED):
+        try:
+            await ws.send(payload)
+        except Exception:
+            pass
+
+
+def build_overlay_state(state):
+    """Shapes server_state into what dota2_postmatch.html actually binds to
+    -- summed team Net Worth/Damage (only per-player figures are captured,
+    the overlay wants one team-level number) and each player's K/D/A as a
+    single string, since the postmatch card has no separate KDA slot."""
+    roster = state["roster"]
+
+    def team_block(key):
+        r = roster[key]
+        return {
+            "name": r.get("name", ""),
+            "players": r.get("players", ["", "", "", "", ""]),
+            "heroes": r.get("heroes", ["", "", "", "", ""]),
+        }
+
+    out = {"team1": team_block("team1"), "team2": team_block("team2"), "postMatch": None}
+
+    cap = state.get("lastCapture")
+    if not cap:
+        return out
+
+    def sum_field(team, field):
+        vals = [p[field] for p in cap[team]["players"] if p and p.get(field) is not None]
+        return sum(vals) if vals else 0
+
+    def player_rows(team):
+        rows = []
+        for p in cap[team]["players"]:
+            if not p:
+                rows.append({"damage": None, "kdaText": ""})
+                continue
+            kda = (f"{p['kills']}/{p['deaths']}/{p['assists']}"
+                   if p.get("kills") is not None else "")
+            rows.append({"damage": p.get("damage"), "kdaText": kda})
+        return rows
+
+    d = cap.get("duration") or {}
+    duration_str = f"{d.get('minutes', 0)}:{str(d.get('seconds', 0)).zfill(2)}" if d else "00:00"
+
+    out["postMatch"] = {
+        "duration": duration_str,
+        "team1Score": cap["team1"]["score"],
+        "team2Score": cap["team2"]["score"],
+        "stats": {
+            "team1": {"networth": sum_field("team1", "networth"),
+                      "damage": sum_field("team1", "damage"),
+                      "kills": cap["team1"]["score"]},
+            "team2": {"networth": sum_field("team2", "networth"),
+                      "damage": sum_field("team2", "damage"),
+                      "kills": cap["team2"]["score"]},
+        },
+        "players": {"team1": player_rows("team1"), "team2": player_rows("team2")},
+    }
+    return out
+
+
 async def handle_client(websocket):
     server_state = load_state()
-    await websocket.send(json.dumps({"type": "state", "data": server_state}))
-    async for raw in websocket:
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-
-        if payload.get("type") == "save_roster":
-            server_state["roster"] = payload.get("roster", server_state["roster"])
-            save_state(server_state)
-            await websocket.send(json.dumps({"type": "state", "data": server_state}))
-
-        elif payload.get("type") == "capture":
-            cfg = load_config()
-            if not cfg.get("regions"):
-                await websocket.send(json.dumps({
-                    "type": "capture_result", "error": "No regions calibrated yet -- run calibrate.py first.",
-                }))
+    CONNECTED.add(websocket)
+    try:
+        await websocket.send(json.dumps({"type": "state", "data": server_state}))
+        await websocket.send(json.dumps({"type": "state_sync", "data": build_overlay_state(server_state)}))
+        async for raw in websocket:
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError:
                 continue
-            data = capture_postmatch(cfg)
-            data = label_with_roster(data, server_state["roster"])
-            server_state["lastCapture"] = data
-            save_state(server_state)
-            await websocket.send(json.dumps({"type": "capture_result", "data": data}))
+
+            if payload.get("type") == "save_roster":
+                server_state["roster"] = payload.get("roster", server_state["roster"])
+                save_state(server_state)
+                await websocket.send(json.dumps({"type": "state", "data": server_state}))
+                await broadcast({"type": "state_sync", "data": build_overlay_state(server_state)})
+
+            elif payload.get("type") == "capture":
+                cfg = load_config()
+                if not cfg.get("regions"):
+                    await websocket.send(json.dumps({
+                        "type": "capture_result", "error": "No regions calibrated yet -- run calibrate.py first.",
+                    }))
+                    continue
+                data = capture_postmatch(cfg)
+                data = label_with_roster(data, server_state["roster"])
+                server_state["lastCapture"] = data
+                save_state(server_state)
+                await websocket.send(json.dumps({"type": "capture_result", "data": data}))
+                await broadcast({"type": "state_sync", "data": build_overlay_state(server_state)})
+    finally:
+        CONNECTED.discard(websocket)
 
 
 async def main():

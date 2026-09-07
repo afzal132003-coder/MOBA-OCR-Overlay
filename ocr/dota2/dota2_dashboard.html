@@ -13,6 +13,10 @@
   input[type=text]{width:100%;box-sizing:border-box;background:#0a0d18;border:1px solid #2b3348;
     color:#e8ebf1;padding:6px 8px;border-radius:4px;font-size:13px;margin-bottom:6px;}
   input.teamname{font-weight:700;color:#e0a44a;}
+  .prow{display:flex;gap:6px;align-items:center;}
+  .prow .pname{flex:1;}
+  select.hero{background:#0a0d18;border:1px solid #2b3348;color:#98a3bd;padding:5px 6px;
+    border-radius:4px;font-size:12px;width:140px;margin-bottom:6px;}
   button{background:#7d6bff;color:#0a0d18;border:none;padding:8px 16px;border-radius:5px;
     font-weight:700;font-size:13px;cursor:pointer;margin-right:8px;}
   button.secondary{background:transparent;border:1px solid #2b3348;color:#98a3bd;}
@@ -35,20 +39,20 @@
   <div class="team">
     <h2>Team 1 (left)</h2>
     <input type="text" class="teamname" id="t1name" placeholder="Team name">
-    <input type="text" class="pname" data-team="team1" data-i="0" placeholder="Player 1">
-    <input type="text" class="pname" data-team="team1" data-i="1" placeholder="Player 2">
-    <input type="text" class="pname" data-team="team1" data-i="2" placeholder="Player 3">
-    <input type="text" class="pname" data-team="team1" data-i="3" placeholder="Player 4">
-    <input type="text" class="pname" data-team="team1" data-i="4" placeholder="Player 5">
+    <div class="prow"><input type="text" class="pname" data-team="team1" data-i="0" placeholder="Player 1"><select class="hero" data-team="team1" data-i="0"></select></div>
+    <div class="prow"><input type="text" class="pname" data-team="team1" data-i="1" placeholder="Player 2"><select class="hero" data-team="team1" data-i="1"></select></div>
+    <div class="prow"><input type="text" class="pname" data-team="team1" data-i="2" placeholder="Player 3"><select class="hero" data-team="team1" data-i="2"></select></div>
+    <div class="prow"><input type="text" class="pname" data-team="team1" data-i="3" placeholder="Player 4"><select class="hero" data-team="team1" data-i="3"></select></div>
+    <div class="prow"><input type="text" class="pname" data-team="team1" data-i="4" placeholder="Player 5"><select class="hero" data-team="team1" data-i="4"></select></div>
   </div>
   <div class="team">
     <h2>Team 2 (right)</h2>
     <input type="text" class="teamname" id="t2name" placeholder="Team name">
-    <input type="text" class="pname" data-team="team2" data-i="0" placeholder="Player 1">
-    <input type="text" class="pname" data-team="team2" data-i="1" placeholder="Player 2">
-    <input type="text" class="pname" data-team="team2" data-i="2" placeholder="Player 3">
-    <input type="text" class="pname" data-team="team2" data-i="3" placeholder="Player 4">
-    <input type="text" class="pname" data-team="team2" data-i="4" placeholder="Player 5">
+    <div class="prow"><input type="text" class="pname" data-team="team2" data-i="0" placeholder="Player 1"><select class="hero" data-team="team2" data-i="0"></select></div>
+    <div class="prow"><input type="text" class="pname" data-team="team2" data-i="1" placeholder="Player 2"><select class="hero" data-team="team2" data-i="1"></select></div>
+    <div class="prow"><input type="text" class="pname" data-team="team2" data-i="2" placeholder="Player 3"><select class="hero" data-team="team2" data-i="2"></select></div>
+    <div class="prow"><input type="text" class="pname" data-team="team2" data-i="3" placeholder="Player 4"><select class="hero" data-team="team2" data-i="3"></select></div>
+    <div class="prow"><input type="text" class="pname" data-team="team2" data-i="4" placeholder="Player 5"><select class="hero" data-team="team2" data-i="4"></select></div>
   </div>
 </div>
 
@@ -61,6 +65,51 @@
 <script>
 let ws;
 let latest = null;
+
+// slug (matches overlay/assets/dota2_heroes/<slug>.png) -> display name.
+// Static list -- no server round trip needed just to fill a dropdown.
+const HEROES = [["abaddon","Abaddon"],["alchemist","Alchemist"],["ancient_apparition","Ancient Apparition"],
+["antimage","Anti-Mage"],["arc_warden","Arc Warden"],["axe","Axe"],["bane","Bane"],["batrider","Batrider"],
+["beastmaster","Beastmaster"],["bloodseeker","Bloodseeker"],["bounty_hunter","Bounty Hunter"],
+["brewmaster","Brewmaster"],["bristleback","Bristleback"],["broodmother","Broodmother"],
+["centaur","Centaur Warrunner"],["chaos_knight","Chaos Knight"],["chen","Chen"],["clinkz","Clinkz"],
+["clockwerk","Clockwerk"],["crystal_maiden","Crystal Maiden"],["dark_seer","Dark Seer"],
+["dark_willow","Dark Willow"],["dawnbreaker","Dawnbreaker"],["dazzle","Dazzle"],
+["death_prophet","Death Prophet"],["disruptor","Disruptor"],["doom_bringer","Doom"],
+["dragon_knight","Dragon Knight"],["drow_ranger","Drow Ranger"],["earth_spirit","Earth Spirit"],
+["earthshaker","Earthshaker"],["elder_titan","Elder Titan"],["ember_spirit","Ember Spirit"],
+["enchantress","Enchantress"],["enigma","Enigma"],["faceless_void","Faceless Void"],
+["grimstroke","Grimstroke"],["gyrocopter","Gyrocopter"],["hoodwink","Hoodwink"],["huskar","Huskar"],
+["invoker","Invoker"],["io","Io"],["jakiro","Jakiro"],["juggernaut","Juggernaut"],
+["keeper_of_the_light","Keeper of the Light"],["kez","Kez"],["kunkka","Kunkka"],["largo","Largo"],
+["legion_commander","Legion Commander"],["leshrac","Leshrac"],["lich","Lich"],
+["life_stealer","Lifestealer"],["lina","Lina"],["lion","Lion"],["lone_druid","Lone Druid"],
+["luna","Luna"],["lycan","Lycan"],["magnataur","Magnus"],["marci","Marci"],["mars","Mars"],
+["medusa","Medusa"],["meepo","Meepo"],["mirana","Mirana"],["monkey_king","Monkey King"],
+["morphling","Morphling"],["muerta","Muerta"],["naga_siren","Naga Siren"],["furion","Nature's Prophet"],
+["necrolyte","Necrophos"],["night_stalker","Night Stalker"],["nyx_assassin","Nyx Assassin"],
+["ogre_magi","Ogre Magi"],["omniknight","Omniknight"],["oracle","Oracle"],
+["obsidian_destroyer","Outworld Destroyer"],["pangolier","Pangolier"],["phantom_assassin","Phantom Assassin"],
+["phantom_lancer","Phantom Lancer"],["phoenix","Phoenix"],["primal_beast","Primal Beast"],["puck","Puck"],
+["pudge","Pudge"],["pugna","Pugna"],["queenofpain","Queen of Pain"],["razor","Razor"],["riki","Riki"],
+["ringmaster","Ringmaster"],["rubick","Rubick"],["sand_king","Sand King"],["shadow_demon","Shadow Demon"],
+["nevermore","Shadow Fiend"],["shadow_shaman","Shadow Shaman"],["silencer","Silencer"],
+["skywrath_mage","Skywrath Mage"],["slardar","Slardar"],["slark","Slark"],["snapfire","Snapfire"],
+["sniper","Sniper"],["spectre","Spectre"],["spirit_breaker","Spirit Breaker"],["storm_spirit","Storm Spirit"],
+["sven","Sven"],["techies","Techies"],["templar_assassin","Templar Assassin"],["terrorblade","Terrorblade"],
+["tidehunter","Tidehunter"],["shredder","Timbersaw"],["tinker","Tinker"],["tiny","Tiny"],
+["treant","Treant Protector"],["troll_warlord","Troll Warlord"],["tusk","Tusk"],
+["abyssal_underlord","Underlord"],["undying","Undying"],["ursa","Ursa"],["vengefulspirit","Vengeful Spirit"],
+["venomancer","Venomancer"],["viper","Viper"],["visage","Visage"],["void_spirit","Void Spirit"],
+["warlock","Warlock"],["weaver","Weaver"],["windrunner","Windranger"],["winter_wyvern","Winter Wyvern"],
+["witch_doctor","Witch Doctor"],["skeleton_king","Wraith King"],["zuus","Zeus"]];
+
+function fillHeroSelects(){
+  const opts = '<option value="">— pick hero —</option>' +
+    HEROES.map(([slug,name]) => `<option value="${slug}">${name}</option>`).join("");
+  document.querySelectorAll("select.hero").forEach(el => { el.innerHTML = opts; });
+}
+fillHeroSelects();
 
 function connect(){
   ws = new WebSocket("ws://localhost:8766");
@@ -80,13 +129,22 @@ function applyRoster(roster){
     const team = el.dataset.team, i = Number(el.dataset.i);
     el.value = (roster[team].players || [])[i] || "";
   });
+  document.querySelectorAll("select.hero").forEach(el => {
+    const team = el.dataset.team, i = Number(el.dataset.i);
+    el.value = (roster[team].heroes || [])[i] || "";
+  });
 }
 
 function readRoster(){
-  const roster = {team1: {name: document.getElementById("t1name").value, players: ["", "", "", "", ""]},
-                  team2: {name: document.getElementById("t2name").value, players: ["", "", "", "", ""]}};
+  const roster = {
+    team1: {name: document.getElementById("t1name").value, players: ["", "", "", "", ""], heroes: ["", "", "", "", ""]},
+    team2: {name: document.getElementById("t2name").value, players: ["", "", "", "", ""], heroes: ["", "", "", "", ""]},
+  };
   document.querySelectorAll(".pname").forEach(el => {
     roster[el.dataset.team].players[Number(el.dataset.i)] = el.value;
+  });
+  document.querySelectorAll("select.hero").forEach(el => {
+    roster[el.dataset.team].heroes[Number(el.dataset.i)] = el.value;
   });
   return roster;
 }
