@@ -5,22 +5,36 @@
 <title>Dota 2 Post Match Overlay</title>
 <style>
   /*
-    Background is assets/dota2_postmatch_blank.png, exported straight from
-    the postmach-dota2.psd the operator supplied -- a 10-row grid (5 per
-    team), each row already carrying baked "KDA / NET WORTH / DAMAGE"
-    caption labels at exact positions measured out of that PSD (see the
-    ROWS table below, values are the PSD's own layer bboxes, not guesses).
-    Only the header (team logo/name/score/duration) and the character-photo
-    slots are NOT in the PSD -- those positions are this file's own design
-    choice, flagged in the Graphic Fixing tab as needing nudging more than
-    the PSD-exact grid does.
+    Background is assets/dota2_postmatch_blank.png -- the operator's own
+    "post match_gt - BLANK.png" (truly transparent, RGBA alpha=0 outside
+    the cards, ~38% black on the row cards themselves), replacing the
+    earlier opaque navy export. Row geometry is IDENTICAL to that earlier
+    PSD (measured again directly off this file's alpha channel to confirm:
+    same 63-212 header band, same 5 rows at y=223/377/529/684/836) -- only
+    the fill became transparent, so the ROW_Y table and the KDA/NET
+    WORTH/DAMAGE label x-positions below still apply unchanged.
+
+    Per-row content, measured off "post match_gt - REFRENCE.png" (the
+    operator's filled-in mock): value sits ABOVE its caption (not below,
+    which is what the very first version of this file did), and PLAYER
+    NAME is its own line below the caption row, left-aligned under KDA --
+    not a caption overlaid on the photo. The character render is NOT
+    cropped to a headshot here -- object-fit:contain shows the whole
+    figure, in a box a little taller than the row so it can overflow
+    slightly top/bottom the way the reference mock shows.
 
     Row layout, left-to-right within each row's own 902px-wide box:
-      team1 (left col):  [photo+IGN 288px] [KDA] [NET WORTH] [DAMAGE]
-      team2 (right col): [KDA] [NET WORTH] [DAMAGE] [photo+IGN 283px]
+      team1 (left col):  [photo 220px] [KDA] [NET WORTH] [DAMAGE]
+      team2 (right col): [KDA] [NET WORTH] [DAMAGE] [photo 220px]
     -- mirrored so each team's own portrait sits at the OUTER edge of the
-    canvas, stats toward the center, matching the operator's own layout
-    description.
+    canvas, stats toward the center.
+
+    Header: team logo/name are this file's own design (not in the
+    template). Two separate scores -- pom-score-small is the OCR'd
+    per-game score (team1Score/team2Score, small text above), match-score
+    is a manually-typed Bo3/Bo5 series tally (no OCR source for it at all,
+    entered in the dashboard's Post-Match tab) shown big and central,
+    matching the reference mock's "13-26" small / "2 - 0" big pairing.
   */
   @font-face {
     font-family: 'TT Supermolot Neue Trial';
@@ -53,62 +67,65 @@
 
   .bg-frame{ position:absolute; top:0; left:0; width:1920px; height:1080px; pointer-events:none; }
 
-  /* ---- header (this file's own design -- not in the PSD) ---- */
+  /* ---- header (this file's own design -- not in the template) ---- */
   .header-logo{ position:absolute; top:73px; width:140px; height:129px;
     object-fit:contain; display:none; }
   #logo-left{ left:62px; }
   #logo-right{ left:1718px; }
 
-  .team-name{ position:absolute; top:110px; width:400px; height:30px;
-    display:flex; align-items:center; color:var(--white); font-weight:800;
-    font-size:22px; text-transform:uppercase; letter-spacing:0.4px;
+  .team-name{ position:absolute; top:108px; width:400px; height:56px;
+    display:flex; align-items:center; color:var(--gold); font-weight:900;
+    font-style:italic; font-size:40px; text-transform:uppercase; letter-spacing:0.4px;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  #name-left{ left:240px; justify-content:flex-start; }
-  #name-right{ left:1280px; justify-content:flex-end; }
+  #name-left{ left:243px; justify-content:flex-start; }
+  #name-right{ left:1275px; justify-content:flex-end; }
 
-  .team-score{ position:absolute; top:95px; width:110px; height:52px;
-    display:flex; align-items:center; color:var(--gold); font-weight:900; font-size:42px; }
-  #score-left{ left:790px; justify-content:flex-end; }
-  #score-right{ left:1020px; justify-content:flex-start; }
+  #pom-score-small{ position:absolute; left:900px; top:76px; width:120px; height:20px;
+    display:flex; align-items:center; justify-content:center;
+    color:var(--white); opacity:0.8; font-weight:700; font-style:italic; font-size:15px; letter-spacing:0.5px; }
 
-  #pom-duration{ position:absolute; left:900px; top:155px; width:120px; height:20px;
+  #match-score{ position:absolute; left:833px; top:100px; width:252px; height:56px;
+    display:flex; align-items:center; justify-content:center;
+    color:var(--gold); font-weight:900; font-style:italic; font-size:46px; letter-spacing:1px; }
+
+  #pom-duration{ position:absolute; left:900px; top:170px; width:120px; height:20px;
     display:flex; align-items:center; justify-content:center;
     color:var(--white); opacity:0.75; font-weight:700; font-size:13px; letter-spacing:0.5px; }
 
-  /* ---- the 10-row grid (PSD-exact) ---- */
+  /* ---- the 10-row grid (positions measured off the template's alpha
+     channel -- unchanged from the earlier PSD) ---- */
   .d2-row{ position:absolute; width:902px; height:145px; }
   #team1-rows{ position:absolute; top:0; left:53px; }
   #team2-rows{ position:absolute; top:0; left:968px; }
 
-  .d2-val{ position:absolute; top:95px; height:40px;
-    display:flex; align-items:center; color:var(--white); font-weight:800; font-size:24px; }
-  .d2-kda{ left:288px; width:90px; }
+  /* Value sits ABOVE the baked caption (caption band is relative y77-90);
+     player name sits BELOW it. */
+  .d2-val{ position:absolute; top:38px; height:36px;
+    display:flex; align-items:center; color:var(--white); font-weight:800; font-size:26px; }
+  .d2-kda{ left:288px; width:100px; }
   .d2-networth{ left:380px; width:155px; }
   .d2-damage.team1{ left:537px; width:200px; }
   .d2-damage.team2{ left:537px; width:82px; }
 
-  /* ---- character photo + IGN caption (this file's own design) ----
-     Photo fills the row's full height; the IGN caption is a bar overlaid
-     at the TOP of the photo (not the bottom, per the operator's layout),
-     semi-transparent so it reads over any portrait. object-position/scale
-     defaults below are tuned against the steamstatic hero renders actually
-     in overlay/assets/dota2_heroes/ (consistent square, full-body, head in
-     the upper third) -- same "default framing + per-element override via
-     Graphic Fixing" approach Valorant's own character slots use, rather
-     than hand-pre-cropping each of the 127 portraits. */
-  .d2-photo-wrap{ position:absolute; top:0; width:288px; height:145px; overflow:hidden; }
-  #team1-rows .d2-photo-wrap{ left:0; }
-  #team2-rows .d2-photo-wrap{ left:619px; width:283px; }
-  .d2-photo-wrap img{ width:100%; height:100%; object-fit:cover; object-position:50% 8%;
-    display:none; transform-origin:center 8%; animation:d2PhotoFloat 5s ease-in-out infinite; }
+  .d2-playername{ position:absolute; top:92px; left:288px; width:270px; height:36px;
+    display:flex; align-items:center; color:var(--gold); font-weight:700; font-style:italic;
+    font-size:19px; text-transform:uppercase; letter-spacing:0.3px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  /* ---- character render (this file's own design) ----
+     Shown whole via object-fit:contain (not a headshot crop) -- the
+     reference mock shows the full creature/mount, not a cropped face --
+     in a box a little taller than the row so it can bleed past the row's
+     own top/bottom edge the way that mock does. */
+  .d2-photo-wrap{ position:absolute; top:-14px; width:220px; height:173px; overflow:visible; }
+  #team1-rows .d2-photo-wrap{ left:-6px; }
+  #team2-rows .d2-photo-wrap{ left:668px; }
+  .d2-photo-wrap img{ width:100%; height:100%; object-fit:contain; object-position:50% 100%;
+    display:none; transform-origin:center bottom; animation:d2PhotoFloat 5s ease-in-out infinite; }
   @keyframes d2PhotoFloat{
-    0%,100%{ transform:scale(1.18) translateY(2px) rotate(-0.4deg); }
-    50%{ transform:scale(1.18) translateY(-2px) rotate(0.4deg); }
+    0%,100%{ transform:translateY(2px) rotate(-0.4deg); }
+    50%{ transform:translateY(-2px) rotate(0.4deg); }
   }
-  .d2-ign{ position:absolute; top:0; left:0; right:0; padding:5px 8px;
-    background:rgba(6,9,22,0.72); color:var(--white); font-weight:700; font-size:13px;
-    text-transform:uppercase; letter-spacing:0.3px; white-space:nowrap; overflow:hidden;
-    text-overflow:ellipsis; display:none; }
 </style>
 </head>
 <body>
@@ -119,8 +136,8 @@
   <img class="header-logo" id="logo-right" alt="">
   <div class="team-name" id="name-left"></div>
   <div class="team-name" id="name-right"></div>
-  <div class="team-score" id="score-left">0</div>
-  <div class="team-score" id="score-right">0</div>
+  <div id="pom-score-small">0 - 0</div>
+  <div id="match-score"></div>
   <div id="pom-duration">00:00</div>
 
   <div id="team1-rows"></div>
@@ -169,11 +186,11 @@ function buildRows(containerId, side){
     row.innerHTML = `
       <div class="d2-photo-wrap">
         <img id="${side}-${i}-photo" alt="">
-        <div class="d2-ign" id="${side}-${i}-ign"></div>
       </div>
       <div class="d2-val d2-kda" id="${side}-${i}-kda">—</div>
       <div class="d2-val d2-networth" id="${side}-${i}-networth">—</div>
       <div class="d2-val d2-damage ${side === "team1" ? "team1" : "team2"}" id="${side}-${i}-damage">—</div>
+      <div class="d2-playername" id="${side}-${i}-ign"></div>
     `;
     container.appendChild(row);
   }
@@ -191,7 +208,6 @@ function renderTeamRows(team, roster, pomPlayers){
     setText(`${prefix}-damage`, p.damage != null ? fmt(p.damage) : "—");
 
     const photo = document.getElementById(`${prefix}-photo`);
-    const ign = document.getElementById(`${prefix}-ign`);
     const slug = heroes[i];
     if(slug){
       photo.src = `assets/dota2_heroes/${encodeURIComponent(slug)}.png`;
@@ -200,9 +216,7 @@ function renderTeamRows(team, roster, pomPlayers){
     } else {
       photo.style.display = "none";
     }
-    const name = (p.name || players[i] || "");
-    setText(`${prefix}-ign`, name);
-    ign.style.display = name ? "block" : "none";
+    setText(`${prefix}-ign`, p.name || players[i] || "");
   }
 }
 
@@ -211,8 +225,8 @@ function applyState(state){
 
   setText("name-left", (state.team1 && state.team1.name) || "TEAM 1");
   setText("name-right", (state.team2 && state.team2.name) || "TEAM 2");
-  setText("score-left", pom ? (pom.team1Score ?? 0) : 0);
-  setText("score-right", pom ? (pom.team2Score ?? 0) : 0);
+  setText("pom-score-small", `${pom ? (pom.team1Score ?? 0) : 0} - ${pom ? (pom.team2Score ?? 0) : 0}`);
+  setText("match-score", state.matchScore || "");
   setText("pom-duration", (pom && pom.duration) || "00:00");
 
   const logoLeft = document.getElementById("logo-left");
@@ -259,7 +273,7 @@ function applyGraphicOverrides(overrides, elementIds){
 
 const DOTA2_GFX_ELEMENT_IDS = [
   "logo-left", "logo-right", "name-left", "name-right",
-  "score-left", "score-right", "pom-duration",
+  "pom-score-small", "match-score", "pom-duration",
   ...Object.keys(DOTA2_GFX_GROUPS),
 ];
 

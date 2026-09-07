@@ -1587,18 +1587,54 @@
       <div id="dota2_apply_status" class="hint" style="margin-top:6px;"></div>
     </div>
 
+    <div class="card" style="margin-top:14px;">
+      <h2>Score Override</h2>
+      <p class="hint">The small game score (top of the overlay header) comes from OCR and is normally correct
+        as-is — override it here only if it misread. The big centered score is the Bo3/Bo5 series tally, which
+        has no OCR source at all — always type it here.</p>
+      <div class="row">
+        <div class="team-form">
+          <label>Game Score — Team 1</label>
+          <input type="number" id="dota2_scoreT1" placeholder="OCR value">
+        </div>
+        <div class="team-form">
+          <label>Game Score — Team 2</label>
+          <input type="number" id="dota2_scoreT2" placeholder="OCR value">
+        </div>
+        <div class="team-form">
+          <label>Series Score (e.g. "2 - 0")</label>
+          <input type="text" id="dota2_matchScore" placeholder="2 - 0">
+        </div>
+      </div>
+      <button id="dota2_saveScore" style="margin-top:10px;">Push to Overlay</button>
+      <div id="dota2_score_status" class="hint" style="margin-top:6px;"></div>
+    </div>
+
   </div>
 
   <!-- ===================== GRAPHIC ===================== -->
   <div class="dota2-tab-panel" id="d2tab-graphic">
     <div class="card">
       <h2>Graphic Fixing — Post Match</h2>
-      <p class="hint">Nudge any element's position/scale on <code>overlay/dota2_postmatch.html</code> without
-        touching the file — same additive dx/dy/scale overlay the other games' Graphic tabs use, applied on top
-        of the element's normal layout.</p>
-      <div id="dota2gfx_rows"></div>
-      <button id="dota2gfx_save" style="margin-top:10px;">Save</button>
-      <button class="secondary" id="dota2gfx_reset">Reset This Page to Default</button>
+      <p class="hint">Drag any labeled box to reposition that section on <code>overlay/dota2_postmatch.html</code>
+        — same drag mechanic as the other games' Graphic tabs. The 5-row stat/photo groups (drag any one of them)
+        move all 5 rows of that team together, since the grid repeats identically per row. Click a box, then use
+        Scale below to resize just that one.</p>
+      <div id="dota2gfx_stage_wrap" style="position:relative;width:960px;height:540px;
+           background:#000;border:1px solid #2b3348;border-radius:8px;overflow:hidden;">
+        <img id="dota2gfx_bg" src="../overlay/assets/dota2_postmatch_blank.png"
+             style="position:absolute;top:0;left:0;width:960px;height:540px;object-fit:fill;" alt="">
+        <div id="dota2gfx_stage" style="position:absolute;inset:0;"></div>
+      </div>
+      <div class="row" style="gap:16px;align-items:flex-end;margin-top:10px;">
+        <span id="dota2gfx_selected" class="hint" style="margin:0;min-width:220px;">Click a box to select it.</span>
+        <div class="team-form" style="max-width:120px;">
+          <label>Scale (selected box)</label>
+          <input type="number" id="dota2gfx_scale" min="0.3" max="3" step="0.05" value="1" disabled>
+        </div>
+        <button id="dota2gfx_save">Save Position</button>
+        <button class="secondary" id="dota2gfx_reset">Reset All to Default</button>
+      </div>
       <span id="dota2gfx_status" class="hint" style="margin:0;"></span>
     </div>
   </div>
@@ -8921,6 +8957,17 @@ document.getElementById("dota2_captureDamage").addEventListener("click", () => {
 // order[rosterIndex] = rawRowIndex per team, then sends that mapping so the
 // engine reorders lastCapture into roster position order -- same
 // "identity is a lookup, not a move" reasoning as Valorant's import table.
+document.getElementById("dota2_saveScore").addEventListener("click", () => {
+  if(!(dota2Ws && dota2Ws.readyState === WebSocket.OPEN)) return;
+  const t1 = document.getElementById("dota2_scoreT1").value;
+  const t2 = document.getElementById("dota2_scoreT2").value;
+  const payload = {type: "save_manual_score", matchScore: document.getElementById("dota2_matchScore").value};
+  if(t1 !== "") payload.team1Score = Number(t1);
+  if(t2 !== "") payload.team2Score = Number(t2);
+  dota2Ws.send(JSON.stringify(payload));
+  document.getElementById("dota2_score_status").textContent = "Pushed.";
+});
+
 document.getElementById("dota2_applyMapping").addEventListener("click", () => {
   if(!(dota2Ws && dota2Ws.readyState === WebSocket.OPEN)) return;
   const mapping = {team1: [null,null,null,null,null], team2: [null,null,null,null,null]};
@@ -8954,6 +9001,14 @@ function dota2Connect(){
     } else if(msg.type === "state_sync"){
       dota2State = msg.data;
       dota2gfxOnStateSync(dota2State);
+      const matchScoreEl = document.getElementById("dota2_matchScore");
+      if(matchScoreEl && document.activeElement !== matchScoreEl){
+        matchScoreEl.value = dota2State.matchScore || "";
+      }
+      const pom = dota2State.postMatch;
+      const t1El = document.getElementById("dota2_scoreT1"), t2El = document.getElementById("dota2_scoreT2");
+      if(pom && t1El && document.activeElement !== t1El) t1El.value = pom.team1Score ?? "";
+      if(pom && t2El && document.activeElement !== t2El) t2El.value = pom.team2Score ?? "";
     } else if(msg.type === "capture_result"){
       if(msg.error){
         document.getElementById("dota2_netkda_status").textContent = "Error: " + msg.error;
@@ -8969,77 +9024,148 @@ function dota2Connect(){
 }
 dota2Connect();
 
-/* ---------- Dota 2 Graphic Fixing: dx/dy/scale nudges, one row per
-   element, additive on top of the overlay's own CSS layout. A numeric
-   form rather than a full drag-on-screenshot editor (like MOBA/FF/Valorant
-   have) -- same underlying graphicOverrides.postmatch mechanism, far less
-   code for a page with this few adjustable elements. */
-const DOTA2_GFX_ELEMENTS = [
-  ["logo-left","Left Team Logo"], ["logo-right","Right Team Logo"],
-  ["name-left","Left Team Name"], ["name-right","Right Team Name"],
-  ["score-left","Left Team Score"], ["score-right","Right Team Score"],
-  ["pom-duration","Game Duration"],
-  // Each of these moves all 5 rows of that column together -- the grid
-  // repeats identically per row, so per-row nudging isn't useful here.
-  ["team1-photo","Left Team — Character Photos (all 5)"],
-  ["team1-ign","Left Team — Player IGN Captions (all 5)"],
-  ["team1-kda","Left Team — K/D/A Values (all 5)"],
-  ["team1-networth","Left Team — Net Worth Values (all 5)"],
-  ["team1-damage","Left Team — Damage Values (all 5)"],
-  ["team2-photo","Right Team — Character Photos (all 5)"],
-  ["team2-ign","Right Team — Player IGN Captions (all 5)"],
-  ["team2-kda","Right Team — K/D/A Values (all 5)"],
-  ["team2-networth","Right Team — Net Worth Values (all 5)"],
-  ["team2-damage","Right Team — Damage Values (all 5)"],
-];
-let dota2gfxPending = {};
+/* ---------- Dota 2 Graphic Fixing: a real drag stage, one box per
+   section, same mechanic as Free Fire's own ffgfx* (see that block's
+   comments for why: recreate the box on page load/reset, only REPOSITION
+   it during a drag -- recreating mid-drag kills the pointer capture and
+   silently truncates the drag after its first pixel of movement, found
+   the hard way building the FF version).
 
-function dota2gfxRenderRows(){
-  const container = document.getElementById("dota2gfx_rows");
-  container.innerHTML = DOTA2_GFX_ELEMENTS.map(([id,label]) => {
-    const o = dota2gfxPending[id] || {};
-    return `
-      <div class="ff-map-row">
-        <div class="ff-map-what"><b>${label}</b><span>${id}</span></div>
-        <label>dx <input type="number" class="dota2gfx-input" data-id="${id}" data-field="dx" value="${o.dx || 0}" style="width:70px;"></label>
-        <label>dy <input type="number" class="dota2gfx-input" data-id="${id}" data-field="dy" value="${o.dy || 0}" style="width:70px;"></label>
-        <label>scale <input type="number" step="0.05" class="dota2gfx-input" data-id="${id}" data-field="scale" value="${o.scale || 1}" style="width:70px;"></label>
-      </div>`;
-  }).join("");
-  container.querySelectorAll(".dota2gfx-input").forEach(inp => {
-    inp.addEventListener("input", () => {
-      const id = inp.dataset.id, field = inp.dataset.field;
-      dota2gfxPending[id] = dota2gfxPending[id] || {};
-      dota2gfxPending[id][field] = Number(inp.value) || 0;
+   Unlike FF's single shared logo box, Dota 2 needs many INDEPENDENT boxes
+   at once (17 sections), so every box here is its own real draggable
+   element (no ghost/draggable split needed -- nothing is "the same thing
+   repeated", each box really is a different section). Geometry mirrors
+   the literal CSS positions in overlay/dota2_postmatch.html -- kept in
+   sync by hand since there's no shared source of truth between the two
+   files (same tradeoff FF's own ffgfxPtPositions()/ffgfxSbPositions()
+   already made). */
+const DOTA2_GFX_SCALE = 960 / 1920;
+const DOTA2_GFX_GEOM = {
+  "logo-left": {left:62, top:73, width:140, height:129, label:"Left Logo"},
+  "logo-right": {left:1718, top:73, width:140, height:129, label:"Right Logo"},
+  "name-left": {left:243, top:108, width:398, height:56, label:"Left Team Name"},
+  "name-right": {left:1275, top:108, width:398, height:56, label:"Right Team Name"},
+  "pom-score-small": {left:900, top:76, width:120, height:20, label:"Game Score (small)"},
+  "match-score": {left:833, top:100, width:252, height:56, label:"Series Score (big)"},
+  "pom-duration": {left:900, top:170, width:120, height:20, label:"Duration"},
+  "team1-photo": {left:47, top:209, width:220, height:173, label:"L Photos ×5"},
+  "team1-kda": {left:341, top:261, width:100, height:36, label:"L KDA ×5"},
+  "team1-networth": {left:433, top:261, width:155, height:36, label:"L Net Worth ×5"},
+  "team1-damage": {left:590, top:261, width:200, height:36, label:"L Damage ×5"},
+  "team1-ign": {left:341, top:315, width:270, height:36, label:"L Player Name ×5"},
+  "team2-photo": {left:1636, top:209, width:220, height:173, label:"R Photos ×5"},
+  "team2-kda": {left:1256, top:261, width:100, height:36, label:"R KDA ×5"},
+  "team2-networth": {left:1348, top:261, width:155, height:36, label:"R Net Worth ×5"},
+  "team2-damage": {left:1505, top:261, width:82, height:36, label:"R Damage ×5"},
+  "team2-ign": {left:1256, top:315, width:270, height:36, label:"R Player Name ×5"},
+};
+let dota2gfxPending = {};
+let dota2gfxSelected = null;
+
+function dota2gfxDrawStage(){
+  const stage = document.getElementById("dota2gfx_stage");
+  stage.innerHTML = Object.entries(DOTA2_GFX_GEOM).map(([key, geo]) =>
+    `<div class="gfx-box" id="dota2gfx_box_${key}"><span class="gfx-label">${geo.label}</span></div>`
+  ).join("");
+  Object.keys(DOTA2_GFX_GEOM).forEach(dota2gfxPositionBox);
+  dota2gfxWireDrag();
+}
+
+// Safe to call as often as pointermove fires -- never touches the DOM tree
+// the drag's pointer capture depends on.
+function dota2gfxPositionBox(key){
+  const geo = DOTA2_GFX_GEOM[key];
+  const el = document.getElementById("dota2gfx_box_" + key);
+  if(!geo || !el) return;
+  const o = dota2gfxPending[key] || {};
+  const dx = o.dx || 0, dy = o.dy || 0, scale = o.scale || 1;
+  const cx = geo.left + geo.width / 2 + dx, cy = geo.top + geo.height / 2 + dy;
+  const w = geo.width * scale, h = geo.height * scale;
+  el.style.left = ((cx - w / 2) * DOTA2_GFX_SCALE) + "px";
+  el.style.top = ((cy - h / 2) * DOTA2_GFX_SCALE) + "px";
+  el.style.width = (w * DOTA2_GFX_SCALE) + "px";
+  el.style.height = (h * DOTA2_GFX_SCALE) + "px";
+}
+
+function dota2gfxSelect(key){
+  dota2gfxSelected = key;
+  document.querySelectorAll("#dota2gfx_stage .gfx-box").forEach(b => b.classList.remove("gfx-selected"));
+  const el = document.getElementById("dota2gfx_box_" + key);
+  if(el) el.classList.add("gfx-selected");
+  document.getElementById("dota2gfx_selected").textContent = "Selected: " + DOTA2_GFX_GEOM[key].label;
+  const scaleInput = document.getElementById("dota2gfx_scale");
+  scaleInput.disabled = false;
+  scaleInput.value = (dota2gfxPending[key] && dota2gfxPending[key].scale) || 1;
+}
+
+function dota2gfxWireDrag(){
+  Object.keys(DOTA2_GFX_GEOM).forEach(key => {
+    const box = document.getElementById("dota2gfx_box_" + key);
+    box.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      dota2gfxSelect(key);
+      box.setPointerCapture(e.pointerId);
+      const startX = e.clientX, startY = e.clientY;
+      dota2gfxPending[key] = dota2gfxPending[key] || {dx:0, dy:0, scale:1};
+      const startDx = dota2gfxPending[key].dx || 0, startDy = dota2gfxPending[key].dy || 0;
+      // Measured live, not assumed as DOTA2_GFX_SCALE -- the wrapper is
+      // max-width:100%, so a narrower screen renders smaller than 960px
+      // and a fixed ratio would make the box drift from the cursor.
+      const liveScale = document.getElementById("dota2gfx_stage_wrap").getBoundingClientRect().width / 1920;
+      const onMove = (ev) => {
+        dota2gfxPending[key].dx = Math.round(startDx + (ev.clientX - startX) / liveScale);
+        dota2gfxPending[key].dy = Math.round(startDy + (ev.clientY - startY) / liveScale);
+        dota2gfxPositionBox(key);
+      };
+      const onUp = () => {
+        box.removeEventListener("pointermove", onMove);
+        box.removeEventListener("pointerup", onUp);
+      };
+      box.addEventListener("pointermove", onMove);
+      box.addEventListener("pointerup", onUp);
     });
   });
 }
 
+document.getElementById("dota2gfx_scale").addEventListener("input", (e) => {
+  if(!dota2gfxSelected) return;
+  dota2gfxPending[dota2gfxSelected] = dota2gfxPending[dota2gfxSelected] || {dx:0, dy:0, scale:1};
+  dota2gfxPending[dota2gfxSelected].scale = Number(e.target.value) || 1;
+  dota2gfxPositionBox(dota2gfxSelected);
+});
+
 function dota2gfxLoad(){
   dota2gfxPending = JSON.parse(JSON.stringify(
     (dota2State && dota2State.graphicOverrides && dota2State.graphicOverrides.postmatch) || {}));
-  dota2gfxRenderRows();
+  dota2gfxSelected = null;
+  document.getElementById("dota2gfx_selected").textContent = "Click a box to select it.";
+  document.getElementById("dota2gfx_scale").disabled = true;
+  dota2gfxDrawStage();
 }
 
 function dota2gfxOnStateSync(state){
-  // Only re-render the form from a live update if it isn't the source of
-  // that update -- otherwise every keystroke's own round trip would reset
-  // the very field being typed into.
-  if(document.querySelectorAll(".dota2gfx-input:focus").length) return;
+  // No-op while the tab isn't open yet -- dota2gfxLoad() (called when the
+  // Graphic sub-tab is clicked) is what actually loads pending overrides;
+  // this hook exists so a later live graphicOverrides change from another
+  // client doesn't need a special case here (dragging is local-only until
+  // Save, so nothing to reconcile mid-drag).
 }
 
 document.getElementById("dota2gfx_save").addEventListener("click", () => {
   if(!(dota2Ws && dota2Ws.readyState === WebSocket.OPEN)) return;
   dota2Ws.send(JSON.stringify({type: "save_graphic_overrides", page: "postmatch", overrides: dota2gfxPending}));
-  document.getElementById("dota2gfx_status").textContent = "Saved.";
+  document.getElementById("dota2gfx_status").textContent = "Saved — live on the overlay now.";
 });
 document.getElementById("dota2gfx_reset").addEventListener("click", () => {
   dota2gfxPending = {};
-  dota2gfxRenderRows();
+  dota2gfxSelected = null;
+  document.getElementById("dota2gfx_selected").textContent = "Click a box to select it.";
+  document.getElementById("dota2gfx_scale").disabled = true;
+  dota2gfxDrawStage();
   if(dota2Ws && dota2Ws.readyState === WebSocket.OPEN){
     dota2Ws.send(JSON.stringify({type: "save_graphic_overrides", page: "postmatch", overrides: {}}));
   }
-  document.getElementById("dota2gfx_status").textContent = "Reset.";
+  document.getElementById("dota2gfx_status").textContent = "Reset locally and pushed — all sections back to default.";
 });
 </script>
 </body>

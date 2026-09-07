@@ -270,6 +270,12 @@ def default_state():
             "team2": {"name": "", "logo": "", "players": ["", "", "", "", ""], "heroes": ["", "", "", "", ""]},
         },
         "lastCapture": None,
+        # Manual, operator-typed series/match score (e.g. "2 - 0") -- there
+        # is no OCR source for this (it isn't shown anywhere on the Dota 2
+        # post-match screen itself, it's the broadcast's own Bo3/Bo5 tally),
+        # so unlike team1Score/team2Score above it is entered by hand and
+        # simply displayed as-is, no parsing.
+        "matchScore": "",
         # Per-page {elementId: {dx, dy, scale}} nudges from the dashboard's
         # Graphic tab -- same additive-transform mechanism MOBA's
         # postmatch.html already reads via applyGraphicOverrides().
@@ -342,6 +348,7 @@ def build_overlay_state(state):
         }
 
     out = {"team1": team_block("team1"), "team2": team_block("team2"), "postMatch": None,
+           "matchScore": state.get("matchScore", ""),
            "graphicOverrides": state.get("graphicOverrides", {})}
 
     cap = state.get("lastCapture")
@@ -437,6 +444,28 @@ async def handle_client(websocket):
                 server_state["lastCapture"] = merged
                 save_state(server_state)
                 await websocket.send(json.dumps({"type": "capture_result", "data": merged}))
+                await broadcast({"type": "state_sync", "data": build_overlay_state(server_state)})
+
+            elif payload.get("type") == "save_manual_score":
+                # Overrides for the two score displays: team1Score/team2Score
+                # (normally OCR'd off the post-match screen, but the
+                # operator can correct a misread here) and matchScore (the
+                # Bo3/Bo5 series tally, which has no OCR source at all --
+                # always manual).
+                if "matchScore" in payload:
+                    server_state["matchScore"] = payload["matchScore"]
+                if "team1Score" in payload or "team2Score" in payload:
+                    cap = server_state.get("lastCapture") or {
+                        "team1": {"score": None, "players": [None] * TEAM_SLOTS},
+                        "team2": {"score": None, "players": [None] * TEAM_SLOTS},
+                        "duration": None,
+                    }
+                    if "team1Score" in payload:
+                        cap["team1"]["score"] = payload["team1Score"]
+                    if "team2Score" in payload:
+                        cap["team2"]["score"] = payload["team2Score"]
+                    server_state["lastCapture"] = cap
+                save_state(server_state)
                 await broadcast({"type": "state_sync", "data": build_overlay_state(server_state)})
 
             elif payload.get("type") == "save_graphic_overrides":
