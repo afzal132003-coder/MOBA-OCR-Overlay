@@ -82,19 +82,20 @@ TESS_CONFIG_DURATION = (
     "-c tessedit_char_whitelist=0123456789: "
     "-c load_system_dawg=0 -c load_freq_dawg=0"
 )
-# Gold and K/D/A share one calibrated box (they sit stacked in the same
-# small column on the real scoreboard), so this reads BOTH lines in one
-# pass -- PSM 6 (uniform block of text), not the single-line PSM 7 the
-# other fields use, and the whitelist covers both a comma-grouped gold
-# figure ("6,260") and slash-separated KDA ("3/8/17").
-TESS_CONFIG_PLAYER = (
-    "--oem 1 --psm 6 "
-    "-c tessedit_char_whitelist=0123456789/, "
+TESS_CONFIG_KDA = (
+    "--oem 1 --psm 7 "
+    "-c tessedit_char_whitelist=0123456789/ "
+    "-c load_system_dawg=0 -c load_freq_dawg=0"
+)
+# Net worth is comma-grouped ("6,260"), so its whitelist needs the comma
+# the plain digit-only NUMBER config above doesn't carry.
+TESS_CONFIG_NETWORTH = (
+    "--oem 1 --psm 7 "
+    "-c tessedit_char_whitelist=0123456789, "
     "-c load_system_dawg=0 -c load_freq_dawg=0"
 )
 
 KDA_TRIPLE_REGEX = re.compile(r"(\d+)\s*/\s*(\d+)\s*/\s*(\d+)")
-GOLD_REGEX = re.compile(r"\d[\d,]{2,}")
 DURATION_REGEX = re.compile(r"(\d{1,3}):(\d{2})")
 
 
@@ -116,31 +117,25 @@ def ocr_duration(img_bgr):
             "raw": text}
 
 
-def ocr_player_cell(img_bgr):
-    """One player's combined gold + K/D/A crop -> {"gold", "kills",
-    "deaths", "assists"}, any of which is None if that line didn't read.
-    Kept separate rather than failing the whole cell on one miss -- a
-    correct gold figure is still worth keeping even if KDA misreads, and
-    vice versa."""
-    processed = preprocess(img_bgr, upscale=3)
-    text = pytesseract.image_to_string(processed, config=TESS_CONFIG_PLAYER).strip()
+def ocr_kda(img_bgr):
+    """One player's K/D/A cell -> (kills, deaths, assists), or None.
+    Calibrated as its own box now -- see calibrate.py's "postgame-net-kda"
+    category -- rather than combined with net worth, which didn't crop
+    cleanly on the real screen the way it first looked like it might."""
+    processed = preprocess(img_bgr)
+    text = pytesseract.image_to_string(processed, config=TESS_CONFIG_KDA).strip()
+    m = KDA_TRIPLE_REGEX.search(text)
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2)), int(m.group(3))
 
-    kda = KDA_TRIPLE_REGEX.search(text)
-    kills, deaths, assists = (int(kda.group(1)), int(kda.group(2)), int(kda.group(3))) \
-        if kda else (None, None, None)
 
-    # The gold figure is whichever comma-grouped or 3+ digit run ISN'T
-    # part of the KDA match, so a KDA line that happens to contain a
-    # longer number doesn't get mistaken for gold.
-    gold = None
-    kda_span = kda.span() if kda else None
-    for m in GOLD_REGEX.finditer(text):
-        if kda_span and kda_span[0] <= m.start() < kda_span[1]:
-            continue
-        gold = int(m.group(0).replace(",", ""))
-        break
-
-    return {"gold": gold, "kills": kills, "deaths": deaths, "assists": assists, "raw": text}
+def ocr_networth(img_bgr):
+    """One player's Net Worth cell -> int, or None."""
+    processed = preprocess(img_bgr)
+    text = pytesseract.image_to_string(processed, config=TESS_CONFIG_NETWORTH).strip()
+    m = re.search(r"\d[\d,]*", text)
+    return int(m.group(0).replace(",", "")) if m else None
 
 
 # ---------------------------------------------------------------------------
@@ -148,10 +143,13 @@ def ocr_player_cell(img_bgr):
 # ---------------------------------------------------------------------------
 
 def capture_postmatch(config=None):
-    """Grabs and OCRs every calibrated region in one pass. Returns a dict
-    shaped for the operator to then assign IGNs onto -- slot order is
-    top-to-bottom, matching the scoreboard's own row order, same as the
-    5 fixed player rows Free Fire's roster already assumes per squad."""
+    """Grabs and OCRs every calibrated region in one pass -- both the
+    "postgame-net-kda" category (K/D/A, Net Worth, team score, duration)
+    and "postgame-damage" (whichever tab shows damage), if calibrated.
+    Returns a dict shaped for the operator to then assign names onto --
+    slot order is top-to-bottom, matching the scoreboard's own row order,
+    same as the 5 fixed player rows Free Fire's roster already assumes
+    per squad."""
     config = config or load_config()
     regions = config.get("regions", {})
 
@@ -167,12 +165,33 @@ def capture_postmatch(config=None):
         "duration": None,
     }
 
+    def blank_player():
+        return {"kills": None, "deaths": None, "assists": None, "networth": None, "damage": None}
+
     with mss.mss() as sct:
-        for team_key, team_num in (("team1", 1), ("team2", 2)):
+        for team_key in ("team1", "team2"):
             for i in range(TEAM_SLOTS):
-                crop = region_crop(sct, f"dota2_{team_key}_p{i}")
-                if crop is not None:
-                    result[team_key]["players"][i] = ocr_player_cell(crop)
+                player = blank_player()
+                got_anything = False
+
+                kda_crop = region_crop(sct, f"dota2_{team_key}_p{i}_kda")
+                if kda_crop is not None:
+                    got_anything = True
+                    kda = ocr_kda(kda_crop)
+                    if kda:
+                        player["kills"], player["deaths"], player["assists"] = kda
+
+                nw_crop = region_crop(sct, f"dota2_{team_key}_p{i}_networth")
+                if nw_crop is not None:
+                    got_anything = True
+                    player["networth"] = ocr_networth(nw_crop)
+
+                dmg_crop = region_crop(sct, f"dota2_{team_key}_p{i}_damage")
+                if dmg_crop is not None:
+                    got_anything = True
+                    player["damage"] = ocr_number(dmg_crop)
+
+                result[team_key]["players"][i] = player if got_anything else None
 
             score_crop = region_crop(sct, f"dota2_{team_key}_score")
             if score_crop is not None:

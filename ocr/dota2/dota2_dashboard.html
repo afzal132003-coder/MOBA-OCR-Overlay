@@ -28,7 +28,7 @@
 
 <h1>Dota 2 — Post-Match Capture</h1>
 <p class="hint">Set the roster once before the match. After the game, have the post-match Overview screen up and
-  press Capture — kills/deaths/assists, gold, team score and duration all read at once, labelled with the names
+  press Capture — kills/deaths/assists, net worth, damage, team score and duration all read at once, labelled with the names
   below by row position (top to bottom, matching the scoreboard).</p>
 
 <div class="teams">
@@ -114,8 +114,9 @@ function playerRow(p){
   const cell = v => v == null ? '<span class="miss">—</span>' : v;
   return `<tr>
     <td>${escapeHtml(p.name || "")}</td>
-    <td>${cell(p.gold)}</td>
+    <td>${cell(p.networth)}</td>
     <td>${cell(p.kills)}/${cell(p.deaths)}/${cell(p.assists)}</td>
+    <td>${cell(p.damage)}</td>
   </tr>`;
 }
 
@@ -135,9 +136,9 @@ function applyCapture(msg){
       <div style="margin-left:20px;color:#98a3bd;">Duration: ${d ? d.minutes + ":" + String(d.seconds).padStart(2,"0") : "—"}</div>
     </div>
     <div style="display:flex;gap:20px;">
-      <table><thead><tr><th>Team 1</th><th>Gold</th><th>K/D/A</th></tr></thead>
+      <table><thead><tr><th>Team 1</th><th>Net Worth</th><th>K/D/A</th><th>Damage</th></tr></thead>
         <tbody>${latest.team1.players.map(playerRow).join("")}</tbody></table>
-      <table><thead><tr><th>Team 2</th><th>Gold</th><th>K/D/A</th></tr></thead>
+      <table><thead><tr><th>Team 2</th><th>Net Worth</th><th>K/D/A</th><th>Damage</th></tr></thead>
         <tbody>${latest.team2.players.map(playerRow).join("")}</tbody></table>
     </div>`;
 }

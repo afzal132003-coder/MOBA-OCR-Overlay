@@ -6,21 +6,26 @@ Dota 2's own folder, same isolation reasoning as valorant/freefire/moba:
 different game, different layout, own config and state so nothing gets
 tangled together.
 
-This is POST-MATCH ONLY -- the end-game scoreboard (Overview tab), which
-is where KDA, gold, team score and game duration are all shown at once.
-There is no live in-game capture here and no IGN capture: player identity
-is assigned by the operator afterwards (same "pick who this is" pattern
-already used for Free Fire's pre-match roster), because in-game names
-carry clan tags and symbols ("Verlin Raed [ZGØ]") that are exactly the
-kind of text OCR gets wrong and a human reads correctly at a glance.
+This is POST-MATCH ONLY, across two different screens of the post-match
+scoreboard -- there is no live in-game capture here and no IGN capture:
+player identity is assigned by the operator afterwards (same "pick who
+this is" pattern already used for Free Fire's pre-match roster), because
+in-game names carry clan tags and symbols ("Verlin Raed [ZGØ]") that are
+exactly the kind of text OCR gets wrong and a human reads correctly at a
+glance.
 
-Ten player boxes (5 per team, top to bottom matching the scoreboard's own
-row order) -- each ONE box per player, capturing gold and KDA together
-since they sit stacked in the same small column on the real screen. Two
-team-score boxes and one duration box round out the thirteen.
+Two categories, run separately since each needs a different tab on
+screen:
 
-    python calibrate.py              # all 13 boxes
-    python calibrate.py --monitor 1  # override the configured monitor
+    python calibrate.py postgame-net-kda   # 23 boxes: K/D/A + Net Worth
+                                            # (one box each, not combined --
+                                            # they don't crop cleanly
+                                            # together on the real screen),
+                                            # 2 team scores, duration.
+    python calibrate.py postgame-damage    # 10 boxes: one damage figure
+                                            # per player, on whichever tab
+                                            # shows it.
+    python calibrate.py --monitor 1        # override the configured monitor
 """
 
 import json
@@ -35,20 +40,49 @@ CONFIG_PATH = Path(__file__).parent / "dota2_config.json"
 
 TEAM_SLOTS = 5
 
-REGION_ORDER = (
-    [f"dota2_team1_p{i}" for i in range(TEAM_SLOTS)]
-    + [f"dota2_team2_p{i}" for i in range(TEAM_SLOTS)]
-    + ["dota2_team1_score", "dota2_team2_score", "dota2_duration"]
-)
+# Three screens, calibrated separately since each needs the operator on a
+# different tab of the post-match scoreboard:
+#   overview  Overview tab -- K/D/A and Net Worth, one box each per player
+#             (not combined -- on the real screen they don't crop cleanly
+#             together the way they first looked like they might).
+#   damage    the next tab over, wherever Dota puts the damage figures --
+#             one box per player.
+CATEGORIES = {
+    "postgame-net-kda": (
+        [f"dota2_team1_p{i}_kda" for i in range(TEAM_SLOTS)]
+        + [f"dota2_team1_p{i}_networth" for i in range(TEAM_SLOTS)]
+        + [f"dota2_team2_p{i}_kda" for i in range(TEAM_SLOTS)]
+        + [f"dota2_team2_p{i}_networth" for i in range(TEAM_SLOTS)]
+        + ["dota2_team1_score", "dota2_team2_score", "dota2_duration"]
+    ),
+    "postgame-damage": (
+        [f"dota2_team1_p{i}_damage" for i in range(TEAM_SLOTS)]
+        + [f"dota2_team2_p{i}_damage" for i in range(TEAM_SLOTS)]
+    ),
+}
+REGION_ORDER = CATEGORIES["postgame-net-kda"] + CATEGORIES["postgame-damage"]
+
+CATEGORY_BLURB = {
+    "postgame-net-kda": "OVERVIEW tab -- K/D/A, Net Worth, team score, duration.",
+    "postgame-damage": "DAMAGE tab -- whichever screen shows it (Scoreboard/Breakdowns).",
+}
 
 LABELS = {}
 for _i in range(TEAM_SLOTS):
-    LABELS[f"dota2_team1_p{_i}"] = (
-        f"TEAM 1 (left), PLAYER {_i + 1} of 5 -- box around GOLD and K/D/A together, "
-        "top to bottom in the scoreboard's own row order. Not the hero portrait or name."
+    LABELS[f"dota2_team1_p{_i}_kda"] = (
+        f"TEAM 1 (left), PLAYER {_i + 1} of 5 -- K/D/A only, e.g. '3/8/17'. "
+        "Top to bottom in the scoreboard's own row order."
     )
-    LABELS[f"dota2_team2_p{_i}"] = (
-        f"TEAM 2 (right), PLAYER {_i + 1} of 5 -- same as team 1: GOLD and K/D/A together."
+    LABELS[f"dota2_team1_p{_i}_networth"] = (
+        f"TEAM 1 (left), PLAYER {_i + 1} of 5 -- NET WORTH only (the gold-coin number)."
+    )
+    LABELS[f"dota2_team2_p{_i}_kda"] = f"TEAM 2 (right), PLAYER {_i + 1} of 5 -- K/D/A only."
+    LABELS[f"dota2_team2_p{_i}_networth"] = f"TEAM 2 (right), PLAYER {_i + 1} of 5 -- NET WORTH only."
+    LABELS[f"dota2_team1_p{_i}_damage"] = (
+        f"DAMAGE TAB -- TEAM 1 (left), PLAYER {_i + 1} of 5 -- the damage number for this row."
+    )
+    LABELS[f"dota2_team2_p{_i}_damage"] = (
+        f"DAMAGE TAB -- TEAM 2 (right), PLAYER {_i + 1} of 5 -- the damage number for this row."
     )
 LABELS["dota2_team1_score"] = "TEAM 1 (left) total score -- the big kill-count number, e.g. '24'"
 LABELS["dota2_team2_score"] = "TEAM 2 (right) total score -- the big kill-count number, e.g. '46'"
@@ -79,7 +113,27 @@ def main():
             return
         del requested[at:at + 2]
 
-    keys_to_calibrate = REGION_ORDER
+    if requested:
+        unknown = [a for a in requested if a not in REGION_ORDER and a not in CATEGORIES]
+        if unknown:
+            print(f"Unknown argument(s): {', '.join(unknown)}")
+            print(f"Categories: {', '.join(CATEGORIES)}")
+            return
+        wanted = set()
+        for arg in requested:
+            if arg in CATEGORIES:
+                wanted.update(CATEGORIES[arg])
+            else:
+                wanted.add(arg)
+        keys_to_calibrate = [k for k in REGION_ORDER if k in wanted]
+        for name in (c for c in CATEGORIES if c in requested):
+            print(f"\n{CATEGORY_BLURB[name]}")
+    else:
+        keys_to_calibrate = REGION_ORDER
+        print("\nCalibrating EVERY region -- overview tab AND damage tab, different")
+        print("screens. Prefer one category at a time:")
+        for name, blurb in CATEGORY_BLURB.items():
+            print(f"  python calibrate.py {name:10s} {blurb}")
 
     with mss.mss() as sct:
         print("\nAvailable monitors:")
