@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Dota 2 Post-Match Capture</title>
+<style>
+  body{background:#0a0d18;color:#e8ebf1;font-family:Arial,sans-serif;padding:20px;}
+  h1{font-size:18px;margin:0 0 4px;}
+  .hint{color:#6b7590;font-size:12px;margin:0 0 16px;}
+  .teams{display:flex;gap:20px;margin-bottom:16px;}
+  .team{flex:1;background:#141a2b;border:1px solid #2b3348;border-radius:8px;padding:14px;}
+  .team h2{font-size:14px;margin:0 0 10px;color:#98a3bd;}
+  input[type=text]{width:100%;box-sizing:border-box;background:#0a0d18;border:1px solid #2b3348;
+    color:#e8ebf1;padding:6px 8px;border-radius:4px;font-size:13px;margin-bottom:6px;}
+  input.teamname{font-weight:700;color:#e0a44a;}
+  button{background:#7d6bff;color:#0a0d18;border:none;padding:8px 16px;border-radius:5px;
+    font-weight:700;font-size:13px;cursor:pointer;margin-right:8px;}
+  button.secondary{background:transparent;border:1px solid #2b3348;color:#98a3bd;}
+  #status{color:#6b7590;font-size:12px;margin:10px 0;}
+  table{border-collapse:collapse;width:100%;margin-top:14px;font-size:13px;}
+  th,td{padding:6px 10px;border-bottom:1px solid #2b3348;text-align:left;}
+  th{color:#6b7590;font-size:11px;text-transform:uppercase;}
+  .score{font-size:22px;font-weight:800;color:#e0a44a;}
+  .miss{color:#e08b80;}
+</style>
+</head>
+<body>
+
+<h1>Dota 2 — Post-Match Capture</h1>
+<p class="hint">Set the roster once before the match. After the game, have the post-match Overview screen up and
+  press Capture — kills/deaths/assists, gold, team score and duration all read at once, labelled with the names
+  below by row position (top to bottom, matching the scoreboard).</p>
+
+<div class="teams">
+  <div class="team">
+    <h2>Team 1 (left)</h2>
+    <input type="text" class="teamname" id="t1name" placeholder="Team name">
+    <input type="text" class="pname" data-team="team1" data-i="0" placeholder="Player 1">
+    <input type="text" class="pname" data-team="team1" data-i="1" placeholder="Player 2">
+    <input type="text" class="pname" data-team="team1" data-i="2" placeholder="Player 3">
+    <input type="text" class="pname" data-team="team1" data-i="3" placeholder="Player 4">
+    <input type="text" class="pname" data-team="team1" data-i="4" placeholder="Player 5">
+  </div>
+  <div class="team">
+    <h2>Team 2 (right)</h2>
+    <input type="text" class="teamname" id="t2name" placeholder="Team name">
+    <input type="text" class="pname" data-team="team2" data-i="0" placeholder="Player 1">
+    <input type="text" class="pname" data-team="team2" data-i="1" placeholder="Player 2">
+    <input type="text" class="pname" data-team="team2" data-i="2" placeholder="Player 3">
+    <input type="text" class="pname" data-team="team2" data-i="3" placeholder="Player 4">
+    <input type="text" class="pname" data-team="team2" data-i="4" placeholder="Player 5">
+  </div>
+</div>
+
+<button id="saveRoster">Save Roster</button>
+<button class="secondary" id="capture">Capture Post-Match</button>
+<div id="status"></div>
+
+<div id="result"></div>
+
+<script>
+let ws;
+let latest = null;
+
+function connect(){
+  ws = new WebSocket("ws://localhost:8766");
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state") applyRoster(msg.data.roster);
+    else if(msg.type === "capture_result") applyCapture(msg);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+
+function applyRoster(roster){
+  document.getElementById("t1name").value = roster.team1.name || "";
+  document.getElementById("t2name").value = roster.team2.name || "";
+  document.querySelectorAll(".pname").forEach(el => {
+    const team = el.dataset.team, i = Number(el.dataset.i);
+    el.value = (roster[team].players || [])[i] || "";
+  });
+}
+
+function readRoster(){
+  const roster = {team1: {name: document.getElementById("t1name").value, players: ["", "", "", "", ""]},
+                  team2: {name: document.getElementById("t2name").value, players: ["", "", "", "", ""]}};
+  document.querySelectorAll(".pname").forEach(el => {
+    roster[el.dataset.team].players[Number(el.dataset.i)] = el.value;
+  });
+  return roster;
+}
+
+document.getElementById("saveRoster").addEventListener("click", () => {
+  if(!(ws && ws.readyState === WebSocket.OPEN)) return;
+  ws.send(JSON.stringify({type: "save_roster", roster: readRoster()}));
+  document.getElementById("status").textContent = "Roster saved.";
+});
+
+document.getElementById("capture").addEventListener("click", () => {
+  if(!(ws && ws.readyState === WebSocket.OPEN)) return;
+  document.getElementById("status").textContent = "Capturing...";
+  ws.send(JSON.stringify({type: "capture"}));
+});
+
+function escapeHtml(s){
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c => (
+    {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]
+  ));
+}
+
+function playerRow(p){
+  if(!p) return "<tr><td colspan=5 class=miss>not calibrated</td></tr>";
+  const cell = v => v == null ? '<span class="miss">—</span>' : v;
+  return `<tr>
+    <td>${escapeHtml(p.name || "")}</td>
+    <td>${cell(p.gold)}</td>
+    <td>${cell(p.kills)}/${cell(p.deaths)}/${cell(p.assists)}</td>
+  </tr>`;
+}
+
+function applyCapture(msg){
+  if(msg.error){
+    document.getElementById("status").textContent = "Error: " + msg.error;
+    return;
+  }
+  latest = msg.data;
+  document.getElementById("status").textContent = "Captured.";
+  const d = latest.duration;
+  document.getElementById("result").innerHTML = `
+    <div class="row" style="display:flex;gap:20px;align-items:center;margin-top:10px;">
+      <div class="score">${escapeHtml(latest.team1.teamName || "Team 1")}: ${latest.team1.score ?? "—"}</div>
+      <div>vs</div>
+      <div class="score">${latest.team2.score ?? "—"}: ${escapeHtml(latest.team2.teamName || "Team 2")}</div>
+      <div style="margin-left:20px;color:#98a3bd;">Duration: ${d ? d.minutes + ":" + String(d.seconds).padStart(2,"0") : "—"}</div>
+    </div>
+    <div style="display:flex;gap:20px;">
+      <table><thead><tr><th>Team 1</th><th>Gold</th><th>K/D/A</th></tr></thead>
+        <tbody>${latest.team1.players.map(playerRow).join("")}</tbody></table>
+      <table><thead><tr><th>Team 2</th><th>Gold</th><th>K/D/A</th></tr></thead>
+        <tbody>${latest.team2.players.map(playerRow).join("")}</tbody></table>
+    </div>`;
+}
+
+connect();
+</script>
+</body>
+</html>
