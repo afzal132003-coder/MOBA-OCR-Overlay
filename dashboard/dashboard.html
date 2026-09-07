@@ -1555,6 +1555,7 @@
         player photo — pick it here before or during the game, it's saved with the roster.</p>
       <button id="dota2_saveRoster" style="margin-top:10px;">Save Roster</button>
       <button class="danger" id="dota2_swapSides" style="margin-top:10px;">Swap Team 1 &lt;-&gt; Team 2</button>
+      <button class="secondary" id="dota2_clearHeroes" style="margin-top:10px;">Clear Hero Picks</button>
       <button class="danger" id="dota2_clearRoster" style="margin-top:10px;">Clear Roster</button>
       <div id="dota2_status" class="hint" style="margin-top:8px;"></div>
     </div>
@@ -8920,6 +8921,15 @@ document.getElementById("dota2_swapSides").addEventListener("click", () => {
   if(dota2Ws && dota2Ws.readyState === WebSocket.OPEN){
     dota2Ws.send(JSON.stringify({type: "swap_sides"}));
   }
+});
+
+document.getElementById("dota2_clearHeroes").addEventListener("click", () => {
+  if(!confirm("Clear all hero picks for both teams? Names, logos, and IGNs are left as-is.")) return;
+  document.querySelectorAll("select.dota2-hero").forEach(el => { el.value = ""; });
+  if(dota2Ws && dota2Ws.readyState === WebSocket.OPEN){
+    dota2Ws.send(JSON.stringify({type: "save_roster", roster: dota2ReadRoster()}));
+  }
+  document.getElementById("dota2_status").textContent = "Hero picks cleared.";
 });
 
 document.getElementById("dota2_clearRoster").addEventListener("click", () => {
