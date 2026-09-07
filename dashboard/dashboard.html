@@ -8938,6 +8938,17 @@ function dota2HighlightDuplicateWho(){
   selects.forEach(s => { s.style.borderColor = counts[s.value] > 1 ? "#c0453f" : ""; });
 }
 
+// Every field the operator can hand-correct per row, plus which raw
+// capture_result field it reads from/writes to.
+const DOTA2_EDIT_FIELDS = [
+  ["kills","K"], ["deaths","D"], ["assists","A"], ["networth","Net Worth"], ["damage","Damage"],
+];
+
+function dota2CropImg(p, field){
+  const src = p && p.crops && p.crops[field];
+  return src ? `<img src="${src}" style="display:block;max-width:80px;max-height:26px;margin:0 auto 3px;border:1px solid #2b3348;border-radius:3px;">` : "";
+}
+
 function dota2RenderCaptureTable(cap){
   const container = document.getElementById("dota2_netkda_table");
   if(!cap){ container.innerHTML = ""; return; }
@@ -8948,9 +8959,11 @@ function dota2RenderCaptureTable(cap){
     <thead><tr style="text-align:left;color:#98a3bd;">
       <th style="padding:6px;">Screen Row</th>
       <th style="padding:6px;">Who (roster player)</th>
-      <th style="padding:6px;">K/D/A</th>
-      <th style="padding:6px;">Net Worth</th>
-      <th style="padding:6px;">Damage</th>
+      <th style="padding:6px;text-align:center;">K</th>
+      <th style="padding:6px;text-align:center;">D</th>
+      <th style="padding:6px;text-align:center;">A</th>
+      <th style="padding:6px;text-align:center;">Net Worth</th>
+      <th style="padding:6px;text-align:center;">Damage</th>
     </tr></thead>
     <tbody></tbody>
   `;
@@ -8960,13 +8973,20 @@ function dota2RenderCaptureTable(cap){
       const tr = document.createElement("tr");
       tr.style.borderTop = "1px solid #2b3348";
       const label = team === "team1" ? "T1" : "T2";
-      const kda = p ? `${p.kills ?? "—"}/${p.deaths ?? "—"}/${p.assists ?? "—"}` : "—";
+      const cell = (field, val) => `
+        <td style="padding:6px;text-align:center;">
+          ${dota2CropImg(p, field === "kills" || field === "deaths" || field === "assists" ? "kda" : field)}
+          <input type="number" class="dota2-edit-input" data-team="${team}" data-i="${i}" data-field="${field}"
+                 style="width:70px;text-align:center;" value="${val ?? ""}" placeholder="—">
+        </td>`;
       tr.innerHTML = `
         <td style="padding:6px;color:#6b7590;">${label} row ${i+1}</td>
         <td style="padding:6px;"><select class="dota2-who" data-team="${team}" data-i="${i}" style="width:180px;">${dota2WhoOptionsHtml(team, i)}</select></td>
-        <td style="padding:6px;">${kda}</td>
-        <td style="padding:6px;">${p && p.networth != null ? p.networth : "—"}</td>
-        <td style="padding:6px;">${p && p.damage != null ? p.damage : "—"}</td>
+        ${cell("kills", p && p.kills)}
+        ${cell("deaths", p && p.deaths)}
+        ${cell("assists", p && p.assists)}
+        ${cell("networth", p && p.networth)}
+        ${cell("damage", p && p.damage)}
       `;
       tbody.appendChild(tr);
     });
@@ -8976,6 +8996,21 @@ function dota2RenderCaptureTable(cap){
   container.querySelectorAll(".dota2-who").forEach(sel => {
     sel.addEventListener("change", () => dota2HighlightDuplicateWho());
   });
+}
+
+// Reads every edited number field back out of the table into
+// {team1: [{kills,deaths,assists,networth,damage}|null ×5], team2: [...]}
+// -- only rows that have at least one non-empty field are included,
+// matching how map_capture's "edits" expects to only touch what changed.
+function dota2ReadCaptureEdits(){
+  const edits = {team1: [null,null,null,null,null], team2: [null,null,null,null,null]};
+  document.querySelectorAll(".dota2-edit-input").forEach(inp => {
+    const team = inp.dataset.team, i = Number(inp.dataset.i), field = inp.dataset.field;
+    if(inp.value === "") return;
+    if(!edits[team][i]) edits[team][i] = {};
+    edits[team][i][field] = Number(inp.value);
+  });
+  return edits;
 }
 
 document.getElementById("dota2_captureNetKda").addEventListener("click", () => {
@@ -8989,10 +9024,6 @@ document.getElementById("dota2_captureDamage").addEventListener("click", () => {
   dota2Ws.send(JSON.stringify({type: "capture", category: "damage"}));
 });
 
-// Reads the "who" dropdowns (one per raw screen row) and inverts them into
-// order[rosterIndex] = rawRowIndex per team, then sends that mapping so the
-// engine reorders lastCapture into roster position order -- same
-// "identity is a lookup, not a move" reasoning as Valorant's import table.
 document.getElementById("dota2_saveScore").addEventListener("click", () => {
   if(!(dota2Ws && dota2Ws.readyState === WebSocket.OPEN)) return;
   const t1 = document.getElementById("dota2_scoreT1").value;
@@ -9004,6 +9035,12 @@ document.getElementById("dota2_saveScore").addEventListener("click", () => {
   document.getElementById("dota2_score_status").textContent = "Pushed.";
 });
 
+// Reads the "who" dropdowns (one per raw screen row) and inverts them into
+// order[rosterIndex] = rawRowIndex per team, plus any hand-corrected
+// number fields, then sends both together so the engine applies the edits
+// (indexed by raw screen row, before reordering) and THEN reorders into
+// roster position -- same "identity is a lookup, not a move" reasoning as
+// Valorant's import table.
 document.getElementById("dota2_applyMapping").addEventListener("click", () => {
   if(!(dota2Ws && dota2Ws.readyState === WebSocket.OPEN)) return;
   const mapping = {team1: [null,null,null,null,null], team2: [null,null,null,null,null]};
@@ -9014,7 +9051,8 @@ document.getElementById("dota2_applyMapping").addEventListener("click", () => {
       mapping[rosterTeam][Number(rosterIdxStr)] = rawIdx;
     }
   });
-  dota2Ws.send(JSON.stringify({type: "map_capture", team1: mapping.team1, team2: mapping.team2}));
+  const edits = dota2ReadCaptureEdits();
+  dota2Ws.send(JSON.stringify({type: "map_capture", team1: mapping.team1, team2: mapping.team2, edits}));
   document.getElementById("dota2_apply_status").textContent = "Applied — overlay updated.";
 });
 
@@ -9081,7 +9119,7 @@ const DOTA2_GFX_GEOM = {
   "logo-right": {left:1718, top:73, width:140, height:129, label:"Right Logo"},
   "name-left": {left:243, top:108, width:398, height:56, label:"Left Team Name"},
   "name-right": {left:1275, top:108, width:398, height:56, label:"Right Team Name"},
-  "pom-score-small": {left:900, top:76, width:120, height:20, label:"Game Score (small)"},
+  "pom-score-small": {left:900, top:76, width:120, height:20, label:"\"SCORE\" Label"},
   "match-score": {left:833, top:100, width:252, height:56, label:"Series Score (big)"},
   "pom-duration": {left:900, top:170, width:120, height:20, label:"Duration"},
   "team1-photo": {left:47, top:209, width:220, height:173, label:"L Photos ×5"},
@@ -9101,7 +9139,8 @@ let dota2gfxSelected = null;
 function dota2gfxDrawStage(){
   const stage = document.getElementById("dota2gfx_stage");
   stage.innerHTML = Object.entries(DOTA2_GFX_GEOM).map(([key, geo]) =>
-    `<div class="gfx-box" id="dota2gfx_box_${key}"><span class="gfx-label">${geo.label}</span></div>`
+    `<div class="gfx-box" id="dota2gfx_box_${key}"><span class="gfx-label">${geo.label}</span>
+       <div class="gfx-handle" data-key="${key}" title="Drag to resize"></div></div>`
   ).join("");
   Object.keys(DOTA2_GFX_GEOM).forEach(dota2gfxPositionBox);
   dota2gfxWireDrag();
@@ -9177,18 +9216,35 @@ function dota2gfxWireDrag(){
   Object.keys(DOTA2_GFX_GEOM).forEach(key => {
     const box = document.getElementById("dota2gfx_box_" + key);
     box.addEventListener("pointerdown", (e) => {
+      const mode = e.target.classList.contains("gfx-handle") ? "resize" : "move";
       e.preventDefault();
       dota2gfxSelect(key);
       box.setPointerCapture(e.pointerId);
       const startX = e.clientX, startY = e.clientY;
       dota2gfxPending[key] = dota2gfxPending[key] || {dx:0, dy:0, scale:1};
       const startDx = dota2gfxPending[key].dx || 0, startDy = dota2gfxPending[key].dy || 0;
+      const startScale = dota2gfxPending[key].scale || 1;
       // Measured live, not assumed as DOTA2_GFX_SCALE -- the wrapper is
       // max-width:100%, so a narrower screen renders smaller than 960px
       // and a fixed ratio would make the box drift from the cursor.
       const liveScale = document.getElementById("dota2gfx_stage_wrap").getBoundingClientRect().width / 1920;
       const geo = DOTA2_GFX_GEOM[key];
       const onMove = (ev) => {
+        if(mode === "resize"){
+          // Dragging the corner right grows the box, left shrinks it --
+          // same math as MOBA's own gfx-handle (see gfxWireDrag): the
+          // delta is proportional to the box's own base width, not a
+          // fixed px-per-unit-scale, so a wide box (Photos) and a narrow
+          // one (Damage) both feel like they're resizing from the same
+          // cursor movement.
+          const deltaX = (ev.clientX - startX) / liveScale;
+          let newScale = (geo.width * startScale + deltaX) / geo.width;
+          if(newScale < 0.2) newScale = 0.2;
+          dota2gfxPending[key].scale = Math.round(newScale * 100) / 100;
+          document.getElementById("dota2gfx_scale").value = dota2gfxPending[key].scale;
+          dota2gfxPositionBox(key);
+          return;
+        }
         dota2gfxPending[key].dx = Math.round(startDx + (ev.clientX - startX) / liveScale);
         dota2gfxPending[key].dy = Math.round(startDy + (ev.clientY - startY) / liveScale);
         // Snap: if this box's center now lines up (within a few px) with

@@ -30,11 +30,11 @@
     canvas, stats toward the center.
 
     Header: team logo/name are this file's own design (not in the
-    template). Two separate scores -- pom-score-small is the OCR'd
-    per-game score (team1Score/team2Score, small text above), match-score
-    is a manually-typed Bo3/Bo5 series tally (no OCR source for it at all,
-    entered in the dashboard's Post-Match tab) shown big and central,
-    matching the reference mock's "13-26" small / "2 - 0" big pairing.
+    template). pom-score-small is a static "SCORE" caption sitting above
+    match-score, the manually-typed Bo3/Bo5 series tally (no OCR source
+    for it at all, entered in the dashboard's Post-Match tab) shown big
+    and central. The per-game OCR score (team1Score/team2Score) isn't
+    displayed anywhere on this page.
   */
   @font-face {
     font-family: 'TT Supermolot Neue Trial';
@@ -137,7 +137,7 @@
   <img class="header-logo" id="logo-right" alt="">
   <div class="team-name" id="name-left"></div>
   <div class="team-name" id="name-right"></div>
-  <div id="pom-score-small">0 - 0</div>
+  <div id="pom-score-small">SCORE</div>
   <div id="match-score"></div>
   <div id="pom-duration">00:00</div>
 
@@ -238,7 +238,6 @@ function applyState(state){
   setText("name-right", (state.team2 && state.team2.name) || "TEAM 2");
   fitNameCell(document.getElementById("name-left"), 40);
   fitNameCell(document.getElementById("name-right"), 40);
-  setText("pom-score-small", `${pom ? (pom.team1Score ?? 0) : 0} - ${pom ? (pom.team2Score ?? 0) : 0}`);
   setText("match-score", state.matchScore || "");
   setText("pom-duration", (pom && pom.duration) || "00:00");
 

@@ -25,6 +25,7 @@ same fix applies here.
 """
 
 import asyncio
+import base64
 import json
 import re
 from pathlib import Path
@@ -37,6 +38,26 @@ import pytesseract
 CONFIG_PATH = Path(__file__).parent / "dota2_config.json"
 
 TEAM_SLOTS = 5
+CROP_PREVIEW_MAX_DIMENSION = 500
+
+
+def crop_to_data_url(img_bgr, scale=3):
+    """Same technique as valorant_engine.py's own crop_to_data_url() --
+    upscale with NEAREST (crisp blocky pixels, so the operator sees the
+    actual captured pixels, not a smoothed guess) and encode as a PNG data
+    URL, so a captured row can show what OCR actually saw next to the
+    number it read, letting the operator judge a misread at a glance
+    instead of guessing blind."""
+    h, w = img_bgr.shape[:2]
+    longest = max(h, w)
+    effective_scale = min(scale, CROP_PREVIEW_MAX_DIMENSION / longest)
+    big = cv2.resize(img_bgr, None, fx=effective_scale, fy=effective_scale,
+                      interpolation=cv2.INTER_AREA if effective_scale < 1 else cv2.INTER_NEAREST)
+    ok, buf = cv2.imencode(".png", big)
+    if not ok:
+        return None
+    b64 = base64.b64encode(buf).decode("ascii")
+    return f"data:image/png;base64,{b64}"
 
 
 def load_config():
@@ -143,7 +164,8 @@ def ocr_networth(img_bgr):
 # ---------------------------------------------------------------------------
 
 def blank_player():
-    return {"kills": None, "deaths": None, "assists": None, "networth": None, "damage": None}
+    return {"kills": None, "deaths": None, "assists": None, "networth": None, "damage": None,
+            "crops": {}}
 
 
 def capture_postmatch(config=None, category=None):
@@ -188,17 +210,20 @@ def capture_postmatch(config=None, category=None):
                         kda = ocr_kda(kda_crop)
                         if kda:
                             player["kills"], player["deaths"], player["assists"] = kda
+                        player["crops"]["kda"] = crop_to_data_url(kda_crop)
 
                     nw_crop = region_crop(sct, f"dota2_{team_key}_p{i}_networth")
                     if nw_crop is not None:
                         got_anything = True
                         player["networth"] = ocr_networth(nw_crop)
+                        player["crops"]["networth"] = crop_to_data_url(nw_crop)
 
                 if read_damage:
                     dmg_crop = region_crop(sct, f"dota2_{team_key}_p{i}_damage")
                     if dmg_crop is not None:
                         got_anything = True
                         player["damage"] = ocr_number(dmg_crop)
+                        player["crops"]["damage"] = crop_to_data_url(dmg_crop)
 
                 result[team_key]["players"][i] = player if got_anything else None
 
@@ -241,7 +266,15 @@ def merge_capture(old, new):
             base = dict(op) if op else blank_player()
             if np:
                 for k, v in np.items():
-                    if v is not None:
+                    if k == "crops":
+                        # A dict itself, always present (possibly {}) --
+                        # merge its keys individually rather than
+                        # replacing the whole thing, or a damage-only
+                        # capture's crops={"damage": ...} would wipe out
+                        # the kda/networth thumbnails an earlier net-kda
+                        # capture already put there.
+                        base["crops"] = {**base.get("crops", {}), **v}
+                    elif v is not None:
                         base[k] = v
             merged[team_key]["players"].append(base)
     return merged
@@ -502,6 +535,27 @@ async def handle_client(websocket):
                 cap = server_state.get("lastCapture")
                 if not cap:
                     continue
+                # "edits" (optional): operator-corrected kills/deaths/
+                # assists/networth/damage per RAW screen row (before
+                # reorder) -- the capture table lets the operator fix an
+                # OCR misread directly instead of only re-running OCR.
+                # Applied first, indexed by the same on-screen row order
+                # the table showed them in, then "who" reordering (below)
+                # moves the (now-corrected) rows into roster position.
+                edits = payload.get("edits") or {}
+                for team_key in ("team1", "team2"):
+                    team_edits = edits.get(team_key)
+                    if team_edits:
+                        for i, e in enumerate(team_edits):
+                            if not e:
+                                continue
+                            if i >= len(cap[team_key]["players"]):
+                                continue
+                            if cap[team_key]["players"][i] is None:
+                                cap[team_key]["players"][i] = blank_player()
+                            for k, v in e.items():
+                                if v is not None:
+                                    cap[team_key]["players"][i][k] = v
                 for team_key in ("team1", "team2"):
                     order = payload.get(team_key)
                     if order is not None:
