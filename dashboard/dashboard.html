@@ -9051,9 +9051,21 @@ function dota2RenderCaptureTable(cap){
     });
   });
   container.appendChild(table);
+  container.querySelectorAll(".dota2-who").forEach(sel => { sel.dataset.prev = sel.value; });
   dota2HighlightDuplicateWho();
   container.querySelectorAll(".dota2-who").forEach(sel => {
-    sel.addEventListener("change", () => dota2HighlightDuplicateWho());
+    sel.addEventListener("change", () => {
+      // Reassigning this row to a slot another row still holds (its
+      // untouched default) is a collision -- swap the other row onto
+      // this one's OLD slot instead of leaving both pointing at the same
+      // target, or Apply silently drops one of them back to default.
+      const newVal = sel.value, oldVal = sel.dataset.prev;
+      const other = Array.from(document.querySelectorAll(".dota2-who"))
+        .find(s => s !== sel && s.value === newVal);
+      if(other){ other.value = oldVal; other.dataset.prev = oldVal; }
+      sel.dataset.prev = newVal;
+      dota2HighlightDuplicateWho();
+    });
   });
 }
 
