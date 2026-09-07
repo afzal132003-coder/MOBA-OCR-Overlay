@@ -1555,6 +1555,7 @@
         player photo — pick it here before or during the game, it's saved with the roster.</p>
       <button id="dota2_saveRoster" style="margin-top:10px;">Save Roster</button>
       <button class="danger" id="dota2_swapSides" style="margin-top:10px;">Swap Team 1 &lt;-&gt; Team 2</button>
+      <button class="danger" id="dota2_clearRoster" style="margin-top:10px;">Clear Roster</button>
       <div id="dota2_status" class="hint" style="margin-top:8px;"></div>
     </div>
   </div>
@@ -1571,21 +1572,29 @@
       <button id="dota2_captureNetKda">Capture From Screen Now</button>
       <div id="dota2_netkda_status" class="hint"></div>
       <div id="dota2_netkda_table" style="margin-top:14px;overflow-x:auto;"></div>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid #2b3348;">
+        <button id="dota2_applyMapping">Apply &amp; Push to Overlay</button>
+        <span class="hint">Locks in the "who" picks and any hand-corrected numbers above, and sends the final Net Worth / K/D/A / Damage per player live to the overlay.</span>
+        <div id="dota2_apply_status" class="hint" style="margin-top:6px;"></div>
+      </div>
     </div>
 
     <div class="card" style="margin-top:14px;">
       <h2>Capture 2 — Damage</h2>
       <p class="hint">Switch to the Damage tab of the post-match screen, then Capture. This merges into the
         same rows above by screen position — it does not need its own "who" assignment, it inherits whatever
-        row order Capture 1 already resolved.</p>
+        row order Capture 1 already resolved. Use <b>Apply &amp; Push to Overlay</b> above once both captures
+        (and any corrections) look right.</p>
       <button id="dota2_captureDamage">Capture From Screen Now</button>
       <div id="dota2_damage_status" class="hint"></div>
     </div>
 
     <div class="card" style="margin-top:14px;">
-      <button id="dota2_applyMapping">Apply Row Assignments</button>
-      <span class="hint">Locks in the "who" picks above and pushes final Net Worth / K/D/A / Damage per player to the overlay.</span>
-      <div id="dota2_apply_status" class="hint" style="margin-top:6px;"></div>
+      <h2>Clear Post-Match Data</h2>
+      <p class="hint">Wipes the captured Net Worth/K/D/A/Damage table and the score overrides for a new game —
+        does not touch the roster (Pre-Match).</p>
+      <button class="danger" id="dota2_clearPostmatch">Clear Post-Match Data</button>
+      <div id="dota2_clear_postmatch_status" class="hint" style="margin-top:6px;"></div>
     </div>
 
     <div class="card" style="margin-top:14px;">
@@ -8911,6 +8920,23 @@ document.getElementById("dota2_swapSides").addEventListener("click", () => {
   if(dota2Ws && dota2Ws.readyState === WebSocket.OPEN){
     dota2Ws.send(JSON.stringify({type: "swap_sides"}));
   }
+});
+
+document.getElementById("dota2_clearRoster").addEventListener("click", () => {
+  if(!confirm("Clear the roster? This wipes both teams' names, logos, IGNs, and hero picks. Does not touch captured post-match data.")) return;
+  if(dota2Ws && dota2Ws.readyState === WebSocket.OPEN){
+    dota2Ws.send(JSON.stringify({type: "clear_roster"}));
+  }
+});
+
+document.getElementById("dota2_clearPostmatch").addEventListener("click", () => {
+  if(!confirm("Clear all captured post-match data (Net Worth/K/D/A/Damage) and the score overrides? Does not touch the roster.")) return;
+  if(dota2Ws && dota2Ws.readyState === WebSocket.OPEN){
+    dota2Ws.send(JSON.stringify({type: "clear_postmatch"}));
+  }
+  dota2LastCapture = null;
+  dota2RenderCaptureTable(null);
+  document.getElementById("dota2_clear_postmatch_status").textContent = "Cleared.";
 });
 
 // "Who" dropdown options for one raw captured row -- every roster slot

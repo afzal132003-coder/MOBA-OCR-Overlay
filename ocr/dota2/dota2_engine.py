@@ -503,6 +503,18 @@ async def handle_client(websocket):
                 await broadcast({"type": "state", "data": server_state})
                 await broadcast({"type": "state_sync", "data": build_overlay_state(server_state)})
 
+            elif payload.get("type") == "clear_roster":
+                server_state["roster"] = default_state()["roster"]
+                save_state(server_state)
+                await broadcast({"type": "state", "data": server_state})
+                await broadcast({"type": "state_sync", "data": build_overlay_state(server_state)})
+
+            elif payload.get("type") == "clear_postmatch":
+                server_state["lastCapture"] = None
+                server_state["matchScore"] = ""
+                save_state(server_state)
+                await broadcast({"type": "state_sync", "data": build_overlay_state(server_state)})
+
             elif payload.get("type") == "save_manual_score":
                 # Overrides for the two score displays: team1Score/team2Score
                 # (normally OCR'd off the post-match screen, but the
