@@ -1654,6 +1654,7 @@
           <input type="number" id="dota2gfx_scale" min="0.3" max="3" step="0.05" value="1" disabled>
         </div>
         <button id="dota2gfx_save">Save Position</button>
+        <button class="secondary" id="dota2gfx_resetOne">Reset Selected</button>
         <button class="secondary" id="dota2gfx_reset">Reset All to Default</button>
       </div>
       <span id="dota2gfx_status" class="hint" style="margin:0;"></span>
@@ -9386,6 +9387,20 @@ document.getElementById("dota2gfx_save").addEventListener("click", () => {
   if(!(dota2Ws && dota2Ws.readyState === WebSocket.OPEN)) return;
   dota2Ws.send(JSON.stringify({type: "save_graphic_overrides", page: "postmatch", overrides: dota2gfxPending}));
   document.getElementById("dota2gfx_status").textContent = "Saved — live on the overlay now.";
+});
+document.getElementById("dota2gfx_resetOne").addEventListener("click", () => {
+  if(!dota2gfxSelected){
+    document.getElementById("dota2gfx_status").textContent = "Pick a section first (use the dropdown or click a box).";
+    return;
+  }
+  const key = dota2gfxSelected;
+  delete dota2gfxPending[key];
+  dota2gfxPositionBox(key);
+  document.getElementById("dota2gfx_scale").value = 1;
+  if(dota2Ws && dota2Ws.readyState === WebSocket.OPEN){
+    dota2Ws.send(JSON.stringify({type: "save_graphic_overrides", page: "postmatch", overrides: dota2gfxPending}));
+  }
+  document.getElementById("dota2gfx_status").textContent = `Reset "${DOTA2_GFX_GEOM[key].label}" to default — everything else left as-is.`;
 });
 document.getElementById("dota2gfx_reset").addEventListener("click", () => {
   dota2gfxPending = {};
