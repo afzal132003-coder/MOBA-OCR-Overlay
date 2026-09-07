@@ -3499,29 +3499,42 @@ function gatherPostMatch(){
   };
 }
 
+// Sets an input's value ONLY if the operator isn't currently typing in it
+// -- hydratePostMatch previously wrote every field unconditionally, so an
+// incoming state_sync (broadcast on a completely unrelated change
+// elsewhere, ~every 15-20s in a live match) would silently wipe out a
+// value the operator had just typed but not yet pushed. Same guard
+// pattern already used for team1Name/val_pom_duration/etc. elsewhere in
+// this file, just missing here.
+function setValIfIdle(id, value){
+  const el = document.getElementById(id);
+  if(el && document.activeElement !== el) el.value = value;
+}
+
 function hydratePostMatch(pom){
   if(!pom) return;
-  document.getElementById("pom_line1").value = pom.context.line1 || "";
-  document.getElementById("pom_line2").value = pom.context.line2 || "";
-  document.getElementById("pom_duration").value = pom.duration || "";
-  document.getElementById("pom_date").value = pom.date || "";
-  document.getElementById("pom_t1_score").value = pom.team1Score || 0;
-  document.getElementById("pom_t2_score").value = pom.team2Score || 0;
+  setValIfIdle("pom_line1", pom.context.line1 || "");
+  setValIfIdle("pom_line2", pom.context.line2 || "");
+  setValIfIdle("pom_duration", pom.duration || "");
+  setValIfIdle("pom_date", pom.date || "");
+  setValIfIdle("pom_t1_score", pom.team1Score || 0);
+  setValIfIdle("pom_t2_score", pom.team2Score || 0);
   const result = pom.result || {team1:"victory", team2:"defeat"};
-  document.getElementById("pom_t1_result").value = result.team1 || "victory";
-  document.getElementById("pom_t2_result").value = result.team2 || "defeat";
+  setValIfIdle("pom_t1_result", result.team1 || "victory");
+  setValIfIdle("pom_t2_result", result.team2 || "defeat");
   ["team1","team2"].forEach(team => {
     const s = pom.stats[team];
-    document.getElementById(`pom_${team === "team1" ? "t1" : "t2"}_gold`).value = s.gold;
-    document.getElementById(`pom_${team === "team1" ? "t1" : "t2"}_structures`).value = s.structures;
-    document.getElementById(`pom_${team === "team1" ? "t1" : "t2"}_kills`).value = s.kills;
-    document.getElementById(`pom_${team === "team1" ? "t1" : "t2"}_turtles`).value = s.turtles;
+    const t = team === "team1" ? "t1" : "t2";
+    setValIfIdle(`pom_${t}_gold`, s.gold);
+    setValIfIdle(`pom_${t}_structures`, s.structures);
+    setValIfIdle(`pom_${t}_kills`, s.kills);
+    setValIfIdle(`pom_${t}_turtles`, s.turtles);
     pom.players[team].forEach((p, i) => {
-      document.getElementById(`pom_${team}_${i}_dealt`).value = p.damageDealt || 0;
-      document.getElementById(`pom_${team}_${i}_taken`).value = p.damageTaken || 0;
-      document.getElementById(`pom_${team}_${i}_kills`).value = p.kills || 0;
-      document.getElementById(`pom_${team}_${i}_deaths`).value = p.deaths || 0;
-      document.getElementById(`pom_${team}_${i}_assists`).value = p.assists || 0;
+      setValIfIdle(`pom_${team}_${i}_dealt`, p.damageDealt || 0);
+      setValIfIdle(`pom_${team}_${i}_taken`, p.damageTaken || 0);
+      setValIfIdle(`pom_${team}_${i}_kills`, p.kills || 0);
+      setValIfIdle(`pom_${team}_${i}_deaths`, p.deaths || 0);
+      setValIfIdle(`pom_${team}_${i}_assists`, p.assists || 0);
     });
   });
 }
