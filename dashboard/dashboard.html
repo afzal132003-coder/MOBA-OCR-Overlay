@@ -8975,10 +8975,22 @@ dota2Connect();
    have) -- same underlying graphicOverrides.postmatch mechanism, far less
    code for a page with this few adjustable elements. */
 const DOTA2_GFX_ELEMENTS = [
-  ["logo-left","Left Logo"], ["logo-right","Right Logo"],
+  ["logo-left","Left Team Logo"], ["logo-right","Right Team Logo"],
   ["name-left","Left Team Name"], ["name-right","Right Team Name"],
-  ["score-left","Left Score"], ["score-right","Right Score"],
-  ["pom-duration","Duration"],
+  ["score-left","Left Team Score"], ["score-right","Right Team Score"],
+  ["pom-duration","Game Duration"],
+  // Each of these moves all 5 rows of that column together -- the grid
+  // repeats identically per row, so per-row nudging isn't useful here.
+  ["team1-photo","Left Team — Character Photos (all 5)"],
+  ["team1-ign","Left Team — Player IGN Captions (all 5)"],
+  ["team1-kda","Left Team — K/D/A Values (all 5)"],
+  ["team1-networth","Left Team — Net Worth Values (all 5)"],
+  ["team1-damage","Left Team — Damage Values (all 5)"],
+  ["team2-photo","Right Team — Character Photos (all 5)"],
+  ["team2-ign","Right Team — Player IGN Captions (all 5)"],
+  ["team2-kda","Right Team — K/D/A Values (all 5)"],
+  ["team2-networth","Right Team — Net Worth Values (all 5)"],
+  ["team2-damage","Right Team — Damage Values (all 5)"],
 ];
 let dota2gfxPending = {};
 

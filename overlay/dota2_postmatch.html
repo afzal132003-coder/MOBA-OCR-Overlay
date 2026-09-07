@@ -231,20 +231,36 @@ function applyState(state){
 
 // Per-element position/scale nudges saved from the dashboard's Graphic
 // tab -- purely additive on top of each element's base CSS position/size.
+// A handful of ids (logo/name/score/duration) are single elements; the
+// stat grid instead uses GROUP keys ("team1-kda" etc.) that fan out to all
+// 5 rows at once, since the grid repeats identically per row and nudging
+// one row at a time isn't what an operator actually wants -- moving "the
+// KDA column" should move all 5 KDA cells together.
+const DOTA2_GFX_GROUPS = {};
+["team1", "team2"].forEach(team => {
+  ["kda", "networth", "damage", "photo", "ign"].forEach(field => {
+    DOTA2_GFX_GROUPS[`${team}-${field}`] = [0, 1, 2, 3, 4].map(i => `${team}-${i}-${field}`);
+  });
+});
+
 function applyGraphicOverrides(overrides, elementIds){
-  (elementIds || []).forEach(id => {
-    const el = document.getElementById(id);
-    if(!el) return;
-    const o = (overrides && overrides[id]) || {};
+  (elementIds || []).forEach(key => {
+    const o = (overrides && overrides[key]) || {};
     const dx = o.dx || 0, dy = o.dy || 0, scale = o.scale || 1;
-    el.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
-    el.style.transformOrigin = "top left";
+    const targets = DOTA2_GFX_GROUPS[key] || [key];
+    targets.forEach(id => {
+      const el = document.getElementById(id);
+      if(!el) return;
+      el.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+      el.style.transformOrigin = "top left";
+    });
   });
 }
 
 const DOTA2_GFX_ELEMENT_IDS = [
   "logo-left", "logo-right", "name-left", "name-right",
   "score-left", "score-right", "pom-duration",
+  ...Object.keys(DOTA2_GFX_GROUPS),
 ];
 
 buildRows("team1-rows", "team1");
