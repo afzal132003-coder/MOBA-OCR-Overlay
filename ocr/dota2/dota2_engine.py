@@ -309,6 +309,12 @@ def default_state():
         # so unlike team1Score/team2Score above it is entered by hand and
         # simply displayed as-is, no parsing.
         "matchScore": "",
+        # Manual override for the game-time display -- OCR normally
+        # supplies this (dota2_duration region), but the operator can
+        # correct a misread or type it directly here the same way
+        # team1Score/team2Score can be overridden. Empty string means "use
+        # whatever OCR captured", same convention as matchScore.
+        "durationOverride": "",
         # Per-page {elementId: {dx, dy, scale}} nudges from the dashboard's
         # Graphic tab -- same additive-transform mechanism MOBA's
         # postmatch.html already reads via applyGraphicOverrides().
@@ -422,8 +428,12 @@ def build_overlay_state(state):
                          "kdaText": kda, "name": p.get("name", "")})
         return rows
 
-    d = cap.get("duration") or {}
-    duration_str = f"{d.get('minutes', 0)}:{str(d.get('seconds', 0)).zfill(2)}" if d else "00:00"
+    override = state.get("durationOverride", "")
+    if override:
+        duration_str = override
+    else:
+        d = cap.get("duration") or {}
+        duration_str = f"{d.get('minutes', 0)}:{str(d.get('seconds', 0)).zfill(2)}" if d else "00:00"
 
     out["postMatch"] = {
         "duration": duration_str,
@@ -512,17 +522,20 @@ async def handle_client(websocket):
             elif payload.get("type") == "clear_postmatch":
                 server_state["lastCapture"] = None
                 server_state["matchScore"] = ""
+                server_state["durationOverride"] = ""
                 save_state(server_state)
                 await broadcast({"type": "state_sync", "data": build_overlay_state(server_state)})
 
             elif payload.get("type") == "save_manual_score":
-                # Overrides for the two score displays: team1Score/team2Score
-                # (normally OCR'd off the post-match screen, but the
-                # operator can correct a misread here) and matchScore (the
-                # Bo3/Bo5 series tally, which has no OCR source at all --
-                # always manual).
+                # Overrides for the score/duration displays: team1Score/
+                # team2Score and duration (normally OCR'd off the
+                # post-match screen, but the operator can correct a
+                # misread here) and matchScore (the Bo3/Bo5 series tally,
+                # which has no OCR source at all -- always manual).
                 if "matchScore" in payload:
                     server_state["matchScore"] = payload["matchScore"]
+                if "duration" in payload:
+                    server_state["durationOverride"] = payload["duration"]
                 if "team1Score" in payload or "team2Score" in payload:
                     cap = server_state.get("lastCapture") or {
                         "team1": {"score": None, "players": [None] * TEAM_SLOTS},

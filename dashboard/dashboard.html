@@ -1616,6 +1616,10 @@
           <label>Series Score (e.g. "2 - 0")</label>
           <input type="text" id="dota2_matchScore" placeholder="2 - 0">
         </div>
+        <div class="team-form">
+          <label>Game Duration (e.g. "29:51")</label>
+          <input type="text" id="dota2_duration" placeholder="OCR value">
+        </div>
       </div>
       <button id="dota2_saveScore" style="margin-top:10px;">Push to Overlay</button>
       <div id="dota2_score_status" class="hint" style="margin-top:6px;"></div>
@@ -8840,6 +8844,20 @@ function wireDota2PlayerPasteFill(){
 }
 wireDota2PlayerPasteFill();
 
+// A hero pick previously only reached the overlay after the operator
+// separately clicked Save Roster -- easy to forget, and looked like the
+// change was just "late" when really it hadn't been sent at all yet.
+// Picking from the dropdown is a single, deliberate action (unlike a
+// text field where every keystroke would be premature), so it saves
+// immediately instead of waiting for a manual click.
+document.querySelectorAll("select.dota2-hero").forEach(el => {
+  el.addEventListener("change", () => {
+    if(!(dota2Ws && dota2Ws.readyState === WebSocket.OPEN)) return;
+    dota2Ws.send(JSON.stringify({type: "save_roster", roster: dota2ReadRoster()}));
+    document.getElementById("dota2_status").textContent = "Hero pick saved.";
+  });
+});
+
 function dota2ApplyRoster(roster){
   document.getElementById("dota2_t1name").value = roster.team1.name || "";
   document.getElementById("dota2_t2name").value = roster.team2.name || "";
@@ -9064,7 +9082,8 @@ document.getElementById("dota2_saveScore").addEventListener("click", () => {
   if(!(dota2Ws && dota2Ws.readyState === WebSocket.OPEN)) return;
   const t1 = document.getElementById("dota2_scoreT1").value;
   const t2 = document.getElementById("dota2_scoreT2").value;
-  const payload = {type: "save_manual_score", matchScore: document.getElementById("dota2_matchScore").value};
+  const payload = {type: "save_manual_score", matchScore: document.getElementById("dota2_matchScore").value,
+    duration: document.getElementById("dota2_duration").value};
   if(t1 !== "") payload.team1Score = Number(t1);
   if(t2 !== "") payload.team2Score = Number(t2);
   dota2Ws.send(JSON.stringify(payload));
@@ -9117,8 +9136,10 @@ function dota2Connect(){
       }
       const pom = dota2State.postMatch;
       const t1El = document.getElementById("dota2_scoreT1"), t2El = document.getElementById("dota2_scoreT2");
+      const durEl = document.getElementById("dota2_duration");
       if(pom && t1El && document.activeElement !== t1El) t1El.value = pom.team1Score ?? "";
       if(pom && t2El && document.activeElement !== t2El) t2El.value = pom.team2Score ?? "";
+      if(pom && durEl && document.activeElement !== durEl) durEl.value = pom.duration || "";
     } else if(msg.type === "capture_result"){
       if(msg.error){
         document.getElementById("dota2_netkda_status").textContent = "Error: " + msg.error;

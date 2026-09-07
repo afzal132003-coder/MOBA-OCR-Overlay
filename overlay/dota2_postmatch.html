@@ -197,7 +197,7 @@ function buildRows(containerId, side){
     row.style.top = ROW_Y[i] + "px";
     row.innerHTML = `
       <div class="d2-photo-wrap" id="${side}-${i}-photowrap">
-        <video id="${side}-${i}-photo" autoplay loop muted playsinline disablepictureinpicture></video>
+        <video id="${side}-${i}-photo" autoplay loop muted playsinline disablepictureinpicture preload="auto"></video>
       </div>
       <div class="d2-val d2-kda" id="${side}-${i}-kda">—</div>
       <div class="d2-val d2-networth" id="${side}-${i}-networth">—</div>
@@ -231,11 +231,20 @@ function renderTeamRows(team, roster, pomPlayers){
         // on every single state_sync (several times a second) would
         // restart the loop from frame 0 constantly instead of ever
         // actually playing.
+        const isFirstLoad = !photo.dataset.slug;
         photo.dataset.slug = slug;
         photo.poster = `assets/dota2_heroes/${encodeURIComponent(slug)}.png`;
         photo.src = `assets/dota2_heroes/${encodeURIComponent(slug)}.webm`;
         photo.onerror = () => { photo.style.display = "none"; };
-        photo.load();
+        // .load() forces an already-initialized element to drop what it
+        // was playing and pick up the new src -- necessary when SWAPPING
+        // a hero mid-session, but calling it on a brand-new element (a
+        // page refresh, nothing has played yet) is a no-op at best and,
+        // in some browsers, briefly blanks the poster it would otherwise
+        // paint immediately -- exactly the "disappears on refresh" being
+        // reported. Skip it on first load; the browser starts loading
+        // from `src`/`preload="auto"` on its own the moment they're set.
+        if(!isFirstLoad) photo.load();
         photo.play().catch(() => {});
       }
     }
