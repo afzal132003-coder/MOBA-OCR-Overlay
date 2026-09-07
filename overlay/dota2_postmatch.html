@@ -109,7 +109,8 @@
 
   .d2-playername{ position:absolute; top:92px; left:288px; width:270px; height:36px;
     display:flex; align-items:center; color:var(--gold); font-weight:700; font-style:italic;
-    font-size:19px; text-transform:uppercase; letter-spacing:0.3px;
+    font-size:19px; text-transform:uppercase; letter-spacing:0.3px; padding:0 8px; box-sizing:border-box;
+    background:rgba(6,9,22,0.55); border-radius:3px;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
   /* ---- character render (this file's own design) ----
@@ -176,6 +177,16 @@ function fmt(n){
   return n == null ? "0" : Number(n).toLocaleString();
 }
 
+// A long team name ("STRAWHAT SYNDICATE") clips against the box's fixed
+// width at the default 40px -- shrink to fit instead of cutting it off,
+// same approach freefire_scoreboard.html's fitNameCell() already uses.
+function fitNameCell(el, maxSize){
+  el.style.fontSize = maxSize + "px";
+  for(let size = maxSize; size > 16 && el.scrollWidth > el.clientWidth; size -= 1){
+    el.style.fontSize = size + "px";
+  }
+}
+
 function buildRows(containerId, side){
   const container = document.getElementById(containerId);
   container.innerHTML = "";
@@ -225,6 +236,8 @@ function applyState(state){
 
   setText("name-left", (state.team1 && state.team1.name) || "TEAM 1");
   setText("name-right", (state.team2 && state.team2.name) || "TEAM 2");
+  fitNameCell(document.getElementById("name-left"), 40);
+  fitNameCell(document.getElementById("name-right"), 40);
   setText("pom-score-small", `${pom ? (pom.team1Score ?? 0) : 0} - ${pom ? (pom.team2Score ?? 0) : 0}`);
   setText("match-score", state.matchScore || "");
   setText("pom-duration", (pom && pom.duration) || "00:00");

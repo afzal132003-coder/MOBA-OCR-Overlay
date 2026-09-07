@@ -301,6 +301,24 @@ def save_state(state):
         json.dump(state, f, indent=2, ensure_ascii=False)
 
 
+def swap_team_sides(state):
+    """Interchange everything currently tagged team1 <-> team2 -- same
+    full-identity-swap approach as MOBA/Valorant's own swap_team_sides(),
+    so the overlay needs no changes at all, it just keeps reading
+    team1/team2 as always, now holding the other side's data. matchScore
+    (the manually-typed "2 - 0" series tally) is deliberately left alone
+    -- it's freeform text, not a team1/team2 pair, so there's nothing safe
+    to swap automatically; the operator retypes it if the side swap
+    changes who's actually ahead. graphicOverrides also isn't touched --
+    those are LEFT/RIGHT screen positions, not team identity, and stay
+    correct regardless of which team is currently on which side."""
+    roster = state["roster"]
+    roster["team1"], roster["team2"] = roster["team2"], roster["team1"]
+    cap = state.get("lastCapture")
+    if cap:
+        cap["team1"], cap["team2"] = cap["team2"], cap["team1"]
+
+
 def label_with_roster(capture, roster):
     """Merges a capture_postmatch() result with the roster by slot order
     -- capture supplies the numbers, roster supplies who they belong to."""
@@ -444,6 +462,12 @@ async def handle_client(websocket):
                 server_state["lastCapture"] = merged
                 save_state(server_state)
                 await websocket.send(json.dumps({"type": "capture_result", "data": merged}))
+                await broadcast({"type": "state_sync", "data": build_overlay_state(server_state)})
+
+            elif payload.get("type") == "swap_sides":
+                swap_team_sides(server_state)
+                save_state(server_state)
+                await broadcast({"type": "state", "data": server_state})
                 await broadcast({"type": "state_sync", "data": build_overlay_state(server_state)})
 
             elif payload.get("type") == "save_manual_score":
