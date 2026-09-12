@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Free Fire Game Summary</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* One card recapping the latest COMMITTED match: which game/map it was,
+     who took the Booyah, who the MVP was, and the total kills across all
+     12 squads. Background is assets/freefire/<folder>/GAME SUMMARY.png,
+     to be supplied later -- see the note in freefire_mvp.html for why
+     this is deliberately plain until then. */
+
+  html, body{
+    margin:0; padding:0; background:transparent; overflow:hidden;
+    width:1920px; height:1080px;
+    font-family:'Poppins','Segoe UI',Arial,sans-serif;
+  }
+  #stage{ position:absolute; inset:0; opacity:0; transition:opacity .45s ease; }
+  #stage.visible{ opacity:1; }
+  #bg{ position:absolute; top:0; left:0; width:1920px; height:1080px; }
+
+  #heading{
+    position:absolute; left:120px; top:110px; color:#fff; font-weight:800;
+    font-size:56px; letter-spacing:1px; text-shadow:0 3px 14px rgba(0,0,0,0.65);
+  }
+  #mapName{
+    position:absolute; left:120px; top:184px; color:#98a3bd; font-weight:700;
+    font-size:28px; letter-spacing:2px; text-transform:uppercase;
+  }
+
+  #row{ position:absolute; left:120px; top:300px; display:flex; gap:70px; }
+  .block{ display:flex; flex-direction:column; gap:10px; min-width:280px; }
+  .blockLabel{ color:#98a3bd; font-weight:700; font-size:20px; letter-spacing:2px; text-transform:uppercase; }
+  .blockValueRow{ display:flex; align-items:center; gap:14px; }
+  .blockLogo{ width:52px; height:52px; object-fit:contain; }
+  .blockLogo.empty{ display:none; }
+  .blockValue{ color:#fff; font-weight:800; font-size:40px; letter-spacing:.5px; white-space:nowrap; }
+  .blockSub{ color:#ffc400; font-weight:800; font-size:24px; font-variant-numeric:tabular-nums; }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <img id="bg" alt="">
+  <div id="heading"></div>
+  <div id="mapName"></div>
+  <div id="row">
+    <div class="block">
+      <div class="blockLabel">Booyah</div>
+      <div class="blockValueRow"><img id="booyahLogo" class="blockLogo empty" alt=""><div class="blockValue" id="booyahName"></div></div>
+    </div>
+    <div class="block">
+      <div class="blockLabel">MVP</div>
+      <div class="blockValue" id="mvpName"></div>
+      <div class="blockSub" id="mvpKills"></div>
+    </div>
+    <div class="block">
+      <div class="blockLabel">Total Eliminations</div>
+      <div class="blockValue" id="totalKills"></div>
+    </div>
+    <div class="block">
+      <div class="blockLabel">Duration</div>
+      <div class="blockValue" id="duration"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const _params = new URLSearchParams(location.search);
+if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
+if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_game_summary"
+  : "ws://localhost:8765?page=freefire_game_summary";
+
+function rosterTeamFor(ff, teamName){
+  const teams = ((ff.roster && ff.roster.teams) || []);
+  const want = (teamName || "").trim().toUpperCase();
+  return teams.find(t => (t.name || "").trim().toUpperCase() === want) || null;
+}
+
+/* Same auto-pick freefire_mvp.html uses -- kept in sync deliberately,
+   since the two graphics would otherwise disagree about who the MVP was
+   whenever a tie is broken differently. */
+function pickMvp(latest, mvpOverride){
+  const all = [];
+  (latest.teams || []).forEach(t => (t.players || []).forEach(p =>
+    all.push({ uid: p.uid, name: p.name, kills: p.kills || 0, damage: p.damage, teamName: t.teamName })));
+  if(!all.length) return null;
+  if(mvpOverride){
+    const forced = all.find(p => String(p.uid) === String(mvpOverride));
+    if(forced) return forced;
+  }
+  all.sort((a, b) => (b.kills - a.kills) || ((b.damage || 0) - (a.damage || 0)));
+  return all[0];
+}
+
+let lastKey = "";
+
+function applyFreefire(ff){
+  const visible = !!(ff.display && ff.display.gameSummaryVisible);
+  document.getElementById("stage").classList.toggle("visible", visible);
+  if(!visible) return;
+
+  const folder = (ff.event && ff.event.assetFolder) || "CLT";
+  const matches = ff.matches || [];
+  const gameNumber = matches.length;
+  const latest = gameNumber ? matches[gameNumber - 1] : null;
+  const winner = latest && (latest.teams || []).slice().sort((a, b) => (a.rank || 99) - (b.rank || 99))[0];
+  const mapName = ((ff.event && ff.event.maps) || [])[gameNumber - 1] || "";
+  const totalKills = latest ? (latest.teams || []).reduce((s, t) => s + (t.killScore || 0), 0) : null;
+  const mvp = latest ? pickMvp(latest, ff.mvpOverride) : null;
+
+  const key = folder + "|" + gameNumber + "|" + mapName + "|" + JSON.stringify(winner) + "|" +
+    JSON.stringify(mvp) + "|" + (latest && latest.duration || "");
+  if(key === lastKey) return;
+  lastKey = key;
+
+  document.getElementById("bg").src = "assets/freefire/" + folder + "/GAME SUMMARY.png";
+  document.getElementById("heading").textContent = gameNumber ? "GAME " + gameNumber + " SUMMARY" : "";
+  document.getElementById("mapName").textContent = mapName;
+
+  document.getElementById("booyahName").textContent = winner ? (winner.teamName || "").toUpperCase() : "";
+  const logo = document.getElementById("booyahLogo");
+  const rosterTeam = winner ? rosterTeamFor(ff, winner.teamName) : null;
+  if(rosterTeam && rosterTeam.logo){
+    logo.src = rosterTeam.logo;
+    logo.classList.remove("empty");
+  } else {
+    logo.classList.add("empty");
+  }
+
+  document.getElementById("mvpName").textContent = mvp ? (mvp.name || "") : "";
+  document.getElementById("mvpKills").textContent = mvp ? mvp.kills + " ELIMINATIONS" : "";
+  document.getElementById("totalKills").textContent = totalKills == null ? "" : totalKills;
+  document.getElementById("duration").textContent = (latest && latest.duration) || "—";
+}
+
+let ws;
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync") applyFreefire(msg.data);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+connect();
+</script>
+</body>
+</html>

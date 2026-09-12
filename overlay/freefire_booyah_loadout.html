@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Free Fire Booyah Loadout</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* Booyah Team Stats, slide 2: the winning squad's loadout (active
+     skill, 3 passives, pet, equipment) instead of eliminations/knocks --
+     freefire_booyah.html is slide 1. Same card grid and geometry as that
+     file (measured from BOOYAH TEAM STATS.png) so the two slides sit in
+     the same place on screen when swapped; the artwork this one draws
+     from is its own file (BOOYAH TEAM LOADOUT.png), named following the
+     same convention, to be supplied later.
+
+     Loadout data comes entirely from the Num5 capture during the
+     loadout-reveal window -- see identify_loadout/apply_loadout_capture
+     in freefire_engine.py. A slot that was never captured (or never
+     calibrated) shows empty rather than guessing. */
+
+  html, body{
+    margin:0; padding:0; background:transparent; overflow:hidden;
+    width:1920px; height:1080px;
+    font-family:'Poppins','Segoe UI',Arial,sans-serif;
+  }
+  #stage{
+    position:absolute; top:0; left:0; width:1672px; height:941px;
+    transform:scale(1.14833); transform-origin:top left;
+    opacity:0; transition:opacity .45s ease;
+  }
+  #stage.visible{ opacity:1; }
+  .bg{ position:absolute; top:0; left:0; width:1672px; height:941px; }
+  .card{ position:absolute; }
+  .pname{
+    position:absolute; display:flex; align-items:center;
+    color:#1a1206; font-weight:800; font-size:26px; letter-spacing:.2px;
+    white-space:nowrap; overflow:hidden;
+  }
+  .slots{ position:absolute; display:flex; gap:10px; }
+  .slot{ display:flex; flex-direction:column; align-items:center; width:86px; }
+  .slot .icon{
+    width:72px; height:72px; border-radius:10px; background:#6f000c;
+    display:flex; align-items:center; justify-content:center; overflow:hidden;
+  }
+  .slot .icon img{ max-width:100%; max-height:100%; object-fit:contain; }
+  .slot .icon.empty{ background:rgba(0,0,0,0.15); }
+  .slot .label{
+    margin-top:4px; color:#1a1206; font-weight:700; font-size:12px;
+    letter-spacing:.5px; text-transform:uppercase;
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <img class="bg" id="bg" alt="">
+</div>
+
+<script>
+const _params = new URLSearchParams(location.search);
+if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
+if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_booyah_loadout"
+  : "ws://localhost:8765?page=freefire_booyah_loadout";
+
+/* Same 1672x941 artwork space as freefire_booyah.html. */
+const CARD_X = [134, 867];
+const CARD_Y = [227, 504];
+const SLOT_ORDER = ["active", "passive1", "passive2", "passive3", "pet", "equipment"];
+const SLOT_LABELS = { active: "Active", passive1: "Passive 1", passive2: "Passive 2",
+  passive3: "Passive 3", pet: "Pet", equipment: "Equipment" };
+const NAME_BOX = { x: 208, y: 13, w: 458, h: 40 };
+const SLOTS_BOX = { x: 8, y: 66, w: 653, h: 110 };
+
+const stage = document.getElementById("stage");
+for(let i = 0; i < 4; i++){
+  const col = i % 2, row = (i / 2) | 0;
+  const card = document.createElement("div");
+  card.className = "card";
+  card.style.left = CARD_X[col] + "px";
+  card.style.top = CARD_Y[row] + "px";
+  card.style.width = "669px";
+  card.style.height = "247px";
+  card.innerHTML =
+    '<div class="pname" id="bl-' + i + '-name" style="' +
+      'left:' + NAME_BOX.x + 'px;top:' + NAME_BOX.y + 'px;' +
+      'width:' + NAME_BOX.w + 'px;height:' + NAME_BOX.h + 'px"></div>' +
+    '<div class="slots" id="bl-' + i + '-slots" style="' +
+      'left:' + SLOTS_BOX.x + 'px;top:' + SLOTS_BOX.y + 'px;' +
+      'width:' + SLOTS_BOX.w + 'px;height:' + SLOTS_BOX.h + 'px"></div>';
+  stage.appendChild(card);
+  const slotsEl = card.querySelector(".slots");
+  SLOT_ORDER.forEach(slot => {
+    const box = document.createElement("div");
+    box.className = "slot";
+    box.innerHTML =
+      '<div class="icon empty" id="bl-' + i + '-' + slot + '-icon"><img alt=""></div>' +
+      '<div class="label">' + SLOT_LABELS[slot] + '</div>';
+    slotsEl.appendChild(box);
+  });
+}
+
+function iconSrc(ff, slotResult){
+  if(!slotResult || !slotResult.label) return "";
+  return "assets/FFM/" + slotResult.label + ".png";
+}
+
+function rosterPlayerFor(ff, teamName, uid, ign){
+  const teams = ((ff.roster && ff.roster.teams) || []);
+  const team = teams.find(t => (t.name || "").trim().toUpperCase() === (teamName || "").trim().toUpperCase());
+  if(!team) return null;
+  const players = team.players || [];
+  return players.find(p => String(p.uid || "") === String(uid || "")) ||
+         players.find(p => (p.ign || "").trim().toUpperCase() === (ign || "").trim().toUpperCase()) || null;
+}
+
+let lastKey = "";
+
+function applyFreefire(ff){
+  const folder = (ff.event && ff.event.assetFolder) || "CLT";
+  const matches = ff.matches || [];
+  const latest = matches.length ? matches[matches.length - 1] : null;
+  const winner = latest && (latest.teams || []).slice().sort((a, b) => (a.rank || 99) - (b.rank || 99))[0];
+
+  const visible = !!(ff.display && ff.display.booyahLoadoutVisible) && !!winner;
+  document.getElementById("stage").classList.toggle("visible", visible);
+  if(!visible) return;
+
+  const players = (winner.players || []).slice(0, 4);
+  const gameNumber = matches.length;
+
+  const key = folder + "|" + JSON.stringify(players.map(p => [p.name, p.uid])) + "|" + gameNumber;
+  if(key === lastKey) return;
+  lastKey = key;
+
+  document.getElementById("bg").src = "assets/freefire/" + folder + "/BOOYAH TEAM LOADOUT.png";
+
+  for(let i = 0; i < 4; i++){
+    const p = players[i];
+    const nameEl = document.getElementById("bl-" + i + "-name");
+    if(!p){
+      nameEl.textContent = "";
+      SLOT_ORDER.forEach(slot => {
+        const icon = document.getElementById("bl-" + i + "-" + slot + "-icon");
+        icon.classList.add("empty");
+        icon.querySelector("img").removeAttribute("src");
+      });
+      continue;
+    }
+    nameEl.textContent = p.name || "";
+    const rosterPlayer = rosterPlayerFor(ff, winner.teamName, p.uid, p.name);
+    const loadouts = (rosterPlayer && rosterPlayer.loadouts) || {};
+    const entry = loadouts[String(gameNumber)] || loadouts[gameNumber];
+    const slots = (entry && entry.slots) || {};
+    SLOT_ORDER.forEach(slot => {
+      const icon = document.getElementById("bl-" + i + "-" + slot + "-icon");
+      const img = icon.querySelector("img");
+      const src = iconSrc(ff, slots[slot]);
+      if(src){
+        img.src = src;
+        icon.classList.remove("empty");
+      } else {
+        img.removeAttribute("src");
+        icon.classList.add("empty");
+      }
+    });
+  }
+}
+
+let ws;
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync") applyFreefire(msg.data);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+connect();
+</script>
+</body>
+</html>

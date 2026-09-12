@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Free Fire MVP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* MVP card for the latest COMMITTED match. Deliberately plain until the
+     designer's artwork lands -- push/pull and the data binding are the
+     part that's hard to redo later, so that's what's built now; every
+     number/position below is a placeholder a background PNG can sit
+     under (assets/freefire/<folder>/MVP.png), same convention as every
+     other Free Fire graphic in this project.
+
+     MVP pick: state.mvpOverride (a uid) wins if set; otherwise the
+     highest-eliminations player in the latest match, damage as the
+     tiebreak when two players are equal on kills. See applyFreefire(). */
+
+  html, body{
+    margin:0; padding:0; background:transparent; overflow:hidden;
+    width:1920px; height:1080px;
+    font-family:'Poppins','Segoe UI',Arial,sans-serif;
+  }
+  #stage{ position:absolute; inset:0; opacity:0; transition:opacity .45s ease; }
+  #stage.visible{ opacity:1; }
+  #bg{ position:absolute; top:0; left:0; width:1920px; height:1080px; }
+
+  #photoBox{
+    position:absolute; left:120px; top:220px; width:420px; height:520px;
+    border-radius:16px; overflow:hidden; background:#151a2c;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #photoBox img{ display:block; max-width:100%; max-height:100%; object-fit:contain; }
+  #photoBox.empty{ background:rgba(255,255,255,0.04); }
+
+  #tag{
+    position:absolute; left:120px; top:150px; color:#ffc400; font-weight:800;
+    font-size:34px; letter-spacing:3px; text-shadow:0 2px 10px rgba(0,0,0,0.6);
+  }
+  #name{
+    position:absolute; left:600px; top:230px; width:1200px; color:#fff;
+    font-weight:800; font-size:74px; letter-spacing:1px; white-space:nowrap; overflow:hidden;
+    text-shadow:0 3px 14px rgba(0,0,0,0.65);
+  }
+  #teamRow{
+    position:absolute; left:602px; top:326px; display:flex; align-items:center; gap:14px;
+  }
+  #teamLogo{ width:56px; height:56px; object-fit:contain; }
+  #teamLogo.empty{ display:none; }
+  #teamName{
+    color:#98a3bd; font-weight:700; font-size:32px; letter-spacing:1px; text-transform:uppercase;
+  }
+  #statRow{ position:absolute; left:602px; top:420px; display:flex; gap:64px; }
+  .statBlock{ display:flex; flex-direction:column; }
+  .statLabel{ color:#98a3bd; font-weight:700; font-size:20px; letter-spacing:2px; text-transform:uppercase; }
+  .statValue{ color:#ffc400; font-weight:800; font-size:64px; font-variant-numeric:tabular-nums; }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <img id="bg" alt="">
+  <div id="tag">MVP</div>
+  <div id="photoBox" class="empty"><img id="photoImg" alt=""></div>
+  <div id="name"></div>
+  <div id="teamRow"><img id="teamLogo" class="empty" alt=""><div id="teamName"></div></div>
+  <div id="statRow">
+    <div class="statBlock"><div class="statLabel">Eliminations</div><div class="statValue" id="statKills">0</div></div>
+    <div class="statBlock"><div class="statLabel">Damage</div><div class="statValue" id="statDamage">—</div></div>
+  </div>
+</div>
+
+<script>
+const _params = new URLSearchParams(location.search);
+if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
+if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_mvp"
+  : "ws://localhost:8765?page=freefire_mvp";
+
+/* Same character-image lookup freefire_booyah.html uses -- the Num5
+   loadout capture is the only source for a "character" picture, joined by
+   NAME across the icon and full-size dumps (unrelated id spaces). */
+function characterImage(rosterPlayer, gameNumber, ff){
+  const loadouts = (rosterPlayer && rosterPlayer.loadouts) || {};
+  const entry = loadouts[String(gameNumber)] || loadouts[gameNumber];
+  const slot = entry && entry.slots && entry.slots.active;
+  if(!slot || !slot.label) return "";
+  const charName = (ff.assetNames || {})[slot.label];
+  if(charName){
+    const fullSizeNames = ff.fullSizeNames || {};
+    const fullSizeId = Object.keys(fullSizeNames).find(id => fullSizeNames[id] === charName);
+    if(fullSizeId) return "assets/FFM/Full Size Character/" + fullSizeId + ".png";
+  }
+  return "assets/FFM/" + slot.label + ".png";
+}
+
+function rosterPlayerFor(ff, teamName, uid, ign){
+  const teams = ((ff.roster && ff.roster.teams) || []);
+  const team = teams.find(t => (t.name || "").trim().toUpperCase() === (teamName || "").trim().toUpperCase());
+  if(!team) return null;
+  const players = team.players || [];
+  return players.find(p => String(p.uid || "") === String(uid || "")) ||
+         players.find(p => (p.ign || "").trim().toUpperCase() === (ign || "").trim().toUpperCase()) || null;
+}
+
+function rosterTeamFor(ff, teamName){
+  const teams = ((ff.roster && ff.roster.teams) || []);
+  const want = (teamName || "").trim().toUpperCase();
+  return teams.find(t => (t.name || "").trim().toUpperCase() === want) || null;
+}
+
+/* The MVP pick itself: an explicit uid override wins outright; otherwise
+   the highest-eliminations player across every team in the latest match,
+   damage (when it was typed in during review) breaking a tie. */
+function pickMvp(latest, mvpOverride){
+  const all = [];
+  (latest.teams || []).forEach(t => (t.players || []).forEach(p =>
+    all.push({ uid: p.uid, name: p.name, kills: p.kills || 0, damage: p.damage, teamName: t.teamName })));
+  if(!all.length) return null;
+  if(mvpOverride){
+    const forced = all.find(p => String(p.uid) === String(mvpOverride));
+    if(forced) return forced;
+  }
+  all.sort((a, b) => (b.kills - a.kills) || ((b.damage || 0) - (a.damage || 0)));
+  return all[0];
+}
+
+let lastKey = "";
+
+function applyFreefire(ff){
+  const visible = !!(ff.display && ff.display.mvpVisible);
+  document.getElementById("stage").classList.toggle("visible", visible);
+  if(!visible) return;
+
+  const folder = (ff.event && ff.event.assetFolder) || "CLT";
+  const matches = ff.matches || [];
+  const latest = matches.length ? matches[matches.length - 1] : null;
+  const mvp = latest ? pickMvp(latest, ff.mvpOverride) : null;
+
+  const key = folder + "|" + (ff.mvpOverride || "") + "|" + JSON.stringify(mvp);
+  if(key === lastKey) return;
+  lastKey = key;
+
+  document.getElementById("bg").src = "assets/freefire/" + folder + "/MVP.png";
+
+  if(!mvp){
+    ["name", "teamName"].forEach(id => document.getElementById(id).textContent = "");
+    document.getElementById("statKills").textContent = "0";
+    document.getElementById("statDamage").textContent = "—";
+    document.getElementById("photoBox").classList.add("empty");
+    document.getElementById("teamLogo").classList.add("empty");
+    return;
+  }
+
+  document.getElementById("name").textContent = mvp.name || "";
+  document.getElementById("teamName").textContent = (mvp.teamName || "").toUpperCase();
+  document.getElementById("statKills").textContent = mvp.kills;
+  document.getElementById("statDamage").textContent = mvp.damage == null ? "—" : mvp.damage;
+
+  const rosterTeam = rosterTeamFor(ff, mvp.teamName);
+  const logo = document.getElementById("teamLogo");
+  if(rosterTeam && rosterTeam.logo){
+    logo.src = rosterTeam.logo;
+    logo.classList.remove("empty");
+  } else {
+    logo.classList.add("empty");
+  }
+
+  const rosterPlayer = rosterPlayerFor(ff, mvp.teamName, mvp.uid, mvp.name);
+  const photoBox = document.getElementById("photoBox");
+  const photoImg = document.getElementById("photoImg");
+  // A real player photo (uploaded on the roster) beats the in-game
+  // character render -- it's who the audience is watching, not their
+  // Free Fire skin -- but the character render is still better than a
+  // blank box when no photo has been uploaded for them.
+  const src = (rosterPlayer && rosterPlayer.photo) ||
+    characterImage(rosterPlayer, matches.length, ff);
+  if(src){
+    photoImg.src = src;
+    photoBox.classList.remove("empty");
+  } else {
+    photoBox.classList.add("empty");
+  }
+}
+
+let ws;
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync") applyFreefire(msg.data);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+connect();
+</script>
+</body>
+</html>

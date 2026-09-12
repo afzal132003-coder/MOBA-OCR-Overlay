@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Free Fire Damage Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* Every player from the latest COMMITTED match, ranked by eliminations
+     (damage as the tiebreak), damage shown alongside wherever it was
+     typed in during review -- see ffHandleMatchResult/ffReviewDamage in
+     dashboard.html. Damage isn't in the result file or any log the
+     client writes, so a blank cell here means "not entered", not zero.
+
+     Capped at REPORT_ROWS players so a full 48-player lobby still fits
+     one 1080p card; raise it if the artwork has room for more.
+     Background is assets/freefire/<folder>/ELIMINATION AND DAMAGE
+     REPORT.png, to be supplied later. */
+
+  html, body{
+    margin:0; padding:0; background:transparent; overflow:hidden;
+    width:1920px; height:1080px;
+    font-family:'Poppins','Segoe UI',Arial,sans-serif;
+  }
+  #stage{ position:absolute; inset:0; opacity:0; transition:opacity .45s ease; }
+  #stage.visible{ opacity:1; }
+  #bg{ position:absolute; top:0; left:0; width:1920px; height:1080px; }
+
+  #heading{
+    position:absolute; left:120px; top:80px; color:#fff; font-weight:800;
+    font-size:48px; letter-spacing:1px; text-shadow:0 3px 14px rgba(0,0,0,0.65);
+  }
+
+  #rows{ position:absolute; left:120px; top:200px; width:1680px; }
+  .row{
+    display:grid; grid-template-columns:70px 1fr 420px 220px 220px;
+    align-items:center; height:56px; color:#fff; font-weight:700; font-size:26px;
+  }
+  .row + .row{ border-top:1px solid rgba(255,255,255,0.08); }
+  .rank{ color:#98a3bd; font-variant-numeric:tabular-nums; }
+  .pname{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .team{ color:#98a3bd; font-weight:600; font-size:20px; text-transform:uppercase; }
+  .kills{ color:#ffc400; font-weight:800; text-align:right; padding-right:24px; }
+  .damage{ color:#4ade80; font-weight:800; text-align:right; padding-right:24px; }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <img id="bg" alt="">
+  <div id="heading"></div>
+  <div id="rows"></div>
+</div>
+
+<script>
+const _params = new URLSearchParams(location.search);
+if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
+if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_damage_report"
+  : "ws://localhost:8765?page=freefire_damage_report";
+
+const REPORT_ROWS = 12;
+
+function escapeHtml(str){
+  return String(str == null ? "" : str).replace(/[&<>"']/g, c => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+let lastKey = "";
+
+function applyFreefire(ff){
+  const visible = !!(ff.display && ff.display.damageReportVisible);
+  document.getElementById("stage").classList.toggle("visible", visible);
+  if(!visible) return;
+
+  const folder = (ff.event && ff.event.assetFolder) || "CLT";
+  const matches = ff.matches || [];
+  const gameNumber = matches.length;
+  const latest = gameNumber ? matches[gameNumber - 1] : null;
+
+  const players = [];
+  (latest ? latest.teams || [] : []).forEach(t => (t.players || []).forEach(p =>
+    players.push({ name: p.name, teamName: t.teamName, kills: p.kills || 0, damage: p.damage })));
+  players.sort((a, b) => (b.kills - a.kills) || ((b.damage || 0) - (a.damage || 0)));
+  const top = players.slice(0, REPORT_ROWS);
+
+  const key = folder + "|" + gameNumber + "|" + JSON.stringify(top);
+  if(key === lastKey) return;
+  lastKey = key;
+
+  document.getElementById("bg").src = "assets/freefire/" + folder + "/ELIMINATION AND DAMAGE REPORT.png";
+  document.getElementById("heading").textContent = gameNumber ? "GAME " + gameNumber + " — ELIMINATION & DAMAGE REPORT" : "";
+
+  document.getElementById("rows").innerHTML = top.map((p, i) => `
+    <div class="row">
+      <div class="rank">${String(i + 1).padStart(2, "0")}</div>
+      <div class="pname">${escapeHtml(p.name)}</div>
+      <div class="team">${escapeHtml(p.teamName)}</div>
+      <div class="kills">${p.kills} ELIMS</div>
+      <div class="damage">${p.damage == null ? "—" : p.damage + " DMG"}</div>
+    </div>`).join("");
+}
+
+let ws;
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync") applyFreefire(msg.data);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+connect();
+</script>
+</body>
+</html>

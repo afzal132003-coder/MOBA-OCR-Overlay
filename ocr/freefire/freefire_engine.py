@@ -294,6 +294,22 @@ def default_state():
         "currentSafezone": None,
         "matches": [],
         "standings": [],
+        # Row order for the "Export for Sheet" card -- which roster team
+        # name goes on which line of the copy/paste output, since an
+        # operator's own spreadsheet has a fixed row per team that rarely
+        # matches rank or roster order. Persisted (rather than kept only in
+        # the browser tab) so it survives a dashboard reload instead of
+        # silently resetting mid-event -- see ffQmeRender/ffQmeSeedFromRoster
+        # in dashboard.html.
+        "qmeRowOrder": [],
+        # MVP of the LATEST committed match. Empty string means "auto" --
+        # highest kills, damage as the tiebreak, picked fresh from that
+        # match's own players every time. Set to a uid to override the
+        # pick by hand (a tie the operator wants to break a specific way,
+        # or a stat the formula doesn't capture). Keyed by uid rather than
+        # name so it survives a display-name change and never collides
+        # across two players sharing one.
+        "mvpOverride": "",
         # Event-level context the operator sets once before the day starts:
         # the broadcast title ("FFM CLT WEEKLY SCRIMS - GRAND FINALS DAY 1"),
         # how many games the series runs, and which game is CURRENTLY being
@@ -333,7 +349,18 @@ def default_state():
                     "aliveStatusVisible": False,
                     # The Booyah team stats card. Its own source, so it does
                     # not contend with the scoreboard/points table pair.
-                    "booyahStatsVisible": False},
+                    "booyahStatsVisible": False,
+                    # Second Booyah slide: the winning squad's loadout
+                    # (character/weapon/pet/equipment) instead of
+                    # eliminations/knocks/contribution. Its own toggle since
+                    # the two slides are shown one at a time, not together.
+                    "booyahLoadoutVisible": False,
+                    # MVP card, Game Summary and the Elimination & Damage
+                    # Report -- each its own browser source, each off until
+                    # pushed, same reasoning as every other graphic here.
+                    "mvpVisible": False,
+                    "gameSummaryVisible": False,
+                    "damageReportVisible": False},
         # Pre-match roster, uploaded once per event as a CSV (team, ign,
         # uid per row). Each player's "loadout" is manual-entry text
         # fields (active/passive x3/pet/equipment); "loadoutScreenshot" is
@@ -1607,6 +1634,17 @@ def parse_freefire_match_result(text):
 TEAM_NAME_MIN_RATIO = 0.6
 PLAYER_NAME_MIN_RATIO = 0.6
 
+# How many of a squad's ~4 player UIDs have to land on the SAME roster team
+# before that identification is trusted outright, no matter what the file's
+# TeamName said. Name-based matching alone can't be trusted in a non-league
+# lobby: the file's TeamName there is often whatever the room auto-assigned
+# rather than anything a roster was ever built around, and it can
+# coincidentally look enough like a DIFFERENT registered team's name to clear
+# match_roster_team's fuzzy-ratio threshold. A UID can't lie about who's
+# playing, so it gets the final word -- see match_roster_team_by_uid and its
+# use in apply_roster_overrides.
+FREEFIRE_TEAM_UID_MIN_VOTES = 2
+
 
 def normalize_for_match(value):
     return re.sub(r"[^a-z0-9]", "", (value or "").lower())
@@ -1667,6 +1705,28 @@ def match_roster_team(file_team_name, roster_teams):
         if ratio > best_ratio:
             best_team, best_ratio = team, ratio
     return best_team if best_ratio >= TEAM_NAME_MIN_RATIO else None
+
+
+def match_roster_team_by_uid(players, roster_teams):
+    """The roster team most of these players' UIDs belong to, by vote.
+
+    Returns (team, votes) -- votes is how many of the given players' UIDs
+    landed on that team's roster, out of however many were non-blank. A
+    file team with no UID overlapping ANY roster team returns (None, 0),
+    which callers should treat as "UID has nothing to say here", not as a
+    conflict -- that's the normal case for a squad that hasn't been
+    registered at all yet."""
+    file_uids = {str(p.get("uid") or "").strip() for p in players} - {""}
+    if not file_uids:
+        return (None, 0)
+    best_team, best_votes = None, 0
+    for team in roster_teams:
+        roster_uids = {str(p.get("uid") or "").strip()
+                       for p in team.get("players", []) or []} - {""}
+        votes = len(file_uids & roster_uids)
+        if votes > best_votes:
+            best_team, best_votes = team, votes
+    return (best_team, best_votes)
 
 
 def match_roster_player(file_player, roster_team):
@@ -1735,8 +1795,51 @@ def apply_roster_overrides(teams, roster):
     for team in teams:
         file_team_name = team.get("teamName", "")
         team["fileTeamName"] = file_team_name
-        roster_team = match_roster_team(file_team_name, roster_teams)
+        name_team = match_roster_team(file_team_name, roster_teams)
+        team_players = team.get("players", []) or []
+        uid_team, uid_votes = match_roster_team_by_uid(team_players, roster_teams)
+        uid_confident = uid_votes >= FREEFIRE_TEAM_UID_MIN_VOTES
+
+        # UID wins outright once it clears the vote threshold, exactly like
+        # match_roster_player already does for individual players -- it
+        # can't lie about who's in the lobby. Below that threshold there
+        # isn't enough UID evidence to override anything, so a name match
+        # (if any) is used as before, but flagged for a manual look rather
+        # than trusted quietly -- see needsUidReview below.
+        roster_team = uid_team if uid_confident else (name_team or uid_team)
+
         team["matched"] = roster_team is not None
+        team["needsUidReview"] = False
+        if uid_confident and name_team is not None and name_team is not uid_team:
+            # The two signals actively disagree: the file's own team name
+            # points at one roster team while the player UIDs -- which
+            # can't be spoofed by an auto-generated lobby name -- point at
+            # another. UID is trusted for the actual result, but this is
+            # exactly the kind of mix-up that would otherwise put a
+            # squad's kills on the wrong team's line in the standings.
+            team["needsUidReview"] = True
+            team["reviewReason"] = (
+                f'Team name matched "{name_team.get("name")}", but '
+                f'{uid_votes} player UID(s) say this is actually '
+                f'"{uid_team.get("name")}" -- verify before committing.'
+            )
+        elif not uid_confident and roster_team is not None:
+            file_uid_count = len({str(p.get("uid") or "").strip()
+                                   for p in team_players} - {""})
+            if roster_team is name_team:
+                team["needsUidReview"] = True
+                team["reviewReason"] = (
+                    f'Matched "{roster_team.get("name")}" by team name only -- '
+                    f'just {uid_votes} of {file_uid_count} player UID(s) confirmed '
+                    f'it. Double-check before committing.'
+                )
+            else:
+                team["needsUidReview"] = True
+                team["reviewReason"] = (
+                    f'The file\'s team name didn\'t match any roster team, but '
+                    f'{uid_votes} of {file_uid_count} player UID(s) suggest this '
+                    f'might be "{roster_team.get("name")}" -- verify before committing.'
+                )
         if roster_team:
             # displayName is what goes on air; name stays the thing the
             # matcher works against. They are separate so an operator can
@@ -2651,6 +2754,26 @@ async def handle_client(websocket, path=None):
             elif payload.get("type") in ("booyah_stats_show", "booyah_stats_hide"):
                 server_state["display"]["booyahStatsVisible"] = (
                     payload["type"] == "booyah_stats_show")
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") in ("booyah_loadout_show", "booyah_loadout_hide"):
+                server_state["display"]["booyahLoadoutVisible"] = (
+                    payload["type"] == "booyah_loadout_show")
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") in ("mvp_show", "mvp_hide"):
+                server_state["display"]["mvpVisible"] = (
+                    payload["type"] == "mvp_show")
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") in ("game_summary_show", "game_summary_hide"):
+                server_state["display"]["gameSummaryVisible"] = (
+                    payload["type"] == "game_summary_show")
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") in ("damage_report_show", "damage_report_hide"):
+                server_state["display"]["damageReportVisible"] = (
+                    payload["type"] == "damage_report_show")
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") in ("alive_status_show", "alive_status_hide"):

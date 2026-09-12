@@ -110,6 +110,29 @@
     position:absolute; object-fit:contain; display:none;
   }
   .team-logo.on{ display:block; }
+
+  /* Map-by-map strip under the points table: which map each game was
+     played on, and the Booyah team's logo once that game is committed --
+     blank until then, not a guess. Placeholder styling (a plain dark
+     strip) until a package supplies its own artwork for this. */
+  #pt-maps{
+    position:absolute; left:93px; top:952px; width:1733px; height:100px;
+    display:flex; gap:8px;
+  }
+  .pt-map{
+    flex:1; min-width:0; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; gap:6px; background:rgba(10,13,24,0.55);
+    border-radius:8px; padding:8px 4px;
+  }
+  .pt-map .mapLogo{
+    width:36px; height:36px; object-fit:contain; display:none;
+  }
+  .pt-map .mapLogo.on{ display:block; }
+  .pt-map .mapName{
+    color:#ffc400; font-weight:800; font-size:15px; letter-spacing:.5px;
+    text-transform:uppercase; text-align:center; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis; max-width:100%;
+  }
 </style>
 </head>
 <body>
@@ -121,6 +144,7 @@
 <div class="stage" id="pt-stage">
   <img class="bg" id="pt-bg" alt="">
   <div id="pt-after"></div>
+  <div id="pt-maps"></div>
 </div>
 
 <script>
@@ -347,6 +371,36 @@ function applyPointsTable(ff){
   paintBadges("pt", ptNames, ptCount, ff);
   paintLogos("pt", ptNames, ptCount, ff);
   applyLogoOverride("pt", ptCount, "pointsTableLogo", ff);
+
+  renderMapStrip(ff);
+}
+
+/* Which map each game was on, and -- once that game has been committed --
+   the Booyah team's logo beside it. A game not yet played shows the map
+   name (if one was entered ahead of time) with no logo, rather than
+   guessing a winner. Uses the SAME event.maps[]/matches[] the dashboard's
+   Event tab and Match Review already write to, so nothing new has to be
+   entered anywhere just for this strip to work. */
+function renderMapStrip(ff){
+  const totalGames = (ff.event && ff.event.totalGames) || 6;
+  const maps = (ff.event && ff.event.maps) || [];
+  const matches = ff.matches || [];
+  const roster = ff.roster;
+
+  const el = document.getElementById("pt-maps");
+  el.innerHTML = Array.from({ length: totalGames }, (_, i) => {
+    const mapName = (maps[i] || "").trim();
+    const match = matches[i];
+    const winner = match && (match.teams || []).slice()
+      .sort((a, b) => (a.rank || 99) - (b.rank || 99))[0];
+    const team = winner ? logoFor(winner.teamName, roster) : null;
+    const logoSrc = team && team.logo;
+    return `
+      <div class="pt-map">
+        <img class="mapLogo${logoSrc ? " on" : ""}" src="${logoSrc || ""}" alt="">
+        <div class="mapName">${(mapName || "GAME " + (i + 1)).toUpperCase()}</div>
+      </div>`;
+  }).join("");
 }
 
 // Same lookup freefire_alive_status.html uses: joined by name against the

@@ -1751,6 +1751,28 @@
     </div>
 
     <div class="card">
+      <h2>Team Names</h2>
+      <p class="hint">The fast path to correct team names on air before full rosters (players, UIDs, logos) are
+        ready. A player in the room often registers under the wrong name or just the short/abbreviated one, so
+        paste the official list from the tournament sheet here — one team per line, <code>Full Name, Short
+        Name</code> (short name optional, comma or a tab both work — pasting two spreadsheet columns pastes as a
+        tab automatically). Matching checks the result file's team name against BOTH, so a room that only got
+        "TSG" still resolves to "TSG ARMY". It doesn't need to match the file's spelling exactly either — same
+        exact / "contains" / fuzzy fallback the full roster uses. Only name and short name are touched here — a
+        slot's logo and players, if it already has them, are left exactly as they are; fill those in later below,
+        in any order, with no need to redo this list.</p>
+      <textarea id="ff_teamNamesList" rows="14" placeholder="Team Alpha, TA
+Team Bravo, TB
+Team Charlie
+..." style="width:100%;font-family:monospace;font-size:13px;background:#0a0d18;"></textarea>
+      <div class="row" style="gap:8px;margin-top:10px;">
+        <button id="ff_teamNamesApply">Apply &amp; Save Roster</button>
+        <button class="secondary" id="ff_teamNamesReload">Reload From Saved Roster</button>
+      </div>
+      <div class="hint" id="ff_teamNamesStatus" style="margin-top:6px;"></div>
+    </div>
+
+    <div class="card">
       <h2>Roster Import</h2>
       <p class="hint">Upload a CSV with one row per player: <code>team,ign,uid</code> (a header row is fine, it's
         auto-detected). This is the roster every other Free Fire tab matches names/UIDs against.</p>
@@ -1951,12 +1973,14 @@
     <div class="card">
       <h2>Export for Sheet</h2>
       <p class="hint">For your own spreadsheet that feeds the vMix .gtz — a correction pass, not a replacement for
-        Fetch/Commit. Set the row order once below (drag the arrows to match your sheet's rows, or edit a name
-        directly), then Fetch or Commit a match as usual. This card reads whichever one is most current — the
-        reviewed-but-not-yet-committed match if there is one, otherwise the last committed one — and lays out
-        Place and Kills as plain text, one line per row, in the order above. Copy it and paste straight into your
-        sheet's two columns.</p>
-      <datalist id="ff_qmeTeamList"></datalist>
+        Fetch/Commit. Set the row order once below — pick each row's team from the dropdown (arrows reorder them)
+        to match your sheet's own row layout — then Fetch or Commit a match as usual. This card reads whichever
+        one is most current — the reviewed-but-not-yet-committed match if there is one, otherwise the last
+        committed one — and lays out <strong>Placement Points, then Kills</strong> as plain text, one line per row,
+        in the order above. Placement points are the file's own points for that rank (1st=12, 2nd=9, ... down to
+        0), not the raw 1st/2nd/3rd placement number. Copy it and paste straight into your sheet's two columns.
+        The row order is saved with the event, so it survives a page reload; each row shows what it currently
+        resolves to, so a blank cell in the output below is never a mystery.</p>
       <div id="ff_qmeSlots"></div>
       <div class="row" style="gap:12px;margin-top:12px;align-items:flex-start;">
         <div class="team-form" style="flex:1;">
@@ -2232,6 +2256,53 @@
         <button class="secondary" id="ff_booyahStatsHide">Pull Booyah Stats Down</button>
       </div>
       <div class="hint" id="ff_booyahStatsStatus" style="margin-top:6px;"></div>
+
+      <h3 style="margin-top:18px;">Booyah Loadout (Slide 2)</h3>
+      <p class="hint">Second Booyah slide — the winning squad's captured loadout (active/passive/pet/equipment)
+        instead of eliminations/knockdowns/contribution. Its own browser source
+        (overlay/freefire_booyah_loadout.html), so it doesn't contend with the stats slide above — shown one at a
+        time, whichever you push.</p>
+      <div class="row" style="gap:8px;">
+        <button id="ff_booyahLoadoutShow">Push Loadout Slide Up</button>
+        <button class="secondary" id="ff_booyahLoadoutHide">Pull Loadout Slide Down</button>
+      </div>
+      <div class="hint" id="ff_booyahLoadoutStatus" style="margin-top:6px;"></div>
+
+      <h3 style="margin-top:18px;">MVP</h3>
+      <p class="hint">Its own browser source (overlay/freefire_mvp.html) — the standout player of the latest
+        committed match. Auto-picks the highest eliminations, damage typed in during review breaking a tie;
+        override below to pick someone else by hand.</p>
+      <div class="row" style="gap:16px;align-items:flex-end;">
+        <div class="team-form" style="max-width:280px;">
+          <label>Override (blank = auto)</label>
+          <select id="ff_mvpOverride"><option value="">— auto: highest eliminations —</option></select>
+        </div>
+        <button class="secondary" id="ff_mvpOverrideSave">Save Override</button>
+      </div>
+      <div class="row" style="gap:8px;margin-top:8px;">
+        <button id="ff_mvpShow">Push MVP Up</button>
+        <button class="secondary" id="ff_mvpHide">Pull MVP Down</button>
+      </div>
+      <div class="hint" id="ff_mvpStatus" style="margin-top:6px;"></div>
+
+      <h3 style="margin-top:18px;">Game Summary</h3>
+      <p class="hint">Its own browser source (overlay/freefire_game_summary.html) — map, Booyah team, MVP and
+        total kills for the latest committed match, all in one card.</p>
+      <div class="row" style="gap:8px;">
+        <button id="ff_gameSummaryShow">Push Game Summary Up</button>
+        <button class="secondary" id="ff_gameSummaryHide">Pull Game Summary Down</button>
+      </div>
+      <div class="hint" id="ff_gameSummaryStatus" style="margin-top:6px;"></div>
+
+      <h3 style="margin-top:18px;">Elimination &amp; Damage Report</h3>
+      <p class="hint">Its own browser source (overlay/freefire_damage_report.html) — every player from the latest
+        committed match, ranked by eliminations, with damage shown alongside wherever it was typed in during
+        review.</p>
+      <div class="row" style="gap:8px;">
+        <button id="ff_damageReportShow">Push Report Up</button>
+        <button class="secondary" id="ff_damageReportHide">Pull Report Down</button>
+      </div>
+      <div class="hint" id="ff_damageReportStatus" style="margin-top:6px;"></div>
     </div>
   </div>
 
@@ -4886,6 +4957,10 @@ let ffState = null; // this IS the flat freefire state object -- freefire_engine
                      // server_state has no wrapper, unlike MOBA's data.freefire used to be
 let ffHydrated = false;
 let ffPendingMatch = null;
+// uid (string) -> damage typed in during review. Not in the result file or
+// any log the client writes -- see ffHandleMatchResult -- so it's the one
+// stat that has to be typed in by hand before commit.
+let ffReviewDamage = {};
 let ffParsedRoster = null; // {teams:[{name, players:[{uid,ign}]}]} -- staged, not yet saved
 
 function ffEscapeHtml(str){
@@ -4920,6 +4995,7 @@ function ffConnect(){
       }
       ffRenderStandings(ffState);
       ffRenderRoster(ffState);
+      ffRenderTeamNamesList(ffState);
       ffRenderLoadouts(ffState);
       ffRenderLoadoutCapture(ffState);
       ffRenderEvent(ffState);
@@ -4930,6 +5006,7 @@ function ffConnect(){
       ffRenderFullsize(ffState);
       ffRenderCharPickers(ffState);
       ffRenderChampionRush(ffState);
+      ffRenderMvpPicker(ffState);
       ffUpdatePreviewStatus();
       ffBuildPopupDropdowns(ffState);
     } else if(msg.type === "crop_preview"){
@@ -4996,8 +5073,8 @@ let ffRosterDraft = null;
 
 function ffBlankRoster(){
   return { teams: Array.from({length: FF_TEAM_SLOTS}, () => ({
-    name: "", displayName: "", shortName: "", logo: "",
-    players: Array.from({length: FF_PLAYER_SLOTS}, () => ({ ign: "", displayIgn: "", uid: "" })),
+    name: "", displayName: "", shortName: "", logo: "", groupPhoto: "",
+    players: Array.from({length: FF_PLAYER_SLOTS}, () => ({ ign: "", displayIgn: "", uid: "", photo: "" })),
   })) };
 }
 
@@ -5009,8 +5086,9 @@ function ffNormaliseRoster(teams){
     box.displayName = t.displayName || "";
     box.shortName = t.shortName || "";
     box.logo = t.logo || "";
+    box.groupPhoto = t.groupPhoto || "";
     (t.players || []).slice(0, FF_PLAYER_SLOTS).forEach((p, j) => {
-      box.players[j] = { ign: p.ign || "", displayIgn: p.displayIgn || "", uid: p.uid || "" };
+      box.players[j] = { ign: p.ign || "", displayIgn: p.displayIgn || "", uid: p.uid || "", photo: p.photo || "" };
     });
   });
   return draft;
@@ -5040,6 +5118,13 @@ function ffDrawRosterBoxes(){
             background:#0a0d18;border:1px solid #2b3348;${t.logo ? "" : "opacity:0.35;"}">
           <button type="button" class="secondary ff-roster-logo-btn" data-ti="${ti}"
             style="font-size:10px;padding:4px 8px;margin-top:0;">Logo</button>
+          <img id="ff_rosterGroupPhoto_${ti}" src="${t.groupPhoto || ""}"
+            title="Group photo (all players together, used on Booyah/summary graphics)"
+            style="width:34px;height:34px;border-radius:8px;object-fit:cover;flex-shrink:0;
+            background:#0a0d18;border:1px solid #2b3348;${t.groupPhoto ? "" : "opacity:0.35;"}">
+          <button type="button" class="secondary ff-roster-groupphoto-btn" data-ti="${ti}"
+            title="Group photo -- all players together"
+            style="font-size:10px;padding:4px 8px;margin-top:0;">Group Photo</button>
           <button type="button" class="secondary ff-roster-clear-btn" data-ti="${ti}"
             title="Clear this team's name, logo and all its players"
             style="font-size:10px;padding:4px 8px;margin-top:0;margin-left:auto;"
@@ -5052,7 +5137,12 @@ function ffDrawRosterBoxes(){
         <input type="text" class="ff-roster-field" data-ti="${ti}" data-field="shortName"
           placeholder="Short name (small graphics)" value="${ffEscapeHtml(t.shortName)}" style="margin-bottom:8px;">
         ${t.players.map((p, pi) => `
-          <div class="row" style="gap:6px;margin-bottom:5px;">
+          <div class="row" style="gap:6px;margin-bottom:5px;align-items:center;">
+            <img id="ff_rosterPhoto_${ti}_${pi}" src="${p.photo || ""}"
+              style="width:22px;height:22px;border-radius:50%;object-fit:cover;flex-shrink:0;
+              background:#0a0d18;border:1px solid #2b3348;${p.photo ? "" : "opacity:0.3;"}">
+            <button type="button" class="secondary ff-roster-photo-btn" data-ti="${ti}" data-pi="${pi}"
+              title="Player photo" style="font-size:9px;padding:3px 6px;margin-top:0;flex-shrink:0;">Photo</button>
             <input type="text" class="ff-roster-player" data-ti="${ti}" data-pi="${pi}" data-field="ign"
               placeholder="${pi === 4 ? "IGN (sub)" : "IGN " + (pi+1)}" value="${ffEscapeHtml(p.ign)}" style="flex:2;">
             <input type="text" class="ff-roster-player" data-ti="${ti}" data-pi="${pi}" data-field="displayIgn"
@@ -5086,17 +5176,23 @@ function ffDrawRosterBoxes(){
   container.querySelectorAll(".ff-roster-logo-btn").forEach(btn => {
     btn.addEventListener("click", () => ffPickTeamLogo(+btn.dataset.ti));
   });
+  container.querySelectorAll(".ff-roster-groupphoto-btn").forEach(btn => {
+    btn.addEventListener("click", () => ffPickGroupPhoto(+btn.dataset.ti));
+  });
+  container.querySelectorAll(".ff-roster-photo-btn").forEach(btn => {
+    btn.addEventListener("click", () => ffPickPlayerPhoto(+btn.dataset.ti, +btn.dataset.pi));
+  });
   container.querySelectorAll(".ff-roster-clear-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const ti = +btn.dataset.ti;
       const label = ffRosterDraft.teams[ti].name.trim() || `slot ${ti + 1}`;
-      if(!confirm(`Clear ${label}? This wipes its name, short name, logo and all 5 player rows.`)) return;
+      if(!confirm(`Clear ${label}? This wipes its name, short name, logo, group photo and all 5 player rows.`)) return;
       // Blank the slot rather than removing it -- the grid is deliberately
       // 12 fixed boxes so a gap reads as "team still to fill in", and
       // splicing would shuffle every team below into a different box.
       ffRosterDraft.teams[ti] = {
-        name: "", shortName: "", logo: "",
-        players: Array.from({length: FF_PLAYER_SLOTS}, () => ({ ign: "", uid: "" })),
+        name: "", shortName: "", logo: "", groupPhoto: "",
+        players: Array.from({length: FF_PLAYER_SLOTS}, () => ({ ign: "", uid: "", photo: "" })),
       };
       stage();
       ffDrawRosterBoxes();
@@ -5109,7 +5205,7 @@ function ffDrawRosterBoxes(){
  * out on every broadcast -- the same payload bloat that had to be undone on
  * the Valorant side after it showed up as real bandwidth cost mid-match.
  * 128px is larger than any graphic actually renders them at. */
-function ffPickTeamLogo(teamIndex){
+function ffPickImage(maxSize, onDone){
   const input = document.createElement("input");
   input.type = "file";
   input.accept = "image/*";
@@ -5120,21 +5216,48 @@ function ffPickTeamLogo(teamIndex){
     reader.onload = () => {
       const img = new Image();
       img.onload = () => {
-        const max = 128;
-        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
         const canvas = document.createElement("canvas");
         canvas.width = Math.round(img.width * scale);
         canvas.height = Math.round(img.height * scale);
         canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-        ffRosterDraft.teams[teamIndex].logo = canvas.toDataURL("image/png");
-        ffDrawRosterBoxes();
-        document.getElementById("ff_rosterSave").style.display = "inline-block";
+        onDone(canvas.toDataURL("image/png"));
       };
       img.src = reader.result;
     };
     reader.readAsDataURL(file);
   });
   input.click();
+}
+
+/* Logos, group photos and player photos all ride along in state_sync to
+ * every connected page, so each is capped at the largest size any graphic
+ * actually renders it at -- the same payload-bloat reasoning as the logo
+ * cap above. A logo is a small badge (128px); a group photo has 4-5 faces
+ * worth of detail to keep (480px); a player photo can fill a whole MVP
+ * card (320px). */
+function ffPickTeamLogo(teamIndex){
+  ffPickImage(128, (dataUrl) => {
+    ffRosterDraft.teams[teamIndex].logo = dataUrl;
+    ffDrawRosterBoxes();
+    document.getElementById("ff_rosterSave").style.display = "inline-block";
+  });
+}
+
+function ffPickGroupPhoto(teamIndex){
+  ffPickImage(480, (dataUrl) => {
+    ffRosterDraft.teams[teamIndex].groupPhoto = dataUrl;
+    ffDrawRosterBoxes();
+    document.getElementById("ff_rosterSave").style.display = "inline-block";
+  });
+}
+
+function ffPickPlayerPhoto(teamIndex, playerIndex){
+  ffPickImage(320, (dataUrl) => {
+    ffRosterDraft.teams[teamIndex].players[playerIndex].photo = dataUrl;
+    ffDrawRosterBoxes();
+    document.getElementById("ff_rosterSave").style.display = "inline-block";
+  });
 }
 
 function ffParseRosterText(text){
@@ -5200,11 +5323,16 @@ function ffFillRosterFromResult(msg){
   const norm = s => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   ffRosterDraft = ffNormaliseRoster(teams.map(t => {
     const carried = previous.find(p => norm(p.name) === norm(t.fileTeamName || t.teamName));
+    const carriedPlayers = (carried && carried.players) || [];
     return {
       name: t.teamName || t.fileTeamName || "",
       shortName: t.shortName || (carried ? carried.shortName : ""),
       logo: t.logo || (carried ? carried.logo : ""),
-      players: (t.players || []).map(p => ({ ign: p.name || "", uid: p.uid || "" })),
+      groupPhoto: carried ? carried.groupPhoto : "",
+      players: (t.players || []).map(p => {
+        const carriedPlayer = carriedPlayers.find(cp => cp.uid && cp.uid === String(p.uid || ""));
+        return { ign: p.name || "", uid: p.uid || "", photo: carriedPlayer ? carriedPlayer.photo : "" };
+      }),
     };
   }));
   ffParsedRoster = ffRosterDraft;
@@ -5274,8 +5402,11 @@ document.getElementById("ff_rosterFromResult").addEventListener("click", () => {
 });
 let ffRosterFromResultPending = false;
 
-document.getElementById("ff_rosterSave").addEventListener("click", () => {
-  if(!ffRosterDraft || !ffState) return;
+/* Shared by the Pre-Match "Save Roster" button and the Team Names tab's
+ * "Apply & Save" -- both stage edits into ffRosterDraft first, this is
+ * just the one path that actually pushes it to the engine. */
+function ffSaveRoster(){
+  if(!ffRosterDraft || !ffState) return false;
   // Empty boxes are dropped on save -- the 12 slots exist so gaps are
   // visible while editing, but a nameless team has nothing to match
   // against and would only pollute the roster the engine resolves results
@@ -5284,16 +5415,97 @@ document.getElementById("ff_rosterSave").addEventListener("click", () => {
     .filter(t => (t.name || "").trim())
     .map(t => ({
       name: t.name.trim(),
+      displayName: (t.displayName || "").trim(),
       shortName: (t.shortName || "").trim(),
       logo: t.logo || "",
+      groupPhoto: t.groupPhoto || "",
       players: t.players.filter(p => (p.ign || "").trim() || (p.uid || "").trim())
-        .map(p => ({ ign: (p.ign || "").trim(), uid: (p.uid || "").trim() })),
+        .map(p => ({
+          ign: (p.ign || "").trim(), displayIgn: (p.displayIgn || "").trim(),
+          uid: (p.uid || "").trim(), photo: p.photo || "",
+        })),
     })) };
   ffSendManualUpdate(ffState);
-  const kept = ffState.roster.teams.length;
+  ffParsedRoster = null;   // saved state is now the source of truth again
+  return ffState.roster.teams.length;
+}
+
+document.getElementById("ff_rosterSave").addEventListener("click", () => {
+  const kept = ffSaveRoster();
+  if(kept === false) return;
   document.getElementById("ff_rosterStatus").textContent =
     `Roster saved — ${kept} team${kept === 1 ? "" : "s"}.`;
-  ffParsedRoster = null;   // saved state is now the source of truth again
+});
+
+/* ---------- Team Names (quick list) ----------
+   A faster on-ramp to the same roster.teams[i].name/shortName the full
+   Pre-Match grid edits -- "Full Name, Short Name" per line, matched to
+   slots by position, so a plain paste from a tournament sheet gets team
+   matching working before anyone has typed a single IGN or UID. Both are
+   needed because a player joining the room sometimes registers the squad
+   under its short/abbreviated form rather than the full name -- see
+   match_roster_team in freefire_engine.py, which already checks a file's
+   team name against BOTH name and shortName, so populating shortName
+   here is what makes that path actually catch anything. Nothing new is
+   stored: this reads and writes the exact same ffRosterDraft/roster.teams
+   the grid does, just through a friendlier input surface. */
+
+// Tab first: pasting two spreadsheet columns produces a tab-separated
+// line, and a short name containing a literal comma is far more likely
+// than one containing a tab.
+function ffTeamNamesSplitLine(line){
+  const sep = line.includes("\t") ? "\t" : ",";
+  const parts = line.split(sep);
+  return { name: (parts[0] || "").trim(), shortName: (parts[1] || "").trim() };
+}
+
+function ffTeamNamesToText(teams){
+  return (teams || [])
+    .map(t => t.shortName ? `${t.name || ""}, ${t.shortName}` : (t.name || ""))
+    .join("\n").replace(/\n+$/, "");
+}
+
+function ffRenderTeamNamesList(ff){
+  const el = document.getElementById("ff_teamNamesList");
+  if(!el || document.activeElement === el) return;   // don't clobber a mid-paste edit
+  // Prefer the staged draft if one exists (an unsaved edit from the
+  // Pre-Match grid should be reflected here too), otherwise the saved
+  // roster.
+  const teams = (ffRosterDraft && ffRosterDraft.teams) ||
+    (ff.roster && ff.roster.teams) || [];
+  const text = ffTeamNamesToText(teams);
+  if(el.value !== text) el.value = text;
+}
+
+document.getElementById("ff_teamNamesApply").addEventListener("click", () => {
+  if(!ffState) return;
+  if(!ffRosterDraft) ffRosterDraft = ffNormaliseRoster((ffState.roster && ffState.roster.teams) || []);
+  const lines = document.getElementById("ff_teamNamesList").value.split("\n");
+  let changed = 0;
+  lines.slice(0, FF_TEAM_SLOTS).forEach((line, i) => {
+    if(!line.trim()) return;   // a blank line leaves that slot untouched, see below
+    const { name, shortName } = ffTeamNamesSplitLine(line);
+    // A blank field (name or short name) leaves what's already in that
+    // slot untouched rather than clearing it -- a shorter list than 12,
+    // or a line with no short name given, almost always means "not
+    // decided yet", not "wipe it". Use the roster grid's own per-slot
+    // Clear button to actually blank one.
+    if(name && ffRosterDraft.teams[i].name !== name){ ffRosterDraft.teams[i].name = name; changed++; }
+    if(shortName && ffRosterDraft.teams[i].shortName !== shortName){ ffRosterDraft.teams[i].shortName = shortName; changed++; }
+  });
+  ffParsedRoster = ffRosterDraft;
+  ffDrawRosterBoxes();
+  const kept = ffSaveRoster();
+  document.getElementById("ff_teamNamesStatus").textContent = kept === false
+    ? "Nothing to save yet."
+    : `Saved — ${changed} field${changed === 1 ? "" : "s"} updated, ${kept} team${kept === 1 ? "" : "s"} total.`;
+});
+
+document.getElementById("ff_teamNamesReload").addEventListener("click", () => {
+  document.getElementById("ff_teamNamesList").value =
+    ffTeamNamesToText((ffState && ffState.roster && ffState.roster.teams) || []);
+  document.getElementById("ff_teamNamesStatus").textContent =
+    "Reloaded from the last saved roster — any unsaved edits here were discarded.";
 });
 
 let ffLastRosterKey = "";
@@ -5818,31 +6030,74 @@ function ffHandleMatchResult(msg){
     return;
   }
   ffPendingMatch = msg;
+  ffReviewDamage = {};
   if(typeof ffQmeUpdateExport === "function") ffQmeUpdateExport();
+
+  // needsUidReview comes from the engine's cross-check between the file's
+  // team name and its players' UIDs (see match_roster_team_by_uid /
+  // apply_roster_overrides in freefire_engine.py) -- exactly the case
+  // where a non-league lobby's auto-generated team name could otherwise
+  // put a squad's score on the wrong roster team's line, silently. This
+  // is surfaced regardless of the unmatchedPolicy setting: it's a
+  // possible-misattribution warning, not the ordinary "unregistered team"
+  // case that policy controls.
+  const flagged = msg.teams.filter(t => t.needsUidReview);
+  const warningBanner = flagged.length ? `
+    <div style="background:rgba(217,119,6,0.14);border:1px solid #d97706;border-radius:8px;
+      padding:10px 14px;margin-bottom:12px;">
+      <div style="color:#fbbf24;font-weight:700;margin-bottom:4px;">
+        ⚠ ${flagged.length} team${flagged.length === 1 ? "" : "s"} need a manual check before you commit:</div>
+      ${flagged.map(t => `<div style="color:#fde68a;font-size:12px;margin-top:3px;">
+        <strong>${ffEscapeHtml(t.fileTeamName || t.teamName)}</strong> — ${ffEscapeHtml(t.reviewReason || "")}</div>`).join("")}
+    </div>` : "";
+
   document.getElementById("ff_matchStatus").textContent =
+    (flagged.length ? `⚠ ${flagged.length} team(s) flagged for review — see below. ` : "") +
     `Loaded ${msg.fileName} — ${msg.teams.length} teams, matchId ${msg.matchId}. Review below, then commit.`;
   document.getElementById("ff_reviewMatchId").textContent = `matchId ${msg.matchId} — ${msg.fileName}`;
   const rows = msg.teams.map(t => {
-    const playerLine = t.players.map(p => `${ffEscapeHtml(p.name)} (${p.uid}): ${p.kills}k`).join(", ");
+    const playerRows = t.players.map(p => `
+      <tr style="border-top:none;">
+        <td></td>
+        <td colspan="2" style="padding:2px 6px;color:#98a3bd;font-size:11px;">
+          ${ffEscapeHtml(p.name)} (${p.uid}) — ${p.kills}k</td>
+        <td colspan="2" style="padding:2px 6px;">
+          <input type="number" min="0" class="ff-review-damage" data-uid="${ffEscapeHtml(String(p.uid))}"
+            placeholder="Damage" style="width:90px;font-size:11px;padding:3px 6px;">
+        </td>
+      </tr>`).join("");
+    const warnRow = t.needsUidReview ? `
+      <tr style="border-top:none;">
+        <td></td>
+        <td colspan="4" style="padding:2px 6px 6px;color:#fbbf24;font-size:11px;font-weight:700;">
+          ⚠ ${ffEscapeHtml(t.reviewReason || "Needs manual verification.")}</td>
+      </tr>` : "";
     return `
-      <tr style="border-top:1px solid #2b3348;">
+      <tr style="border-top:1px solid #2b3348;${t.needsUidReview ? "background:rgba(217,119,6,0.08);" : ""}">
         <td style="padding:6px;">${t.rank}</td>
-        <td style="padding:6px;font-weight:700;">${ffEscapeHtml(t.teamName)}</td>
+        <td style="padding:6px;font-weight:700;">${t.needsUidReview ? "⚠ " : ""}${ffEscapeHtml(t.teamName)}</td>
         <td style="padding:6px;">${t.killScore}</td>
         <td style="padding:6px;">${t.rankScore}</td>
         <td style="padding:6px;font-weight:700;">${t.totalScore}</td>
-      </tr>
-      <tr style="border-top:none;">
-        <td></td>
-        <td colspan="4" style="padding:0 6px 8px;color:#6b7590;font-size:11px;">${playerLine}</td>
-      </tr>`;
+      </tr>${warnRow}${playerRows}`;
   }).join("");
   document.getElementById("ff_reviewTable").innerHTML = `
+    ${warningBanner}
+    <div class="team-form" style="max-width:180px;margin-bottom:10px;">
+      <label>Match duration (optional)</label>
+      <input type="text" id="ff_reviewDuration" placeholder="e.g. 18:42">
+    </div>
     <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#98a3bd;">
       <th style="padding:6px;">Rank</th><th style="padding:6px;">Team</th>
       <th style="padding:6px;">Kill Pts</th><th style="padding:6px;">Rank Pts</th>
       <th style="padding:6px;">Total Pts</th>
-    </tr></thead><tbody>${rows}</tbody></table>`;
+    </tr></thead><tbody>${rows}</tbody></table>
+    <p class="hint" style="margin-top:8px;">Damage isn't in the result file or any log the client writes — type it
+      in per player above if you have it, or leave blank. It rides along once you commit and feeds the
+      Elimination &amp; Damage Report and MVP graphics.</p>`;
+  document.getElementById("ff_reviewTable").querySelectorAll(".ff-review-damage").forEach(el => {
+    el.addEventListener("input", () => { ffReviewDamage[el.dataset.uid] = el.value; });
+  });
   document.getElementById("ff_reviewCard").style.display = "block";
 }
 
@@ -5864,9 +6119,20 @@ document.getElementById("ff_commitMatch").addEventListener("click", () => {
     document.getElementById("ff_matchStatus").textContent = `Match ${ffPendingMatch.matchId} is already in standings — skipped duplicate.`;
     return;
   }
+  // Damage typed in during review merges onto the parsed players here --
+  // the only field in a committed match that never came off disk.
+  const teams = ffPendingMatch.teams.map(t => Object.assign({}, t, {
+    players: t.players.map(p => {
+      const typed = ffReviewDamage[String(p.uid)];
+      if(typed === undefined || typed === "") return p;
+      return Object.assign({}, p, { damage: Number(typed) || 0 });
+    }),
+  }));
+  const durationEl = document.getElementById("ff_reviewDuration");
+  const duration = durationEl ? durationEl.value.trim() : "";
   ffState.matches.push({
     matchId: ffPendingMatch.matchId, timestamp: ffPendingMatch.timestamp,
-    context, teams: ffPendingMatch.teams,
+    context, teams, duration,
   });
   ffState.currentMatchId = ffPendingMatch.matchId;
   if(context && !ffState.knownContexts.includes(context)) ffState.knownContexts.push(context);
@@ -5874,6 +6140,7 @@ document.getElementById("ff_commitMatch").addEventListener("click", () => {
   document.getElementById("ff_matchStatus").textContent = `Match ${ffPendingMatch.matchId} added to standings.`;
   document.getElementById("ff_reviewCard").style.display = "none";
   ffPendingMatch = null;
+  ffReviewDamage = {};
   if(typeof ffQmeUpdateExport === "function") ffQmeUpdateExport();
 });
 
@@ -6355,6 +6622,18 @@ const FF_PREVIEWS = [
   { id: "booyah", label: "Booyah Team Stats", file: "freefire_booyah.html",
     flag: "booyahStatsVisible", show: "booyah_stats_show", hide: "booyah_stats_hide",
     note: "The winning squad of the last committed match." },
+  { id: "booyahLoadout", label: "Booyah Loadout (Slide 2)", file: "freefire_booyah_loadout.html",
+    flag: "booyahLoadoutVisible", show: "booyah_loadout_show", hide: "booyah_loadout_hide",
+    note: "The winning squad's captured character/weapon/pet/equipment loadout." },
+  { id: "mvp", label: "MVP", file: "freefire_mvp.html",
+    flag: "mvpVisible", show: "mvp_show", hide: "mvp_hide",
+    note: "Standout player of the last committed match — auto-picked or overridden on the Graphic tab." },
+  { id: "gameSummary", label: "Game Summary", file: "freefire_game_summary.html",
+    flag: "gameSummaryVisible", show: "game_summary_show", hide: "game_summary_hide",
+    note: "Map, Booyah team, MVP and total kills for the last committed match." },
+  { id: "damageReport", label: "Elimination & Damage Report", file: "freefire_damage_report.html",
+    flag: "damageReportVisible", show: "damage_report_show", hide: "damage_report_hide",
+    note: "Every player from the last committed match, ranked by eliminations." },
   { id: "elim", label: "Team Eliminated", file: "freefire_team_eliminated.html",
     flag: null, show: null, hide: "team_eliminated_hide",
     note: "Fires by itself when a squad is wiped, and hides after a few seconds. Use the Live In-Game Ops tab to trigger one by hand." },
@@ -6426,13 +6705,15 @@ document.getElementById("ff_previewPull").addEventListener("click", () => {
   ffWs.send(JSON.stringify({ type: entry.hide }));
 });
 
-/* ---------- Export for Sheet: Place+Kills, ready to paste out ----------
+/* ---------- Export for Sheet: Placement Points+Kills, ready to paste ----
    The reverse of what was here before. Reads whichever match is most
    current -- the one under review (ffPendingMatch) if there is one,
-   otherwise the last COMMITTED one -- and lays out Place and Kills as
-   plain tab-separated text, one line per configured row, so it can be
-   copied straight into an external sheet (the operator's own, which
-   feeds a vMix .gtz separately from this dashboard).
+   otherwise the last COMMITTED one -- and lays out Placement Points
+   (rankScore -- the file's own points for that rank, NOT the raw
+   1st/2nd/3rd placement number) and Kills as plain tab-separated text,
+   one line per configured row, so it can be copied straight into an
+   external sheet (the operator's own, which feeds a vMix .gtz separately
+   from this dashboard).
 
    The row order below is just that: an ORDER. It exists so the output
    lines land in the same sequence as the sheet's own rows, nothing more
@@ -6440,35 +6721,106 @@ document.getElementById("ff_previewPull").addEventListener("click", () => {
    builds a match to commit. */
 const FF_QME_SLOTS = 12;
 let ffQmeTeams = Array.from({length: FF_QME_SLOTS}, () => "");
-let ffQmeSeeded = false;
+// Has the persisted row order (ff.qmeRowOrder) been pulled in yet this
+// page load? Guards against the FIRST state_sync (which may arrive before
+// the operator's touched anything) stomping a value that was already
+// loaded, while still letting every later sync top up genuinely-blank
+// slots as new teams get named -- see ffQmeSeedFromRoster.
+let ffQmeLoadedFromServer = false;
+
+function ffQmeSaveRowOrder(){
+  if(!ffState) return;
+  ffState.qmeRowOrder = ffQmeTeams.slice();
+  ffSendManualUpdate(ffState);
+}
+
+// name -> {rank, killScore} for the row currently backing each slot in the
+// LAST render, so ffQmeRender can show what a row currently resolves to
+// without duplicating the lookup logic in ffQmeUpdateExport.
+function ffQmeMatchIndex(){
+  const source = ffQmeSourceMatch();
+  const byName = {};
+  if(source){
+    source.teams.forEach(t => {
+      [t.teamName, t.fileTeamName].forEach(n => {
+        const key = normalize_for_matchJs(n);
+        if(key) byName[key] = t;
+      });
+    });
+  }
+  return { source, byName };
+}
+
+// Mirrors the engine's normalize_for_match (freefire_engine.py) -- strip
+// everything but letters/digits, lowercase. A plain uppercase-trim
+// compare, which this replaces, treated "TSG ARMY" and "TSG  Army" (an
+// extra space) as different teams; this doesn't.
+function normalize_for_matchJs(value){
+  return (value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
 
 function ffQmeRender(){
-  document.getElementById("ff_qmeSlots").innerHTML = ffQmeTeams.map((name, i) => `
-    <div class="ff-qme-row">
-      <div class="ff-qme-order">
-        <button type="button" class="ff-qme-up" data-i="${i}" ${i === 0 ? "disabled" : ""}>▲</button>
-        <button type="button" class="ff-qme-down" data-i="${i}" ${i === FF_QME_SLOTS - 1 ? "disabled" : ""}>▼</button>
-      </div>
-      <div class="ff-qme-num">Row ${i + 1}</div>
-      <input type="text" class="ff-qme-team" data-i="${i}" list="ff_qmeTeamList"
-        placeholder="Team name" value="${ffEscapeHtml(name)}">
-    </div>`).join("");
+  const roster = ((ffState && ffState.roster && ffState.roster.teams) || []).filter(t => t.name);
+  const { byName } = ffQmeMatchIndex();
+
+  document.getElementById("ff_qmeSlots").innerHTML = ffQmeTeams.map((name, i) => {
+    const key = normalize_for_matchJs(name);
+    // A saved name that no longer matches any current roster team (the
+    // team got renamed, or the roster was rebuilt) still needs to show up
+    // as an option -- otherwise the <select> silently falls back to its
+    // first option and the operator has no idea their row order changed
+    // out from under them.
+    const stale = name && !roster.some(t => normalize_for_matchJs(t.name) === key);
+    const options = ['<option value="">— unassigned —</option>']
+      .concat(stale ? [`<option value="${ffEscapeHtml(name)}" selected>⚠ "${ffEscapeHtml(name)}" (not in current roster)</option>`] : [])
+      .concat(roster.map(t => `<option value="${ffEscapeHtml(t.name)}" ${t.name === name ? "selected" : ""}>${ffEscapeHtml(t.name)}</option>`));
+
+    const match = key ? byName[key] : null;
+    const status = !name
+      ? '<span style="color:#6b7590;">—</span>'
+      : match
+        ? `<span style="color:#4ade80;">✓ #${match.rank != null ? match.rank : "?"} → ${match.rankScore != null ? match.rankScore : "?"} pts · ${match.killScore != null ? match.killScore : "?"} kills</span>`
+        : '<span style="color:#fbbf24;">⚠ no result for this team yet</span>';
+
+    return `
+      <div class="ff-qme-row">
+        <div class="ff-qme-order">
+          <button type="button" class="ff-qme-up" data-i="${i}" ${i === 0 ? "disabled" : ""}>▲</button>
+          <button type="button" class="ff-qme-down" data-i="${i}" ${i === FF_QME_SLOTS - 1 ? "disabled" : ""}>▼</button>
+        </div>
+        <div class="ff-qme-num">Row ${i + 1}</div>
+        <select class="ff-qme-team" data-i="${i}" style="flex:1;">${options.join("")}</select>
+        <div style="min-width:190px;font-size:12px;">${status}</div>
+      </div>`;
+  }).join("");
   ffQmeUpdateExport();
 }
 
-// Seeded once from the roster, in roster order -- the operator can then
-// reorder or retype from there to match their sheet. Re-seeding on every
-// state_sync would wipe an in-progress reorder, so it only fires the
-// first time a roster shows up.
+// Pulls in the persisted row order once per page load, then on every sync
+// tops up any slot that's still genuinely blank (never assigned by the
+// operator) with a roster team not already used elsewhere in the list --
+// so a team named AFTER this card was first opened still gets a row
+// instead of staying blank until someone notices and picks it by hand.
+// Slots the operator has actually set (blank or not) are never touched.
 function ffQmeSeedFromRoster(ff){
   const teams = ((ff.roster && ff.roster.teams) || []).filter(t => t.name).map(t => t.name);
-  if(!teams.length) return;
-  document.getElementById("ff_qmeTeamList").innerHTML =
-    teams.map(n => '<option value="' + ffEscapeHtml(n) + '">').join("");
-  if(ffQmeSeeded) return;
-  ffQmeSeeded = true;
-  ffQmeTeams = Array.from({length: FF_QME_SLOTS}, (_, i) => teams[i] || "");
+  if(!ffQmeLoadedFromServer){
+    ffQmeLoadedFromServer = true;
+    const saved = ff.qmeRowOrder || [];
+    if(saved.length) ffQmeTeams = Array.from({length: FF_QME_SLOTS}, (_, i) => saved[i] || "");
+  }
+  const used = new Set(ffQmeTeams.filter(Boolean).map(normalize_for_matchJs));
+  let toppedUp = false;
+  for(let i = 0; i < FF_QME_SLOTS; i++){
+    if(ffQmeTeams[i]) continue;
+    const next = teams.find(n => !used.has(normalize_for_matchJs(n)));
+    if(!next) break;
+    ffQmeTeams[i] = next;
+    used.add(normalize_for_matchJs(next));
+    toppedUp = true;
+  }
   ffQmeRender();
+  if(toppedUp) ffQmeSaveRowOrder();
 }
 
 document.addEventListener("click", (e) => {
@@ -6480,12 +6832,14 @@ document.addEventListener("click", (e) => {
   if(j < 0 || j >= FF_QME_SLOTS) return;
   [ffQmeTeams[i], ffQmeTeams[j]] = [ffQmeTeams[j], ffQmeTeams[i]];
   ffQmeRender();
+  ffQmeSaveRowOrder();
 });
 
-document.addEventListener("input", (e) => {
+document.addEventListener("change", (e) => {
   if(!e.target.classList.contains("ff-qme-team")) return;
   ffQmeTeams[Number(e.target.dataset.i)] = e.target.value;
-  ffQmeUpdateExport();
+  ffQmeRender();
+  ffQmeSaveRowOrder();
 });
 
 // Which match to read from: the one currently under review wins, since
@@ -6510,7 +6864,7 @@ function ffQmeSourceMatch(){
 function ffQmeUpdateExport(){
   const label = document.getElementById("ff_qmeSourceLabel");
   const output = document.getElementById("ff_qmeOutput");
-  const source = ffQmeSourceMatch();
+  const { source, byName } = ffQmeMatchIndex();
   if(!source){
     label.textContent = "No match to export yet — fetch or commit one first.";
     output.value = "";
@@ -6518,19 +6872,18 @@ function ffQmeUpdateExport(){
   }
   label.textContent = "Exporting from: " + source.label;
 
-  const byName = {};
-  source.teams.forEach(t => {
-    const key = (t.teamName || t.fileTeamName || "").trim().toUpperCase();
-    if(key) byName[key] = t;
-  });
-
   const lines = ffQmeTeams.map(name => {
-    const t = name ? byName[name.trim().toUpperCase()] : null;
+    const t = name ? byName[normalize_for_matchJs(name)] : null;
     // A blank line for a row that didn't match, rather than skipping it
     // outright -- skipping would shift every row below it out of
-    // alignment with the sheet, which is worse than one empty cell.
+    // alignment with the sheet, which is worse than one empty cell. The
+    // per-row status next to each dropdown above says exactly why.
     if(!t) return "";
-    return (t.rank != null ? t.rank : "") + "\t" + (t.killScore != null ? t.killScore : "");
+    // rankScore, NOT rank -- rank is the raw 1st/2nd/9th placement, while
+    // rankScore is the POINTS the file already assigns for that placement
+    // (Free Fire's own table: 1st=12, 2nd=9, ... 11th/12th=0). A sheet
+    // computing standings needs the points, not the placement number.
+    return (t.rankScore != null ? t.rankScore : "") + "\t" + (t.killScore != null ? t.killScore : "");
   });
   output.value = lines.join("\n");
 }
@@ -6810,6 +7163,73 @@ function ffSetBooyahStats(visible){
 }
 document.getElementById("ff_booyahStatsShow").addEventListener("click", () => ffSetBooyahStats(true));
 document.getElementById("ff_booyahStatsHide").addEventListener("click", () => ffSetBooyahStats(false));
+
+function ffSetBooyahLoadout(visible){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffWs.send(JSON.stringify({ type: visible ? "booyah_loadout_show" : "booyah_loadout_hide" }));
+  document.getElementById("ff_booyahLoadoutStatus").textContent =
+    visible ? "Loadout slide pushed up." : "Loadout slide pulled down.";
+}
+document.getElementById("ff_booyahLoadoutShow").addEventListener("click", () => ffSetBooyahLoadout(true));
+document.getElementById("ff_booyahLoadoutHide").addEventListener("click", () => ffSetBooyahLoadout(false));
+
+// Latest match's players, so the operator can override the auto MVP pick
+// by hand. Rebuilt only when the roster of players/uids or the saved
+// override actually changes -- this select can be open mid-choice while
+// the live kill feed keeps pushing unrelated state_sync updates.
+let ffLastMvpKey = "";
+function ffRenderMvpPicker(ff){
+  const matches = ff.matches || [];
+  const latest = matches.length ? matches[matches.length - 1] : null;
+  const players = [];
+  (latest ? latest.teams || [] : []).forEach(t => {
+    (t.players || []).forEach(p => players.push({ uid: p.uid, name: p.name, team: t.teamName }));
+  });
+  const key = JSON.stringify(players) + "|" + (ff.mvpOverride || "");
+  if(key === ffLastMvpKey) return;
+  ffLastMvpKey = key;
+  const sel = document.getElementById("ff_mvpOverride");
+  if(!sel || document.activeElement === sel) return;
+  sel.innerHTML = '<option value="">— auto: highest eliminations —</option>' +
+    players.map(p => '<option value="' + ffEscapeHtml(String(p.uid)) + '">' +
+      ffEscapeHtml(p.name) + ' (' + ffEscapeHtml(p.team) + ')</option>').join("");
+  sel.value = ff.mvpOverride || "";
+}
+
+document.getElementById("ff_mvpOverrideSave").addEventListener("click", () => {
+  if(!ffState) return;
+  ffState.mvpOverride = document.getElementById("ff_mvpOverride").value;
+  ffSendManualUpdate(ffState);
+  const status = document.getElementById("ff_mvpStatus");
+  status.textContent = ffState.mvpOverride ? "MVP override saved." : "MVP override cleared — back to auto.";
+  setTimeout(() => { status.textContent = ""; }, 4000);
+});
+
+function ffSetMvp(visible){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffWs.send(JSON.stringify({ type: visible ? "mvp_show" : "mvp_hide" }));
+  document.getElementById("ff_mvpStatus").textContent = visible ? "MVP pushed up." : "MVP pulled down.";
+}
+document.getElementById("ff_mvpShow").addEventListener("click", () => ffSetMvp(true));
+document.getElementById("ff_mvpHide").addEventListener("click", () => ffSetMvp(false));
+
+function ffSetGameSummary(visible){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffWs.send(JSON.stringify({ type: visible ? "game_summary_show" : "game_summary_hide" }));
+  document.getElementById("ff_gameSummaryStatus").textContent =
+    visible ? "Game summary pushed up." : "Game summary pulled down.";
+}
+document.getElementById("ff_gameSummaryShow").addEventListener("click", () => ffSetGameSummary(true));
+document.getElementById("ff_gameSummaryHide").addEventListener("click", () => ffSetGameSummary(false));
+
+function ffSetDamageReport(visible){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffWs.send(JSON.stringify({ type: visible ? "damage_report_show" : "damage_report_hide" }));
+  document.getElementById("ff_damageReportStatus").textContent =
+    visible ? "Report pushed up." : "Report pulled down.";
+}
+document.getElementById("ff_damageReportShow").addEventListener("click", () => ffSetDamageReport(true));
+document.getElementById("ff_damageReportHide").addEventListener("click", () => ffSetDamageReport(false));
 
 ffQmeRender();
 buildStatGrid();
@@ -8728,6 +9148,10 @@ const OVERLAY_LINKS = [
   {game:"Free Fire", name:"Scoreboard", file:"overlay/freefire_scoreboard.html"},
   {game:"Free Fire", name:"Points Table", file:"overlay/freefire_points_table.html"},
   {game:"Free Fire", name:"Booyah", file:"overlay/freefire_booyah.html"},
+  {game:"Free Fire", name:"Booyah Loadout (Slide 2)", file:"overlay/freefire_booyah_loadout.html"},
+  {game:"Free Fire", name:"MVP", file:"overlay/freefire_mvp.html"},
+  {game:"Free Fire", name:"Game Summary", file:"overlay/freefire_game_summary.html"},
+  {game:"Free Fire", name:"Elimination & Damage Report", file:"overlay/freefire_damage_report.html"},
   {game:"Free Fire", name:"Headshot Hunter", file:"overlay/freefire_headshot_hunter.html"},
   {game:"Free Fire", name:"Team Eliminated", file:"overlay/freefire_team_eliminated.html"},
   {game:"Free Fire", name:"Alive Status (live side table)", file:"overlay/freefire_alive_status.html"},
