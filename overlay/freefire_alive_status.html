@@ -95,22 +95,53 @@
   .row.out .name { opacity: 0.55; }
   .row.out .logo img { filter: grayscale(1); opacity: 0.5; }
 
-  /* Plays once, the moment a row flips from alive to eliminated --
-     NOT on every render, just that one transition. A quick bright
-     sweep across the row (not the pip alone) is what reads as "this
-     just happened" on a broadcast; the permanent dim above is what
-     shows afterwards. */
+  /* Rows slide to their new slot instead of snapping. This only works
+     because a row's element PERSISTS between updates (see rowEls in the
+     script) -- the old version rebuilt all twelve from scratch on every
+     change, so there was never an old position to animate from. */
+  .row { transition: top 600ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+  .row.no-anim { transition: none; }
+
+  /* ---- the elimination flyby ----------------------------------------
+     Runs on the row that just went out, BEFORE anything re-sorts: the
+     word sweeps across, and only once it's gone does the table reorder
+     (see the hold in applyRows). Two copies of the text, the back one
+     offset and dimmed, give the motion-trail look without needing a
+     video or sprite sheet. Clipped to the row so it never bleeds into
+     the rows above and below while it travels. */
+  .flyby {
+    position: absolute; inset: 0; overflow: hidden;
+    pointer-events: none; display: none;
+  }
+  .flyby.on { display: block; }
+  .flyby .word {
+    position: absolute; top: 50%; left: 0;
+    transform: translate(-120%, -50%);
+    font-style: italic; font-weight: 900; font-size: 26px;
+    letter-spacing: 1px; white-space: nowrap;
+    color: #ffffff; text-shadow: 0 0 18px rgba(255, 120, 0, 0.9);
+  }
+  .flyby .word.trail {
+    color: #ff7a00; opacity: 0.55; filter: blur(1px);
+  }
+  .flyby.on .word       { animation: ff-flyby 1150ms cubic-bezier(0.16, 0.84, 0.3, 1) both; }
+  .flyby.on .word.trail { animation: ff-flyby 1150ms cubic-bezier(0.16, 0.84, 0.3, 1) both;
+                          animation-delay: 55ms; }
+  @keyframes ff-flyby {
+    0%   { transform: translate(-130%, -50%) skewX(-12deg); opacity: 0; }
+    18%  { opacity: 1; }
+    55%  { transform: translate(28%, -50%) skewX(-12deg); opacity: 1; }
+    100% { transform: translate(150%, -50%) skewX(-12deg); opacity: 0; }
+  }
+
+  /* The row itself flares red under the flyby, then settles into the
+     permanent dim above. */
   @keyframes ff-elim-flash {
     0%   { box-shadow: inset 0 0 0 999px rgba(220, 4, 7, 0); }
-    15%  { box-shadow: inset 0 0 0 999px rgba(220, 4, 7, 0.55); }
+    20%  { box-shadow: inset 0 0 0 999px rgba(220, 4, 7, 0.5); }
     100% { box-shadow: inset 0 0 0 999px rgba(220, 4, 7, 0); }
   }
-  .row.just-eliminated { animation: ff-elim-flash 900ms ease-out; }
-
-  /* Rows slide to their new slot instead of snapping -- an eliminated
-     team sinking below the alive block should read as a movement, not
-     a cut. */
-  .row { transition: top 550ms ease; }
+  .row.just-eliminated { animation: ff-elim-flash 1150ms ease-out; }
 </style>
 </head>
 <body>
@@ -155,34 +186,27 @@ function escapeHtml(s){
   ));
 }
 
-/* Alive teams sort first (by the event standings, same as before --
-   falls back to log order pre-game-one). Eliminated teams sink BELOW
-   every alive team, ordered by their own placement -- link_live_teams()
-   already computes this the moment a squad is wiped (bigger number =
-   worse = sinks further), so a team eliminated early ends up lowest and
-   one eliminated just now sits right under the alive block, exactly
-   the behaviour the game's own table doesn't have. A row from a source
-   that doesn't carry placement (the alive grid, or the OCR fallback)
-   just keeps its existing relative order among other eliminated rows
-   instead of guessing one. */
-function orderRows(rows, standings){
-  const rank = new Map();
-  (standings || []).forEach((s, i) => {
-    if(s && s.teamName) rank.set(s.teamName.trim().toUpperCase(), i);
-  });
-  const aliveRank = (r) => {
-    const key = (r.teamName||"").trim().toUpperCase();
-    return rank.has(key) ? rank.get(key) : 500;
-  };
+/* Live leaderboard order: most kills at the top. Teams level on kills
+   are split by how many players they still have up -- more alive sits
+   higher -- which also means a wiped squad drops below anyone it was
+   tied with, without needing a separate "eliminated sinks" rule fighting
+   this one for priority.
+
+   Note what that does NOT do: a squad that went out on 12 kills still
+   holds a high slot, because it genuinely still leads on kills. Say if
+   you'd rather eliminated teams drop to the bottom regardless of their
+   score -- that's a one-line change here, but it's a real scoring
+   decision, not a detail to guess at. */
+function orderRows(rows){
+  const killsOf = (r) => (r.elims == null ? -1 : r.elims);
+  const aliveOf = (r) => r.eliminated ? 0
+    : (r.aliveCount == null ? 0 : r.aliveCount);
   return rows.map((r, i) => ({ r, i })).sort((A, B) => {
-    const a = A.r, b = B.r;
-    const aOut = !!a.eliminated, bOut = !!b.eliminated;
-    if(aOut !== bOut) return aOut ? 1 : -1;
-    if(!aOut) return aliveRank(a) - aliveRank(b);
-    if(a.placement != null && b.placement != null) return a.placement - b.placement;
-    if(a.placement != null) return -1;
-    if(b.placement != null) return 1;
-    return A.i - B.i;   // stable: keep original order when neither has one
+    const dk = killsOf(B.r) - killsOf(A.r);
+    if(dk) return dk;
+    const da = aliveOf(B.r) - aliveOf(A.r);
+    if(da) return da;
+    return A.i - B.i;   // stable: never reshuffle teams that tie on both
   }).map(x => x.r);
 }
 
@@ -193,44 +217,77 @@ function logoFor(teamName, roster){
   return team || null;
 }
 
-// Team name -> was it eliminated on the LAST render? Used only to catch
-// the alive-to-eliminated transition for the flash animation -- see
-// apply() below. Deliberately module-level (survives across calls),
-// not per-row state, since a row's DOM element is rebuilt every render.
+/* ---- persistent rows -------------------------------------------------
+   A row's element is created ONCE and then updated in place, keyed by
+   team. That's what makes the slide possible at all: the old version
+   rebuilt all twelve on every update, so each "new" element was born at
+   its final position with nothing to animate from. It also ends the
+   repaint flicker the old innerHTML swap caused, which is why the
+   change-detection guard it needed is gone -- updating a text node
+   that already holds the same string costs nothing and shows nothing. */
+const FLYBY_MS = 1150;
+const rowEls = new Map();        // team key -> row element
+let displayOrder = [];           // team keys, in the order currently on screen
+let holdOrderUntil = 0;          // while in the future, don't re-sort
 let previouslyEliminated = new Set();
-let lastKey = "";
+let lastState = null;
+
+function rowKeyOf(row){ return (row.teamName || "").trim().toUpperCase(); }
+
+function makeRowEl(){
+  const el = document.createElement("div");
+  el.className = "row no-anim";
+  el.innerHTML =
+    '<div class="logo"><img alt="" style="display:none"></div>' +
+    '<div class="name"></div>' +
+    '<div class="kills"></div>' +
+    '<div class="status-pip"></div>' +
+    '<div class="flyby"><span class="word trail">ELIMINATED</span>' +
+    '<span class="word">ELIMINATED</span></div>';
+  return el;
+}
+
+function playFlyby(el){
+  const fly = el.querySelector(".flyby");
+  fly.classList.remove("on");
+  el.classList.remove("just-eliminated");
+  void el.offsetWidth;              // restart both animations from zero
+  fly.classList.add("on");
+  el.classList.add("just-eliminated");
+  setTimeout(() => fly.classList.remove("on"), FLYBY_MS + 60);
+}
 
 function apply(state){
+  lastState = state;
   const live = state.liveOps || {};
-  const rows = orderRows(live.sidetableRows || [], state.standings);
+  const source = (live.sidetableRows || []).slice(0, 12);
   const base = assetBase(state);
   const visible = state.display && state.display.aliveStatusVisible;
 
-  document.getElementById("stage").classList.toggle("show", !!visible && rows.length > 0);
-  if(!visible || !rows.length) return;
+  document.getElementById("stage").classList.toggle("show", !!visible && source.length > 0);
+  if(!visible || !source.length) return;
 
-  document.getElementById("backdrop").src = base + "ALIVE STATUS.png";
+  const backdrop = document.getElementById("backdrop");
+  const bgSrc = base + "ALIVE STATUS.png";
+  if(backdrop.getAttribute("src") !== bgSrc) backdrop.src = bgSrc;
 
-  // Rebuild only when something actually changed. The engine syncs state
-  // every time any team's score moves, which during a busy fight is most
-  // seconds -- redrawing twelve rows each time makes the logos flicker.
-  const active = (state.display && state.display.championRushBadgeVisible)
-    ? new Set(((state.championRush || {}).totals || [])
-        .filter(t => t.activated)
-        .map(t => (t.teamName || "").trim().toUpperCase()))
-    : new Set();
+  const container = document.getElementById("rows");
+  const byKey = new Map(source.map(r => [rowKeyOf(r), r]));
 
-  const key = base + "|" + rows.map(r =>
-    [r.teamName, r.aliveCount, r.eliminated, r.elims, r.placement,
-     active.has((r.teamName || "").trim().toUpperCase())].join("~")).join("|");
-  if(key === lastKey) return;
-  lastKey = key;
-
+  // Content first, order second -- a row that just went out has to be
+  // showing its eliminated state BEFORE the flyby runs over it.
   const nowEliminated = new Set();
-  const html = rows.slice(0, 12).map((row, i) => {
+  const newlyOut = [];
+  source.forEach(row => {
+    const key = rowKeyOf(row);
+    let el = rowEls.get(key);
+    if(!el){
+      el = makeRowEl();
+      rowEls.set(key, el);
+      container.appendChild(el);
+    }
     const team = logoFor(row.teamName, state.roster);
     const label = (team && team.shortName) || row.teamName || "";
-    const nameKey = (row.teamName || "").trim().toUpperCase();
     // aliveCount is null when the squad could not be linked to the roster
     // (that link is what turns the client's squad number into a team).
     // Showing a full-alive pip would be a confident lie, so an unknown
@@ -238,26 +295,77 @@ function apply(state){
     const alive = row.eliminated ? 0
       : (row.aliveCount == null ? 0 : Math.max(0, Math.min(4, row.aliveCount)));
     const art = alive === 0 ? "Dead.png" : alive + "_alive.png";
-    const logo = team && team.logo
-      ? `<img src="${escapeHtml(team.logo)}" alt="">` : "";
+
+    const nameEl = el.querySelector(".name");
+    if(nameEl.textContent !== label) nameEl.textContent = label;
     // elims is null once the match has ended (the running score gets
     // placement points folded in at that point and would read as an
     // inflated "kills" number), so a blank cell beats a confidently wrong
     // one -- same rule the rest of this codebase already follows.
-    const kills = row.elims == null ? "" : row.elims;
-    if(row.eliminated) nowEliminated.add(nameKey);
-    const justNow = row.eliminated && !previouslyEliminated.has(nameKey);
-    return `
-      <div class="row ${row.eliminated ? "out" : ""} ${justNow ? "just-eliminated" : ""}" style="top:${ROW_TOPS[i]}px">
-        <div class="logo">${logo}</div>
-        <div class="name">${escapeHtml(label)}</div>
-        <div class="kills">${kills}</div>
-        <div class="status-pip" style="background-image:url('${base}${art}')"></div>
-      </div>`;
-  }).join("");
-  document.getElementById("rows").innerHTML = html;
-  applyElementOverrides(state);
+    const kills = row.elims == null ? "" : String(row.elims);
+    const killsEl = el.querySelector(".kills");
+    if(killsEl.textContent !== kills) killsEl.textContent = kills;
+
+    const img = el.querySelector(".logo img");
+    const logoSrc = (team && team.logo) || "";
+    if(img.getAttribute("src") !== logoSrc){
+      if(logoSrc){ img.src = logoSrc; img.style.display = ""; }
+      else { img.removeAttribute("src"); img.style.display = "none"; }
+    }
+    const pip = el.querySelector(".status-pip");
+    const pipSrc = `url('${base}${art}')`;
+    if(pip.style.backgroundImage !== pipSrc) pip.style.backgroundImage = pipSrc;
+
+    el.classList.toggle("out", !!row.eliminated);
+    if(row.eliminated){
+      nowEliminated.add(key);
+      if(!previouslyEliminated.has(key)) newlyOut.push(el);
+    }
+  });
+
+  // Anything no longer in the table (roster changed, new match) goes.
+  Array.from(rowEls.keys()).forEach(key => {
+    if(!byKey.has(key)){
+      const el = rowEls.get(key);
+      if(el && el.parentNode) el.parentNode.removeChild(el);
+      rowEls.delete(key);
+    }
+  });
+
+  // A squad just went out: run the flyby on its row and freeze the order
+  // until it finishes, so the word plays over the row where the viewer
+  // last saw that team -- THEN everything slides. Re-applied on a timer
+  // because the next state_sync may not land on its own in time.
+  if(newlyOut.length){
+    newlyOut.forEach(playFlyby);
+    holdOrderUntil = Date.now() + FLYBY_MS;
+    setTimeout(() => { if(lastState) apply(lastState); }, FLYBY_MS + 40);
+  }
   previouslyEliminated = nowEliminated;
+
+  const targetOrder = orderRows(source).map(rowKeyOf);
+  if(Date.now() < holdOrderUntil){
+    // Hold the order, but still place any row that has no slot yet
+    // (a team appearing mid-flyby would otherwise sit at top:0).
+    targetOrder.forEach(k => { if(!displayOrder.includes(k)) displayOrder.push(k); });
+    displayOrder = displayOrder.filter(k => rowEls.has(k));
+  } else {
+    displayOrder = targetOrder;
+  }
+
+  displayOrder.forEach((key, i) => {
+    const el = rowEls.get(key);
+    if(!el || i >= ROW_TOPS.length) return;
+    const top = ROW_TOPS[i] + "px";
+    if(el.style.top !== top) el.style.top = top;
+    // First placement lands instantly; every move after that animates.
+    if(el.classList.contains("no-anim")){
+      void el.offsetWidth;
+      el.classList.remove("no-anim");
+    }
+  });
+
+  applyElementOverrides(state);
 }
 
 /* Per-element nudges from the dashboard's Graphic Fixing tab (Alive:
