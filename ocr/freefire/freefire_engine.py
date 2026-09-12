@@ -287,6 +287,14 @@ def default_state():
             # a final where every roster entry is verified wants unknown
             # rows kept out of the standings rather than quietly scoring.
             "unmatchedPolicy": "flag",
+            # A Google Apps Script Web App URL (see push_sidetable_to_sheet
+            # below). When set, every real change to the live alive/elim
+            # side table is POSTed there too, so an operator's broadcast
+            # sheet updates itself from the same log-driven data the Alive
+            # Status overlay already shows -- instead of a person ticking
+            # checkboxes by hand while watching the stream. Blank disables
+            # it entirely; nothing is sent anywhere by default.
+            "sheetWebhookUrl": "",
         },
         "currentMatchId": None,
         "currentContext": "",
@@ -409,6 +417,17 @@ def default_state():
             # Structured kill/knock feed read from the client's debugger
             # log -- real IGNs, not OCR. See read_debugger_events.
             "killEvents": [],
+            # Which roster team the operator has put on each on-screen row
+            # of the live side table, index = row position (0 = topmost).
+            # Blank means "not assigned yet" -- see build_alive_grid /
+            # apply_alive_grid_identities. Set from the dashboard, once
+            # per match; the client's own live side table doesn't reorder
+            # rows mid-match, so this shouldn't need touching again until
+            # the next game.
+            # 12, matching FREEFIRE_ALIVE_GRID_ROWS below -- written as a
+            # literal here since that constant isn't defined yet this
+            # early in the file, and default_state() runs at import time.
+            "aliveRowTeams": [""] * 12,
         },
         # Sequential Num5 loadout capture. "pointer" indexes into the
         # flattened roster (team-then-player order, see
@@ -1379,6 +1398,141 @@ def parse_sidetable(img_bgr, columns=None, palette=None):
 
 
 # ---------------------------------------------------------------------------
+# The alive grid -- a faster, more precise alternative to both paths above
+# for the specific numbers a broadcast sheet or side-table graphic needs
+# RIGHT NOW: how many of a team's 4 are alive, and their elim count.
+#
+# link_live_teams() (the log path) has team identity for free but is
+# capped at however long the game client takes to flush its debugger log
+# to disk -- measured at roughly 12-14 seconds behind real time. That
+# delay lives in the log file itself; no amount of faster reading on this
+# end gets around it. parse_sidetable() (the OCR fallback) reads the
+# screen every poll, so it isn't delayed the same way, but it identifies
+# each row by OCR-reading the team name text, which is measurably less
+# reliable than the log path's roster-linked identity.
+#
+# This drops OCR text-reading entirely. Identity comes from the operator
+# picking which roster team sits on which on-screen row (see
+# liveOps.aliveRowTeams, set via freefire_set_alive_row_team) -- a manual
+# step, but a ONE-TIME one per match rather than a per-poll OCR guess, and
+# the row order in Free Fire's own live side table doesn't reshuffle
+# mid-match. What's left to read off the screen is purely: is this one
+# bar bright or dark (classify_bar -- colour distance, no OCR at all), and
+# what's this one number (ocr_small_number -- a tiny digit-only pass).
+# Both are cheap enough to run every single poll (0.25s), so the ceiling
+# here is the poll interval, not a log-flush delay.
+# ---------------------------------------------------------------------------
+
+FREEFIRE_ALIVE_GRID_ROWS = 12
+
+
+def build_alive_grid(regions, rows=FREEFIRE_ALIVE_GRID_ROWS,
+                      players=SIDETABLE_PLAYERS_PER_TEAM):
+    """Derives the full ROWS x PLAYERS alive-bar grid, plus one elim-count
+    box per row, from the 4 hand-drawn anchor boxes (calibrate.py's
+    ff-alive-grid category). Every position past those 4 is a fixed
+    offset -- exact, not auto-detected by scanning pixels for bar edges.
+
+    Returns None if any anchor isn't calibrated yet, so callers can fall
+    back to the existing log/OCR path without special-casing "half
+    calibrated"."""
+    r1p1 = regions.get("freefire_alive_r1p1")
+    r1p2 = regions.get("freefire_alive_r1p2")
+    r2p1 = regions.get("freefire_alive_r2p1")
+    r1elim = regions.get("freefire_alive_r1elim")
+    if not (r1p1 and r1p2 and r2p1 and r1elim):
+        return None
+
+    bar_gap_x = r1p2["x"] - r1p1["x"]
+    row_gap_y = r2p1["y"] - r1p1["y"]
+    elim_dx = r1elim["x"] - r1p1["x"]
+    elim_dy = r1elim["y"] - r1p1["y"]
+
+    grid = []
+    for row in range(rows):
+        row_y = r1p1["y"] + row * row_gap_y
+        bars = [
+            {"x": r1p1["x"] + p * bar_gap_x, "y": row_y,
+             "w": r1p1["w"], "h": r1p1["h"]}
+            for p in range(players)
+        ]
+        elim_box = {"x": r1p1["x"] + elim_dx, "y": row_y + elim_dy,
+                    "w": r1elim["w"], "h": r1elim["h"]}
+        grid.append({"bars": bars, "elim": elim_box})
+    return grid
+
+
+def capture_alive_grid_crops(sct, grid):
+    """The sync half: crop every box. Cheap (a memory copy per box, same
+    as the killfeed/sidetable crops elsewhere in the polling loop), so
+    this runs directly on the main loop's own mss instance -- mss isn't
+    meant to be shared across threads, so grabbing has to happen here,
+    not in the executor."""
+    crops = []
+    for row in grid:
+        bar_crops = [crop_to_bgr(sct, box) for box in row["bars"]]
+        elim_crop = crop_to_bgr(sct, row["elim"])
+        crops.append((bar_crops, elim_crop))
+    return crops
+
+
+def classify_alive_grid_crops(crops, palette=None):
+    """The CPU half: colour-classify each bar (classify_bar -- a mean
+    colour distance, negligible cost) and OCR each row's elim number
+    (ocr_small_number -- the one real cost here, which is why this whole
+    function runs in the executor rather than on the polling loop).
+    Returns rows in ON-SCREEN ORDER -- top to bottom, same order every
+    poll -- with no team identity attached; see
+    apply_alive_grid_identities for where that's joined on."""
+    rows_out = []
+    for bar_crops, elim_crop in crops:
+        bars = [
+            classify_bar(c, palette)["status"] if c is not None and c.size else "unknown"
+            for c in bar_crops
+        ]
+        elims = (ocr_small_number(elim_crop)
+                 if elim_crop is not None and elim_crop.size else None)
+        rows_out.append({
+            "bars": bars,
+            "aliveCount": sum(1 for b in bars if b == "alive"),
+            "elims": elims,
+        })
+    return rows_out
+
+
+def apply_alive_grid_identities(grid_rows, row_teams):
+    """Joins the position-only grid rows onto the operator's own row ->
+    team assignment (liveOps.aliveRowTeams), producing rows in the same
+    shape link_live_teams()/parse_sidetable() already produce, so they
+    drop straight into liveOps.sidetableRows for the Alive Status overlay
+    and the sheet push to consume unchanged.
+
+    A row with no assignment yet is skipped entirely -- returning it with
+    a blank name would show up as a real, nameless team on the overlay,
+    which is worse than that row simply not being in the grid's
+    contribution yet (the caller merges this with the log/OCR fallback,
+    so an unassigned row still gets SOMETHING once one of those has it)."""
+    rows = []
+    for i, row in enumerate(grid_rows):
+        team = (row_teams[i] if i < len(row_teams) else "") or ""
+        if not team:
+            continue
+        rows.append({
+            "teamName": team,
+            "elims": row["elims"],
+            "score": row["elims"],
+            "bars": row["bars"],
+            "barDetail": [{"status": b} for b in row["bars"]],
+            "aliveCount": row["aliveCount"],
+            "eliminated": row["aliveCount"] == 0,
+            "nameRead": True,
+            "rawText": team,
+            "source": "grid",
+        })
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # Loadout icon identification.
 #
 # These slots hold artwork, not text, so OCR has nothing to read -- they get
@@ -2037,6 +2191,69 @@ def link_live_teams(live, roster):
     return {"rows": rows, "gsNames": gs_names, "unresolved": unresolved}
 
 
+# ---------------------------------------------------------------------------
+# Pushing the live alive/elim side table to an operator's own broadcast
+# sheet, replacing a person ticking checkboxes by hand while watching the
+# stream with the SAME log-driven data the Alive Status overlay already
+# shows -- see link_live_teams above and parse_sidetable's OCR fallback.
+#
+# The receiving end is a Google Apps Script Web App the operator deploys
+# on their own sheet (see freefire_sheet_push.gs alongside this file) --
+# deliberately not the Sheets API with a service-account key, which would
+# mean managing a credential file with write access to their sheet. A
+# script they control, that only accepts whatever shape they wrote it to
+# accept, keeps that entirely on their side.
+#
+# Fire-and-forget: urllib's request call is synchronous, so it runs in the
+# OCR thread pool via run_in_executor rather than blocking the polling
+# loop, and every failure is swallowed (with a throttled print) rather
+# than raised -- a slow or unreachable sheet must never stall live
+# capture, which is the one thing this system cannot afford to do.
+# ---------------------------------------------------------------------------
+
+_last_sheet_push_error_at = 0.0
+
+
+def _post_sheet_payload(url, payload):
+    import urllib.request
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=data, method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        resp.read()
+
+
+async def push_sidetable_to_sheet(rows):
+    global _last_sheet_push_error_at
+    url = (server_state.get("settings", {}).get("sheetWebhookUrl") or "").strip()
+    if not url or not rows:
+        return
+    payload = {
+        "rows": [
+            {
+                "team": r.get("teamName") or r.get("rawText") or "",
+                "aliveCount": r.get("aliveCount"),
+                # elims is withheld once a match ends (see link_live_teams);
+                # score holds the same number and stays put after the
+                # whistle, so the sheet's count doesn't blank out the
+                # instant the match is over.
+                "elims": r.get("elims") if r.get("elims") is not None else r.get("score"),
+            }
+            for r in rows
+        ],
+    }
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(ocr_executor, _post_sheet_payload, url, payload)
+    except Exception as e:
+        now = time.time()
+        if now - _last_sheet_push_error_at > 10:
+            _last_sheet_push_error_at = now
+            print(f"[sheet push] couldn't reach the webhook -- {e}")
+
+
 def parse_freefire_safezone(text):
     text = text.lstrip("\ufeff")
     m = FREEFIRE_SAFEZONE_COORD_REGEX.search(text)
@@ -2533,6 +2750,40 @@ async def handle_client(websocket, path=None):
                     await websocket.send(json.dumps({
                         "type": "freefire_safezone_result", "error": str(e),
                     }))
+            elif payload.get("type") == "freefire_sheet_push_test":
+                # Unlike the real push (fire-and-forget, errors swallowed --
+                # see push_sidetable_to_sheet), this one is a direct request
+                # for a yes/no answer, so it waits for the POST and reports
+                # exactly what happened. A fixed, obviously-fake team name
+                # rather than real data: the point is confirming the pipe
+                # works, not previewing a real row, and it must never look
+                # like a genuine result if something upstream goes stale.
+                # Tests whatever URL the dashboard has typed in right now
+                # (payload["url"]) rather than only whatever was last saved,
+                # so Test works before Save has been clicked.
+                url = (payload.get("url")
+                       or server_state.get("settings", {}).get("sheetWebhookUrl") or "").strip()
+                if not url:
+                    await websocket.send(json.dumps({
+                        "type": "freefire_sheet_push_test_result",
+                        "ok": False, "error": "No webhook URL saved yet.",
+                    }))
+                else:
+                    test_payload = {"rows": [
+                        {"team": "SHEET PUSH TEST", "aliveCount": 3, "elims": 7},
+                    ]}
+                    try:
+                        loop = asyncio.get_running_loop()
+                        await loop.run_in_executor(
+                            ocr_executor, _post_sheet_payload, url, test_payload)
+                        await websocket.send(json.dumps({
+                            "type": "freefire_sheet_push_test_result", "ok": True,
+                        }))
+                    except Exception as e:
+                        await websocket.send(json.dumps({
+                            "type": "freefire_sheet_push_test_result",
+                            "ok": False, "error": str(e),
+                        }))
             elif payload.get("type") == "freefire_fetch_loadout_capture":
                 # On-demand crop retrieval -- see apply_loadout_capture for
                 # why these live on disk instead of in state.
@@ -2806,6 +3057,22 @@ async def handle_client(websocket, path=None):
                 server_state["loadoutCapture"]["pointer"] = max(0, min(pointer, len(flat)))
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "freefire_set_alive_row_team":
+                # Targeted mutation of ONE slot in aliveRowTeams, not a
+                # manual_update -- liveOps also holds killEvents and
+                # sidetableRows, which change many times a second during a
+                # fight, and a client pushing a whole replacement liveOps
+                # object here could clobber those with a stale copy of its
+                # own. See build_alive_grid/apply_alive_grid_identities.
+                try:
+                    row = int(payload.get("row", -1))
+                except (TypeError, ValueError):
+                    row = -1
+                rows = server_state["liveOps"].setdefault("aliveRowTeams", [""] * FREEFIRE_ALIVE_GRID_ROWS)
+                if 0 <= row < len(rows):
+                    rows[row] = (payload.get("team") or "").strip()
+                    save_state()
+                    await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") == "headshot_hunter_show":
                 now_ms = int(time.time() * 1000)
                 hh = server_state["headshotHunter"]
@@ -2965,6 +3232,9 @@ async def ocr_loop():
             if sidetable_region and sidetable_region.get("w", 0) > 0 and sidetable_region.get("h", 0) > 0:
                 sidetable_crop = crop_to_bgr(sct, sidetable_region)
 
+            alive_grid = build_alive_grid(regions)
+            alive_grid_crops = capture_alive_grid_crops(sct, alive_grid) if alive_grid else None
+
             changed = False
             log_sidetable_rows = None
             killfeed_raw_text = None
@@ -3030,6 +3300,7 @@ async def ocr_loop():
                             server_state["liveOps"]["sidetableRows"] = linked["rows"]
                             server_state["liveOps"]["sidetableSource"] = "log"
                             changed = True
+                            asyncio.create_task(push_sidetable_to_sheet(linked["rows"]))
 
                     squads = linked.get("unresolved", [])
                     if squads != server_state["pending"].get("squads"):
@@ -3103,8 +3374,44 @@ async def ocr_loop():
                     ff_live["sidetableRows"] = parsed["rows"]
                     ff_live["sidetableUsedPalette"] = parsed["usedPalette"]
                     ff_live["sidetableSource"] = "ocr"
+                    asyncio.create_task(push_sidetable_to_sheet(parsed["rows"]))
                     changed = True
 
+            # The alive grid, once calibrated -- see the block comment
+            # above capture_alive_grid_crops. Runs AFTER both the log
+            # path and the OCR fallback above so it always gets the last
+            # word for any row it has an operator-assigned identity for:
+            # both of those overwrite sidetableRows wholesale, and this
+            # merges on top rather than being overwritten in turn. A team
+            # not yet assigned a row keeps whatever the log/OCR path
+            # already gave it -- this only ever adds or upgrades data,
+            # never removes a row the other paths are still supplying.
+            if alive_grid_crops is not None:
+                grid_rows = await loop.run_in_executor(
+                    ocr_executor, classify_alive_grid_crops, alive_grid_crops,
+                    config.get("sidetable_colors"),
+                )
+                row_teams = server_state["liveOps"].get("aliveRowTeams") or []
+                grid_named_rows = apply_alive_grid_identities(grid_rows, row_teams)
+                if grid_named_rows:
+                    by_name = {r["teamName"]: r for r in grid_named_rows}
+                    base = server_state["liveOps"].get("sidetableRows") or []
+                    merged, seen = [], set()
+                    for r in base:
+                        name = r.get("teamName")
+                        if name in by_name:
+                            merged.append(by_name[name])
+                            seen.add(name)
+                        else:
+                            merged.append(r)
+                    for name, r in by_name.items():
+                        if name not in seen:
+                            merged.append(r)
+                    if merged != server_state["liveOps"].get("sidetableRows"):
+                        server_state["liveOps"]["sidetableRows"] = merged
+                        server_state["liveOps"]["sidetableSource"] = "grid"
+                        changed = True
+                        asyncio.create_task(push_sidetable_to_sheet(merged))
 
             # Previews go to the dashboard only, and only when the crop
             # actually changed since the last one sent. Both guards are

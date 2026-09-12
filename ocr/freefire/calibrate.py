@@ -68,6 +68,19 @@ CATEGORIES = {
         "freefire_killfeed",
         "freefire_sidetable",
     ],
+    # Four anchor boxes instead of one big region -- see build_alive_grid()
+    # in freefire_engine.py. Row 1 / player 1 and player 2 give the
+    # horizontal pitch between the 4 alive slots in a row; row 1 and row 2
+    # (both player 1) give the vertical pitch between rows. Every other
+    # row/player position is derived from those two pitches rather than
+    # calibrated individually -- exact instead of auto-detected, and 4
+    # boxes instead of up to 60.
+    "ff-alive-grid": [
+        "freefire_alive_r1p1",
+        "freefire_alive_r1p2",
+        "freefire_alive_r2p1",
+        "freefire_alive_r1elim",
+    ],
     "ff-loadout": [
         "freefire_loadout",
         "freefire_loadout_ign",
@@ -82,11 +95,13 @@ CATEGORIES = {
 }
 
 REGION_ORDER = (
-    CATEGORIES["ff-live"] + CATEGORIES["ff-loadout"] + CATEGORIES["ff-lobby"]
+    CATEGORIES["ff-live"] + CATEGORIES["ff-alive-grid"]
+    + CATEGORIES["ff-loadout"] + CATEGORIES["ff-lobby"]
 )
 
 CATEGORY_BLURB = {
     "ff-live": "LIVE IN-GAME boxes -- have a match actually running, with the killfeed and 12-team side table on screen.",
+    "ff-alive-grid": "ALIVE GRID anchors -- have a match running with the 12-team side table visible, same screen as ff-live. Draw TIGHT boxes, exactly matching one indicator/number each time -- these 4 boxes are used to work out the position of all 48.",
     "ff-loadout": "LOADOUT boxes -- have a player's loadout card on screen (the one Num5 captures).",
     "ff-lobby": "PRE-MATCH LOBBY boxes (2 squad cards) -- have the lobby team list on screen, scrolled to the top.",
 }
@@ -98,6 +113,10 @@ LABELS = {
     "freefire_lobby_block2_players": "LOBBY CARD 2 (top-RIGHT): the 4 PLAYER NAMES as one tall box - names only, no ticks, no MAX badges",
     "freefire_killfeed": "KILLFEED / KNOCKOUT FEED (the scrolling elimination/knockdown log) - raw text only for now, draw around the whole feed area",
     "freefire_sidetable": "12-TEAM SIDE TABLE (alive status / kills per team) - raw text only for now, draw around the whole table",
+    "freefire_alive_r1p1": "ALIVE GRID: ROW 1 (topmost team), PLAYER 1 (leftmost) alive indicator - tight box around just that one bar/icon",
+    "freefire_alive_r1p2": "ALIVE GRID: ROW 1, PLAYER 2 (next one to the right) alive indicator - same tight box, one slot over",
+    "freefire_alive_r2p1": "ALIVE GRID: ROW 2 (second team down), PLAYER 1 (leftmost) alive indicator - same tight box, one row down from the very first box",
+    "freefire_alive_r1elim": "ALIVE GRID: ROW 1's ELIMINATION COUNT number - tight box around just that number",
     "freefire_loadout": "LOADOUT CARD, WHOLE (the full player HUD card) - kept as the overall visual record; the per-slot boxes below are what actually get identified",
     "freefire_loadout_ign": "LOADOUT: PLAYER IGN - draw tightly around just the name text on the card (this one is read as TEXT, not matched as an icon)",
     "freefire_loadout_active": "LOADOUT: ACTIVE CHARACTER (the BIG character portrait) - draw tightly around just that icon",

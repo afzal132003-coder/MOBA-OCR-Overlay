@@ -1825,6 +1825,37 @@ Team Charlie
     </div>
 
     <div class="card">
+      <h2>Alive Table Row Assignment</h2>
+      <p class="hint">Which roster team sits on which row of the game's own live side table, top to bottom, on
+        screen right now. This is what turns the alive grid's fast colour-read bars and elim numbers into a named
+        row instead of an anonymous position — set it once per match (the client's own side table doesn't
+        reshuffle rows mid-match), then leave it. A row left unassigned just doesn't contribute to the alive/elim
+        table below or the sheet push — everything else keeps working either way.</p>
+      <div id="ff_aliveGridRows" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;"></div>
+      <div class="hint" id="ff_aliveGridStatus" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Broadcast Sheet Push</h2>
+      <p class="hint">Pushes the SAME live alive/elim side table the Alive Status overlay already shows straight
+        into your own broadcast sheet, instead of someone ticking checkboxes by hand while watching the stream —
+        near real-time once the alive grid above is calibrated and its rows assigned (no log-flush delay), the
+        usual ~12-14s log-driven delay otherwise. Needs a small Google Apps Script deployed on your sheet once —
+        paste <code>ocr/freefire/freefire_sheet_push.gs</code> into Extensions → Apps Script there, adjust the
+        column constants at the top to match your sheet, deploy it as a Web App, and paste the URL it gives you
+        below. Leave blank to push nothing.</p>
+      <div class="row" style="gap:12px;align-items:flex-end;">
+        <div class="team-form" style="flex:1;">
+          <label>Apps Script Web App URL</label>
+          <input type="text" id="ff_sheetWebhookUrl" placeholder="https://script.google.com/macros/s/.../exec">
+        </div>
+        <button id="ff_sheetWebhookSave">Save</button>
+        <button class="secondary" id="ff_sheetWebhookTest">Send Test Row</button>
+      </div>
+      <div class="hint" id="ff_sheetWebhookStatus" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="card">
       <h2>Popup Triggers</h2>
       <p class="hint">Nothing in the game feed reliably signals a headshot milestone or a team elimination on its
         own yet, so these are manual — pick the player/team, optionally drop in a photo, and hit Show. Both
@@ -4998,6 +5029,7 @@ function ffConnect(){
       ffRenderTeamNamesList(ffState);
       ffRenderLoadouts(ffState);
       ffRenderLoadoutCapture(ffState);
+      ffRenderAliveGridRows(ffState);
       ffRenderEvent(ffState);
       ffQmeSeedFromRoster(ffState);
       ffQmeUpdateExport();
@@ -5030,6 +5062,10 @@ function ffConnect(){
       ffRenderLoadoutReview(msg);
     } else if(msg.type === "freefire_lobby_capture"){
       ffHandleLobbyCapture(msg);
+    } else if(msg.type === "freefire_sheet_push_test_result"){
+      document.getElementById("ff_sheetWebhookStatus").textContent = msg.ok
+        ? "✓ Test row sent — check your sheet's debug cell (see the .gs script) for the timestamp."
+        : "⚠ Failed: " + (msg.error || "unknown error");
     }
   };
 }
@@ -5634,6 +5670,7 @@ function ffRenderEvent(ff){
   setIfFree("ff_assetFolder", ev.assetFolder || "CLT");
   setIfFree("ff_afterGameLabel", ev.afterGameLabel || "");
   setIfFree("ff_debuggerStartAt", (ff.settings && ff.settings.debuggerStartAt) || "");
+  setIfFree("ff_sheetWebhookUrl", (ff.settings && ff.settings.sheetWebhookUrl) || "");
   document.getElementById("ff_championBadge").checked =
     !!(ff.display && ff.display.championRushBadgeVisible);
   const st = ff.settings || {};
@@ -5701,6 +5738,48 @@ const FF_SLOT_LABELS = {
 // the grid actually draws from, so unrelated state churn (kill events,
 // standings, side-table rows) no longer triggers a rebuild.
 let ffLastLoadoutKey = "";
+
+const FF_ALIVE_GRID_ROWS = 12;
+let ffLastAliveGridKey = "";
+
+// One dropdown per on-screen row of the game's own live side table --
+// picking a team there is what turns the alive grid's colour-read bars
+// into a named row (see apply_alive_grid_identities in the engine). Not
+// auto-detected from anything on screen: the whole point of this path is
+// avoiding OCR text-reading for identity.
+function ffRenderAliveGridRows(ff){
+  const container = document.getElementById("ff_aliveGridRows");
+  if(!container) return;
+  const roster = ((ff.roster && ff.roster.teams) || []).filter(t => t.name);
+  const rowTeams = (ff.liveOps && ff.liveOps.aliveRowTeams) || [];
+
+  const key = JSON.stringify([roster.map(t => t.name), rowTeams]);
+  if(key === ffLastAliveGridKey) return;
+  ffLastAliveGridKey = key;
+
+  container.innerHTML = Array.from({length: FF_ALIVE_GRID_ROWS}, (_, i) => {
+    const current = rowTeams[i] || "";
+    const options = ['<option value="">— unassigned —</option>']
+      .concat(roster.map(t => `<option value="${ffEscapeHtml(t.name)}" ${t.name === current ? "selected" : ""}>${ffEscapeHtml(t.name)}</option>`));
+    return `
+      <div class="team-form" style="margin:0;">
+        <label>Row ${i + 1}</label>
+        <select class="ff-alive-grid-row" data-row="${i}">${options.join("")}</select>
+      </div>`;
+  }).join("");
+
+  container.querySelectorAll(".ff-alive-grid-row").forEach(el => {
+    el.addEventListener("change", () => {
+      if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+      ffWs.send(JSON.stringify({
+        type: "freefire_set_alive_row_team",
+        row: Number(el.dataset.row), team: el.value,
+      }));
+      document.getElementById("ff_aliveGridStatus").textContent =
+        el.value ? `Row ${Number(el.dataset.row) + 1} → ${el.value}` : `Row ${Number(el.dataset.row) + 1} cleared`;
+    });
+  });
+}
 
 function ffRenderLoadoutCapture(ff){
   const flat = ffFlattenRosterPlayers(ff.roster);
@@ -6549,6 +6628,29 @@ document.getElementById("ff_debuggerStartClear").addEventListener("click", () =>
 });
 document.getElementById("ff_debuggerStartAt").addEventListener("change", (e) => {
   ffSendCutoff(e.target.value.trim());
+});
+
+/* ---------- broadcast sheet push ---------- */
+document.getElementById("ff_sheetWebhookSave").addEventListener("click", () => {
+  if(!ffState) return;
+  const url = document.getElementById("ff_sheetWebhookUrl").value.trim();
+  const settings = Object.assign({}, ffState.settings || {}, { sheetWebhookUrl: url });
+  ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { settings } } }));
+  document.getElementById("ff_sheetWebhookStatus").textContent = url
+    ? "Saved — the live side table will push to this URL from now on."
+    : "Cleared — nothing will be pushed to a sheet.";
+});
+document.getElementById("ff_sheetWebhookTest").addEventListener("click", () => {
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  // Tests whatever's currently typed, not just whatever was last saved --
+  // otherwise clicking Test before Save silently tests the OLD url.
+  const url = document.getElementById("ff_sheetWebhookUrl").value.trim();
+  if(!url){
+    document.getElementById("ff_sheetWebhookStatus").textContent = "Type a URL first.";
+    return;
+  }
+  document.getElementById("ff_sheetWebhookStatus").textContent = "Sending a test row...";
+  ffWs.send(JSON.stringify({ type: "freefire_sheet_push_test", url }));
 });
 
 /* ---------- champion rush ---------- */

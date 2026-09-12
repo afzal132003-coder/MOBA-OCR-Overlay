@@ -81,6 +81,30 @@
       "y": 222,
       "w": 568,
       "h": 319
+    },
+    "freefire_alive_r1p1": {
+      "x": -61,
+      "y": 310,
+      "w": 11,
+      "h": 30
+    },
+    "freefire_alive_r1p2": {
+      "x": -47,
+      "y": 311,
+      "w": 10,
+      "h": 28
+    },
+    "freefire_alive_r2p1": {
+      "x": -59,
+      "y": 367,
+      "w": 10,
+      "h": 28
+    },
+    "freefire_alive_r1elim": {
+      "x": -133,
+      "y": 304,
+      "w": 54,
+      "h": 36
     }
   },
   "sidetable_colors": {
