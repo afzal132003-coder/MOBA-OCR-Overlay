@@ -98,8 +98,13 @@
   /* Rows slide to their new slot instead of snapping. This only works
      because a row's element PERSISTS between updates (see rowEls in the
      script) -- the old version rebuilt all twelve from scratch on every
-     change, so there was never an old position to animate from. */
-  .row { transition: top 600ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+     change, so there was never an old position to animate from.
+
+     Slow enough to read as travel: a squad eliminated out of row 1 has
+     eleven rows to cross, and at a snappier duration that reads as a
+     jump rather than a fall. The ease-in-out start and finish are what
+     make a long move look deliberate instead of thrown. */
+  .row { transition: top 900ms cubic-bezier(0.65, 0, 0.35, 1); }
   .row.no-anim { transition: none; }
 
   /* ---- the elimination flyby ----------------------------------------
@@ -186,27 +191,60 @@ function escapeHtml(s){
   ));
 }
 
-/* Live leaderboard order: most kills at the top. Teams level on kills
-   are split by how many players they still have up -- more alive sits
-   higher -- which also means a wiped squad drops below anyone it was
-   tied with, without needing a separate "eliminated sinks" rule fighting
-   this one for priority.
+/* Order, in two blocks.
 
-   Note what that does NOT do: a squad that went out on 12 kills still
-   holds a high slot, because it genuinely still leads on kills. Say if
-   you'd rather eliminated teams drop to the bottom regardless of their
-   score -- that's a one-line change here, but it's a real scoring
-   decision, not a detail to guess at. */
+   STILL ALIVE, at the top: most kills first, teams level on kills split
+   by who has more players still up.
+
+   ELIMINATED, below them: stacked from the bottom in the order they
+   went out. The first squad wiped sits on the very last row and stays
+   there; each one after it lands directly above the previous casualty.
+   So a team leaving row 1 travels all the way down on the first
+   elimination, and only as far as the row above the last casualty
+   later on -- which is also its real placement.
+
+   Elimination order is observed here rather than taken from the data:
+   link_live_teams() supplies a placement the moment it sees a wipe, but
+   the alive grid doesn't, and a row can come from either. Counting the
+   transitions as they happen works the same for both. placement is
+   still used as the seed for anything already eliminated before this
+   page loaded, so a mid-match refresh doesn't lose the stack. */
+let elimSeq = new Map();     // team key -> when it went out (higher = later)
+let elimCounter = 0;
+
+function noteElimination(key, row){
+  if(elimSeq.has(key)) return;
+  // placement counts DOWN as teams survive longer (first out = 12), so a
+  // bigger placement is an earlier exit -- negate it to match the
+  // counter's "higher is later" ordering, and keep it below any
+  // elimination this page actually witnessed.
+  elimSeq.set(key, row && row.placement != null
+    ? -row.placement
+    : ++elimCounter);
+}
+
 function orderRows(rows){
   const killsOf = (r) => (r.elims == null ? -1 : r.elims);
-  const aliveOf = (r) => r.eliminated ? 0
-    : (r.aliveCount == null ? 0 : r.aliveCount);
+  const aliveOf = (r) => (r.aliveCount == null ? 0 : r.aliveCount);
   return rows.map((r, i) => ({ r, i })).sort((A, B) => {
-    const dk = killsOf(B.r) - killsOf(A.r);
-    if(dk) return dk;
-    const da = aliveOf(B.r) - aliveOf(A.r);
-    if(da) return da;
-    return A.i - B.i;   // stable: never reshuffle teams that tie on both
+    const a = A.r, b = B.r;
+    const aOut = !!a.eliminated, bOut = !!b.eliminated;
+    if(aOut !== bOut) return aOut ? 1 : -1;      // alive block on top
+
+    if(!aOut){
+      const dk = killsOf(b) - killsOf(a);
+      if(dk) return dk;
+      const da = aliveOf(b) - aliveOf(a);
+      if(da) return da;
+      return A.i - B.i;                          // stable on a full tie
+    }
+
+    // Both out: most recently eliminated sits highest, so the first
+    // casualty ends up on the bottom row.
+    const sa = elimSeq.has(rowKeyOf(a)) ? elimSeq.get(rowKeyOf(a)) : 0;
+    const sb = elimSeq.has(rowKeyOf(b)) ? elimSeq.get(rowKeyOf(b)) : 0;
+    if(sa !== sb) return sb - sa;
+    return A.i - B.i;
   }).map(x => x.r);
 }
 
@@ -319,9 +357,17 @@ function apply(state){
     el.classList.toggle("out", !!row.eliminated);
     if(row.eliminated){
       nowEliminated.add(key);
+      noteElimination(key, row);
       if(!previouslyEliminated.has(key)) newlyOut.push(el);
     }
   });
+
+  // A fresh match: everyone is back up, so last game's elimination
+  // stack has to go or it would still be dictating where teams land.
+  if(!nowEliminated.size && elimSeq.size){
+    elimSeq = new Map();
+    elimCounter = 0;
+  }
 
   // Anything no longer in the table (roster changed, new match) goes.
   Array.from(rowEls.keys()).forEach(key => {

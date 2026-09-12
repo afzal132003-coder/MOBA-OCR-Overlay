@@ -1598,15 +1598,50 @@ def classify_alive_grid_crops(crops, palette=None):
 _alive_grid_last_elims = {}
 
 
+# A squad's realistic ceiling for one match. Twelve squads of four is
+# 48 players, so a whole lobby yields ~44 kills total -- one squad
+# taking 35 of them is already beyond anything real, and anything above
+# that is the digit pass having read something that isn't the elim
+# count (two numbers run together, a fragment of the team name, a
+# timer). Kept generous on purpose: this only has to catch nonsense,
+# not police a plausible score.
+FREEFIRE_MAX_TEAM_ELIMS = 35
+
+
 def hold_last_good_elims(grid_rows):
-    """Fills an unread elim count with the last one that did read for
-    that row. See _alive_grid_last_elims."""
+    """Fills an unread elim count with the last one that DID read for
+    that row, and rejects reads that can't be real.
+
+    The hold alone wasn't enough. It cached whatever came back, so a
+    single bad frame -- 92 kills, say -- got stored and then held
+    forever, since nothing ever expired it. Worse, with the table now
+    ranked by kills, one stuck bogus number drags that team to the top
+    and stays there.
+
+    Two rules catch it, both from what an elim count actually is:
+
+      - it never exceeds FREEFIRE_MAX_TEAM_ELIMS
+      - it never goes DOWN during a match
+
+    A reading that breaks either is a misread, not news, so the last
+    good value stands. Both bounds reset on match_start."""
     for i, row in enumerate(grid_rows):
-        if row.get("elims") is None:
-            if i in _alive_grid_last_elims:
-                row["elims"] = _alive_grid_last_elims[i]
+        reading = row.get("elims")
+        held = _alive_grid_last_elims.get(i)
+
+        if reading is None:
+            plausible = False
+        elif reading > FREEFIRE_MAX_TEAM_ELIMS:
+            plausible = False
+        elif held is not None and reading < held:
+            plausible = False
         else:
-            _alive_grid_last_elims[i] = row["elims"]
+            plausible = True
+
+        if plausible:
+            _alive_grid_last_elims[i] = reading
+        else:
+            row["elims"] = held      # None when nothing has ever read
     return grid_rows
 
 
