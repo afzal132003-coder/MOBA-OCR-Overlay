@@ -1116,6 +1116,22 @@ SIDETABLE_DEFAULT_COLUMNS = {"team": [0.0, 0.55], "elims": [0.55, 0.75], "alive"
 
 SIDETABLE_ROW_REGEX = re.compile(r"^(?P<name>.+?)\s+(?P<elims>\d+)\s*$")
 
+# Default palette for the alive grid specifically (config's own
+# alive_grid_colors overrides this when set -- see build_alive_grid_preview
+# and its use in the polling loop). Estimated from reference swatches the
+# operator shared directly: a vivid saturated orange/gold for a living
+# player, a muted, desaturated brownish-khaki -- NOT black or dark grey --
+# for an eliminated one, the same colour whether it's one player down or
+# the whole squad wiped. Deliberately its own key, not the pre-existing
+# sidetable_colors: that one was calibrated for the old whole-region OCR
+# fallback and turned out to have "alive" and "knocked" swapped relative
+# to what these bars actually look like -- reusing it here would have
+# miscounted every alive player as knocked.
+DEFAULT_ALIVE_GRID_PALETTE = {
+    "alive": [35, 160, 240],        # BGR -- vivid orange/gold
+    "eliminated": [85, 125, 150],   # BGR -- muted brownish-khaki
+}
+
 
 def classify_bar(patch_bgr, palette=None):
     """One alive/knocked/eliminated bar -> a status string.
@@ -1530,6 +1546,36 @@ def apply_alive_grid_identities(grid_rows, row_teams):
             "source": "grid",
         })
     return rows
+
+
+def build_alive_grid_preview(crops, palette=None):
+    """On-demand debug view of one fresh capture: every bar's classified
+    status WITH the actual crop it was classified from, and the elim
+    number WITH its crop, so an operator can see exactly what the grid is
+    reading rather than trusting the numbers blind. Not part of the
+    regular per-poll path -- built only when the dashboard asks for it
+    (freefire_fetch_alive_grid_preview), same reasoning as the loadout
+    capture crops: sending this every poll would be the same payload-bloat
+    problem that keeps coming up elsewhere in this project."""
+    rows_preview = []
+    for bar_crops, elim_crop in crops:
+        bars = []
+        for c in bar_crops:
+            status = (classify_bar(c, palette)["status"]
+                      if c is not None and c.size else "unknown")
+            bars.append({
+                "status": status,
+                "preview": crop_to_data_url(c, scale=6) if c is not None and c.size else "",
+            })
+        elims = (ocr_small_number(elim_crop)
+                 if elim_crop is not None and elim_crop.size else None)
+        rows_preview.append({
+            "aliveCount": sum(1 for b in bars if b["status"] == "alive"),
+            "elims": elims,
+            "bars": bars,
+            "elimPreview": crop_to_data_url(elim_crop, scale=4) if elim_crop is not None and elim_crop.size else "",
+        })
+    return rows_preview
 
 
 # ---------------------------------------------------------------------------
@@ -3073,6 +3119,31 @@ async def handle_client(websocket, path=None):
                     rows[row] = (payload.get("team") or "").strip()
                     save_state()
                     await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "freefire_fetch_alive_grid_preview":
+                # One fresh, on-demand capture -- not the regular per-poll
+                # path, so this can afford to also encode every crop as a
+                # preview image (see build_alive_grid_preview) without
+                # that riding along on every single state_sync.
+                grid = build_alive_grid(config.get("regions", {}))
+                if grid is None:
+                    await websocket.send(json.dumps({
+                        "type": "freefire_alive_grid_preview",
+                        "error": "The alive grid isn't calibrated yet -- run the ff-alive-grid calibration first.",
+                    }))
+                else:
+                    with mss.mss() as sct:
+                        crops = capture_alive_grid_crops(sct, grid)
+                    loop = asyncio.get_running_loop()
+                    rows_preview = await loop.run_in_executor(
+                        ocr_executor, build_alive_grid_preview, crops,
+                        config.get("alive_grid_colors") or DEFAULT_ALIVE_GRID_PALETTE,
+                    )
+                    row_teams = server_state["liveOps"].get("aliveRowTeams") or []
+                    for i, r in enumerate(rows_preview):
+                        r["team"] = row_teams[i] if i < len(row_teams) else ""
+                    await websocket.send(json.dumps({
+                        "type": "freefire_alive_grid_preview", "rows": rows_preview,
+                    }))
             elif payload.get("type") == "headshot_hunter_show":
                 now_ms = int(time.time() * 1000)
                 hh = server_state["headshotHunter"]
@@ -3389,7 +3460,7 @@ async def ocr_loop():
             if alive_grid_crops is not None:
                 grid_rows = await loop.run_in_executor(
                     ocr_executor, classify_alive_grid_crops, alive_grid_crops,
-                    config.get("sidetable_colors"),
+                    config.get("alive_grid_colors") or DEFAULT_ALIVE_GRID_PALETTE,
                 )
                 row_teams = server_state["liveOps"].get("aliveRowTeams") or []
                 grid_named_rows = apply_alive_grid_identities(grid_rows, row_teams)

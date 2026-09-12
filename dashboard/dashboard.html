@@ -1826,12 +1826,15 @@ Team Charlie
 
     <div class="card">
       <h2>Alive Table Row Assignment</h2>
-      <p class="hint">Which roster team sits on which row of the game's own live side table, top to bottom, on
-        screen right now. This is what turns the alive grid's fast colour-read bars and elim numbers into a named
-        row instead of an anonymous position — set it once per match (the client's own side table doesn't
-        reshuffle rows mid-match), then leave it. A row left unassigned just doesn't contribute to the alive/elim
-        table below or the sheet push — everything else keeps working either way.</p>
-      <div id="ff_aliveGridRows" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;"></div>
+      <p class="hint">One row per on-screen row of the game's own live side table, top to bottom. Pick which
+        roster team sits there — that's what turns the alive grid's colour-read bars and elim number into a named
+        row instead of an anonymous position; set it once per match (the client's own side table doesn't reshuffle
+        rows mid-match), then leave it. Alive/elim previews are a fresh on-demand capture, not continuous — hit
+        Capture to check the calibration is landing on the right pixels before trusting it live. A row left
+        unassigned just doesn't contribute to the alive/elim table or the sheet push — everything else keeps
+        working either way.</p>
+      <button class="secondary" id="ff_aliveGridPreviewBtn">Capture Preview</button>
+      <div id="ff_aliveGridRows" style="overflow-x:auto;margin-top:10px;"></div>
       <div class="hint" id="ff_aliveGridStatus" style="margin-top:8px;"></div>
     </div>
 
@@ -1894,23 +1897,18 @@ Team Charlie
 
     <div class="card">
       <h2>OCR Crop Preview</h2>
-      <p class="hint">Raw OCR text only for now — no structured parsing yet (killfeed events and side-table rows
-        need real captured sample text before that logic can be written). First time only, calibrate both regions:</p>
+      <p class="hint">Raw OCR text only — for the killfeed, when no debugger folder is configured (with one, the
+        structured log feed makes this redundant). The old side-table preview here was dropped: it only ever
+        showed raw OCR text off the whole table, which didn't hold up — the Alive Table Row Assignment card below
+        replaces it with a per-row preview of exactly what's being read. First time only, calibrate the region:</p>
       <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
         cd ocr/freefire &amp;&amp; python calibrate.py
       </div>
       <p class="hint">Saves into <code>ocr/freefire_config.json</code> — separate from the MOBA engine's <code>config.json</code>, so calibrating here never touches the MOBA setup.</p>
-      <div class="two-col" style="margin-top:14px;">
-        <div class="col">
-          <h3>Killfeed / Knockout Feed</h3>
-          <img id="crop-freefire_killfeed" style="width:100%;border-radius:6px;border:1px solid #2b3348;background:#0a0d18;min-height:60px;">
-          <div class="hint" id="ff_killfeedLastText" style="margin-top:6px;white-space:pre-wrap;">(nothing read yet)</div>
-        </div>
-        <div class="col">
-          <h3>12-Team Side Table</h3>
-          <img id="crop-freefire_sidetable" style="width:100%;border-radius:6px;border:1px solid #2b3348;background:#0a0d18;min-height:60px;">
-          <div class="hint" id="ff_sidetableLastText" style="margin-top:6px;white-space:pre-wrap;">(nothing read yet)</div>
-        </div>
+      <div style="margin-top:14px;max-width:420px;">
+        <h3>Killfeed / Knockout Feed</h3>
+        <img id="crop-freefire_killfeed" style="width:100%;border-radius:6px;border:1px solid #2b3348;background:#0a0d18;min-height:60px;">
+        <div class="hint" id="ff_killfeedLastText" style="margin-top:6px;white-space:pre-wrap;">(nothing read yet)</div>
       </div>
     </div>
 
@@ -5046,8 +5044,6 @@ function ffConnect(){
       if(img) img.src = msg.image;
       if(msg.region === "freefire_killfeed"){
         document.getElementById("ff_killfeedLastText").textContent = (msg.text && msg.text.trim()) ? msg.text : "(nothing read this frame)";
-      } else if(msg.region === "freefire_sidetable"){
-        document.getElementById("ff_sidetableLastText").textContent = (msg.text && msg.text.trim()) ? msg.text : "(nothing read this frame)";
       }
     } else if(msg.type === "freefire_match_result"){
       if(ffRosterFromResultPending){
@@ -5066,6 +5062,8 @@ function ffConnect(){
       document.getElementById("ff_sheetWebhookStatus").textContent = msg.ok
         ? "✓ Test row sent — check your sheet's debug cell (see the .gs script) for the timestamp."
         : "⚠ Failed: " + (msg.error || "unknown error");
+    } else if(msg.type === "freefire_alive_grid_preview"){
+      ffApplyAliveGridPreview(msg);
     }
   };
 }
@@ -5747,6 +5745,13 @@ let ffLastAliveGridKey = "";
 // into a named row (see apply_alive_grid_identities in the engine). Not
 // auto-detected from anything on screen: the whole point of this path is
 // avoiding OCR text-reading for identity.
+const FF_ALIVE_BAR_COLOR = { alive: "#4ade80", eliminated: "#f87171", unknown: "#6b7590" };
+
+// One table: row dropdown, alive bars and elim preview all in the same
+// row, per the operator's own layout -- rebuilding the dropdowns wipes
+// whatever preview is showing (see ffApplyAliveGridPreview below, which
+// fills the SAME cells back in without touching the selects), so this
+// only rebuilds when the roster or the assignments actually change.
 function ffRenderAliveGridRows(ff){
   const container = document.getElementById("ff_aliveGridRows");
   if(!container) return;
@@ -5757,16 +5762,37 @@ function ffRenderAliveGridRows(ff){
   if(key === ffLastAliveGridKey) return;
   ffLastAliveGridKey = key;
 
-  container.innerHTML = Array.from({length: FF_ALIVE_GRID_ROWS}, (_, i) => {
-    const current = rowTeams[i] || "";
-    const options = ['<option value="">— unassigned —</option>']
-      .concat(roster.map(t => `<option value="${ffEscapeHtml(t.name)}" ${t.name === current ? "selected" : ""}>${ffEscapeHtml(t.name)}</option>`));
-    return `
-      <div class="team-form" style="margin:0;">
-        <label>Row ${i + 1}</label>
-        <select class="ff-alive-grid-row" data-row="${i}">${options.join("")}</select>
-      </div>`;
-  }).join("");
+  const barCell = (i, b) => `
+    <td class="ff-alive-bar-cell" data-row="${i}" data-bar="${b}" style="padding:4px 8px;text-align:center;min-width:52px;">
+      <span class="hint">—</span>
+    </td>`;
+
+  container.innerHTML = `
+    <table style="border-collapse:collapse;font-size:12px;white-space:nowrap;">
+      <thead><tr style="text-align:left;color:#98a3bd;">
+        <th style="padding:4px 8px;">Row</th><th style="padding:4px 8px;">Team</th>
+        <th style="padding:4px 8px;" colspan="4">Alive (crop → read)</th>
+        <th style="padding:4px 8px;">Elim (crop → read)</th>
+      </tr></thead>
+      <tbody>
+      ${Array.from({length: FF_ALIVE_GRID_ROWS}, (_, i) => {
+        const current = rowTeams[i] || "";
+        const options = ['<option value="">— unassigned —</option>']
+          .concat(roster.map(t => `<option value="${ffEscapeHtml(t.name)}" ${t.name === current ? "selected" : ""}>${ffEscapeHtml(t.name)}</option>`));
+        return `
+          <tr style="border-top:1px solid #2b3348;">
+            <td style="padding:4px 8px;color:#6b7590;">${i + 1}</td>
+            <td style="padding:4px 8px;">
+              <select class="ff-alive-grid-row" data-row="${i}" style="min-width:160px;">${options.join("")}</select>
+            </td>
+            ${[0, 1, 2, 3].map(b => barCell(i, b)).join("")}
+            <td class="ff-alive-elim-cell" data-row="${i}" style="padding:4px 8px;text-align:center;min-width:60px;">
+              <span class="hint">—</span>
+            </td>
+          </tr>`;
+      }).join("")}
+      </tbody>
+    </table>`;
 
   container.querySelectorAll(".ff-alive-grid-row").forEach(el => {
     el.addEventListener("change", () => {
@@ -5779,6 +5805,38 @@ function ffRenderAliveGridRows(ff){
         el.value ? `Row ${Number(el.dataset.row) + 1} → ${el.value}` : `Row ${Number(el.dataset.row) + 1} cleared`;
     });
   });
+}
+
+document.getElementById("ff_aliveGridPreviewBtn").addEventListener("click", () => {
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  document.getElementById("ff_aliveGridStatus").textContent = "Capturing...";
+  ffWs.send(JSON.stringify({ type: "freefire_fetch_alive_grid_preview" }));
+});
+
+// Fills the SAME bar/elim cells ffRenderAliveGridRows already built,
+// in place -- never touches the <select> elements, so a preview arriving
+// mid-pick never resets what the operator was about to choose.
+function ffApplyAliveGridPreview(msg){
+  if(msg.error){
+    document.getElementById("ff_aliveGridStatus").textContent = msg.error;
+    return;
+  }
+  (msg.rows || []).forEach((r, i) => {
+    (r.bars || []).forEach((b, bi) => {
+      const cell = document.querySelector(`.ff-alive-bar-cell[data-row="${i}"][data-bar="${bi}"]`);
+      if(!cell) return;
+      const color = FF_ALIVE_BAR_COLOR[b.status] || "#6b7590";
+      cell.innerHTML = (b.preview ? `<img src="${b.preview}" style="height:28px;border:2px solid ${color};border-radius:3px;display:block;margin:0 auto 3px;">` : "") +
+        `<span style="color:${color};font-weight:700;">${ffEscapeHtml(b.status)}</span>`;
+    });
+    const elimCell = document.querySelector(`.ff-alive-elim-cell[data-row="${i}"]`);
+    if(elimCell){
+      elimCell.innerHTML = (r.elimPreview ? `<img src="${r.elimPreview}" style="height:28px;border:1px solid #2b3348;border-radius:3px;display:block;margin:0 auto 3px;">` : "") +
+        `<span style="color:#ffc400;font-weight:700;">${r.elims == null ? "(unread)" : r.elims}</span>`;
+    }
+  });
+  document.getElementById("ff_aliveGridStatus").textContent =
+    "Captured " + new Date().toLocaleTimeString() + " — refresh anytime with Capture Preview.";
 }
 
 function ffRenderLoadoutCapture(ff){
