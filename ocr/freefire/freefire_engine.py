@@ -1608,9 +1608,16 @@ _alive_grid_last_elims = {}
 FREEFIRE_MAX_TEAM_ELIMS = 35
 
 
-def hold_last_good_elims(grid_rows):
+def hold_last_good_elims(grid_rows, remember=True):
     """Fills an unread elim count with the last one that DID read for
     that row, and rejects reads that can't be real.
+
+    remember=False runs the exact same rules without updating the cache
+    -- what the dashboard preview needs, so it can show the number that
+    is actually going out WITHOUT a preview capture counting as a real
+    reading. The preview used to skip this step entirely, which is why
+    it could show "(unread)" for a row the overlay was happily showing a
+    held number for: two different answers to the same question.
 
     The hold alone wasn't enough. It cached whatever came back, so a
     single bad frame -- 92 kills, say -- got stored and then held
@@ -1639,9 +1646,11 @@ def hold_last_good_elims(grid_rows):
             plausible = True
 
         if plausible:
-            _alive_grid_last_elims[i] = reading
+            if remember:
+                _alive_grid_last_elims[i] = reading
         else:
             row["elims"] = held      # None when nothing has ever read
+            row["elimsHeld"] = held is not None
     return grid_rows
 
 
@@ -3318,6 +3327,14 @@ async def handle_client(websocket, path=None):
                     key = str(row)
                     if str(raw).strip() == "":
                         elim_overrides.pop(key, None)
+                        # Also drop the held value for this row. Counts
+                        # never decrease, so a misread that slipped past
+                        # the plausibility check (a believable-looking 7
+                        # that was never real) would otherwise be stuck
+                        # for the rest of the match with no way back --
+                        # clearing the force field is the way to say
+                        # "forget what you think you saw and re-read".
+                        _alive_grid_last_elims.pop(row, None)
                     else:
                         try:
                             elim_overrides[key] = int(raw)
@@ -3344,6 +3361,13 @@ async def handle_client(websocket, path=None):
                         ocr_executor, build_alive_grid_preview, crops,
                         config.get("alive_grid_colors") or DEFAULT_ALIVE_GRID_PALETTE,
                     )
+                    # Same hold the live path applies, so the preview
+                    # answers "what is on air right now" rather than
+                    # "what did this one capture see" -- those diverged,
+                    # and the preview saying (unread) while the overlay
+                    # showed a number is exactly that gap. remember=False:
+                    # looking must not count as a reading.
+                    hold_last_good_elims(rows_preview, remember=False)
                     # Layer the same manual overrides the real per-poll
                     # path applies (apply_alive_grid_overrides) -- shown
                     # here too, marked, so the preview reflects what's

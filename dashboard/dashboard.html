@@ -5886,7 +5886,11 @@ function ffApplyAliveGridPreview(msg){
     });
     const elimCell = document.querySelector(`.ff-alive-elim-auto[data-row="${i}"]`);
     if(elimCell){
-      const badge = r.elimOverridden ? ' <span style="color:#a78bfa;">(forced)</span>' : "";
+      // "held" = this frame didn't read, so the last good number is what's
+      // on air. Worth showing: a number that stays held for a long time is
+      // a stuck misread, and clearing the force field below re-reads it.
+      const badge = r.elimOverridden ? ' <span style="color:#a78bfa;">(forced)</span>'
+        : (r.elimsHeld ? ' <span style="color:#9aa4bf;">(held)</span>' : "");
       elimCell.innerHTML = (r.elimPreview ? `<img src="${r.elimPreview}" style="height:28px;border:1px solid #2b3348;border-radius:3px;display:block;margin:0 auto 3px;">` : "") +
         `<span style="color:#ffc400;font-weight:700;">${r.elims == null ? "(unread)" : r.elims}</span>${badge}`;
     }
