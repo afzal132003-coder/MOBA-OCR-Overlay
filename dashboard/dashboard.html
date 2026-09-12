@@ -2183,6 +2183,10 @@ Team Charlie
       <div class="row" style="gap:8px;margin-bottom:10px;">
         <button class="secondary" id="ffgfx_page_pointsTableLogo">Overall Points Table</button>
         <button class="secondary" id="ffgfx_page_scoreboardLogo">Match Scoreboard</button>
+        <button class="secondary" id="ffgfx_page_aliveStatusLogo">Alive: Logo</button>
+        <button class="secondary" id="ffgfx_page_aliveStatusName">Alive: Name</button>
+        <button class="secondary" id="ffgfx_page_aliveStatusKills">Alive: Kills</button>
+        <button class="secondary" id="ffgfx_page_aliveStatusPip">Alive: Status</button>
       </div>
       <div id="ffgfx_stage_wrap" style="position:relative;width:960px;height:540px;
            background:#000;border:1px solid #2b3348;border-radius:8px;overflow:hidden;">
@@ -7148,6 +7152,25 @@ function ffgfxSbPositions(){
   return FFGFX_SB_ROW_CENTRE.map(cy => ({ left: FFGFX_SB_NAME_X + 6, top: cy }));
 }
 
+/* Alive Status (the TEAM/KILLS/STATUS design). Unlike the two graphics
+   above -- which only ever need their logo column nudged -- this one has
+   four separately-placed things per row, so it gets four pages rather
+   than one: each saves its own graphicOverrides entry, and
+   freefire_alive_status.html applies each to its own element class. The
+   numbers mirror that page's own CSS exactly (row left 1512, ROW_TOPS,
+   44px rows), so what's dragged here lines up with what renders. */
+const FFGFX_AS_ROW_LEFT = 1512;
+const FFGFX_AS_ROW_TOPS = [286, 335, 384, 434, 483, 532, 582, 631, 680, 730, 779, 828];
+const FFGFX_AS_ELEMENTS = {
+  aliveStatusLogo:   { label: "Alive Status — Logo",   dx: 8,   size: 40 },
+  aliveStatusName:   { label: "Alive Status — Name",   dx: 54,  size: 44 },
+  aliveStatusKills:  { label: "Alive Status — Kills",  dx: 208, size: 40 },
+  aliveStatusPip:    { label: "Alive Status — Status", dx: 292, size: 44 },
+};
+function ffgfxAsPositions(offsetX){
+  return FFGFX_AS_ROW_TOPS.map(top => ({ left: FFGFX_AS_ROW_LEFT + offsetX, top: top + 22 }));
+}
+
 const FFGFX_PAGES = {
   pointsTableLogo: {
     label: "Overall Points Table",
@@ -7166,6 +7189,16 @@ const FFGFX_PAGES = {
     positions: ffgfxSbPositions(),
   },
 };
+
+Object.entries(FFGFX_AS_ELEMENTS).forEach(([key, el]) => {
+  FFGFX_PAGES[key] = {
+    label: el.label,
+    bg: () => "../overlay/assets/freefire/" +
+      ((ffState && ffState.event && ffState.event.assetFolder) || "CLT") + "/ALIVE STATUS.png",
+    size: el.size,
+    positions: ffgfxAsPositions(el.dx),
+  };
+});
 let ffgfxCurrentPage = "pointsTableLogo";
 let ffgfxPending = { dx: 0, dy: 0, scale: 1 };
 

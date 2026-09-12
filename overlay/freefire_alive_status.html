@@ -7,34 +7,35 @@
   /* The 12-team live side table.
      ---------------------------------------------------------------
      Every number on this graphic comes from the game client's own
-     debugger log, not from OCR of the in-game table: team names from
-     OnTeamScoreInited, the running kill count from OnTeamScoreChanged,
-     deaths and revives from the kill/revive lines, and squad wipes from
-     PCInGameFlagManager -- which lands in the same millisecond as the
-     squad's last death. See freefire_engine.py's link_live_teams().
+     debugger log, not from OCR of the in-game table (or, once
+     calibrated, the alive grid's own colour/digit read -- see
+     link_live_teams()/apply_alive_grid_identities() in
+     freefire_engine.py; both feed liveOps.sidetableRows in the same
+     shape, so this page doesn't care which one supplied a given row).
 
-     Geometry is measured from the artwork (assets/freefire/<event>/
-     ALIVE STATUS.png), not eyeballed. At 1920x1080 the table occupies
-     x 1520..1828, with a header band, twelve 29px-tall rows on a ~36.8px
-     pitch, and a legend footer. Row tops are listed exactly as measured
-     rather than computed from a pitch, because the artwork's spacing is
-     not perfectly uniform and drift would show by row twelve. */
+     Geometry below is measured from the CURRENT artwork
+     (assets/freefire/<event>/ALIVE STATUS.png, the TEAM/KILLS/STATUS
+     design), not eyeballed -- sampled directly from the PNG's own
+     pixels. At 1920x1080 the table occupies x 1512..1920, a header
+     band, twelve 44px-tall rows on a ~49.3px pitch, and a legend
+     footer explaining the STATUS icon (this is the SAME icon set the
+     old design used -- Dead.png / 1_alive.png.. 4_alive.png -- just
+     moved to sit under the STATUS column instead of a dedicated ALIVE
+     column). Row tops are listed exactly as measured rather than
+     computed from a pitch, matching the old design's own reasoning:
+     the artwork's spacing is not perfectly uniform and drift would
+     show by row twelve.
 
-  @font-face {
-    font-family: 'TT Supermolot Neue Trial';
-    src: url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');
-    font-weight: 800; font-style: normal;
-  }
-  @font-face {
-    font-family: 'TT Supermolot Neue Trial';
-    src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
-    font-weight: 900; font-style: normal;
-  }
+     Font is Gotham, per the graphic package -- not bundled here (no
+     @font-face): it's expected to already be installed on the
+     machine running the browser source, the same way a licensed font
+     normally reaches a design tool without redistributing the file.
+     Falls back to Arial if it isn't. */
 
   html, body {
     margin: 0; padding: 0; background: transparent; overflow: hidden;
     width: 1920px; height: 1080px;
-    font-family: 'TT Supermolot Neue Trial', Arial, sans-serif;
+    font-family: 'Gotham', Arial, sans-serif;
   }
 
   #stage { position: absolute; inset: 0; display: none; }
@@ -42,82 +43,72 @@
 
   #backdrop { position: absolute; inset: 0; width: 1920px; height: 1080px; }
 
-  .row { position: absolute; height: 29px; }
+  .row { position: absolute; height: 44px; left: 1512px; width: 408px; }
 
-  /* No rank element: 01..12 are already printed in the artwork, so a row
-     is ranked by which slot it occupies, not by anything drawn here.
-     (Drawing it too produced "0101" on the first pass.) */
+  /* No rank element: 01..12 are already printed in the artwork, so a
+     row is ranked by which slot it occupies, not by anything drawn
+     here. */
   .logo {
-    position: absolute; left: 1554px; width: 30px; height: 29px;
+    position: absolute; left: 8px; top: 0; width: 40px; height: 44px;
     display: flex; align-items: center; justify-content: center;
   }
-  .logo img { max-width: 26px; max-height: 25px; object-fit: contain; }
-  /* Narrowed from the full 142px gap up to the alive bars to make room
-     for a KILLS number -- the artwork itself has no column for this
-     (RANK / TEAM / ALIVE only), so it's fitted into the existing row
-     rather than waiting on updated art. */
+  .logo img { max-width: 34px; max-height: 34px; object-fit: contain; }
+
   .name {
-    position: absolute; left: 1588px; width: 106px; height: 29px;
+    position: absolute; left: 54px; top: 0; width: 150px; height: 44px;
     display: flex; align-items: center;
-    color: #1a1206; font-weight: 900; font-size: 15px; letter-spacing: 0.2px;
+    color: #f2e9e6; font-weight: 700; font-size: 17px; letter-spacing: 0.2px;
     text-transform: uppercase; white-space: nowrap; overflow: hidden;
   }
   .kills {
-    position: absolute; left: 1694px; width: 36px; height: 29px;
+    position: absolute; left: 208px; top: 0; width: 74px; height: 44px;
     display: flex; align-items: center; justify-content: center;
-    color: #1a1206; font-weight: 900; font-size: 15px;
+    color: #f2e9e6; font-weight: 800; font-size: 18px;
     font-variant-numeric: tabular-nums;
   }
-  /* One static label per column, not per row -- the header band the
-     artwork bakes in only says RANK / TEAM / ALIVE, so this is drawn to
-     match its style (white, bold, small) at the same x as the numbers
-     below it. */
-  #kills-header {
-    position: absolute; left: 1694px; top: 296px; width: 36px; height: 14px;
-    display: flex; align-items: center; justify-content: center;
-    color: #ffffff; font-weight: 800; font-size: 11px; letter-spacing: 0.5px;
-  }
 
-  /* The alive indicator is the supplied artwork, not bars drawn here --
-     0 alive uses Dead.png, 1..4 use N_alive.png. All five share one
-     content box (x 11..487, y 140..359 of a 500x500 canvas), so a single
-     crop maps any of them into the 76x29 dark slot: scale the 220px-tall
-     content to 29px (factor 0.13182), then offset so it sits centred. */
-  .alive {
-    position: absolute; left: 1732px; width: 76px; height: 29px;
+  /* The STATUS pip -- SAME artwork the old ALIVE column used
+     (Dead.png / N_alive.png), just re-fitted into this design's
+     narrower slot. All five share one content box (x 11..488,
+     y 140..360 of a 500x500 canvas), so one crop maps any of them in:
+     scale that 477x220 content box independently per axis to fill the
+     slot, then shift so its top-left lands at the slot's origin --
+     same technique the old design used, re-derived for this slot's
+     own size (110x32 here, was 76x29). */
+  .status-pip {
+    position: absolute; left: 292px; top: 6px; width: 110px; height: 32px;
     background-repeat: no-repeat;
-    /* Maps the artwork's content box onto the dark slot with a 4px inset,
-       stretching each axis independently -- the standalone indicator is
-       477x220 (2.17:1) while the slot is 76x29 (2.62:1), and preserving
-       the aspect would leave the bars floating in the middle of the slot
-       instead of filling it the way the reference table does. They are
-       plain rectangles, so the stretch is invisible.
-         scaleX = 68/477, scaleY = 21/220 -> 500px canvas becomes
-         71.3 x 47.7, shifted so content x11,y140 lands at the inset. */
-    background-size: 71.28px 47.73px;
-    background-position: 2.43px -9.36px;
-  }
-
-  /* Champion Rush emblem, sitting OUTSIDE the table to the left of the
-     team logo so it never crowds the name. Artwork comes from the selected
-     package as champion_rush.png; a package without one simply shows
-     nothing there. */
-  .cr-badge{
-    position: absolute; left: 1486px; width: 28px; height: 29px;
-    object-fit: contain;
+    background-size: 115.3px 72.75px;
+    background-position: -2.54px -20.36px;
   }
 
   /* A wiped squad's whole row dims, so "who is still in" reads at a
-     glance rather than needing the four little bars to be counted. */
+     glance rather than needing the pip alone to carry it. */
   .row.out .name { opacity: 0.55; }
   .row.out .logo img { filter: grayscale(1); opacity: 0.5; }
+
+  /* Plays once, the moment a row flips from alive to eliminated --
+     NOT on every render, just that one transition. A quick bright
+     sweep across the row (not the pip alone) is what reads as "this
+     just happened" on a broadcast; the permanent dim above is what
+     shows afterwards. */
+  @keyframes ff-elim-flash {
+    0%   { box-shadow: inset 0 0 0 999px rgba(220, 4, 7, 0); }
+    15%  { box-shadow: inset 0 0 0 999px rgba(220, 4, 7, 0.55); }
+    100% { box-shadow: inset 0 0 0 999px rgba(220, 4, 7, 0); }
+  }
+  .row.just-eliminated { animation: ff-elim-flash 900ms ease-out; }
+
+  /* Rows slide to their new slot instead of snapping -- an eliminated
+     team sinking below the alive block should read as a movement, not
+     a cut. */
+  .row { transition: top 550ms ease; }
 </style>
 </head>
 <body>
 
 <div id="stage">
   <img id="backdrop" alt="">
-  <div id="kills-header">K</div>
   <div id="rows"></div>
 </div>
 
@@ -132,7 +123,7 @@ const WS_URL = _relay
   : "ws://localhost:8765?page=freefire_alive_status";
 
 // Measured from ALIVE STATUS.png -- see the note at the top.
-const ROW_TOPS = [322, 359, 395, 432, 469, 506, 543, 579, 616, 653, 689, 727];
+const ROW_TOPS = [286, 335, 384, 434, 483, 532, 582, 631, 680, 730, 779, 828];
 
 let ws;
 function connect(){
@@ -156,22 +147,35 @@ function escapeHtml(s){
   ));
 }
 
-/* Rank order is the event standings when there are any, so the column
-   means the same thing here as on the points table. Before game one
-   there are no standings, so it falls back to the order the client
-   listed the teams -- stable, and never leaves the table blank. */
+/* Alive teams sort first (by the event standings, same as before --
+   falls back to log order pre-game-one). Eliminated teams sink BELOW
+   every alive team, ordered by their own placement -- link_live_teams()
+   already computes this the moment a squad is wiped (bigger number =
+   worse = sinks further), so a team eliminated early ends up lowest and
+   one eliminated just now sits right under the alive block, exactly
+   the behaviour the game's own table doesn't have. A row from a source
+   that doesn't carry placement (the alive grid, or the OCR fallback)
+   just keeps its existing relative order among other eliminated rows
+   instead of guessing one. */
 function orderRows(rows, standings){
   const rank = new Map();
   (standings || []).forEach((s, i) => {
     if(s && s.teamName) rank.set(s.teamName.trim().toUpperCase(), i);
   });
-  return rows.slice().sort((a, b) => {
-    const ra = rank.has((a.teamName||"").trim().toUpperCase())
-      ? rank.get((a.teamName||"").trim().toUpperCase()) : 500;
-    const rb = rank.has((b.teamName||"").trim().toUpperCase())
-      ? rank.get((b.teamName||"").trim().toUpperCase()) : 500;
-    return ra - rb;
-  });
+  const aliveRank = (r) => {
+    const key = (r.teamName||"").trim().toUpperCase();
+    return rank.has(key) ? rank.get(key) : 500;
+  };
+  return rows.map((r, i) => ({ r, i })).sort((A, B) => {
+    const a = A.r, b = B.r;
+    const aOut = !!a.eliminated, bOut = !!b.eliminated;
+    if(aOut !== bOut) return aOut ? 1 : -1;
+    if(!aOut) return aliveRank(a) - aliveRank(b);
+    if(a.placement != null && b.placement != null) return a.placement - b.placement;
+    if(a.placement != null) return -1;
+    if(b.placement != null) return 1;
+    return A.i - B.i;   // stable: keep original order when neither has one
+  }).map(x => x.r);
 }
 
 function logoFor(teamName, roster){
@@ -181,6 +185,11 @@ function logoFor(teamName, roster){
   return team || null;
 }
 
+// Team name -> was it eliminated on the LAST render? Used only to catch
+// the alive-to-eliminated transition for the flash animation -- see
+// apply() below. Deliberately module-level (survives across calls),
+// not per-row state, since a row's DOM element is rebuilt every render.
+let previouslyEliminated = new Set();
 let lastKey = "";
 
 function apply(state){
@@ -204,40 +213,69 @@ function apply(state){
     : new Set();
 
   const key = base + "|" + rows.map(r =>
-    [r.teamName, r.aliveCount, r.eliminated, r.elims,
+    [r.teamName, r.aliveCount, r.eliminated, r.elims, r.placement,
      active.has((r.teamName || "").trim().toUpperCase())].join("~")).join("|");
   if(key === lastKey) return;
   lastKey = key;
 
+  const nowEliminated = new Set();
   const html = rows.slice(0, 12).map((row, i) => {
     const team = logoFor(row.teamName, state.roster);
     const label = (team && team.shortName) || row.teamName || "";
+    const nameKey = (row.teamName || "").trim().toUpperCase();
     // aliveCount is null when the squad could not be linked to the roster
     // (that link is what turns the client's squad number into a team).
-    // Showing the full four bars would be a confident lie, so an unknown
-    // count falls back to the empty indicator.
+    // Showing a full-alive pip would be a confident lie, so an unknown
+    // count falls back to the empty/dead indicator.
     const alive = row.eliminated ? 0
       : (row.aliveCount == null ? 0 : Math.max(0, Math.min(4, row.aliveCount)));
     const art = alive === 0 ? "Dead.png" : alive + "_alive.png";
     const logo = team && team.logo
       ? `<img src="${escapeHtml(team.logo)}" alt="">` : "";
-    const badge = active.has((row.teamName || "").trim().toUpperCase())
-      ? `<img class="cr-badge" src="${base}champion_rush.png" alt="">` : "";
     // elims is null once the match has ended (the running score gets
     // placement points folded in at that point and would read as an
     // inflated "kills" number), so a blank cell beats a confidently wrong
     // one -- same rule the rest of this codebase already follows.
     const kills = row.elims == null ? "" : row.elims;
+    if(row.eliminated) nowEliminated.add(nameKey);
+    const justNow = row.eliminated && !previouslyEliminated.has(nameKey);
     return `
-      <div class="row ${row.eliminated ? "out" : ""}" style="top:${ROW_TOPS[i]}px">
-        ${badge}
+      <div class="row ${row.eliminated ? "out" : ""} ${justNow ? "just-eliminated" : ""}" style="top:${ROW_TOPS[i]}px">
         <div class="logo">${logo}</div>
         <div class="name">${escapeHtml(label)}</div>
         <div class="kills">${kills}</div>
-        <div class="alive" style="background-image:url('${base}${art}')"></div>
+        <div class="status-pip" style="background-image:url('${base}${art}')"></div>
       </div>`;
   }).join("");
   document.getElementById("rows").innerHTML = html;
+  applyElementOverrides(state);
+  previouslyEliminated = nowEliminated;
+}
+
+/* Per-element nudges from the dashboard's Graphic Fixing tab (Alive:
+   Logo / Name / Kills / Status). Each is one {dx, dy, scale} applied on
+   top of the element's own CSS position -- every row shares the offset,
+   since the whole point is lining a COLUMN up with the artwork, not
+   moving one row independently. Same transform trick the scoreboard and
+   points table already use for their logo columns. */
+const OVERRIDE_TARGETS = {
+  aliveStatusLogo: ".logo",
+  aliveStatusName: ".name",
+  aliveStatusKills: ".kills",
+  aliveStatusPip: ".status-pip",
+};
+
+function applyElementOverrides(state){
+  const all = state.graphicOverrides || {};
+  Object.entries(OVERRIDE_TARGETS).forEach(([key, selector]) => {
+    const o = all[key] || {};
+    const dx = o.dx || 0, dy = o.dy || 0, scale = o.scale || 1;
+    if(!dx && !dy && scale === 1) return;
+    document.querySelectorAll("#rows " + selector).forEach(el => {
+      el.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+      el.style.transformOrigin = "left center";
+    });
+  });
 }
 
 connect();

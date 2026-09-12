@@ -83,15 +83,15 @@
       "h": 319
     },
     "freefire_alive_r1p1": {
-      "x": -61,
+      "x": -60,
       "y": 310,
       "w": 11,
-      "h": 30
+      "h": 29
     },
     "freefire_alive_r1p2": {
-      "x": -47,
+      "x": -46,
       "y": 311,
-      "w": 10,
+      "w": 9,
       "h": 28
     },
     "freefire_alive_r2p1": {
@@ -101,10 +101,16 @@
       "h": 28
     },
     "freefire_alive_r1elim": {
-      "x": -133,
-      "y": 304,
-      "w": 54,
-      "h": 36
+      "x": -131,
+      "y": 301,
+      "w": 52,
+      "h": 44
+    },
+    "freefire_alive_rlastp1": {
+      "x": -59,
+      "y": 932,
+      "w": 8,
+      "h": 26
     }
   },
   "sidetable_colors": {
