@@ -5032,6 +5032,7 @@ function ffConnect(){
       ffRenderLoadouts(ffState);
       ffRenderLoadoutCapture(ffState);
       ffRenderAliveGridRows(ffState);
+      ffUpdateAliveGridLive(ffState);
       ffRenderEvent(ffState);
       ffQmeSeedFromRoster(ffState);
       ffQmeUpdateExport();
@@ -5793,6 +5794,17 @@ function ffRenderAliveGridRows(ff){
         placeholder="force" value="${forcedElim == null ? "" : forcedElim}"
         style="width:52px;font-size:10px;margin-top:3px;padding:1px 3px;">
     </td>`;
+  // What's actually going out for this row RIGHT NOW. Unlike the crop
+  // preview beside it, this needs no capture and no button -- it reads
+  // the same liveOps.sidetableRows the overlay and the sheet push
+  // consume, so it updates on every sync. The point is that a wrong
+  // number is visible the moment it goes out, not whenever someone
+  // thinks to check.
+  const liveCell = (i) => `
+    <td class="ff-alive-live" data-row="${i}" style="padding:4px 10px;text-align:center;
+        min-width:96px;border-left:1px solid #2b3348;">
+      <span class="hint">—</span>
+    </td>`;
 
   const barOverrides = (ff.liveOps && ff.liveOps.aliveGridOverrides && ff.liveOps.aliveGridOverrides.bars) || {};
   const elimOverrides = (ff.liveOps && ff.liveOps.aliveGridOverrides && ff.liveOps.aliveGridOverrides.elims) || {};
@@ -5803,6 +5815,7 @@ function ffRenderAliveGridRows(ff){
         <th style="padding:4px 8px;">Row</th><th style="padding:4px 8px;">Team</th>
         <th style="padding:4px 8px;" colspan="4">Alive (crop → read → override)</th>
         <th style="padding:4px 8px;">Elim (crop → read → override)</th>
+        <th style="padding:4px 10px;border-left:1px solid #2b3348;">ON AIR (live)</th>
       </tr></thead>
       <tbody>
       ${Array.from({length: FF_ALIVE_GRID_ROWS}, (_, i) => {
@@ -5817,6 +5830,7 @@ function ffRenderAliveGridRows(ff){
             </td>
             ${[0, 1, 2, 3].map(b => barCell(i, b, barOverrides[`${i}_${b}`])).join("")}
             ${elimCell(i, elimOverrides[String(i)])}
+            ${liveCell(i)}
           </tr>`;
       }).join("")}
       </tbody>
@@ -5858,6 +5872,34 @@ function ffRenderAliveGridRows(ff){
         ? `Row ${Number(el.dataset.row) + 1} elim count forced to ${el.value}.`
         : `Row ${Number(el.dataset.row) + 1} elim count back to auto.`;
     });
+  });
+}
+
+/* The ON AIR column: what liveOps.sidetableRows currently says for the
+   team assigned to each row -- the exact data the overlay draws and the
+   sheet push sends. Runs on every state_sync (it's just text, no
+   capture, no images), and writes into the existing cells rather than
+   rebuilding the table, so it never disturbs a dropdown mid-pick. */
+function ffUpdateAliveGridLive(ff){
+  const rows = (ff.liveOps && ff.liveOps.sidetableRows) || [];
+  const rowTeams = (ff.liveOps && ff.liveOps.aliveRowTeams) || [];
+  const norm = (s) => (s || "").trim().toUpperCase();
+  const byTeam = new Map(rows.map(r => [norm(r.teamName), r]));
+
+  document.querySelectorAll(".ff-alive-live").forEach(cell => {
+    const i = Number(cell.dataset.row);
+    const team = rowTeams[i] || "";
+    if(!team){ cell.innerHTML = '<span class="hint">unassigned</span>'; return; }
+    const r = byTeam.get(norm(team));
+    if(!r){ cell.innerHTML = '<span style="color:#fbbf24;">not on air</span>'; return; }
+    const alive = r.eliminated ? 0 : (r.aliveCount == null ? "?" : r.aliveCount);
+    const kills = r.elims == null ? "—" : r.elims;
+    const aliveColor = r.eliminated ? "#f87171" : "#4ade80";
+    cell.innerHTML =
+      `<span style="color:${aliveColor};font-weight:700;">${r.eliminated ? "OUT" : alive + "/4"}</span>` +
+      ` <span style="color:#6b7590;">·</span> ` +
+      `<span style="color:#ffc400;font-weight:700;">${kills}</span>` +
+      `<div class="hint" style="font-size:10px;">${r.source === "grid" ? "grid" : (r.source || "log")}</div>`;
   });
 }
 
