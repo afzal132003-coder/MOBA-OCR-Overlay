@@ -1168,28 +1168,70 @@ TESS_CONFIG_DIGITS = (
 )
 
 
+def _normalize_polarity(binary_img):
+    """Tesseract wants dark text on a light background. A threshold pass
+    can land on either polarity depending on which side of the crop
+    happens to be the majority, so this flips it back whenever the
+    result came out mostly black -- the correct case is a small dark
+    digit on a large light field, never the reverse."""
+    return cv2.bitwise_not(binary_img) if binary_img.mean() < 127 else binary_img
+
+
 def ocr_small_number(img_bgr, upscale=4):
     """Reads a small standalone number (an elim count).
 
     Needed because the general sparse-text pass used for the rest of the
     table demonstrably misses these: on a mock-up of the real layout it
     found the two-digit "10" but silently dropped every single-digit
-    count, which is a whole column of zeros that look like real data. A
-    digit-whitelisted single-line pass over an upscaled, thresholded crop
-    reads them reliably -- same approach the Valorant engine needed for
-    its own small-digit cells."""
+    count, which is a whole column of zeros that look like real data.
+
+    Tries a few different ways of turning the crop into clean black-on-
+    white before handing it to Tesseract, in order, and returns the
+    first one that actually reads a digit -- a real capture behind a
+    semi-transparent panel (background scenery, particle effects,
+    colour glows) doesn't threshold reliably one way every time, and the
+    common case (a clean, high-contrast crop) still only costs the one
+    fast attempt, since this stops as soon as something reads.
+
+      1. A pure-white colour mask -- the digit itself is confirmed white
+         text, so checking that ALL THREE channels are simultaneously
+         bright isolates it from a background element that's merely
+         bright in one channel (the alive bars' orange, an occasional
+         blue glow sweep) without being anywhere near true white.
+      2. Otsu's threshold on a lightly blurred crop -- the original
+         approach, kept as a fallback for whenever the digit isn't pure
+         white (a colour cast from a glow effect, say).
+      3. Adaptive threshold -- copes with uneven background brightness
+         across the crop better than Otsu's single global cutoff can.
+
+    Same overall approach the Valorant engine needed for its own
+    small-digit cells, extended with the colour-mask pass once this
+    project's own reference swatches confirmed the digit's actual
+    colour rather than assuming it."""
     if img_bgr is None or img_bgr.size == 0:
         return None
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    gray = cv2.resize(gray, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
-    gray = cv2.medianBlur(gray, 3)
-    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    if thresh.mean() < 127:
-        thresh = cv2.bitwise_not(thresh)
-    thresh = cv2.copyMakeBorder(thresh, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
-    text = pytesseract.image_to_string(thresh, config=TESS_CONFIG_DIGITS).strip()
-    match = re.search(r"\d{1,3}", text)
-    return int(match.group()) if match else None
+    big = cv2.resize(img_bgr, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
+    gray = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
+
+    white_mask = cv2.inRange(big, (200, 200, 200), (255, 255, 255))
+    blurred = cv2.medianBlur(gray, 3)
+    _, otsu = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    adaptive = cv2.adaptiveThreshold(
+        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 5)
+
+    candidates = [
+        _normalize_polarity(cv2.bitwise_not(white_mask)),
+        _normalize_polarity(otsu),
+        _normalize_polarity(adaptive),
+    ]
+
+    for variant in candidates:
+        bordered = cv2.copyMakeBorder(variant, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
+        text = pytesseract.image_to_string(bordered, config=TESS_CONFIG_DIGITS).strip()
+        match = re.search(r"\d{1,3}", text)
+        if match:
+            return int(match.group())
+    return None
 
 
 def find_bar_columns(alive_strip, expected=SIDETABLE_PLAYERS_PER_TEAM):
