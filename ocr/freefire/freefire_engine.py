@@ -1640,8 +1640,23 @@ def sanitise_published_elims(rows):
 # each frame while the real number sits perfectly still.
 FREEFIRE_ELIM_AGREE_FRAMES = 2
 
+# How many polls to stop trusting a row's elim box after its alive bars
+# change. The client animates that row when a player goes down or comes
+# back -- the number cross-fades, slides, or is briefly covered -- and a
+# crop taken mid-animation is a picture of a digit halfway through
+# becoming another one. Reading it produces a number that is not any
+# team's score. At 0.25s a poll this is about a second of silence on
+# that row, after which the normal agreement rule applies, so a real
+# change lands roughly a second and a half late -- unnoticeable on air,
+# and the entire point is that what does land is real.
+FREEFIRE_ELIM_SETTLE_FRAMES = 4
+
 # row index -> (candidate value, how many consecutive polls have read it)
 _alive_grid_elim_pending = {}
+# row index -> the bar pattern last seen, and polls left before this
+# row's elim box is trusted again. See FREEFIRE_ELIM_SETTLE_FRAMES.
+_alive_grid_last_bars = {}
+_alive_grid_settle = {}
 
 
 def hold_last_good_elims(grid_rows, remember=True):
@@ -1671,8 +1686,27 @@ def hold_last_good_elims(grid_rows, remember=True):
         reading = row.get("elims")
         accepted = _alive_grid_last_elims.get(i)
 
+        # Is this row's own UI mid-animation? Its bars changing is the
+        # one reliable signal we have that the client is animating that
+        # row right now, and that is exactly when its number is
+        # untrustworthy -- which is why the garbage always showed up
+        # "whenever someone got eliminated or came back".
+        bars = tuple(row.get("bars") or ())
+        previous_bars = _alive_grid_last_bars.get(i)
+        settling = _alive_grid_settle.get(i, 0)
+        bars_changed = previous_bars is not None and bars != previous_bars
+        if bars_changed:
+            settling = FREEFIRE_ELIM_SETTLE_FRAMES
+        elif settling > 0:
+            settling -= 1
+        if remember:
+            _alive_grid_last_bars[i] = bars
+            _alive_grid_settle[i] = settling
+
         if reading is not None and reading > FREEFIRE_MAX_TEAM_ELIMS:
             reading = None          # nonsense, treat as unread
+        if settling > 0:
+            reading = None          # mid-animation: nothing here is real yet
 
         if reading is None or reading == accepted:
             if remember:
@@ -3379,6 +3413,7 @@ async def handle_client(websocket, path=None):
                         # "forget what you think you saw and re-read".
                         _alive_grid_last_elims.pop(row, None)
                         _alive_grid_elim_pending.pop(row, None)
+                        _alive_grid_settle.pop(row, None)
                     else:
                         try:
                             elim_overrides[key] = int(raw)
@@ -3543,6 +3578,8 @@ async def handle_live_signals(signals, gs_names):
             # see _alive_grid_last_elims. Every row starts unread again.
             _alive_grid_last_elims.clear()
             _alive_grid_elim_pending.clear()
+            _alive_grid_last_bars.clear()
+            _alive_grid_settle.clear()
 
         elif signal["type"] == "match_end":
             _pending_match_fetch = signal["matchId"]
