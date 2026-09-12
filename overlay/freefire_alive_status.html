@@ -67,19 +67,27 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* The STATUS pip -- SAME artwork the old ALIVE column used
-     (Dead.png / N_alive.png), just re-fitted into this design's
-     narrower slot. All five share one content box (x 11..488,
-     y 140..360 of a 500x500 canvas), so one crop maps any of them in:
-     scale that 477x220 content box independently per axis to fill the
-     slot, then shift so its top-left lands at the slot's origin --
-     same technique the old design used, re-derived for this slot's
-     own size (110x32 here, was 76x29). */
+  /* The STATUS pip -- YOUR artwork, unmodified (Dead.png /
+     1..4_alive.png), picked by alive count. Nothing is drawn here; this
+     only crops the supplied PNG down to its own content.
+
+     Measured from the files themselves: all five are a 500x500 canvas
+     whose visible content sits at x 11..487, y 140..359 -- 477x220,
+     so 2.17:1. The scale is UNIFORM on both axes, unlike the old
+     design's (which stretched each axis independently to fill a slot
+     that happened to be nearly the same ratio). Stretching into this
+     design's wider STATUS column turned the bars into fat squares --
+     they're meant to stay the proportions they were drawn at:
+
+       factor = 36/220 = 0.163636
+       background-size  = 500 x factor        -> 81.8px
+       background-position = -11 x f, -140 x f -> -1.8px, -22.9px
+       displayed content   = 477 x f = 78px wide, 36px tall */
   .status-pip {
-    position: absolute; left: 292px; top: 6px; width: 110px; height: 32px;
+    position: absolute; left: 304px; top: 4px; width: 78px; height: 36px;
     background-repeat: no-repeat;
-    background-size: 115.3px 72.75px;
-    background-position: -2.54px -20.36px;
+    background-size: 81.8px 81.8px;
+    background-position: -1.8px -22.9px;
   }
 
   /* A wiped squad's whole row dims, so "who is still in" reads at a

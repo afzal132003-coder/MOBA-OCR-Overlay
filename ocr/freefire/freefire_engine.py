@@ -1581,6 +1581,35 @@ def classify_alive_grid_crops(crops, palette=None):
     return rows_out
 
 
+# Last elim count that actually READ for each grid row, by row index.
+# The digit pass fails on the odd frame -- a glow sweep crossing the
+# number, a particle effect, a frame caught mid-animation -- and an
+# unread frame used to emit null, which blanked the KILLS cell on air
+# and then filled it back in a quarter-second later: a visible blink,
+# and worse, a changed value every poll, which defeated the overlay's
+# own "only redraw when something changed" guard and made the whole
+# table repaint constantly.
+#
+# Holding the last good number instead is the honest trade: an elim
+# count only ever climbs during a match, so a briefly stale one is
+# never WRONG in a way a blank isn't -- it's just late by a poll or
+# two. Cleared when a new match starts, so nothing carries across
+# games.
+_alive_grid_last_elims = {}
+
+
+def hold_last_good_elims(grid_rows):
+    """Fills an unread elim count with the last one that did read for
+    that row. See _alive_grid_last_elims."""
+    for i, row in enumerate(grid_rows):
+        if row.get("elims") is None:
+            if i in _alive_grid_last_elims:
+                row["elims"] = _alive_grid_last_elims[i]
+        else:
+            _alive_grid_last_elims[i] = row["elims"]
+    return grid_rows
+
+
 def apply_alive_grid_overrides(grid_rows, overrides):
     """Layers the operator's manual corrections on top of the auto-read
     grid, BEFORE identity is joined on -- so a forced bar/elim value
@@ -3406,6 +3435,11 @@ async def handle_live_signals(signals, gs_names):
             changed = True
             print(f"[live] {name} eliminated -- placing {te['rank']}")
 
+        elif signal["type"] == "match_start":
+            # Last game's held elim counts must not carry into this one --
+            # see _alive_grid_last_elims. Every row starts unread again.
+            _alive_grid_last_elims.clear()
+
         elif signal["type"] == "match_end":
             _pending_match_fetch = signal["matchId"]
             _pending_match_since = time.time()
@@ -3621,6 +3655,7 @@ async def ocr_loop():
                     ocr_executor, classify_alive_grid_crops, alive_grid_crops,
                     config.get("alive_grid_colors") or DEFAULT_ALIVE_GRID_PALETTE,
                 )
+                grid_rows = hold_last_good_elims(grid_rows)
                 grid_rows = apply_alive_grid_overrides(
                     grid_rows, server_state["liveOps"].get("aliveGridOverrides"))
                 row_teams = server_state["liveOps"].get("aliveRowTeams") or []
