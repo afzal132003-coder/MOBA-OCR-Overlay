@@ -1608,6 +1608,31 @@ _alive_grid_last_elims = {}
 FREEFIRE_MAX_TEAM_ELIMS = 35
 
 
+def sanitise_published_elims(rows):
+    """Last guard before anything reaches the overlay or the sheet: a
+    kill count that can't be a kill count is published as nothing at
+    all.
+
+    The debounce in hold_last_good_elims only ever protected the alive
+    GRID. The log path writes sidetableRows straight from the client's
+    own running team score, and the OCR fallback from its own read --
+    neither passed through any check, so a row the grid isn't covering
+    (unassigned, or before it's calibrated) went to air unfiltered.
+    That's how a table of 92 / 77 / 75 / 43 appeared: those are far past
+    anything a single match can produce, so whatever the client was
+    reporting there, it wasn't this game's kills.
+
+    Blanking beats publishing: an empty KILLS cell reads as "not known
+    yet", while a wrong number reads as fact -- and with the table
+    ranked by kills, a wrong number also drags that team to the top."""
+    for row in rows:
+        value = row.get("elims")
+        if value is not None and value > FREEFIRE_MAX_TEAM_ELIMS:
+            row["elims"] = None
+            row["elimsImplausible"] = True
+    return rows
+
+
 # How many polls in a row must agree before a new number is believed.
 # At a 0.25s poll that's about half a second -- invisible on air, and
 # enough that a one-frame misread never reaches the overlay, since
@@ -3640,7 +3665,7 @@ async def ocr_loop():
                     if linked["rows"]:
                         log_sidetable_rows = linked["rows"]
                         if linked["rows"] != server_state["liveOps"].get("sidetableRows"):
-                            server_state["liveOps"]["sidetableRows"] = linked["rows"]
+                            server_state["liveOps"]["sidetableRows"] = sanitise_published_elims(linked["rows"])
                             server_state["liveOps"]["sidetableSource"] = "log"
                             changed = True
                             asyncio.create_task(push_sidetable_to_sheet(linked["rows"]))
@@ -3714,7 +3739,7 @@ async def ocr_loop():
                 )
                 ff_live = server_state["liveOps"]
                 if parsed["rows"] != ff_live.get("sidetableRows"):
-                    ff_live["sidetableRows"] = parsed["rows"]
+                    ff_live["sidetableRows"] = sanitise_published_elims(parsed["rows"])
                     ff_live["sidetableUsedPalette"] = parsed["usedPalette"]
                     ff_live["sidetableSource"] = "ocr"
                     asyncio.create_task(push_sidetable_to_sheet(parsed["rows"]))
@@ -3781,7 +3806,7 @@ async def ocr_loop():
                         if key not in seen:
                             merged.append(r)
                     if merged != server_state["liveOps"].get("sidetableRows"):
-                        server_state["liveOps"]["sidetableRows"] = merged
+                        server_state["liveOps"]["sidetableRows"] = sanitise_published_elims(merged)
                         server_state["liveOps"]["sidetableSource"] = "grid"
                         changed = True
                         asyncio.create_task(push_sidetable_to_sheet(merged))

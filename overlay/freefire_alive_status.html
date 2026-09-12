@@ -389,7 +389,20 @@ function apply(state){
   }
   previouslyEliminated = nowEliminated;
 
-  const targetOrder = orderRows(source).map(rowKeyOf);
+  // Deduplicated, because a repeated key here is what put two team
+  // names on top of each other with a blank row underneath: rows are
+  // elements keyed by team, so the same key twice means two slots
+  // pointing at ONE element (it takes the last slot's position), the
+  // other slot left empty, and whatever got pushed past the twelfth
+  // slot stranded at its old position with nothing to move it. The
+  // duplicate itself is an upstream problem, but the table should
+  // degrade by showing that team once, not by scrambling the layout.
+  const targetOrder = [];
+  orderRows(source).forEach(r => {
+    const k = rowKeyOf(r);
+    if(k && !targetOrder.includes(k)) targetOrder.push(k);
+  });
+
   if(Date.now() < holdOrderUntil){
     // Hold the order, but still place any row that has no slot yet
     // (a team appearing mid-flyby would otherwise sit at top:0).
@@ -399,9 +412,12 @@ function apply(state){
     displayOrder = targetOrder;
   }
 
+  const placed = new Set();
   displayOrder.forEach((key, i) => {
     const el = rowEls.get(key);
     if(!el || i >= ROW_TOPS.length) return;
+    placed.add(key);
+    el.style.display = "";
     const top = ROW_TOPS[i] + "px";
     if(el.style.top !== top) el.style.top = top;
     // First placement lands instantly; every move after that animates.
@@ -409,6 +425,13 @@ function apply(state){
       void el.offsetWidth;
       el.classList.remove("no-anim");
     }
+  });
+
+  // Anything that didn't get a slot is HIDDEN rather than left sitting
+  // at whatever position it last held -- a stranded row is exactly what
+  // renders as an overlap.
+  rowEls.forEach((el, key) => {
+    if(!placed.has(key)) el.style.display = "none";
   });
 
   applyElementOverrides(state);
