@@ -1449,24 +1449,37 @@ def build_alive_grid(regions, rows=FREEFIRE_ALIVE_GRID_ROWS,
     ff-alive-grid category). Every position past those 4 is a fixed
     offset -- exact, not auto-detected by scanning pixels for bar edges.
 
+    The vertical pitch comes from the LAST row's anchor, not the next
+    one down, deliberately -- any pixel of imprecision in a hand-drawn
+    box is unavoidable, and measuring the gap between two ADJACENT rows
+    then multiplying it out compounds that same error at every one of
+    the 11 rows in between (a 1px error becomes an 11px drift by row
+    12). Measuring across the full span and dividing by the row count
+    spreads that same 1px of imprecision across all 11 gaps instead,
+    which is why row 10 read the wrong pixels entirely on a real capture
+    that used the adjacent-row version of this.
+
     Returns None if any anchor isn't calibrated yet, so callers can fall
     back to the existing log/OCR path without special-casing "half
     calibrated"."""
     r1p1 = regions.get("freefire_alive_r1p1")
     r1p2 = regions.get("freefire_alive_r1p2")
-    r2p1 = regions.get("freefire_alive_r2p1")
+    rlastp1 = regions.get("freefire_alive_rlastp1")
     r1elim = regions.get("freefire_alive_r1elim")
-    if not (r1p1 and r1p2 and r2p1 and r1elim):
+    if not (r1p1 and r1p2 and rlastp1 and r1elim):
         return None
 
     bar_gap_x = r1p2["x"] - r1p1["x"]
-    row_gap_y = r2p1["y"] - r1p1["y"]
+    row_gap_y = (rlastp1["y"] - r1p1["y"]) / max(1, rows - 1)
     elim_dx = r1elim["x"] - r1p1["x"]
     elim_dy = r1elim["y"] - r1p1["y"]
 
     grid = []
     for row in range(rows):
-        row_y = r1p1["y"] + row * row_gap_y
+        # row_gap_y is a float (see above) -- rounded to the nearest
+        # pixel here, once, rather than left to propagate into every
+        # box's coordinates as a fraction mss.grab() can't use.
+        row_y = round(r1p1["y"] + row * row_gap_y)
         bars = [
             {"x": r1p1["x"] + p * bar_gap_x, "y": row_y,
              "w": r1p1["w"], "h": r1p1["h"]}

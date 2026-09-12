@@ -70,15 +70,19 @@ CATEGORIES = {
     ],
     # Four anchor boxes instead of one big region -- see build_alive_grid()
     # in freefire_engine.py. Row 1 / player 1 and player 2 give the
-    # horizontal pitch between the 4 alive slots in a row; row 1 and row 2
-    # (both player 1) give the vertical pitch between rows. Every other
-    # row/player position is derived from those two pitches rather than
-    # calibrated individually -- exact instead of auto-detected, and 4
-    # boxes instead of up to 60.
+    # horizontal pitch between the 4 alive slots in a row. The vertical
+    # pitch comes from row 1 and the LAST row (both player 1), NOT the
+    # very next row down -- spanning the full table and dividing by the
+    # row count spreads a hand-drawn box's inevitable 1px of imprecision
+    # across all 11 gaps, instead of multiplying that same 1px error out
+    # 11 times over if it were measured between two adjacent rows. Every
+    # other row/player position is derived from those two pitches rather
+    # than calibrated individually -- exact instead of auto-detected, and
+    # 4 boxes instead of up to 60.
     "ff-alive-grid": [
         "freefire_alive_r1p1",
         "freefire_alive_r1p2",
-        "freefire_alive_r2p1",
+        "freefire_alive_rlastp1",
         "freefire_alive_r1elim",
     ],
     "ff-loadout": [
@@ -115,7 +119,7 @@ LABELS = {
     "freefire_sidetable": "12-TEAM SIDE TABLE (alive status / kills per team) - raw text only for now, draw around the whole table",
     "freefire_alive_r1p1": "ALIVE GRID: ROW 1 (topmost team), PLAYER 1 (leftmost) alive indicator - tight box around just that one bar/icon",
     "freefire_alive_r1p2": "ALIVE GRID: ROW 1, PLAYER 2 (next one to the right) alive indicator - same tight box, one slot over",
-    "freefire_alive_r2p1": "ALIVE GRID: ROW 2 (second team down), PLAYER 1 (leftmost) alive indicator - same tight box, one row down from the very first box",
+    "freefire_alive_rlastp1": "ALIVE GRID: LAST ROW (bottom-most team, row 12), PLAYER 1 (leftmost) alive indicator - same tight box as the very first one, but on the LAST row, not the second",
     "freefire_alive_r1elim": "ALIVE GRID: ROW 1's ELIMINATION COUNT number - tight box around just that number",
     "freefire_loadout": "LOADOUT CARD, WHOLE (the full player HUD card) - kept as the overall visual record; the per-slot boxes below are what actually get identified",
     "freefire_loadout_ign": "LOADOUT: PLAYER IGN - draw tightly around just the name text on the card (this one is read as TEXT, not matched as an icon)",
