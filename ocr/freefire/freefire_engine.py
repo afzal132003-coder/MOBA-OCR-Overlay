@@ -3661,18 +3661,45 @@ async def ocr_loop():
                 row_teams = server_state["liveOps"].get("aliveRowTeams") or []
                 grid_named_rows = apply_alive_grid_identities(grid_rows, row_teams)
                 if grid_named_rows:
-                    by_name = {r["teamName"]: r for r in grid_named_rows}
+                    # Join the grid's rows onto whatever the log/OCR path
+                    # left behind, THROUGH THE ROSTER -- not by comparing
+                    # the two teamName strings directly.
+                    #
+                    # They are not always the same string for the same
+                    # squad. The grid names a row from the operator's own
+                    # assignment, which is always a roster name
+                    # ("iQOO TOTAL GAMING"). link_live_teams() names one
+                    # from the client's log and only rewrites it to the
+                    # roster name IF its matcher resolved it -- when it
+                    # doesn't, the row keeps whatever the room called it
+                    # ("iQOO TG"). An exact-string join then misses, and
+                    # BOTH rows survive: the same team twice, one showing
+                    # the grid's fresh number and one the log's, which is
+                    # exactly the "wrong number on air" this fixes.
+                    # Resolving both sides through match_roster_team()
+                    # collapses them onto one canonical key.
+                    roster_teams = (server_state.get("roster") or {}).get("teams", []) or []
+
+                    def _join_key(name):
+                        resolved = match_roster_team(name, roster_teams)
+                        return _ign_key((resolved or {}).get("name") or name or "")
+
+                    by_key = {_join_key(r["teamName"]): r for r in grid_named_rows}
                     base = server_state["liveOps"].get("sidetableRows") or []
                     merged, seen = [], set()
                     for r in base:
-                        name = r.get("teamName")
-                        if name in by_name:
-                            merged.append(by_name[name])
-                            seen.add(name)
+                        key = _join_key(r.get("teamName"))
+                        if key in by_key:
+                            # Grid wins, and only the first base row that
+                            # resolves to it survives -- a second one is
+                            # the duplicate this is here to remove.
+                            if key not in seen:
+                                merged.append(by_key[key])
+                                seen.add(key)
                         else:
                             merged.append(r)
-                    for name, r in by_name.items():
-                        if name not in seen:
+                    for key, r in by_key.items():
+                        if key not in seen:
                             merged.append(r)
                     if merged != server_state["liveOps"].get("sidetableRows"):
                         server_state["liveOps"]["sidetableRows"] = merged
