@@ -428,6 +428,16 @@ def default_state():
             # literal here since that constant isn't defined yet this
             # early in the file, and default_state() runs at import time.
             "aliveRowTeams": [""] * 12,
+            # Manual corrections on top of the auto-read alive grid, for
+            # whenever a colour glow, a stray effect, or anything else
+            # makes one reading wrong for a moment -- an operator watching
+            # the real game always outranks an automated read on a live
+            # broadcast. Keyed by string index rather than nested arrays
+            # so "no override" is simply "key absent", with nothing to
+            # pre-size or leave as null. bars: "{row}_{bar}" -> "alive" or
+            # "eliminated". elims: "{row}" -> the forced count. See
+            # apply_alive_grid_overrides.
+            "aliveGridOverrides": {"bars": {}, "elims": {}},
         },
         # Sequential Num5 loadout capture. "pointer" indexes into the
         # flattened roster (team-then-player order, see
@@ -1569,6 +1579,36 @@ def classify_alive_grid_crops(crops, palette=None):
             "elims": elims,
         })
     return rows_out
+
+
+def apply_alive_grid_overrides(grid_rows, overrides):
+    """Layers the operator's manual corrections on top of the auto-read
+    grid, BEFORE identity is joined on -- so a forced bar/elim value
+    feeds the same aliveCount/elims everything downstream (the overlay,
+    the sheet push, the preview) already reads, rather than being a
+    separate thing that has to be reconciled later.
+
+    overrides is liveOps.aliveGridOverrides: {"bars": {"{row}_{bar}":
+    status}, "elims": {"{row}": count}}. Absent key = no override for
+    that slot, so a freshly-added row/bar with nothing forced yet behaves
+    exactly as if this function weren't called at all."""
+    bar_overrides = (overrides or {}).get("bars") or {}
+    elim_overrides = (overrides or {}).get("elims") or {}
+    out = []
+    for i, row in enumerate(grid_rows):
+        bars = [
+            bar_overrides.get(f"{i}_{b}", status)
+            for b, status in enumerate(row["bars"])
+        ]
+        elims = row["elims"]
+        if str(i) in elim_overrides:
+            elims = elim_overrides[str(i)]
+        out.append({
+            "bars": bars,
+            "aliveCount": sum(1 for b in bars if b == "alive"),
+            "elims": elims,
+        })
+    return out
 
 
 def apply_alive_grid_identities(grid_rows, row_teams):
@@ -3174,6 +3214,53 @@ async def handle_client(websocket, path=None):
                     rows[row] = (payload.get("team") or "").strip()
                     save_state()
                     await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "freefire_set_alive_bar_override":
+                # Forces one bar's status regardless of what the colour
+                # read says -- an operator watching the real game
+                # overrides an automated read on a live broadcast, not
+                # the other way round. An empty/missing status clears
+                # the override and goes back to auto. See
+                # apply_alive_grid_overrides.
+                try:
+                    row = int(payload.get("row", -1))
+                    bar = int(payload.get("bar", -1))
+                except (TypeError, ValueError):
+                    row, bar = -1, -1
+                status = (payload.get("status") or "").strip()
+                overrides = server_state["liveOps"].setdefault(
+                    "aliveGridOverrides", {"bars": {}, "elims": {}})
+                bar_overrides = overrides.setdefault("bars", {})
+                if 0 <= row < FREEFIRE_ALIVE_GRID_ROWS and 0 <= bar < SIDETABLE_PLAYERS_PER_TEAM:
+                    key = f"{row}_{bar}"
+                    if status in ("alive", "eliminated"):
+                        bar_overrides[key] = status
+                    else:
+                        bar_overrides.pop(key, None)
+                    save_state()
+                    await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "freefire_set_alive_elim_override":
+                # Same idea, for one row's elim count -- forces it past
+                # whatever OCR did or didn't read. Blank clears back to
+                # auto.
+                try:
+                    row = int(payload.get("row", -1))
+                except (TypeError, ValueError):
+                    row = -1
+                raw = payload.get("elims", "")
+                overrides = server_state["liveOps"].setdefault(
+                    "aliveGridOverrides", {"bars": {}, "elims": {}})
+                elim_overrides = overrides.setdefault("elims", {})
+                if 0 <= row < FREEFIRE_ALIVE_GRID_ROWS:
+                    key = str(row)
+                    if str(raw).strip() == "":
+                        elim_overrides.pop(key, None)
+                    else:
+                        try:
+                            elim_overrides[key] = int(raw)
+                        except (TypeError, ValueError):
+                            pass
+                    save_state()
+                    await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") == "freefire_fetch_alive_grid_preview":
                 # One fresh, on-demand capture -- not the regular per-poll
                 # path, so this can afford to also encode every crop as a
@@ -3193,9 +3280,26 @@ async def handle_client(websocket, path=None):
                         ocr_executor, build_alive_grid_preview, crops,
                         config.get("alive_grid_colors") or DEFAULT_ALIVE_GRID_PALETTE,
                     )
+                    # Layer the same manual overrides the real per-poll
+                    # path applies (apply_alive_grid_overrides) -- shown
+                    # here too, marked, so the preview reflects what's
+                    # ACTUALLY feeding the overlay/sheet push right now,
+                    # not just what was freshly read off the screen.
+                    overrides = server_state["liveOps"].get("aliveGridOverrides") or {}
+                    bar_overrides = overrides.get("bars") or {}
+                    elim_overrides = overrides.get("elims") or {}
                     row_teams = server_state["liveOps"].get("aliveRowTeams") or []
                     for i, r in enumerate(rows_preview):
                         r["team"] = row_teams[i] if i < len(row_teams) else ""
+                        for b, bar in enumerate(r["bars"]):
+                            forced = bar_overrides.get(f"{i}_{b}")
+                            if forced:
+                                bar["status"] = forced
+                                bar["overridden"] = True
+                        r["aliveCount"] = sum(1 for b in r["bars"] if b["status"] == "alive")
+                        if str(i) in elim_overrides:
+                            r["elims"] = elim_overrides[str(i)]
+                            r["elimOverridden"] = True
                     await websocket.send(json.dumps({
                         "type": "freefire_alive_grid_preview", "rows": rows_preview,
                     }))
@@ -3517,6 +3621,8 @@ async def ocr_loop():
                     ocr_executor, classify_alive_grid_crops, alive_grid_crops,
                     config.get("alive_grid_colors") or DEFAULT_ALIVE_GRID_PALETTE,
                 )
+                grid_rows = apply_alive_grid_overrides(
+                    grid_rows, server_state["liveOps"].get("aliveGridOverrides"))
                 row_teams = server_state["liveOps"].get("aliveRowTeams") or []
                 grid_named_rows = apply_alive_grid_identities(grid_rows, row_teams)
                 if grid_named_rows:

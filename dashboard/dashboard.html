@@ -5758,21 +5758,47 @@ function ffRenderAliveGridRows(ff){
   const roster = ((ff.roster && ff.roster.teams) || []).filter(t => t.name);
   const rowTeams = (ff.liveOps && ff.liveOps.aliveRowTeams) || [];
 
+  // Overrides are deliberately NOT part of this guard: they're only
+  // used to build each override control's INITIAL value, and setting
+  // one already updates its own control directly (see the change
+  // handlers below) without needing a round trip through state_sync --
+  // rebuilding on every override change would wipe whatever preview is
+  // showing in every OTHER row's auto-read cells for no reason.
   const key = JSON.stringify([roster.map(t => t.name), rowTeams]);
   if(key === ffLastAliveGridKey) return;
   ffLastAliveGridKey = key;
 
-  const barCell = (i, b) => `
-    <td class="ff-alive-bar-cell" data-row="${i}" data-bar="${b}" style="padding:4px 8px;text-align:center;min-width:52px;">
-      <span class="hint">—</span>
+  // Each bar cell holds two independent things: the auto-read
+  // crop/status (ff-alive-bar-auto, filled in place by
+  // ffApplyAliveGridPreview) and the override dropdown (always present,
+  // never rebuilt by a preview) -- "Auto" clears back to the colour
+  // read, Alive/Eliminated forces it regardless of what that read says.
+  const barCell = (i, b, forced) => `
+    <td class="ff-alive-bar-cell" style="padding:4px 8px;text-align:center;min-width:70px;">
+      <div class="ff-alive-bar-auto" data-row="${i}" data-bar="${b}"><span class="hint">—</span></div>
+      <select class="ff-alive-bar-override" data-row="${i}" data-bar="${b}" style="font-size:10px;margin-top:3px;padding:1px;">
+        <option value="" ${!forced ? "selected" : ""}>Auto</option>
+        <option value="alive" ${forced === "alive" ? "selected" : ""}>Force alive</option>
+        <option value="eliminated" ${forced === "eliminated" ? "selected" : ""}>Force dead</option>
+      </select>
     </td>`;
+  const elimCell = (i, forcedElim) => `
+    <td class="ff-alive-elim-cell" style="padding:4px 8px;text-align:center;min-width:70px;">
+      <div class="ff-alive-elim-auto" data-row="${i}"><span class="hint">—</span></div>
+      <input type="number" min="0" class="ff-alive-elim-override" data-row="${i}"
+        placeholder="force" value="${forcedElim == null ? "" : forcedElim}"
+        style="width:52px;font-size:10px;margin-top:3px;padding:1px 3px;">
+    </td>`;
+
+  const barOverrides = (ff.liveOps && ff.liveOps.aliveGridOverrides && ff.liveOps.aliveGridOverrides.bars) || {};
+  const elimOverrides = (ff.liveOps && ff.liveOps.aliveGridOverrides && ff.liveOps.aliveGridOverrides.elims) || {};
 
   container.innerHTML = `
     <table style="border-collapse:collapse;font-size:12px;white-space:nowrap;">
       <thead><tr style="text-align:left;color:#98a3bd;">
         <th style="padding:4px 8px;">Row</th><th style="padding:4px 8px;">Team</th>
-        <th style="padding:4px 8px;" colspan="4">Alive (crop → read)</th>
-        <th style="padding:4px 8px;">Elim (crop → read)</th>
+        <th style="padding:4px 8px;" colspan="4">Alive (crop → read → override)</th>
+        <th style="padding:4px 8px;">Elim (crop → read → override)</th>
       </tr></thead>
       <tbody>
       ${Array.from({length: FF_ALIVE_GRID_ROWS}, (_, i) => {
@@ -5785,10 +5811,8 @@ function ffRenderAliveGridRows(ff){
             <td style="padding:4px 8px;">
               <select class="ff-alive-grid-row" data-row="${i}" style="min-width:160px;">${options.join("")}</select>
             </td>
-            ${[0, 1, 2, 3].map(b => barCell(i, b)).join("")}
-            <td class="ff-alive-elim-cell" data-row="${i}" style="padding:4px 8px;text-align:center;min-width:60px;">
-              <span class="hint">—</span>
-            </td>
+            ${[0, 1, 2, 3].map(b => barCell(i, b, barOverrides[`${i}_${b}`])).join("")}
+            ${elimCell(i, elimOverrides[String(i)])}
           </tr>`;
       }).join("")}
       </tbody>
@@ -5803,6 +5827,32 @@ function ffRenderAliveGridRows(ff){
       }));
       document.getElementById("ff_aliveGridStatus").textContent =
         el.value ? `Row ${Number(el.dataset.row) + 1} → ${el.value}` : `Row ${Number(el.dataset.row) + 1} cleared`;
+    });
+  });
+
+  container.querySelectorAll(".ff-alive-bar-override").forEach(el => {
+    el.addEventListener("change", () => {
+      if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+      ffWs.send(JSON.stringify({
+        type: "freefire_set_alive_bar_override",
+        row: Number(el.dataset.row), bar: Number(el.dataset.bar), status: el.value,
+      }));
+      document.getElementById("ff_aliveGridStatus").textContent = el.value
+        ? `Row ${Number(el.dataset.row) + 1}, player ${Number(el.dataset.bar) + 1} forced to ${el.value}.`
+        : `Row ${Number(el.dataset.row) + 1}, player ${Number(el.dataset.bar) + 1} back to auto.`;
+    });
+  });
+
+  container.querySelectorAll(".ff-alive-elim-override").forEach(el => {
+    el.addEventListener("change", () => {
+      if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+      ffWs.send(JSON.stringify({
+        type: "freefire_set_alive_elim_override",
+        row: Number(el.dataset.row), elims: el.value,
+      }));
+      document.getElementById("ff_aliveGridStatus").textContent = el.value.trim()
+        ? `Row ${Number(el.dataset.row) + 1} elim count forced to ${el.value}.`
+        : `Row ${Number(el.dataset.row) + 1} elim count back to auto.`;
     });
   });
 }
@@ -5823,16 +5873,18 @@ function ffApplyAliveGridPreview(msg){
   }
   (msg.rows || []).forEach((r, i) => {
     (r.bars || []).forEach((b, bi) => {
-      const cell = document.querySelector(`.ff-alive-bar-cell[data-row="${i}"][data-bar="${bi}"]`);
+      const cell = document.querySelector(`.ff-alive-bar-auto[data-row="${i}"][data-bar="${bi}"]`);
       if(!cell) return;
       const color = FF_ALIVE_BAR_COLOR[b.status] || "#6b7590";
+      const badge = b.overridden ? ' <span style="color:#a78bfa;">(forced)</span>' : "";
       cell.innerHTML = (b.preview ? `<img src="${b.preview}" style="height:28px;border:2px solid ${color};border-radius:3px;display:block;margin:0 auto 3px;">` : "") +
-        `<span style="color:${color};font-weight:700;">${ffEscapeHtml(b.status)}</span>`;
+        `<span style="color:${color};font-weight:700;">${ffEscapeHtml(b.status)}</span>${badge}`;
     });
-    const elimCell = document.querySelector(`.ff-alive-elim-cell[data-row="${i}"]`);
+    const elimCell = document.querySelector(`.ff-alive-elim-auto[data-row="${i}"]`);
     if(elimCell){
+      const badge = r.elimOverridden ? ' <span style="color:#a78bfa;">(forced)</span>' : "";
       elimCell.innerHTML = (r.elimPreview ? `<img src="${r.elimPreview}" style="height:28px;border:1px solid #2b3348;border-radius:3px;display:block;margin:0 auto 3px;">` : "") +
-        `<span style="color:#ffc400;font-weight:700;">${r.elims == null ? "(unread)" : r.elims}</span>`;
+        `<span style="color:#ffc400;font-weight:700;">${r.elims == null ? "(unread)" : r.elims}</span>${badge}`;
     }
   });
   document.getElementById("ff_aliveGridStatus").textContent =
