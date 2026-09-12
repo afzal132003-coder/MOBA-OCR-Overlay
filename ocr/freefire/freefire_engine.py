@@ -1608,49 +1608,67 @@ _alive_grid_last_elims = {}
 FREEFIRE_MAX_TEAM_ELIMS = 35
 
 
+# How many polls in a row must agree before a new number is believed.
+# At a 0.25s poll that's about half a second -- invisible on air, and
+# enough that a one-frame misread never reaches the overlay, since
+# garbage from a glow sweep or a particle effect is different garbage
+# each frame while the real number sits perfectly still.
+FREEFIRE_ELIM_AGREE_FRAMES = 2
+
+# row index -> (candidate value, how many consecutive polls have read it)
+_alive_grid_elim_pending = {}
+
+
 def hold_last_good_elims(grid_rows, remember=True):
-    """Fills an unread elim count with the last one that DID read for
-    that row, and rejects reads that can't be real.
+    """Decides what elim count to actually publish for each row.
 
-    remember=False runs the exact same rules without updating the cache
-    -- what the dashboard preview needs, so it can show the number that
-    is actually going out WITHOUT a preview capture counting as a real
-    reading. The preview used to skip this step entirely, which is why
-    it could show "(unread)" for a row the overlay was happily showing a
-    held number for: two different answers to the same question.
+    A value has to be read FREEFIRE_ELIM_AGREE_FRAMES polls in a row
+    before it's believed; until then the last believed value stands. An
+    unread frame changes nothing.
 
-    The hold alone wasn't enough. It cached whatever came back, so a
-    single bad frame -- 92 kills, say -- got stored and then held
-    forever, since nothing ever expired it. Worse, with the table now
-    ranked by kills, one stuck bogus number drags that team to the top
-    and stays there.
+    This replaces an earlier rule that also required counts never to go
+    DOWN. That was true of real scores and disastrous in practice: a
+    misread of 9 on a team sitting on 0 passed the plausibility check
+    (9 is a perfectly believable score), and from then on every correct
+    reading of 0 was BELOW it and therefore rejected as impossible. One
+    bad frame poisoned that row for the rest of the match and, with the
+    table ranked by kills, parked that team near the top the whole time.
 
-    Two rules catch it, both from what an elim count actually is:
+    Agreement doesn't have that failure mode: whatever is really on
+    screen wins within two polls, because it's the only value that can
+    show up twice in a row. The absolute cap stays -- it rejects
+    nonsense without ever blocking a plausible number.
 
-      - it never exceeds FREEFIRE_MAX_TEAM_ELIMS
-      - it never goes DOWN during a match
-
-    A reading that breaks either is a misread, not news, so the last
-    good value stands. Both bounds reset on match_start."""
+    remember=False runs the identical rules without advancing any of the
+    counters, which is what the dashboard preview needs: it must report
+    the number that's on air without a look counting as a reading."""
     for i, row in enumerate(grid_rows):
         reading = row.get("elims")
-        held = _alive_grid_last_elims.get(i)
+        accepted = _alive_grid_last_elims.get(i)
 
-        if reading is None:
-            plausible = False
-        elif reading > FREEFIRE_MAX_TEAM_ELIMS:
-            plausible = False
-        elif held is not None and reading < held:
-            plausible = False
-        else:
-            plausible = True
+        if reading is not None and reading > FREEFIRE_MAX_TEAM_ELIMS:
+            reading = None          # nonsense, treat as unread
 
-        if plausible:
+        if reading is None or reading == accepted:
             if remember:
-                _alive_grid_last_elims[i] = reading
+                _alive_grid_elim_pending.pop(i, None)
         else:
-            row["elims"] = held      # None when nothing has ever read
-            row["elimsHeld"] = held is not None
+            candidate, seen = _alive_grid_elim_pending.get(i, (None, 0))
+            seen = seen + 1 if candidate == reading else 1
+            if seen >= FREEFIRE_ELIM_AGREE_FRAMES:
+                accepted = reading
+                if remember:
+                    _alive_grid_last_elims[i] = reading
+                    _alive_grid_elim_pending.pop(i, None)
+            elif remember:
+                _alive_grid_elim_pending[i] = (reading, seen)
+
+        row["elims"] = accepted          # None until something is believed
+        # True when this frame didn't confirm what's being published --
+        # either it read nothing, or it read something not yet agreed.
+        # A row that stays held is either genuinely unreadable or being
+        # fed garbage, and either way it's worth seeing in the preview.
+        row["elimsHeld"] = accepted is not None and reading != accepted
     return grid_rows
 
 
@@ -3335,6 +3353,7 @@ async def handle_client(websocket, path=None):
                         # clearing the force field is the way to say
                         # "forget what you think you saw and re-read".
                         _alive_grid_last_elims.pop(row, None)
+                        _alive_grid_elim_pending.pop(row, None)
                     else:
                         try:
                             elim_overrides[key] = int(raw)
@@ -3498,6 +3517,7 @@ async def handle_live_signals(signals, gs_names):
             # Last game's held elim counts must not carry into this one --
             # see _alive_grid_last_elims. Every row starts unread again.
             _alive_grid_last_elims.clear()
+            _alive_grid_elim_pending.clear()
 
         elif signal["type"] == "match_end":
             _pending_match_fetch = signal["matchId"]
