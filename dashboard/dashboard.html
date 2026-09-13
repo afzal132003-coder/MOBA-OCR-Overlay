@@ -7383,9 +7383,46 @@ document.getElementById("ff_debuggerStartAt").addEventListener("change", (e) => 
 });
 
 /* ---------- broadcast sheet push ---------- */
+/* Is this actually an Apps Script web app URL?
+
+   Returns a complaint, or "" when it looks right. Worth checking rather
+   than letting the POST fail: the two URLs an operator has on screen
+   while setting this up -- the spreadsheet they are looking at, and the
+   web app they just deployed -- are easy to mix up, and posting to the
+   spreadsheet's own /edit page answers "405 Method Not Allowed", which
+   names neither the cause nor the fix. */
+function ffWebhookUrlComplaint(url){
+  const u = (url || "").trim();
+  if(!u) return "";
+  if(/docs\.google\.com\/spreadsheets/i.test(u)){
+    return "That's the spreadsheet's own link, not the Apps Script web app. In the sheet: " +
+           "Extensions \u2192 Apps Script \u2192 Deploy \u2192 Manage deployments, and copy the " +
+           "Web app URL \u2014 it starts with script.google.com/macros/ and ends in /exec.";
+  }
+  if(!/^https:\/\/script\.google\.com\/macros\//i.test(u)){
+    return "A web app URL starts with https://script.google.com/macros/ \u2014 this doesn't.";
+  }
+  if(/\/dev$/i.test(u)){
+    return "That's the /dev URL, which only works while you're signed in. Use the /exec one " +
+           "from Deploy \u2192 Manage deployments.";
+  }
+  if(!/\/exec$/i.test(u)){
+    return "A web app URL ends in /exec \u2014 this doesn't.";
+  }
+  return "";
+}
+
 document.getElementById("ff_sheetWebhookSave").addEventListener("click", () => {
   if(!ffState) return;
   const url = document.getElementById("ff_sheetWebhookUrl").value.trim();
+  // Refuse rather than warn: a saved wrong URL means every live push for
+  // the rest of the night fails quietly in the engine's console, which
+  // nobody is watching mid-match.
+  const complaint = ffWebhookUrlComplaint(url);
+  if(complaint){
+    document.getElementById("ff_sheetWebhookStatus").textContent = "NOT saved — " + complaint;
+    return;
+  }
   const settings = Object.assign({}, ffState.settings || {}, { sheetWebhookUrl: url });
   ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { settings } } }));
   document.getElementById("ff_sheetWebhookStatus").textContent = url
@@ -7399,6 +7436,11 @@ document.getElementById("ff_sheetWebhookTest").addEventListener("click", () => {
   const url = document.getElementById("ff_sheetWebhookUrl").value.trim();
   if(!url){
     document.getElementById("ff_sheetWebhookStatus").textContent = "Type a URL first.";
+    return;
+  }
+  const complaint = ffWebhookUrlComplaint(url);
+  if(complaint){
+    document.getElementById("ff_sheetWebhookStatus").textContent = "Not sent — " + complaint;
     return;
   }
   document.getElementById("ff_sheetWebhookStatus").textContent = "Sending a test row...";
