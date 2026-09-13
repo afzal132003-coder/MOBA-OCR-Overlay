@@ -187,6 +187,20 @@ def fullsize_catalogue():
     return [{"id": path.stem} for path in sorted(FULLSIZE_DIR.glob("*.png"))]
 
 
+def asset_packages():
+    """Every graphics package sitting in overlay/assets/freefire/.
+
+    Scanned rather than listed, because the dashboard's package field
+    used to suggest exactly one name -- CLT, hard-coded -- so a package
+    that had been dropped into the folder was invisible unless somebody
+    remembered to type it exactly. Rebuilt each start for the same reason
+    the icon catalogue is: artwork arrives between sessions."""
+    root = Path(__file__).parent.parent.parent / "overlay" / "assets" / "freefire"
+    if not root.is_dir():
+        return []
+    return sorted(d.name for d in root.iterdir() if d.is_dir() and not d.name.startswith("."))
+
+
 def asset_catalogue():
     """Every icon in the dump, grouped the way the operator has to think
     about it. Ids beginning 101/102 are Free Fire's female/male character
@@ -592,6 +606,7 @@ server_state["enginePath"] = str(Path(__file__).resolve().parent)
 # operator can drop new artwork into assets/FFM between sessions, and a
 # stale list would hide it.
 server_state["assetCatalogue"] = asset_catalogue()
+server_state["assetPackages"] = asset_packages()
 server_state["fullSizeCatalogue"] = fullsize_catalogue()
 locked_fields = set()
 

@@ -5839,6 +5839,13 @@ function ffRenderEvent(ff){
   }
 
   setIfFree("ff_assetFolder", ev.assetFolder || "CLT");
+  // Offer the packages that are actually on disk, rather than the single
+  // hard-coded name this used to suggest -- artwork that had been dropped
+  // into the folder was invisible unless you happened to type it exactly.
+  const packs = ff.assetPackages || [];
+  const dl = document.getElementById("ff_assetFolderList");
+  const want = packs.map(n => `<option value="${ffEscapeHtml(n)}"></option>`).join("");
+  if(dl && dl.innerHTML !== want && packs.length) dl.innerHTML = want;
   setIfFree("ff_afterGameLabel", ev.afterGameLabel || "");
   setIfFree("ff_debuggerStartAt", (ff.settings && ff.settings.debuggerStartAt) || "");
   setIfFree("ff_sheetWebhookUrl", (ff.settings && ff.settings.sheetWebhookUrl) || "");
