@@ -1153,6 +1153,63 @@ DEFAULT_ALIVE_GRID_PALETTE = {
 }
 
 
+# Gold = alive, grey = eliminated, in OpenCV's HSV (hue 0-179). Measured
+# from the operator's own artwork: gold is RGB(255,215,0) -> hue ~25 at
+# full saturation; the eliminated bar is RGB(136,136,136) -> saturation
+# ~0. Saturation alone separates them, which is what makes this robust.
+ALIVE_BAR_HUE = (10, 45)
+ALIVE_BAR_MIN_SAT = 90
+ALIVE_BAR_MIN_VAL = 80
+DEAD_BAR_MAX_SAT = 70
+DEAD_BAR_VAL = (45, 215)
+# The blue-zone glow that sweeps the table. Pixels in this hue band are
+# the effect, not the bar, and are excluded from the vote entirely.
+GLOW_HUE = (85, 140)
+
+
+def classify_alive_bar(patch_bgr):
+    """One alive bar -> "alive" / "eliminated" / "unknown", judged per
+    PIXEL rather than from the patch's average colour.
+
+    The average is what the blue-zone glow breaks. Blue is roughly
+    complementary to the bar's gold, so blending them desaturates
+    towards exactly the grey the eliminated bar is -- measured, a clean
+    gold bar under about 40% glow lands nearer the eliminated reference
+    than the alive one and flips. That's a live squad shown as wiped,
+    which is the worst way for this to be wrong.
+
+    Counting pixels instead survives it: the glow covers part of a bar,
+    not all of it, and the pixels it does cover are identifiable as glow
+    by hue, so they're thrown out rather than allowed to drag an average
+    across the boundary. Whatever the bar actually is still holds the
+    majority of the pixels that remain.
+
+    Returns "unknown" when almost nothing is left to judge (the glow at
+    full strength, or an uncalibrated box looking at background), since
+    a guess there is worth less than an honest gap."""
+    if patch_bgr is None or patch_bgr.size == 0:
+        return "unknown"
+    hsv = cv2.cvtColor(patch_bgr, cv2.COLOR_BGR2HSV)
+    h, s, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+
+    glow = (h >= GLOW_HUE[0]) & (h <= GLOW_HUE[1]) & (s >= ALIVE_BAR_MIN_SAT)
+    considered = ~glow
+
+    gold = considered & (h >= ALIVE_BAR_HUE[0]) & (h <= ALIVE_BAR_HUE[1]) \
+        & (s >= ALIVE_BAR_MIN_SAT) & (v >= ALIVE_BAR_MIN_VAL)
+    grey = considered & (s < DEAD_BAR_MAX_SAT) \
+        & (v >= DEAD_BAR_VAL[0]) & (v <= DEAD_BAR_VAL[1])
+
+    gold_count = int(gold.sum())
+    grey_count = int(grey.sum())
+    total = patch_bgr.shape[0] * patch_bgr.shape[1]
+
+    # Nothing recognisable left -- don't invent an answer.
+    if gold_count + grey_count < max(4, total * 0.10):
+        return "unknown"
+    return "alive" if gold_count > grey_count else "eliminated"
+
+
 def classify_bar(patch_bgr, palette=None):
     """One alive/knocked/eliminated bar -> a status string.
 
@@ -1595,7 +1652,10 @@ def classify_alive_grid_crops(crops, palette=None):
     rows_out = []
     for bar_crops, elim_crop in crops:
         bars = [
-            classify_bar(c, palette)["status"] if c is not None and c.size else "unknown"
+            # classify_alive_bar, NOT classify_bar: the average-colour
+            # version flips a live squad to eliminated under the
+            # blue-zone glow. See its docstring.
+            classify_alive_bar(c)
             for c in bar_crops
         ]
         elims = (ocr_small_number(elim_crop)
@@ -1833,8 +1893,7 @@ def build_alive_grid_preview(crops, palette=None):
     for bar_crops, elim_crop in crops:
         bars = []
         for c in bar_crops:
-            status = (classify_bar(c, palette)["status"]
-                      if c is not None and c.size else "unknown")
+            status = classify_alive_bar(c)
             bars.append({
                 "status": status,
                 "preview": crop_to_data_url(c, scale=6) if c is not None and c.size else "",
