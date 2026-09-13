@@ -115,6 +115,11 @@
   .ff-char-pick .who b{display:block;font-size:14px;}
   .ff-char-pick .who span{color:#6b7590;font-size:12px;}
   .ff-char-pick select{min-width:220px;}
+  /* A result-file import can leave forty-odd rows pending. Left to grow
+     they push every other mapping card off the screen, which is what made
+     the naming cards at the bottom of this tab hard to reach -- so each
+     list scrolls in place instead of stretching the page. */
+  .ff-map-list{max-height:360px;overflow-y:auto;}
   .tab-panel, .ff-tab-panel, .val-tab-panel, .dota2-tab-panel{display:none;background:transparent;padding-top:4px;}
   .tab-panel.active, .ff-tab-panel.active, .val-tab-panel.active, .dota2-tab-panel.active{display:block;}
   .dota2-prow{display:flex;gap:6px;align-items:center;margin-bottom:6px;}
@@ -2149,13 +2154,22 @@ Team Charlie
         re-importing a roster never wipes them.</p>
       <div id="ff_mappingEmpty" class="hint">Nothing pending — everything in the current match and the imported
         results resolved on its own.</div>
+      <div class="row" style="gap:12px;align-items:flex-end;margin-top:10px;">
+        <div class="team-form" style="max-width:340px;">
+          <label>Jump to section</label>
+          <select id="ff_mapJump"></select>
+        </div>
+        <span class="hint" style="padding-bottom:8px;">This tab is one long column and the result-file lists can
+          run to dozens of rows — this goes straight to the one you want, and says how many rows each has
+          waiting.</span>
+      </div>
     </div>
 
     <div class="card" id="ff_mapSquadsCard" style="display:none;">
       <h2>Squads in this match</h2>
       <p class="hint">Live from the game log. These squads are playing right now but no roster team claims their
         players, so they're the ones missing from the alive table.</p>
-      <div id="ff_mapSquads"></div>
+      <div id="ff_mapSquads" class="ff-map-list"></div>
     </div>
 
     <div class="card" id="ff_mapTeamsCard" style="display:none;">
@@ -2168,10 +2182,10 @@ Team Charlie
       <h2>Players from result files</h2>
       <p class="hint">Usually an IGN change mid-event. Mapping to a roster player keys on their UID, which survives
         further name changes.</p>
-      <div id="ff_mapPlayers"></div>
+      <div id="ff_mapPlayers" class="ff-map-list"></div>
     </div>
 
-    <div class="card">
+    <div class="card" id="ff_mapBooyahCard">
       <h2>Booyah Card Characters</h2>
       <p class="hint">The winning squad of the last committed match. A player the Num5 capture missed shows an
         empty frame on the graphic — pick their character here instead. A manual pick is marked as such, so a
@@ -2179,7 +2193,7 @@ Team Charlie
       <div id="ff_charPickers" class="hint">No match committed yet — there's no Booyah squad to fill in.</div>
     </div>
 
-    <div class="card">
+    <div class="card" id="ff_mapAssetsCard">
       <h2>Character &amp; Equipment Names</h2>
       <p class="hint">The asset dump is named by Free Fire's own numeric ids, which nobody can pick from a
         dropdown. Name each one once and it becomes selectable everywhere. Saved to
@@ -2198,7 +2212,7 @@ Team Charlie
       <div id="ff_assetGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-top:12px;"></div>
     </div>
 
-    <div class="card">
+    <div class="card" id="ff_mapFullsizeCard">
       <h2>Full-Size Character Renders</h2>
       <p class="hint">Your own curated pull from <code>StreamingAssets/streaming/IconCDN/other</code>, kept in
         <code>overlay/assets/FFM/Full Size Character</code>. Worth knowing: these ids are Free Fire's OUTFIT/skin
@@ -2224,7 +2238,7 @@ Team Charlie
     <div class="card" id="ff_mapTaughtCard" style="display:none;">
       <h2>Mapped so far</h2>
       <p class="hint">Taught mappings win over the automatic matcher. Remove one to hand it back.</p>
-      <div id="ff_mapTaught"></div>
+      <div id="ff_mapTaught" class="ff-map-list"></div>
     </div>
   </div>
 
@@ -7018,6 +7032,8 @@ function ffRenderMapping(ff){
       '<button class="secondary ff-map-go">Map</button>' +
     '</div>').join("");
 
+  ffRenderMapJump();
+
   document.getElementById("ff_mapTaughtCard").style.display = taught.length ? "block" : "none";
   document.getElementById("ff_mapTaught").innerHTML = taught.map(row =>
     '<div class="ff-map-row">' +
@@ -8109,6 +8125,43 @@ document.getElementById("ffgfx_reset").addEventListener("click", () => {
 });
 
 ffgfxLoadPage("pointsTableLogo");
+
+/* Quick navigation for the Mapping tab.
+   Sections in page order; a card that is currently hidden (nothing
+   pending) is listed but not selectable, so the dropdown doubles as a
+   readout of what is actually waiting rather than jumping to an empty
+   card and looking broken. */
+const FF_MAP_SECTIONS = [
+  ["ff_mapSquadsCard",   "Squads in this match"],
+  ["ff_mapTeamsCard",    "Team names from result files"],
+  ["ff_mapPlayersCard",  "Players from result files"],
+  ["ff_mapBooyahCard",   "Booyah Card Characters"],
+  ["ff_mapAssetsCard",   "Character & Equipment Names"],
+  ["ff_mapFullsizeCard", "Full-Size Character Renders"],
+  ["ff_mapTaughtCard",   "Mapped so far"],
+];
+
+function ffRenderMapJump(){
+  const sel = document.getElementById("ff_mapJump");
+  if(!sel) return;
+  sel.innerHTML = '<option value="">— jump to —</option>' + FF_MAP_SECTIONS.map(([id, label]) => {
+    const el = document.getElementById(id);
+    // offsetParent is null while the whole tab is hidden, so read the
+    // card's own display instead -- this is rebuilt on every mapping
+    // render, most of which happen with the tab closed.
+    const hidden = !el || el.style.display === "none";
+    const rows = el ? el.querySelectorAll(".ff-map-row").length : 0;
+    const note = hidden ? " — nothing pending" : (rows ? " — " + rows + " waiting" : "");
+    return '<option value="' + id + '"' + (hidden ? " disabled" : "") + '>' +
+      ffEscapeHtml(label) + note + '</option>';
+  }).join("");
+}
+
+document.getElementById("ff_mapJump").addEventListener("change", (e) => {
+  const el = document.getElementById(e.target.value);
+  if(el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  e.target.value = "";      // so picking the same section twice still moves
+});
 
 function ffRenderStandings(ff){
   const standings = ff.standings || [];

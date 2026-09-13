@@ -2229,13 +2229,40 @@ def match_icon(img_bgr, library_name):
         ((float(np.linalg.norm(sig - ref)), label) for label, (ref, _) in library.items()),
     )
     best_distance, best_label = scored[0]
-    if len(scored) > 1:
-        runner_up = scored[1][0]
-        confidence = 0.0 if runner_up <= 1e-6 else max(0.0, 1.0 - (best_distance / runner_up))
-    else:
-        # Single-image library -- nothing to compare against, so report it
-        # as a match but never as a confident one.
+    best_ref, best_name = library[best_label]
+
+    # The runner-up has to be a genuinely DIFFERENT character, or the
+    # confidence number lies about what it measures.
+    #
+    # The asset dump ships the same picture under more than one id --
+    # 101000018/101100018 (Kapella) and 102000019/102200019 (Wolfrahh) are
+    # byte-identical pairs, as are 101000001/101000004 and
+    # 101888888/101999999. A character can also legitimately appear twice
+    # under one name when the operator names a base and an awakened
+    # portrait the same thing. Either way the runner-up sits at the same
+    # distance as the best, so 1 - best/runner_up collapses to 0.000 and
+    # the capture is flagged red no matter how good it was. Measured by
+    # feeding every reference image back in as a perfect capture: Kapella
+    # and Wolfrahh scored 0.000, every other named character scored 1.000.
+    #
+    # So walk past anything that is the same name or the same picture and
+    # compare against the nearest real alternative instead.
+    runner_up = None
+    for distance, label in scored[1:]:
+        ref, name = library[label]
+        if name.strip().upper() == best_name.strip().upper():
+            continue
+        if float(np.linalg.norm(ref - best_ref)) <= 1e-6:
+            continue
+        runner_up = distance
+        break
+
+    if runner_up is None or runner_up <= 1e-6:
+        # Single-image library, or nothing left that isn't the same
+        # character -- report the match but never as a confident one.
         confidence = 0.0
+    else:
+        confidence = max(0.0, 1.0 - (best_distance / runner_up))
     return {
         "label": best_label,
         "name": library[best_label][1],
