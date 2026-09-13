@@ -120,7 +120,12 @@ var RESULTS_WRITE_WWCD = false;
    says. Matching ignores case, spaces and punctuation on both sides. */
 var TEAM_ALIASES = {
   "iQOO TG": "iQOO TOTAL GAMING",
-  "INSANE PWR": "INSANE POWER"
+  "INSANE PWR": "INSANE POWER",
+  // The squad the sheets call iQOO OGXTE / iQOO OG X ELITE registers as
+  // TEAM ELITE, which is also what the game itself reports. No text is
+  // shared, so only this can join them up.
+  "iQOO OGXTE": "TEAM ELITE",
+  "iQOO OG X ELITE": "TEAM ELITE"
 };
 
 // How short a name may be before containment matching stops trusting it.

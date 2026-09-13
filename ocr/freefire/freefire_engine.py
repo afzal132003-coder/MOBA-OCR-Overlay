@@ -2859,10 +2859,25 @@ async def push_sidetable_to_sheet(rows):
     url = (server_state.get("settings", {}).get("sheetWebhookUrl") or "").strip()
     if not url or not rows:
         return
+    # The roster's short name for each team, sent alongside the full one.
+    # A broadcast sheet labels its rows the way the graphics do -- "TEV",
+    # "TAG" -- not with the registered name, and three letters is too
+    # little for the receiving script to match on text alone without
+    # risking the wrong row ("TE" sits inside "TEAM EVOLUTION"). Sending
+    # the short name makes those rows an exact hit instead of a guess.
+    # Without it TEAM EVOLUTION, TEAM APEX GAMING and TEAM ELITE reached
+    # no row at all, so their ticks and kill counts never appeared.
+    shorts = {}
+    for team in ((server_state.get("roster") or {}).get("teams") or []):
+        name = normalize_for_match(team.get("name"))
+        if name and team.get("shortName"):
+            shorts[name] = team["shortName"]
+
     payload = {
         "rows": [
             {
                 "team": r.get("teamName") or r.get("rawText") or "",
+                "short": shorts.get(normalize_for_match(r.get("teamName")), ""),
                 "aliveCount": r.get("aliveCount"),
                 "elims": _sheet_elim_value(r),
             }
