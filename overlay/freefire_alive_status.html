@@ -91,7 +91,7 @@
      height, not walk it toward the middle of the screen. */
   #frame {
     position: absolute; inset: 0;
-    transform-origin: 1920px 576px;
+    transform-origin: 1920px var(--panel-origin-y);
     will-change: transform;
   }
 
@@ -109,7 +109,8 @@
      box travels. Needs no new artwork: every row in that PNG is the
      same, so one strip serves all twelve. */
   .row {
-    position: absolute; height: 44px; left: 1512px; width: 408px;
+    position: absolute;
+    height: var(--row-h); left: var(--row-x); width: var(--row-w);
     background-repeat: no-repeat;
     /* Contains the fire overlay's screen blend to THIS row. Without it
        the blend reaches past the row into whatever is painted behind
@@ -118,25 +119,49 @@
     isolation: isolate;
   }
 
-  /* No rank element: 01..12 are already printed in the artwork, so a
-     row is ranked by which slot it occupies, not by anything drawn
-     here. */
+  /* The slot number. Hidden on a package whose artwork already prints
+     01..12 into the box (CLT does; GC leaves the column empty), which is
+     what --rank-display carries. */
+  .rank {
+    position: absolute; display: var(--rank-display);
+    left: var(--rank-x); top: 0; width: var(--rank-w); height: var(--row-h);
+    align-items: center; justify-content: center;
+    color: var(--ink); font-weight: 800; font-size: var(--rank-size);
+    font-variant-numeric: tabular-nums;
+  }
   .logo {
-    position: absolute; left: 8px; top: 0; width: 40px; height: 44px;
+    position: absolute; left: var(--logo-x); top: 0;
+    width: var(--logo-w); height: var(--row-h);
     display: flex; align-items: center; justify-content: center;
   }
-  .logo img { max-width: 34px; max-height: 34px; object-fit: contain; }
+  .logo img {
+    max-width: var(--logo-img); max-height: var(--logo-img); object-fit: contain;
+  }
 
   .name {
-    position: absolute; left: 54px; top: 0; width: 150px; height: 44px;
-    display: flex; align-items: center;
-    color: #f2e9e6; font-weight: 700; font-size: 17px; letter-spacing: 0.2px;
+    position: absolute; left: var(--name-x); top: 0;
+    width: var(--name-w); height: var(--row-h);
+    display: flex; align-items: center; justify-content: var(--name-align);
+    color: var(--ink); font-weight: 700; font-size: var(--name-size);
+    letter-spacing: 0.2px;
     text-transform: uppercase; white-space: nowrap; overflow: hidden;
   }
+
+  /* Points: total carried in from earlier games plus this game's own
+     score. Only the packages that have a PTS. column show it. */
+  .points {
+    position: absolute; display: var(--points-display);
+    left: var(--points-x); top: 0; width: var(--points-w); height: var(--row-h);
+    align-items: center; justify-content: center;
+    color: var(--ink); font-weight: 800; font-size: var(--num-size);
+    font-variant-numeric: tabular-nums;
+  }
+
   .kills {
-    position: absolute; left: 208px; top: 0; width: 74px; height: 44px;
+    position: absolute; left: var(--kills-x); top: 0;
+    width: var(--kills-w); height: var(--row-h);
     display: flex; align-items: center; justify-content: center;
-    color: #f2e9e6; font-weight: 800; font-size: 18px;
+    color: var(--ink); font-weight: 800; font-size: var(--num-size);
     font-variant-numeric: tabular-nums;
   }
 
@@ -157,10 +182,12 @@
        background-position = -11 x f, -140 x f -> -1.8px, -22.9px
        displayed content   = 477 x f = 78px wide, 36px tall */
   .status-pip {
-    position: absolute; left: 304px; top: 4px; width: 78px; height: 36px;
+    position: absolute;
+    left: var(--pip-x); top: var(--pip-y);
+    width: var(--pip-w); height: var(--pip-h);
     background-repeat: no-repeat;
-    background-size: 81.8px 81.8px;
-    background-position: -1.8px -22.9px;
+    background-size: var(--pip-size) var(--pip-size);
+    background-position: var(--pip-px) var(--pip-py);
   }
 
   /* A wiped squad's whole row dims, so "who is still in" reads at a
@@ -316,10 +343,128 @@ const WS_URL = _relay
 const PREVIEW_MODE = _params.get("preview") === "1";
 
 // Measured from ALIVE STATUS.png -- see the note at the top.
-const ROW_TOPS = [286, 335, 384, 434, 483, 532, 582, 631, 680, 730, 779, 828];
-// Where row 1's box sits in that artwork, i.e. the strip each moving row
-// wears so the box travels with its contents. x matches .row's own left.
-const ROW_BLOCK = { x: 1512, y: ROW_TOPS[0] };
+/* ---- Per-package layout ------------------------------------------------
+   Two graphics packages now draw this table and they agree about
+   nothing: different panel bounds, different row pitch, different
+   columns, different pip artwork. Rather than fork the page, every
+   number that differs lives here and is applied as CSS custom
+   properties, so the rules above stay put and only the values move.
+
+   Each package's numbers were MEASURED from its own artwork, never
+   eyeballed: the row boxes by scanning the PNG's alpha, and the text
+   and pip columns by diffing the designer's reference render (the one
+   with sample names and scores) against the blank one, which leaves
+   exactly the cells we are expected to fill.
+
+   `pip` is the same uniform-scale crop both packages need: their icons
+   are 500x500 canvases with the drawing off in one corner, so the box
+   shows one window onto the canvas and the scale is equal on both axes.
+   Deriving it from the content's own box is what keeps the shapes the
+   proportions they were drawn at -- stretching each axis to fill the
+   column is what once turned CLT's bars into fat squares. */
+const LAYOUTS = {
+  // The TEAM / KILLS / STATUS design. Row numbers are printed into the
+  // artwork, so there is no rank element and no points column.
+  CLT: {
+    bg: "ALIVE STATUS.png",
+    pipBase: "",
+    rowTops: [286, 335, 384, 434, 483, 532, 582, 631, 680, 730, 779, 828],
+    row: { x: 1512, w: 408, h: 44 },
+    ink: "#f2e9e6",
+    rank: null,
+    logo: { x: 8, w: 40, img: 34 },
+    name: { x: 54, w: 150, size: 17, align: "flex-start" },
+    points: null,
+    kills: { x: 208, w: 74, size: 18 },
+    // content x 11..487, y 140..359 of a 500 canvas, shown 78px wide
+    pip: { x: 304, y: 4, w: 78, h: 36, size: 81.8, px: -1.8, py: -22.9 },
+    originY: 576,          // centre of y 247..905
+  },
+
+  // The # / TEAM / ALIVE / PTS. / ELIMS. design. Panel x 1455..1920,
+  // y 254..818; header 254..288; twelve 43px rows from 291 on a 44px
+  // pitch. The slot number is NOT printed in this artwork, so this one
+  // draws it. The logo sits in the white diagonal band the design
+  // leaves between the number block and the name block -- measured at
+  // x 1520..1587, the full height of the row, identical on all twelve.
+  GC: {
+    bg: "Alive Status without pt.png",
+    bgPoints: "Alive Status.png",
+    pipBase: "Live Stats/",
+    rowTops: [291, 335, 379, 423, 467, 511, 555, 599, 643, 687, 731, 775],
+    row: { x: 1455, w: 465, h: 43 },
+    ink: "#ffffff",
+    rank: { x: 0, w: 52, size: 19 },          // digits centre on x 1481
+    logo: { x: 65, w: 68, img: 36 },
+    name: { x: 156, w: 112, size: 19, align: "flex-start" },
+    points: { x: 353, w: 40, size: 19 },       // "00" centres on x 1828
+    kills: { x: 412, w: 40, size: 19 },        // "00" centres on x 1887
+    // content x 25..475, y 184..316 of a 500 canvas, shown 59px wide:
+    // scale 59/451 = 0.13082, so the canvas renders at 65.41 and the
+    // window starts at -25*s, -184*s.
+    pip: { x: 271, y: 13, w: 59, h: 17.4, size: 65.41, px: -3.27, py: -24.07 },
+    originY: 536,          // centre of y 254..818
+  },
+};
+
+// Which package's artwork is on disk decides which layout is used, so
+// switching graphics packages on the dashboard switches this too with
+// nothing else to remember.
+function layoutFor(state){
+  const folder = (state && state.event && state.event.assetFolder) || "CLT";
+  return LAYOUTS[folder] || LAYOUTS.CLT;
+}
+
+let activeLayout = null;
+
+/* Writes the layout into CSS custom properties. Only on a real change:
+   this runs on every sync, and rewriting a dozen properties on the root
+   element four times a second invalidates style for the whole page. */
+function applyLayout(L, showPoints){
+  const sig = JSON.stringify([L.row, showPoints]);
+  if(activeLayout === sig) return;
+  activeLayout = sig;
+  const r = document.documentElement.style;
+  r.setProperty("--row-x", L.row.x + "px");
+  r.setProperty("--row-w", L.row.w + "px");
+  r.setProperty("--row-h", L.row.h + "px");
+  r.setProperty("--ink", L.ink);
+  r.setProperty("--rank-display", L.rank ? "flex" : "none");
+  r.setProperty("--rank-x", ((L.rank && L.rank.x) || 0) + "px");
+  r.setProperty("--rank-w", ((L.rank && L.rank.w) || 0) + "px");
+  r.setProperty("--rank-size", ((L.rank && L.rank.size) || 16) + "px");
+  r.setProperty("--logo-x", L.logo.x + "px");
+  r.setProperty("--logo-w", L.logo.w + "px");
+  r.setProperty("--logo-img", L.logo.img + "px");
+  r.setProperty("--name-x", L.name.x + "px");
+  r.setProperty("--name-w", L.name.w + "px");
+  r.setProperty("--name-size", L.name.size + "px");
+  r.setProperty("--name-align", L.name.align);
+  // The points column exists only where the package HAS one and the
+  // operator is running the variant that shows it.
+  const pts = L.points && showPoints;
+  r.setProperty("--points-display", pts ? "flex" : "none");
+  r.setProperty("--points-x", ((L.points && L.points.x) || 0) + "px");
+  r.setProperty("--points-w", ((L.points && L.points.w) || 0) + "px");
+  r.setProperty("--kills-x", L.kills.x + "px");
+  r.setProperty("--kills-w", L.kills.w + "px");
+  r.setProperty("--num-size", L.kills.size + "px");
+  r.setProperty("--pip-x", L.pip.x + "px");
+  r.setProperty("--pip-y", L.pip.y + "px");
+  r.setProperty("--pip-w", L.pip.w + "px");
+  r.setProperty("--pip-h", L.pip.h + "px");
+  r.setProperty("--pip-size", L.pip.size + "px");
+  r.setProperty("--pip-px", L.pip.px + "px");
+  r.setProperty("--pip-py", L.pip.py + "px");
+  // Shrinking anchors to the panel's own vertical centre, which differs
+  // per package: CLT's box runs y 247..905, GC's 254..818.
+  r.setProperty("--panel-origin-y", L.originY + "px");
+}
+
+// Set from the active layout on every apply(). The strip each moving row
+// wears is cropped from row 1's own box, so it travels with its contents.
+let ROW_TOPS = LAYOUTS.CLT.rowTops;
+let ROW_BLOCK = { x: LAYOUTS.CLT.row.x, y: ROW_TOPS[0] };
 
 let ws;
 function connect(){
@@ -463,8 +608,10 @@ function makeRowEl(){
   const el = document.createElement("div");
   el.className = "row no-anim";
   el.innerHTML =
+    '<div class="rank"></div>' +
     '<div class="logo"><img alt="" style="display:none"></div>' +
     '<div class="name"></div>' +
+    '<div class="points"></div>' +
     '<div class="kills"></div>' +
     '<div class="status-pip"></div>' +
     '<div class="flyby"><span class="word trail">ELIMINATED</span>' +
@@ -497,8 +644,17 @@ function apply(state){
   document.getElementById("stage").classList.toggle("show", !!visible && source.length > 0);
   if(!visible || !source.length) return;
 
+  const L = layoutFor(state);
+  // The PTS. column only exists in some packages, and even there it is a
+  // separate backdrop -- so the operator's choice picks the artwork and
+  // the column together, never one without the other.
+  const showPoints = !!(L.points && state.display && state.display.aliveStatusPoints);
+  applyLayout(L, showPoints);
+  ROW_TOPS = L.rowTops;
+  ROW_BLOCK = { x: L.row.x, y: L.rowTops[0] };
+
   const backdrop = document.getElementById("backdrop");
-  const bgSrc = base + "ALIVE STATUS.png";
+  const bgSrc = base + ((showPoints && L.bgPoints) ? L.bgPoints : L.bg);
   if(backdrop.getAttribute("src") !== bgSrc) backdrop.src = bgSrc;
   // The strip every row wears as its own box -- row 1's, since they're
   // all identical in the artwork. Offset by the row block's own origin
@@ -534,7 +690,9 @@ function apply(state){
     // count falls back to the empty/dead indicator.
     const alive = row.eliminated ? 0
       : (row.aliveCount == null ? 0 : Math.max(0, Math.min(4, row.aliveCount)));
-    const art = alive === 0 ? "Dead.png" : alive + "_alive.png";
+    // GC keeps its indicator art in a "Live Stats" subfolder; CLT keeps
+    // it beside the backdrop. pipBase is whichever.
+    const art = L.pipBase + (alive === 0 ? "Dead.png" : alive + "_alive.png");
 
     const nameEl = el.querySelector(".name");
     if(nameEl.textContent !== label) nameEl.textContent = label;
@@ -632,6 +790,13 @@ function apply(state){
     el.style.display = "";
     const top = ROW_TOPS[i] + "px";
     if(el.style.top !== top) el.style.top = top;
+    // The slot number, on the packages that don't print it into the
+    // artwork. Written here rather than with the row's other content
+    // because it belongs to the SLOT, not the team -- a squad that
+    // climbs the table takes its neighbour's number, not its own.
+    const rankEl = el.querySelector(".rank");
+    const rank = String(i + 1);
+    if(rankEl && rankEl.textContent !== rank) rankEl.textContent = rank;
     // First placement lands instantly; every move after that animates.
     if(el.classList.contains("no-anim")){
       void el.offsetWidth;
@@ -679,13 +844,15 @@ function applyPanelOverride(all){
 
   /* How far the stage has to travel to clear frame on the way out.
      That translate happens INSIDE #frame, so it is in unscaled units:
-     the panel is 408 wide with its right edge on frame's right edge, so
-     408 just clears it when nothing has been moved, and a panel dragged
+     the panel is as wide as the package's own row (408 for CLT, 465 for
+     GC) with its right edge on frame's right edge, so that width just
+     clears it when nothing has been moved, and a panel dragged
      left (dx < 0) needs exactly that much more -- divided by scale,
      because dx is measured in screen pixels while this is not. The
      extra 62 is the flame overhang, the same margin the original fixed
      470 carried. */
-  const clear = Math.round(408 - dx / (scale || 1) + 62);
+  const panelWidth = (activeLayout && lastState ? layoutFor(lastState) : LAYOUTS.CLT).row.w;
+  const clear = Math.round(panelWidth - dx / (scale || 1) + 62);
   frame.style.setProperty("--ff-fly-out", clear + "px");
 }
 
