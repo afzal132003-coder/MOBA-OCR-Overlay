@@ -1803,6 +1803,13 @@ def gate_eliminations(rows):
         return rows
 
     approved = {t.strip().upper() for t in (live.get("approvedEliminations") or [])}
+    # The last rows that actually went to air, as a fallback picture of a
+    # squad while it was still up.
+    last_published = {}
+    for prev in (live.get("sidetableRows") or []):
+        k = (prev.get("teamName") or "").strip().upper()
+        if k and not prev.get("eliminated") and prev.get("aliveCount") is not None:
+            last_published[k] = (list(prev.get("bars") or []), prev.get("aliveCount"))
     pending = []
     for row in rows:
         team = (row.get("teamName") or "").strip()
@@ -1814,23 +1821,26 @@ def gate_eliminations(rows):
             continue
         if key in approved:
             continue
-        # Held whether or not we have a remembered alive state. This used
-        # to skip a squad nobody had watched go down, sending it straight
-        # to air unticked -- which happens on every restart into a running
-        # match, and to any row newly pointed at a squad that was already
-        # out. Several went through at once, so the table fired several
-        # eliminations the operator never approved, and the card was
-        # suppressed as a resync. One cause, both symptoms.
+        # A held wipe has to keep LOOKING alive, not merely be called
+        # alive. Holding one while leaving the dead bars it just read put
+        # rows with grey indicators into the living half of the table,
+        # sorted among squads that were actually still in -- so the one
+        # genuinely alive squad sat near the bottom under a pile of
+        # dead-looking rows. Whatever is shown has to be a picture of
+        # that squad while it was still up.
         #
-        # Where there IS a remembered reading it is restored, so the row
-        # keeps showing what it last really was. Where there isn't, the
-        # row keeps the bars it actually read -- nothing is invented -- it
-        # simply is not called eliminated until someone says so. Either
-        # way the tick is the single moment the elimination happens.
+        # Two places to find one: what this gate last saw of it, and
+        # failing that the row last PUBLISHED for it, which is a reading
+        # that actually went to air.
+        remembered = _last_alive_by_team.get(key) or last_published.get(key)
+        if not remembered:
+            # Never seen alive by either. It genuinely is out and there is
+            # nothing honest to show instead, so it goes through. The
+            # overlay does not animate a squad it is seeing dead for the
+            # first time, so this does not fire anything.
+            continue
         pending.append({"teamName": team, "elims": row.get("elims")})
-        remembered = _last_alive_by_team.get(key)
-        if remembered:
-            row["bars"], row["aliveCount"] = list(remembered[0]), remembered[1]
+        row["bars"], row["aliveCount"] = list(remembered[0]), remembered[1]
         row["eliminated"] = False
         row["awaitingApproval"] = True
 
@@ -1863,7 +1873,12 @@ def assign_finish_ranks(rows):
     the same signal the overlay uses to reset its own ordering."""
     global _finish_ranks
     live = [r for r in rows if not r.get("eliminated")]
-    if len(live) == len(rows):
+    # "Nobody is out" is not the same as "a new match". A wipe held for
+    # the operator's tick is not shown as eliminated either, so treating
+    # that as a fresh lobby cleared the very list the tick is made from --
+    # the pending wipes vanished before anyone could approve them.
+    holding = any(r.get("awaitingApproval") for r in rows)
+    if len(live) == len(rows) and not holding:
         # A fresh lobby. Everything that belongs to the LAST match goes
         # with it -- positions, and the approvals that released each of
         # those wipes.
