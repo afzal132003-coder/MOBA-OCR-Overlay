@@ -127,23 +127,6 @@
     50%      { box-shadow: inset 0 0 22px 5px rgba(60, 170, 255, 0.42); }
   }
 
-  /* Fire is a BORDER effect, not a wash over the box -- a tint sitting
-     on top of the artwork just dulls the name and numbers, while flame
-     around the edge says "this squad" without touching what's inside
-     it.
-
-     Drawn in ::before, inset NEGATIVE so it extends past the box on all
-     sides, and placed at z-index -1 so the row's own box paints over
-     its middle. Only the overhang shows: a licking fringe around the
-     edges rather than a rectangle behind everything. #rows carries a
-     stacking context so that -1 stays above the backdrop instead of
-     disappearing behind it.
-
-     Two animations at once, on purpose: the gradient slides steadily
-     for the sense of flame travelling around the box, while a much
-     faster opacity flicker on a deliberately unrelated duration keeps
-     the two from ever lining up into a visible loop. The blur is what
-     turns hard gradient bands into something that reads as fire. */
   /* Fire flowing ACROSS the box, like wind carrying it.
      ---------------------------------------------------------------
      The previous attempt used discrete radial blobs, which is exactly
@@ -336,8 +319,35 @@ function noteElimination(key, row){
     : ++elimCounter);
 }
 
+/* A kill count can be momentarily unknown -- an unreadable frame, or a
+   row whose source went quiet -- and treating that as "no kills" was
+   doing real damage on air:
+
+     - the number blanked out, then reappeared
+     - the row sank to the bottom of its block and climbed back
+
+   Both happened on any unrelated redraw, which is why editing a field
+   or ticking zone/fire appeared to make the table jump around: the
+   redraw simply made an already-unknown value visible.
+
+   The last count actually seen for that team stands in until a real one
+   arrives. A kill count doesn't become unknown because the squad lost
+   kills -- it becomes unknown because we couldn't read it this instant,
+   and the last thing we knew is a far better answer than zero. */
+const ffLastKnownKills = new Map();
+
+function effectiveKills(row){
+  const key = rowKeyOf(row);
+  if(row.elims != null){
+    ffLastKnownKills.set(key, row.elims);
+    return row.elims;
+  }
+  const remembered = ffLastKnownKills.get(key);
+  return remembered == null ? -1 : remembered;
+}
+
 function orderRows(rows){
-  const killsOf = (r) => (r.elims == null ? -1 : r.elims);
+  const killsOf = (r) => effectiveKills(r);
   const aliveOf = (r) => (r.aliveCount == null ? 0 : r.aliveCount);
   return rows.map((r, i) => ({ r, i })).sort((A, B) => {
     const a = A.r, b = B.r;
@@ -349,7 +359,12 @@ function orderRows(rows){
       if(dk) return dk;
       const da = aliveOf(b) - aliveOf(a);
       if(da) return da;
-      return A.i - B.i;                          // stable on a full tie
+      // Team name, NOT the incoming array position: the engine's
+      // publish order isn't fixed (a grid-only row gets appended,
+      // the merge can reorder), so index-based tiebreaks let two
+      // genuinely tied rows swap places on an unrelated update.
+      // Comparing names gives the same answer every time.
+      return rowKeyOf(a) < rowKeyOf(b) ? -1 : 1;
     }
 
     // Both out: most recently eliminated sits highest, so the first
@@ -357,7 +372,7 @@ function orderRows(rows){
     const sa = elimSeq.has(rowKeyOf(a)) ? elimSeq.get(rowKeyOf(a)) : 0;
     const sb = elimSeq.has(rowKeyOf(b)) ? elimSeq.get(rowKeyOf(b)) : 0;
     if(sa !== sb) return sb - sa;
-    return A.i - B.i;
+    return rowKeyOf(a) < rowKeyOf(b) ? -1 : 1;
   }).map(x => x.r);
 }
 
@@ -467,11 +482,12 @@ function apply(state){
 
     const nameEl = el.querySelector(".name");
     if(nameEl.textContent !== label) nameEl.textContent = label;
-    // elims is null once the match has ended (the running score gets
-    // placement points folded in at that point and would read as an
-    // inflated "kills" number), so a blank cell beats a confidently wrong
-    // one -- same rule the rest of this codebase already follows.
-    const kills = row.elims == null ? "" : String(row.elims);
+    // Shows the last count actually seen when this frame has none, so
+    // the number doesn't blink out and back on every redraw. Still
+    // blank if nothing has ever been read for this team -- that's a
+    // genuine gap, not a momentary one.
+    const effective = effectiveKills(row);
+    const kills = effective < 0 ? "" : String(effective);
     const killsEl = el.querySelector(".kills");
     if(killsEl.textContent !== kills) killsEl.textContent = kills;
 
