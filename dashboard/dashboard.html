@@ -1874,6 +1874,11 @@ Team Charlie
            picture scrolls away. -->
       <div style="display:flex;gap:14px;margin-top:12px;align-items:flex-start;">
         <div style="flex:1;min-width:0;overflow-x:auto;">
+          <p class="hint" style="margin:0 0 6px;">In the <strong>Team</strong> and <strong>Elim</strong>
+            columns, <strong>Enter</strong> drops to the same box one row down and <strong>Shift+Enter</strong>
+            goes back up, wrapping at the ends — so all twelve rows can be set without touching the mouse.
+            With a dropdown's list open, the first Enter closes the list and the next one moves down; typing
+            the team name straight into a closed dropdown moves down on the first Enter.</p>
           <div id="ff_aliveGridRows"></div>
         </div>
         <div style="flex:0 0 272px;position:sticky;top:8px;">
@@ -6293,6 +6298,10 @@ function ffRenderAliveGridRows(ff){
   container.querySelectorAll(".ff-alive-elim-override").forEach(el => {
     el.addEventListener("change", () => {
       if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+      // Recorded only after a send that actually went out, so a change
+      // made while the engine was down still pushes once it's back.
+      if(el.dataset.sent === el.value) return;
+      el.dataset.sent = el.value;
       ffWs.send(JSON.stringify({
         type: "freefire_set_alive_elim_override",
         row: Number(el.dataset.row), elims: el.value,
@@ -6300,6 +6309,44 @@ function ffRenderAliveGridRows(ff){
       document.getElementById("ff_aliveGridStatus").textContent = el.value.trim()
         ? `Row ${Number(el.dataset.row) + 1} elim count forced to ${el.value}.`
         : `Row ${Number(el.dataset.row) + 1} elim count back to auto.`;
+    });
+  });
+
+  ffWireEnterAdvance(container, ".ff-alive-grid-row");
+  ffWireEnterAdvance(container, ".ff-alive-elim-override");
+}
+
+/* Enter walks down the column, Shift+Enter walks back up, wrapping at
+   the ends -- what Enter does in a spreadsheet. Twelve rows to assign
+   otherwise means twelve reaches for the mouse, and mid-match that is
+   the difference between keeping up and falling behind.
+
+   Moving focus is also what COMMITS the elim box: an <input> fires its
+   change event on blur, so the hop and the save are one gesture and
+   nothing is left half-typed.
+
+   One thing to know about the dropdowns: while a <select>'s native list
+   is open the OS owns the keyboard, so the Enter that closes the list
+   never reaches this handler. Pressing Enter again -- list now closed --
+   moves down. Typing a team name straight into a closed dropdown and
+   pressing Enter moves down on the first press. */
+function ffWireEnterAdvance(container, selector){
+  const items = Array.from(container.querySelectorAll(selector));
+  items.forEach((el, i) => {
+    el.addEventListener("keydown", (e) => {
+      if(e.key !== "Enter") return;
+      e.preventDefault();
+      const next = items[(i + (e.shiftKey ? -1 : 1) + items.length) % items.length];
+      if(!next || next === el) return;
+      // A text box normally commits on blur, but say so explicitly
+      // rather than trusting the hop to do it -- the change handler
+      // ignores a value it has already pushed, so whichever of the two
+      // fires first wins and the other costs nothing.
+      if(el.tagName === "INPUT") el.dispatchEvent(new Event("change", {bubbles:true}));
+      next.focus();
+      // Text preselected so the next number can just be typed over the
+      // old one. Selects have no .select(), hence the guard.
+      if(typeof next.select === "function"){ try { next.select(); } catch(_){} }
     });
   });
 }
