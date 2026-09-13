@@ -295,6 +295,15 @@ def default_state():
             # checkboxes by hand while watching the stream. Blank disables
             # it entirely; nothing is sent anywhere by default.
             "sheetWebhookUrl": "",
+            # Hold an elimination off air until the operator confirms it.
+            # A squad wipe is the one reading where being wrong is most
+            # visible -- the graphic fires, the team sinks down the
+            # table, and there's no taking it back. With this on, the
+            # detection is shown in the dashboard and nothing reaches
+            # air until it's ticked. Off = the previous behaviour, fire
+            # as soon as it's detected, for when nobody is watching the
+            # dashboard.
+            "eliminationApproval": True,
         },
         # Filled in at startup with the engine's own folder -- see the
         # assignment after load_state(). Present here so an old state
@@ -442,6 +451,13 @@ def default_state():
             # "eliminated". elims: "{row}" -> the forced count. See
             # apply_alive_grid_overrides.
             "aliveGridOverrides": {"bars": {}, "elims": {}},
+            # Eliminations detected but not yet confirmed by the
+            # operator, and the ones that have been. See
+            # gate_eliminations: while a wipe is pending, the table
+            # keeps showing that squad as it last was, so nothing
+            # reaches air ahead of the tick.
+            "pendingEliminations": [],
+            "approvedEliminations": [],
         },
         # Sequential Num5 loadout capture. "pointer" indexes into the
         # flattened roster (team-then-player order, see
@@ -1701,6 +1717,58 @@ _alive_grid_last_elims = {}
 # timer). Kept generous on purpose: this only has to catch nonsense,
 # not police a plausible score.
 FREEFIRE_MAX_TEAM_ELIMS = 35
+
+
+# team -> the bars/count it last showed while still alive, so a wipe
+# awaiting approval can keep displaying that instead of the truth.
+_last_alive_by_team = {}
+
+
+def gate_eliminations(rows):
+    """Holds a detected squad wipe off air until the operator ticks it.
+
+    Done HERE rather than in the overlay on purpose: the overlay already
+    animates whatever transition it sees, so if the published rows
+    simply don't show the wipe yet, nothing downstream needs to know
+    this exists. The moment it's approved the rows flip, the overlay
+    sees a normal alive-to-eliminated transition, and the flyby and the
+    re-sort happen exactly as they always did. One place to reason
+    about, and the sheet push gets the same held value for free.
+
+    A wipe with no remembered alive state is let straight through --
+    that's an engine started mid-match, where inventing a "still alive"
+    reading would be worse than showing what was actually read.
+
+    Off (settings.eliminationApproval false) this does nothing at all."""
+    live = server_state["liveOps"]
+    if not server_state.get("settings", {}).get("eliminationApproval", True):
+        if live.get("pendingEliminations"):
+            live["pendingEliminations"] = []
+        return rows
+
+    approved = {t.strip().upper() for t in (live.get("approvedEliminations") or [])}
+    pending = []
+    for row in rows:
+        team = (row.get("teamName") or "").strip()
+        key = team.upper()
+        wiped = bool(row.get("eliminated")) or row.get("aliveCount") == 0
+        if not wiped:
+            if row.get("aliveCount") is not None:
+                _last_alive_by_team[key] = (list(row.get("bars") or []), row.get("aliveCount"))
+            continue
+        if key in approved:
+            continue
+        remembered = _last_alive_by_team.get(key)
+        if not remembered:
+            continue          # nothing credible to show instead
+        pending.append({"teamName": team, "elims": row.get("elims")})
+        row["bars"], row["aliveCount"] = list(remembered[0]), remembered[1]
+        row["eliminated"] = False
+        row["awaitingApproval"] = True
+
+    if pending != live.get("pendingEliminations"):
+        live["pendingEliminations"] = pending
+    return rows
 
 
 def sanitise_published_elims(rows):
@@ -3581,6 +3649,21 @@ async def handle_client(websocket, path=None):
                             pass
                     save_state()
                     await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "freefire_approve_elimination":
+                # The tick. Moves one squad from pending to approved, at
+                # which point gate_eliminations stops holding its wipe
+                # back and the overlay sees the transition normally.
+                team = (payload.get("team") or "").strip()
+                live = server_state["liveOps"]
+                approved = live.setdefault("approvedEliminations", [])
+                if team and team not in approved:
+                    approved.append(team)
+                    live["pendingEliminations"] = [
+                        p for p in (live.get("pendingEliminations") or [])
+                        if (p.get("teamName") or "").strip().upper() != team.upper()
+                    ]
+                    save_state()
+                    await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") == "freefire_fetch_alive_grid_preview":
                 # One fresh, on-demand capture -- not the regular per-poll
                 # path, so this can afford to also encode every crop as a
@@ -3743,6 +3826,9 @@ async def handle_live_signals(signals, gs_names):
             _alive_grid_settle.clear()
             _alive_grid_accepted_bars.clear()
             _alive_grid_bars_pending.clear()
+            _last_alive_by_team.clear()
+            server_state["liveOps"]["approvedEliminations"] = []
+            server_state["liveOps"]["pendingEliminations"] = []
 
         elif signal["type"] == "match_end":
             _pending_match_fetch = signal["matchId"]
@@ -3865,7 +3951,7 @@ async def ocr_loop():
                     if linked["rows"]:
                         log_sidetable_rows = linked["rows"]
                         if linked["rows"] != server_state["liveOps"].get("sidetableRows"):
-                            server_state["liveOps"]["sidetableRows"] = sanitise_published_elims(linked["rows"])
+                            server_state["liveOps"]["sidetableRows"] = gate_eliminations(sanitise_published_elims(linked["rows"]))
                             server_state["liveOps"]["sidetableSource"] = "log"
                             changed = True
                             asyncio.create_task(push_sidetable_to_sheet(linked["rows"]))
@@ -3939,7 +4025,7 @@ async def ocr_loop():
                 )
                 ff_live = server_state["liveOps"]
                 if parsed["rows"] != ff_live.get("sidetableRows"):
-                    ff_live["sidetableRows"] = sanitise_published_elims(parsed["rows"])
+                    ff_live["sidetableRows"] = gate_eliminations(sanitise_published_elims(parsed["rows"]))
                     ff_live["sidetableUsedPalette"] = parsed["usedPalette"]
                     ff_live["sidetableSource"] = "ocr"
                     asyncio.create_task(push_sidetable_to_sheet(parsed["rows"]))
@@ -4023,7 +4109,7 @@ async def ocr_loop():
                         if key not in seen:
                             merged.append(r)
                     if merged != server_state["liveOps"].get("sidetableRows"):
-                        server_state["liveOps"]["sidetableRows"] = sanitise_published_elims(merged)
+                        server_state["liveOps"]["sidetableRows"] = gate_eliminations(sanitise_published_elims(merged))
                         server_state["liveOps"]["sidetableSource"] = "grid"
                         changed = True
                         asyncio.create_task(push_sidetable_to_sheet(merged))
