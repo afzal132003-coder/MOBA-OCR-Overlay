@@ -1866,14 +1866,20 @@ Team Charlie
             style="display:block;width:236px;border-radius:6px;border:1px solid #2b3348;background:#0a0d18;min-height:130px;">
           <div class="hint" id="ff_aliveGameLiveAge" style="margin-top:3px;font-size:10px;">waiting for the engine…</div>
         </div>
-        <div>
-          <div class="hint" style="margin-bottom:4px;"><strong>The overlay, live</strong> — what's going to air</div>
-          <div id="ff_aliveOutWrap" style="position:relative;width:236px;height:380px;overflow:hidden;
-               border-radius:6px;border:1px solid #2b3348;
+        <div style="flex:1;min-width:320px;">
+          <div class="hint" style="margin-bottom:4px;"><strong>The overlay, live</strong> — what's going to air.
+            Drag to move, scroll to zoom.</div>
+          <div id="ff_aliveOutWrap" style="position:relative;width:100%;height:420px;overflow:hidden;
+               border-radius:6px;border:1px solid #2b3348;cursor:grab;
                background:#0a0d18 repeating-conic-gradient(#12172a 0% 25%, #0a0d18 0% 50%) 0 0/16px 16px;">
             <iframe id="ff_aliveOutFrame" title="Alive status output"
               style="position:absolute;width:1920px;height:1080px;border:0;transform-origin:top left;
                      pointer-events:none;"></iframe>
+          </div>
+          <div class="row" style="gap:6px;margin-top:5px;">
+            <button class="secondary" id="ff_aliveOutFitTable" style="font-size:10px;padding:3px 8px;margin-top:0;">Fit table</button>
+            <button class="secondary" id="ff_aliveOutFitAll" style="font-size:10px;padding:3px 8px;margin-top:0;">Fit whole 1920×1080</button>
+            <span class="hint" id="ff_aliveOutZoom" style="font-size:10px;align-self:center;"></span>
           </div>
           <div class="hint" id="ff_aliveOutWhy" style="margin-top:3px;font-size:10px;"></div>
         </div>
@@ -5821,9 +5827,44 @@ const FF_ALIVE_BAR_COLOR = { alive: "#4ade80", eliminated: "#f87171", unknown: "
    relay, scaled and offset so the 1920x1080 canvas shows only the
    table itself (x 1512..1920, y 247..905) -- a full-canvas thumbnail at
    this width would be unreadable. */
+// Where the table sits on the CURRENT artwork. Only a starting view --
+// a different graphics package can put it anywhere, which is why the
+// view can be dragged and zoomed rather than hard-framed.
 const FF_ALIVE_OUT = { x: 1512, y: 240, w: 408, h: 672 };
 let ffAliveOutLoaded = false;
 let ffAliveGameLiveAt = 0;
+// Which part of the 1920x1080 canvas is shown: canvas point (x, y) sits
+// at the wrapper's top-left, at this scale.
+let ffAliveOutView = { x: FF_ALIVE_OUT.x, y: FF_ALIVE_OUT.y, scale: 0.55 };
+
+function ffApplyAliveOutView(){
+  const frame = document.getElementById("ff_aliveOutFrame");
+  if(!frame) return;
+  const { x, y, scale } = ffAliveOutView;
+  frame.style.transform = `scale(${scale})`;
+  frame.style.left = `${-x * scale}px`;
+  frame.style.top = `${-y * scale}px`;
+  const zoom = document.getElementById("ff_aliveOutZoom");
+  if(zoom) zoom.textContent = Math.round(scale * 100) + "%";
+}
+
+function ffFitAliveOut(region){
+  const wrap = document.getElementById("ff_aliveOutWrap");
+  if(!wrap) return;
+  // clientWidth is 0 while the tab is hidden -- which is exactly how the
+  // first version of this broke: the mount ran from a state_sync while
+  // the panel was display:none, computed scale 0, and collapsed the
+  // iframe to nothing permanently. Fall back to the CSS height and a
+  // sane width so a hidden-tab mount still produces a usable view, and
+  // re-fit when it's actually on screen.
+  const w = wrap.clientWidth || 360;
+  const h = wrap.clientHeight || 420;
+  ffAliveOutView = {
+    x: region.x, y: region.y,
+    scale: Math.min(w / region.w, h / region.h),
+  };
+  ffApplyAliveOutView();
+}
 
 function ffMountAliveOutput(){
   const frame = document.getElementById("ff_aliveOutFrame");
@@ -5838,10 +5879,54 @@ function ffMountAliveOutput(){
   // be used to check it BEFORE putting it on air.
   const url = ffPreviewUrl({ file: "freefire_alive_status.html" });
   frame.src = url + (url.includes("?") ? "&" : "?") + "preview=1";
-  const scale = wrap.clientWidth / FF_ALIVE_OUT.w;
-  frame.style.transform = `scale(${scale})`;
-  frame.style.left = `${-FF_ALIVE_OUT.x * scale}px`;
-  frame.style.top = `${-FF_ALIVE_OUT.y * scale}px`;
+  ffFitAliveOut(FF_ALIVE_OUT);
+  // The mount usually happens while this tab is hidden, so the first fit
+  // is working from fallbacks. Re-fit once it has real dimensions.
+  if(typeof ResizeObserver === "function"){
+    let fitted = false;
+    new ResizeObserver(() => {
+      if(fitted || !wrap.clientWidth) return;
+      fitted = true;
+      ffFitAliveOut(FF_ALIVE_OUT);
+    }).observe(wrap);
+  }
+
+  // Drag to pan.
+  let dragging = null;
+  wrap.addEventListener("mousedown", (e) => {
+    dragging = { mx: e.clientX, my: e.clientY, ox: ffAliveOutView.x, oy: ffAliveOutView.y };
+    wrap.style.cursor = "grabbing";
+    e.preventDefault();
+  });
+  window.addEventListener("mousemove", (e) => {
+    if(!dragging) return;
+    ffAliveOutView.x = dragging.ox - (e.clientX - dragging.mx) / ffAliveOutView.scale;
+    ffAliveOutView.y = dragging.oy - (e.clientY - dragging.my) / ffAliveOutView.scale;
+    ffApplyAliveOutView();
+  });
+  window.addEventListener("mouseup", () => {
+    if(!dragging) return;
+    dragging = null;
+    wrap.style.cursor = "grab";
+  });
+
+  // Wheel to zoom, anchored on the cursor so the thing under it stays put.
+  wrap.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const rect = wrap.getBoundingClientRect();
+    const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    const before = ffAliveOutView.scale;
+    const after = Math.max(0.08, Math.min(3, before * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
+    ffAliveOutView.x += px / before - px / after;
+    ffAliveOutView.y += py / before - py / after;
+    ffAliveOutView.scale = after;
+    ffApplyAliveOutView();
+  }, { passive: false });
+
+  document.getElementById("ff_aliveOutFitTable")
+    .addEventListener("click", () => ffFitAliveOut(FF_ALIVE_OUT));
+  document.getElementById("ff_aliveOutFitAll")
+    .addEventListener("click", () => ffFitAliveOut({ x: 0, y: 0, w: 1920, h: 1080 }));
 }
 
 /* A blank preview should say why it's blank. It draws regardless of
