@@ -1858,10 +1858,44 @@ def assign_finish_ranks(rows):
             if name not in _finish_ranks:
                 # +1 for this squad, which is already marked out.
                 _finish_ranks[name] = len(live) + 1
+                announce_elimination(row, _finish_ranks[name])
             row["finishRank"] = _finish_ranks[name]
         else:
             _finish_ranks.pop(name, None)
     return rows
+
+
+# How long the top-centre elimination card stays on screen once it fires.
+FREEFIRE_ELIM_CARD_SECONDS = 6
+
+
+def announce_elimination(row, finish_rank):
+    """Puts the eliminated squad on the top-centre card, automatically.
+
+    Fired from the point where a squad is first given a finishing
+    position, which is downstream of gate_eliminations -- so a wipe the
+    operator has not approved yet does not fire it either. One decision
+    about whether an elimination is real, and both graphics follow it.
+
+    The card is not touched while it is already showing someone: two
+    squads can go out within a second of each other, and swapping the
+    name out from under a card mid-animation reads as a glitch rather
+    than as two eliminations. The second simply doesn't get a card.
+    """
+    te = server_state.get("teamEliminated") or {}
+    now_ms = int(time.time() * 1000)
+    if te.get("status") == "shown" and (te.get("shownUntil") or 0) > now_ms:
+        return
+    te["status"] = "shown"
+    te["shownUntil"] = now_ms + FREEFIRE_ELIM_CARD_SECONDS * 1000
+    te["teamName"] = row.get("teamName") or ""
+    te["rank"] = finish_rank
+    te["kills"] = _sheet_elim_value(row)
+    # Left as-is rather than cleared: an operator-chosen photo for this
+    # squad should still win, and the overlay falls back to the roster's
+    # own badge when there isn't one.
+    server_state["teamEliminated"] = te
+    print(f"[elimination] {te['teamName']} finished #{finish_rank} -- card fired")
 
 
 # team (normalised) -> TP as the LIVE tab last reported it.

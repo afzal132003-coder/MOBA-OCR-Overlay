@@ -32,6 +32,35 @@
      normally reaches a design tool without redistributing the file.
      Falls back to Arial if it isn't. */
 
+  /* Nippo, bundled rather than installed.
+     ---------------------------------------------------------------
+     The package ships the web fonts, so the page carries them itself
+     instead of trusting that whoever set up the browser source also
+     installed the family. A missing font is not a visible error -- it
+     falls silently back to Arial, and nobody notices until the graphic
+     is already on air looking wrong. The variable face covers every
+     weight in one file; the two static faces are a fallback for a
+     renderer that won't do variable fonts.
+
+     One family name for all three, so `font-weight` picks between them
+     the way it does for any other font. */
+  @font-face {
+    font-family: 'Nippo';
+    src: url('assets/freefire/GC/fonts/Nippo-Variable.woff2') format('woff2-variations'),
+         url('assets/freefire/GC/fonts/Nippo-Variable.woff2') format('woff2');
+    font-weight: 200 700; font-style: normal; font-display: block;
+  }
+  @font-face {
+    font-family: 'Nippo Static';
+    src: url('assets/freefire/GC/fonts/Nippo-Medium.woff2') format('woff2');
+    font-weight: 500; font-style: normal; font-display: block;
+  }
+  @font-face {
+    font-family: 'Nippo Static';
+    src: url('assets/freefire/GC/fonts/Nippo-Bold.woff2') format('woff2');
+    font-weight: 700; font-style: normal; font-display: block;
+  }
+
   html, body {
     margin: 0; padding: 0; background: transparent; overflow: hidden;
     width: 1920px; height: 1080px;
@@ -299,10 +328,13 @@
     transform: translate(-120%, -50%);
     font-style: italic; font-weight: 900; font-size: 26px;
     letter-spacing: 1px; white-space: nowrap;
-    color: #ffffff; text-shadow: 0 0 18px rgba(255, 120, 0, 0.9);
+    /* White word, glowing and trailing in the package's own accent --
+       a graphic's alert should read as part of its design rather than
+       as a colour borrowed from somewhere else. */
+    color: #ffffff; text-shadow: 0 0 18px var(--accent-glow);
   }
   .flyby .word.trail {
-    color: #ff7a00; opacity: 0.55; filter: blur(1px);
+    color: var(--accent); opacity: 0.55; filter: blur(1px);
   }
   .flyby.on .word       { animation: ff-flyby 1150ms cubic-bezier(0.16, 0.84, 0.3, 1) both; }
   .flyby.on .word.trail { animation: ff-flyby 1150ms cubic-bezier(0.16, 0.84, 0.3, 1) both;
@@ -314,12 +346,13 @@
     100% { transform: translate(150%, -50%) skewX(-12deg); opacity: 0; }
   }
 
-  /* The row itself flares red under the flyby, then settles into the
+  /* The row itself flares in the package's accent under the flyby,
+     then settles into the
      permanent dim above. */
   @keyframes ff-elim-flash {
-    0%   { box-shadow: inset 0 0 0 999px rgba(220, 4, 7, 0); }
-    20%  { box-shadow: inset 0 0 0 999px rgba(220, 4, 7, 0.5); }
-    100% { box-shadow: inset 0 0 0 999px rgba(220, 4, 7, 0); }
+    0%   { box-shadow: inset 0 0 0 999px var(--accent-flash-0); }
+    20%  { box-shadow: inset 0 0 0 999px var(--accent-flash-1); }
+    100% { box-shadow: inset 0 0 0 999px var(--accent-flash-0); }
   }
   .row.just-eliminated { animation: ff-elim-flash 1150ms ease-out; }
 </style>
@@ -376,6 +409,10 @@ const LAYOUTS = {
     row: { x: 1512, w: 408, h: 44 },
     ink: "#f2e9e6",
     face: "'Gotham'",
+    // The flare and trail under an elimination. CLT's design is red and
+    // orange, so its alert is too.
+    accent: "#ff7a00", accentGlow: "rgba(255, 120, 0, 0.9)",
+    accentFlash: ["rgba(220, 4, 7, 0)", "rgba(220, 4, 7, 0.5)"],
     rank: null,
     logo: { x: 8, w: 40, img: 34 },
     name: { x: 54, w: 150, size: 17, align: "flex-start" },
@@ -399,7 +436,15 @@ const LAYOUTS = {
     rowTops: [291, 335, 379, 423, 467, 511, 555, 599, 643, 687, 731, 775],
     row: { x: 1455, w: 465, h: 43 },
     ink: "#ffffff",
-    face: "'Nippo Variable', 'Nippo'",
+    // 'Nippo' is the bundled @font-face above, so this no longer depends
+    // on the family being installed on the machine running OBS. The
+    // installed names are kept after it as a fallback.
+    face: "'Nippo', 'Nippo Static', 'Nippo Variable'",
+    // GC's header violet, sampled from the artwork itself (85, 19, 214),
+    // so the elimination alert belongs to the same design rather than
+    // arriving in a red borrowed from another package.
+    accent: "#5513d6", accentGlow: "rgba(85, 19, 214, 0.95)",
+    accentFlash: ["rgba(85, 19, 214, 0)", "rgba(85, 19, 214, 0.55)"],
     rank: { x: 0, w: 52, size: 19 },          // digits centre on x 1481
     logo: { x: 65, w: 68, img: 36 },
     name: { x: 156, w: 112, size: 19, align: "flex-start" },
@@ -466,6 +511,10 @@ function applyLayout(L, showPoints){
   // per package: CLT's box runs y 247..905, GC's 254..818.
   r.setProperty("--panel-origin-y", L.originY + "px");
   r.setProperty("--face", L.face);
+  r.setProperty("--accent", L.accent);
+  r.setProperty("--accent-glow", L.accentGlow);
+  r.setProperty("--accent-flash-0", L.accentFlash[0]);
+  r.setProperty("--accent-flash-1", L.accentFlash[1]);
 }
 
 // Set from the active layout on every apply(). The strip each moving row

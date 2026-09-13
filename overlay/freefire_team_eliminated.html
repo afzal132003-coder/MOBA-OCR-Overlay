@@ -37,21 +37,45 @@
     font-weight: 900; font-style: normal;
   }
 
+  /* Nippo, bundled rather than installed -- see the same block in
+     freefire_alive_status.html. A missing font falls silently back to
+     Arial, which nobody notices until it is on air. */
+  @font-face {
+    font-family: 'Nippo';
+    src: url('assets/freefire/GC/fonts/Nippo-Variable.woff2') format('woff2-variations'),
+         url('assets/freefire/GC/fonts/Nippo-Variable.woff2') format('woff2');
+    font-weight: 200 700; font-style: normal; font-display: block;
+  }
+  @font-face {
+    font-family: 'Nippo Static';
+    src: url('assets/freefire/GC/fonts/Nippo-Bold.woff2') format('woff2');
+    font-weight: 700; font-style: normal; font-display: block;
+  }
+
   html, body {
     margin: 0; padding: 0; background: transparent; overflow: hidden;
     width: 1920px; height: 1080px;
-    font-family: 'TT Supermolot Neue Trial', Arial, sans-serif;
+    font-family: var(--face, 'TT Supermolot Neue Trial'), Arial, sans-serif;
   }
 
   #card { position: absolute; inset: 0; display: none; }
   #card.show { display: block; }
 
-  @keyframes flyIn  { from { opacity: 0; transform: translateY(34px); }
+  /* Enters from --travel and leaves back the same way. A package that
+     sits low in frame nudges up from below; one that hangs at the top
+     drops in from above it and lifts back off, which is why the distance
+     is a layout property and not a constant.
+
+     Different easing each way, on purpose: coming in it overshoots very
+     slightly and settles, which reads as deliberate; going out it
+     accelerates away, because a graphic being pulled should leave
+     promptly rather than drift. */
+  @keyframes flyIn  { from { opacity: 0; transform: translateY(var(--travel)); }
                       to   { opacity: 1; transform: translateY(0); } }
   @keyframes flyOut { from { opacity: 1; transform: translateY(0); }
-                      to   { opacity: 0; transform: translateY(34px); } }
-  #card.anim-enter { animation: flyIn 0.45s cubic-bezier(0.22, 1.2, 0.4, 1) both; }
-  #card.anim-exit  { animation: flyOut 0.35s cubic-bezier(0.55, 0, 0.85, 0.35) both; }
+                      to   { opacity: 0; transform: translateY(var(--travel)); } }
+  #card.anim-enter { animation: flyIn 0.62s cubic-bezier(0.18, 0.96, 0.32, 1) both; }
+  #card.anim-exit  { animation: flyOut 0.42s cubic-bezier(0.55, 0, 0.85, 0.35) both; }
 
   #art { position: absolute; inset: 0; width: 1920px; height: 1080px; }
 
@@ -60,28 +84,44 @@
      count stacked beside it. The "ELIMINATED" bar underneath is part of
      the image. */
   #logo {
-    position: absolute; left: 730px; top: 487px; width: 80px; height: 80px;
+    position: absolute;
+    left: var(--logo-x); top: var(--logo-y);
+    width: var(--logo-w); height: var(--logo-h);
     display: flex; align-items: center; justify-content: center;
   }
-  #logo img { max-width: 80px; max-height: 80px; object-fit: contain; }
+  #logo img { max-width: 100%; max-height: 100%; object-fit: contain; }
   #logo.empty { display: none; }
 
+  /* The finishing position, printed above the logo on the packages that
+     have a slot for it. */
+  #rank {
+    position: absolute; display: var(--rank-display);
+    left: var(--rank-x); top: var(--rank-y);
+    width: var(--rank-w); height: var(--rank-h);
+    align-items: center; justify-content: center;
+    color: #ffffff; font-weight: 700; font-size: var(--rank-size);
+    letter-spacing: 0.5px;
+  }
+
   #textBlock {
-    position: absolute; top: 471px; height: 112px;
-    left: 824px; width: 356px;
+    position: absolute;
+    top: var(--text-y); height: var(--text-h);
+    left: var(--text-x); width: var(--text-w);
     display: flex; flex-direction: column; justify-content: center; gap: 4px;
+    align-items: var(--text-align);
   }
   /* Without a logo the name would sit off to one side of an empty gap, so
      the text takes the whole panel instead. */
-  #textBlock.wide { left: 726px; width: 454px; }
+  #textBlock.wide { left: var(--wide-x, 726px); width: var(--wide-w, 454px); }
 
   #teamName {
-    color: #ffffff; font-weight: 900; font-size: 36px;
+    color: #ffffff; font-weight: 900; font-size: var(--name-size);
     letter-spacing: 0.5px; text-transform: uppercase; line-height: 1.05;
     text-shadow: 0 3px 14px rgba(0, 0, 0, 0.65);
     white-space: nowrap; overflow: hidden;
   }
   #kills {
+    display: var(--kills-display);
     color: #ffc400; font-weight: 800; font-size: 19px;
     letter-spacing: 1.4px; text-transform: uppercase; white-space: nowrap;
     text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
@@ -92,6 +132,7 @@
 
 <div id="card">
   <img id="art" alt="">
+  <div id="rank"></div>
   <div id="logo" class="empty"><img id="logoImg" alt=""></div>
   <div id="textBlock">
     <div id="teamName"></div>
@@ -148,24 +189,120 @@ function fitName(el){
   }
 }
 
+/* ---- Per-package layout -------------------------------------------------
+   Same idea as freefire_alive_status.html: the two packages put this card
+   in different places, at different sizes, with different fields, so the
+   numbers live here and are applied as CSS custom properties.
+
+   GC's were measured from its own artwork: the panel occupies x 631..1281,
+   y 303..481, and diffing the designer's reference render against the
+   blank leaves exactly three things to fill -- the position label at
+   677..726 / 316..333, the logo at 664..745 / 351..461, and the team name
+   at 901..1207 / 325..350. That design has no kill count, so it is not
+   shown rather than being squeezed in somewhere. */
+const LAYOUTS = {
+  CLT: {
+    art: "elims.png",
+    face: "'TT Supermolot Neue Trial'",
+    travel: "34px",                 // sits low in frame; a nudge from below
+    logo: { x: 730, y: 487, w: 80, h: 80 },
+    rank: null,
+    text: { x: 824, y: 471, w: 356, h: 112, align: "flex-start", size: 36 },
+    wideText: { x: 726, w: 454 },
+    kills: true,
+  },
+  GC: {
+    art: "Eliminated.png",
+    face: "'Nippo', 'Nippo Static'",
+    // Hangs near the top of frame, so it drops in from above it and lifts
+    // back off. Far enough to clear the panel's own bottom edge (481).
+    travel: "-520px",
+    logo: { x: 664, y: 351, w: 82, h: 111 },
+    rank: { x: 664, y: 316, w: 82, h: 18, size: 15 },
+    text: { x: 901, y: 325, w: 307, h: 26, align: "center", size: 24 },
+    // Without a logo the name would sit beside an empty tile; this design
+    // keeps its own banner either way, so the box does not move.
+    wideText: null,
+    kills: false,
+  },
+};
+
+function layoutFor(state){
+  const folder = (state && state.event && state.event.assetFolder) || "CLT";
+  return LAYOUTS[folder] || LAYOUTS.CLT;
+}
+
+let appliedLayout = null;
+
+function applyLayout(L){
+  const sig = L.art;
+  if(appliedLayout === sig) return;
+  appliedLayout = sig;
+  const r = document.documentElement.style;
+  r.setProperty("--face", L.face);
+  r.setProperty("--travel", L.travel);
+  r.setProperty("--logo-x", L.logo.x + "px");
+  r.setProperty("--logo-y", L.logo.y + "px");
+  r.setProperty("--logo-w", L.logo.w + "px");
+  r.setProperty("--logo-h", L.logo.h + "px");
+  r.setProperty("--rank-display", L.rank ? "flex" : "none");
+  r.setProperty("--rank-x", ((L.rank && L.rank.x) || 0) + "px");
+  r.setProperty("--rank-y", ((L.rank && L.rank.y) || 0) + "px");
+  r.setProperty("--rank-w", ((L.rank && L.rank.w) || 0) + "px");
+  r.setProperty("--rank-h", ((L.rank && L.rank.h) || 0) + "px");
+  r.setProperty("--rank-size", ((L.rank && L.rank.size) || 15) + "px");
+  r.setProperty("--text-x", L.text.x + "px");
+  r.setProperty("--text-y", L.text.y + "px");
+  r.setProperty("--text-w", L.text.w + "px");
+  r.setProperty("--text-h", L.text.h + "px");
+  r.setProperty("--text-align", L.text.align);
+  r.setProperty("--name-size", L.text.size + "px");
+  r.setProperty("--kills-display", L.kills ? "block" : "none");
+  if(L.wideText){
+    r.setProperty("--wide-x", L.wideText.x + "px");
+    r.setProperty("--wide-w", L.wideText.w + "px");
+  }
+}
+
+/* The squad's logo, taken from the roster the same way the alive table
+   takes it -- so the popup and the row it fires alongside always show the
+   same badge, and the engine never has to ship an image with the event. */
+function logoFor(teamName, roster){
+  const want = (teamName || "").trim().toUpperCase();
+  const teams = (roster && roster.teams) || [];
+  return teams.find(t => (t.name || "").trim().toUpperCase() === want
+                      || (t.shortName || "").trim().toUpperCase() === want) || null;
+}
+
 let lastStatus = "idle";
 let hideTimer = null;
 
 function apply(state){
   const te = state.teamEliminated;
   const folder = (state.event && state.event.assetFolder) || "CLT";
+  const L = layoutFor(state);
+  applyLayout(L);
   const el = document.getElementById("card");
 
-  document.getElementById("art").src = "assets/freefire/" + folder + "/elims.png";
+  const artSrc = "assets/freefire/" + folder + "/" + L.art;
+  const artEl = document.getElementById("art");
+  if(artEl.getAttribute("src") !== artSrc) artEl.src = artSrc;
 
+  // A photo shipped with the event wins, since somebody chose it; failing
+  // that, the roster's own badge for that squad.
+  const rosterTeam = logoFor(te.teamName, state.roster);
+  const badge = te.photo || (rosterTeam && rosterTeam.logo) || "";
   const logoBox = document.getElementById("logo");
-  if(te.photo){
-    document.getElementById("logoImg").src = te.photo;
+  if(badge){
+    document.getElementById("logoImg").src = badge;
     logoBox.classList.remove("empty");
   } else {
     logoBox.classList.add("empty");
   }
-  document.getElementById("textBlock").classList.toggle("wide", !te.photo);
+  document.getElementById("textBlock").classList.toggle("wide", !badge && !!L.wideText);
+
+  const rankEl = document.getElementById("rank");
+  rankEl.textContent = te.rank == null ? "" : "#" + String(te.rank).padStart(2, "0");
 
   const nameEl = document.getElementById("teamName");
   nameEl.textContent = te.teamName || "";
