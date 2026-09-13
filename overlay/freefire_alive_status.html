@@ -43,7 +43,18 @@
 
   #backdrop { position: absolute; inset: 0; width: 1920px; height: 1080px; }
 
-  .row { position: absolute; height: 44px; left: 1512px; width: 408px; }
+  /* Each row carries its OWN copy of the box, cropped live out of the
+     backdrop artwork (see ROW_STRIP in the script). The boxes are drawn
+     into ALIVE STATUS.png, so without this only the text and icons slid
+     while the boxes stayed put -- the contents appeared to crawl
+     between stationary frames. Painting an identical strip onto the
+     moving row covers the static one beneath it exactly, so the whole
+     box travels. Needs no new artwork: every row in that PNG is the
+     same, so one strip serves all twelve. */
+  .row {
+    position: absolute; height: 44px; left: 1512px; width: 408px;
+    background-repeat: no-repeat;
+  }
 
   /* No rank element: 01..12 are already printed in the artwork, so a
      row is ranked by which slot it occupies, not by anything drawn
@@ -171,6 +182,9 @@ const PREVIEW_MODE = _params.get("preview") === "1";
 
 // Measured from ALIVE STATUS.png -- see the note at the top.
 const ROW_TOPS = [286, 335, 384, 434, 483, 532, 582, 631, 680, 730, 779, 828];
+// Where row 1's box sits in that artwork, i.e. the strip each moving row
+// wears so the box travels with its contents. x matches .row's own left.
+const ROW_BLOCK = { x: 1512, y: ROW_TOPS[0] };
 
 let ws;
 function connect(){
@@ -271,6 +285,9 @@ const rowEls = new Map();        // team key -> row element
 let displayOrder = [];           // team keys, in the order currently on screen
 let holdOrderUntil = 0;          // while in the future, don't re-sort
 let previouslyEliminated = new Set();
+// Teams this page has rendered at least once. A squad has to have been
+// SEEN before its death counts as something that just happened.
+let ffSeenTeams = new Set();
 let lastState = null;
 
 function rowKeyOf(row){ return (row.teamName || "").trim().toUpperCase(); }
@@ -316,6 +333,11 @@ function apply(state){
   const backdrop = document.getElementById("backdrop");
   const bgSrc = base + "ALIVE STATUS.png";
   if(backdrop.getAttribute("src") !== bgSrc) backdrop.src = bgSrc;
+  // The strip every row wears as its own box -- row 1's, since they're
+  // all identical in the artwork. Offset by the row block's own origin
+  // so the crop lands on the box and nothing either side of it.
+  const rowStrip = `url('${bgSrc}')`;
+  const rowStripPos = `-${ROW_BLOCK.x}px -${ROW_BLOCK.y}px`;
 
   const container = document.getElementById("rows");
   const byKey = new Map(source.map(r => [rowKeyOf(r), r]));
@@ -331,6 +353,11 @@ function apply(state){
       el = makeRowEl();
       rowEls.set(key, el);
       container.appendChild(el);
+    }
+    // Set once per row, and again only if the graphics package changes.
+    if(el.style.backgroundImage !== rowStrip){
+      el.style.backgroundImage = rowStrip;
+      el.style.backgroundPosition = rowStripPos;
     }
     const team = logoFor(row.teamName, state.roster);
     const label = (team && team.shortName) || row.teamName || "";
@@ -366,8 +393,15 @@ function apply(state){
     if(row.eliminated){
       nowEliminated.add(key);
       noteElimination(key, row);
-      if(!previouslyEliminated.has(key)) newlyOut.push(el);
+      // Only a team we have actually WATCHED go down gets the animation.
+      // Without the seenTeams check, any team appearing for the first
+      // time while already eliminated counted as a fresh kill -- so
+      // reassigning a row in the dashboard introduced "new" names and
+      // fired the flyby for several already-dead squads at once, which
+      // is exactly the random multi-fire that was reported.
+      if(ffSeenTeams.has(key) && !previouslyEliminated.has(key)) newlyOut.push(el);
     }
+    ffSeenTeams.add(key);
   });
 
   // A fresh match: everyone is back up, so last game's elimination

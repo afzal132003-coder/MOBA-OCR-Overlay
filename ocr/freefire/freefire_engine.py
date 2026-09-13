@@ -1849,7 +1849,14 @@ def hold_last_good_elims(grid_rows, remember=True):
         previous_bars = _alive_grid_last_bars.get(i)
         settling = _alive_grid_settle.get(i, 0)
         bars_changed = previous_bars is not None and bars != previous_bars
-        if bars_changed:
+        # Armed only when NOT already settling. Re-arming on every change
+        # made the freeze open-ended: in a fight the bars move every
+        # poll or two, each one restarting the timer, so that row's count
+        # could sit frozen for as long as the fight lasted -- which is
+        # the "ON AIR updates late" being seen. Bounded at
+        # FREEFIRE_ELIM_SETTLE_FRAMES from the FIRST change instead, so
+        # the worst case is a fixed second, not the length of the fight.
+        if bars_changed and settling == 0:
             settling = FREEFIRE_ELIM_SETTLE_FRAMES
         elif settling > 0:
             settling -= 1
