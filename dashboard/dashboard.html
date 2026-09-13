@@ -5224,8 +5224,14 @@ function ffConnect(){
     } else if(msg.type === "freefire_lobby_capture"){
       ffHandleLobbyCapture(msg);
     } else if(msg.type === "freefire_sheet_push_test_result"){
+      // Says what the SCRIPT reported, not merely that the URL answered.
+      // "0 of 1 matched" is the right answer here: the test sends a
+      // deliberately fake team name, so proving the pipe works never
+      // depends on a real team being in the sheet.
       document.getElementById("ff_sheetWebhookStatus").textContent = msg.ok
-        ? "✓ Test row sent — check your sheet's debug cell (see the .gs script) for the timestamp."
+        ? "✓ The script ran and answered: " + msg.matched + " of " + msg.total +
+          " rows matched (0 is correct — the test team is fake). Its debug cell now has a fresh timestamp." +
+          (msg.scriptError ? " It also reported: " + msg.scriptError : "")
         : "⚠ Failed: " + (msg.error || "unknown error");
     } else if(msg.type === "freefire_results_push_result"){
       ffShowResultsPushResult(msg);

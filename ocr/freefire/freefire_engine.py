@@ -3468,11 +3468,33 @@ async def handle_client(websocket, path=None):
                     ]}
                     try:
                         loop = asyncio.get_running_loop()
-                        await loop.run_in_executor(
+                        raw = await loop.run_in_executor(
                             ocr_executor, _post_sheet_payload, url, test_payload)
-                        await websocket.send(json.dumps({
-                            "type": "freefire_sheet_push_test_result", "ok": True,
-                        }))
+                        # Reaching the URL is not the same as the script
+                        # running. A deployment set to "Anyone with a Google
+                        # account", or one that needs re-authorising, answers
+                        # HTTP 200 with a sign-in PAGE -- so simply not
+                        # raising used to be reported as success while
+                        # nothing whatsoever had been written to the sheet.
+                        # The only proof is the script's own JSON reply.
+                        try:
+                            answer = json.loads(raw)
+                        except Exception:
+                            answer = None
+                        if not isinstance(answer, dict) or "matched" not in answer:
+                            await websocket.send(json.dumps({
+                                "type": "freefire_sheet_push_test_result", "ok": False,
+                                "error": "The URL answered, but with a page rather than the "
+                                         "script's reply -- nothing was written. Re-deploy the "
+                                         "web app with Who has access set to \"Anyone\".",
+                            }))
+                        else:
+                            await websocket.send(json.dumps({
+                                "type": "freefire_sheet_push_test_result", "ok": True,
+                                "matched": answer.get("matched"),
+                                "total": answer.get("total"),
+                                "scriptError": answer.get("error"),
+                            }))
                     except Exception as e:
                         await websocket.send(json.dumps({
                             "type": "freefire_sheet_push_test_result",
