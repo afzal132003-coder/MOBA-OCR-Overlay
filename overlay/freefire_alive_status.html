@@ -166,6 +166,9 @@ const WS_URL = _relay
   ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_alive_status"
   : "ws://localhost:8765?page=freefire_alive_status";
 
+// Set only by the dashboard's own preview frames -- see apply().
+const PREVIEW_MODE = _params.get("preview") === "1";
+
 // Measured from ALIVE STATUS.png -- see the note at the top.
 const ROW_TOPS = [286, 335, 384, 434, 483, 532, 582, 631, 680, 730, 779, 828];
 
@@ -300,7 +303,12 @@ function apply(state){
   const live = state.liveOps || {};
   const source = (live.sidetableRows || []).slice(0, 12);
   const base = assetBase(state);
-  const visible = state.display && state.display.aliveStatusVisible;
+  // ?preview=1 draws regardless of whether the graphic is on air. A
+  // preview that only works once something is already live isn't a
+  // preview -- it can't be used to check a graphic BEFORE showing it,
+  // which is the entire reason to have one. OBS sources never pass it,
+  // so nothing reaches air from this.
+  const visible = PREVIEW_MODE || (state.display && state.display.aliveStatusVisible);
 
   document.getElementById("stage").classList.toggle("show", !!visible && source.length > 0);
   if(!visible || !source.length) return;

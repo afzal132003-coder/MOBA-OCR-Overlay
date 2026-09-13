@@ -1875,7 +1875,7 @@ Team Charlie
               style="position:absolute;width:1920px;height:1080px;border:0;transform-origin:top left;
                      pointer-events:none;"></iframe>
           </div>
-          <div class="hint" style="margin-top:3px;font-size:10px;">Only draws while Alive Status is pushed up.</div>
+          <div class="hint" id="ff_aliveOutWhy" style="margin-top:3px;font-size:10px;"></div>
         </div>
       </div>
       <div id="ff_aliveGridRows" style="overflow-x:auto;margin-top:10px;"></div>
@@ -5078,6 +5078,7 @@ function ffConnect(){
       ffRenderAliveGridRows(ffState);
       ffUpdateAliveGridLive(ffState);
       ffMountAliveOutput();
+      ffExplainAliveOutput(ffState);
       ffRenderEvent(ffState);
       ffQmeSeedFromRoster(ffState);
       ffQmeUpdateExport();
@@ -5833,11 +5834,32 @@ function ffMountAliveOutput(){
   // mount happens to run after the script finishes. Not worth depending
   // on for one filename.
   ffAliveOutLoaded = true;
-  frame.src = ffPreviewUrl({ file: "freefire_alive_status.html" });
+  // preview=1: draw even when the graphic isn't pushed up, so this can
+  // be used to check it BEFORE putting it on air.
+  const url = ffPreviewUrl({ file: "freefire_alive_status.html" });
+  frame.src = url + (url.includes("?") ? "&" : "?") + "preview=1";
   const scale = wrap.clientWidth / FF_ALIVE_OUT.w;
   frame.style.transform = `scale(${scale})`;
   frame.style.left = `${-FF_ALIVE_OUT.x * scale}px`;
   frame.style.top = `${-FF_ALIVE_OUT.y * scale}px`;
+}
+
+/* A blank preview should say why it's blank. It draws regardless of
+   whether the graphic is on air (preview=1), so the only remaining
+   reason for an empty frame is that there are no rows to draw yet --
+   which is a real thing to know, not a mystery to stare at. */
+function ffExplainAliveOutput(ff){
+  const el = document.getElementById("ff_aliveOutWhy");
+  if(!el) return;
+  const rows = ((ff.liveOps && ff.liveOps.sidetableRows) || []).length;
+  const onAir = !!(ff.display && ff.display.aliveStatusVisible);
+  if(!rows){
+    el.textContent = "Nothing to draw yet — no live table rows (needs a match running).";
+    el.style.color = "#fbbf24";
+  } else {
+    el.textContent = onAir ? `On air · ${rows} rows.` : `Preview only, not pushed up · ${rows} rows.`;
+    el.style.color = "";
+  }
 }
 
 function ffShowAliveGameFrame(dataUrl){
