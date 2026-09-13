@@ -2823,6 +2823,37 @@ def _post_sheet_payload(url, payload):
         return resp.read().decode("utf-8", "replace")
 
 
+def _sheet_elim_value(row):
+    """What the sheet should show as this row's kill count.
+
+    elims is withheld once a match ends (see link_live_teams), while
+    score holds the same number and stays put after the whistle -- so
+    falling back to score is what stops the sheet blanking the instant a
+    match is over. That part is deliberate and still happens.
+
+    What it must NOT do is resurrect a number the publish guard just
+    rejected. sanitise_published_elims blanks an impossible count and
+    flags the row, but score still holds that very number, so the
+    fallback handed it straight to the sheet: 43, 77 and 75 appeared
+    against squads the graphic was correctly showing on 0 and 2. The
+    overlay and the sheet disagreed because only one of them was reading
+    the guarded value.
+
+    Withheld means withheld -- and score is checked against the same cap
+    on its own account, since a row can carry an impossible score without
+    ever having been through the flagging path.
+    """
+    value = row.get("elims")
+    if value is not None:
+        return value
+    if row.get("elimsImplausible"):
+        return None
+    score = row.get("score")
+    if score is not None and score > FREEFIRE_MAX_TEAM_ELIMS:
+        return None
+    return score
+
+
 async def push_sidetable_to_sheet(rows):
     global _last_sheet_push_error_at
     url = (server_state.get("settings", {}).get("sheetWebhookUrl") or "").strip()
@@ -2833,11 +2864,7 @@ async def push_sidetable_to_sheet(rows):
             {
                 "team": r.get("teamName") or r.get("rawText") or "",
                 "aliveCount": r.get("aliveCount"),
-                # elims is withheld once a match ends (see link_live_teams);
-                # score holds the same number and stays put after the
-                # whistle, so the sheet's count doesn't blank out the
-                # instant the match is over.
-                "elims": r.get("elims") if r.get("elims") is not None else r.get("score"),
+                "elims": _sheet_elim_value(r),
             }
             for r in rows
         ],
@@ -4220,10 +4247,21 @@ async def ocr_loop():
                     if linked["rows"]:
                         log_sidetable_rows = linked["rows"]
                         if linked["rows"] != server_state["liveOps"].get("sidetableRows"):
-                            server_state["liveOps"]["sidetableRows"] = apply_team_marks(gate_eliminations(sanitise_published_elims(linked["rows"])))
+                            published = apply_team_marks(gate_eliminations(sanitise_published_elims(linked["rows"])))
+                            server_state["liveOps"]["sidetableRows"] = published
                             server_state["liveOps"]["sidetableSource"] = "log"
                             changed = True
-                            asyncio.create_task(push_sidetable_to_sheet(linked["rows"]))
+                            # The sheet gets the SAME rows that go on air, not
+                            # the raw read. Pushing the raw rows put numbers in
+                            # the sheet that the overlay had already rejected --
+                            # 43, 77, 75 elims against squads the graphic was
+                            # correctly showing on 0 and 2, because
+                            # sanitise_published_elims caps a team at
+                            # FREEFIRE_MAX_TEAM_ELIMS and gate_eliminations
+                            # holds a wipe until it is approved. Anything worth
+                            # withholding from air is worth withholding from the
+                            # sheet the broadcast reads off.
+                            asyncio.create_task(push_sidetable_to_sheet(published))
 
                     squads = linked.get("unresolved", [])
                     if squads != server_state["pending"].get("squads"):
@@ -4294,10 +4332,12 @@ async def ocr_loop():
                 )
                 ff_live = server_state["liveOps"]
                 if parsed["rows"] != ff_live.get("sidetableRows"):
-                    ff_live["sidetableRows"] = apply_team_marks(gate_eliminations(sanitise_published_elims(parsed["rows"])))
+                    published = apply_team_marks(gate_eliminations(sanitise_published_elims(parsed["rows"])))
+                    ff_live["sidetableRows"] = published
                     ff_live["sidetableUsedPalette"] = parsed["usedPalette"]
                     ff_live["sidetableSource"] = "ocr"
-                    asyncio.create_task(push_sidetable_to_sheet(parsed["rows"]))
+                    # Same rows as the graphic -- see the note on the log path.
+                    asyncio.create_task(push_sidetable_to_sheet(published))
                     changed = True
 
             # The alive grid, once calibrated -- see the block comment
@@ -4378,10 +4418,12 @@ async def ocr_loop():
                         if key not in seen:
                             merged.append(r)
                     if merged != server_state["liveOps"].get("sidetableRows"):
-                        server_state["liveOps"]["sidetableRows"] = apply_team_marks(gate_eliminations(sanitise_published_elims(merged)))
+                        published = apply_team_marks(gate_eliminations(sanitise_published_elims(merged)))
+                        server_state["liveOps"]["sidetableRows"] = published
                         server_state["liveOps"]["sidetableSource"] = "grid"
                         changed = True
-                        asyncio.create_task(push_sidetable_to_sheet(merged))
+                        # Same rows as the graphic -- see the note on the log path.
+                        asyncio.create_task(push_sidetable_to_sheet(published))
 
             # Previews go to the dashboard only, and only when the crop
             # actually changed since the last one sent. Both guards are
