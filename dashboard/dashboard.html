@@ -1635,6 +1635,9 @@
         — same drag mechanic as the other games' Graphic tabs. The 5-row stat/photo groups (drag any one of them)
         move all 5 rows of that team together, since the grid repeats identically per row. Click a box, then use
         Scale below to resize just that one.</p>
+      <p class="hint">Red guide lines appear while you drag whenever the box's centre lines up with another
+        box's — most usefully its mirror on the opposite side — and it snaps onto that line. Arrow keys nudge
+        the selected box 1px at a time (hold Shift for 10px), and the line lights up the moment it is level.</p>
       <div class="team-form" style="max-width:280px;margin-bottom:10px;">
         <label>Show only</label>
         <select id="dota2gfx_filter"></select>
@@ -1644,8 +1647,8 @@
         <img id="dota2gfx_bg" src="../overlay/assets/dota2_postmatch_blank.png"
              style="position:absolute;top:0;left:0;width:960px;height:540px;object-fit:fill;" alt="">
         <div id="dota2gfx_stage" style="position:absolute;inset:0;"></div>
-        <div id="dota2gfx_guide_v" style="position:absolute;top:0;bottom:0;width:0;border-left:1px dashed #3ddc6a;display:none;pointer-events:none;z-index:5;"></div>
-        <div id="dota2gfx_guide_h" style="position:absolute;left:0;right:0;height:0;border-top:1px dashed #3ddc6a;display:none;pointer-events:none;z-index:5;"></div>
+        <div id="dota2gfx_guide_v" style="position:absolute;top:0;bottom:0;width:0;border-left:1px solid #ff3b3b;display:none;pointer-events:none;z-index:5;"></div>
+        <div id="dota2gfx_guide_h" style="position:absolute;left:0;right:0;height:0;border-top:1px solid #ff3b3b;display:none;pointer-events:none;z-index:5;"></div>
       </div>
       <div class="row" style="gap:16px;align-items:flex-end;margin-top:10px;">
         <span id="dota2gfx_selected" class="hint" style="margin:0;min-width:220px;">Click a box to select it.</span>
@@ -2252,6 +2255,10 @@ Team Charlie
       <p class="hint">Same idea as Graphic Fixing on the MOBA/Valorant side — drag the box to where the team logo
         should sit, adjust its size, then save. Applies to every row on the graphic at once (all twelve use the
         same offset), so one drag fixes the whole column instead of nudging each row individually.</p>
+      <p class="hint">Red guide lines appear while you drag whenever the box lines up with a row's own anchor
+        point or the canvas centre — drag onto one to snap to it. Arrow keys nudge 1px at a time (hold Shift
+        for 10px) for the last bit of precision a mouse can't manage, and the line lights up the moment you
+        land true.</p>
       <div class="row" style="gap:8px;margin-bottom:10px;">
         <button class="secondary" id="ffgfx_page_pointsTableLogo">Overall Points Table</button>
         <button class="secondary" id="ffgfx_page_scoreboardLogo">Match Scoreboard</button>
@@ -2264,6 +2271,7 @@ Team Charlie
            background:#000;border:1px solid #2b3348;border-radius:8px;overflow:hidden;">
         <img id="ffgfx_bg" style="position:absolute;top:0;left:0;width:960px;height:540px;object-fit:fill;" alt="">
         <div id="ffgfx_stage" style="position:absolute;inset:0;"></div>
+        <div id="ffgfx_guides" style="position:absolute;inset:0;pointer-events:none;z-index:50;"></div>
       </div>
       <div class="row" style="gap:16px;align-items:flex-end;margin-top:10px;">
         <div class="team-form" style="max-width:120px;">
@@ -4653,7 +4661,13 @@ function gfxBoxRect(id){
 // the nearest matching edge/center among every other box on this page plus
 // the canvas's own edges/center, snaps to it if within threshold, and
 // returns which reference lines are actually active (to draw as guides).
-function gfxSnap(movingId, proposedLeft, proposedTop){
+// pull:false asks only "what is this box level with, right now?" -- it
+// reports the guide lines without moving anything. That is what arrow-key
+// nudging needs: a keypress has to be worth exactly the pixel it promises,
+// so it can never be dragged back onto a line, but it should still light
+// one up the moment it lands true.
+function gfxSnap(movingId, proposedLeft, proposedTop, opts){
+  const pull = !opts || opts.pull !== false;
   const geo = GRAPHIC_PAGES[gfxCurrentPage].elements[movingId];
   const o = gfxPending[movingId];
   const width = geo.width * o.scale * GFX_SCALE;
@@ -4679,8 +4693,8 @@ function gfxSnap(movingId, proposedLeft, proposedTop){
     return best;
   };
 
-  const deltaX = findBestDelta([proposedLeft, proposedLeft + width / 2, proposedLeft + width], refX);
-  const deltaY = findBestDelta([proposedTop, proposedTop + height / 2, proposedTop + height], refY);
+  const deltaX = pull ? findBestDelta([proposedLeft, proposedLeft + width / 2, proposedLeft + width], refX) : null;
+  const deltaY = pull ? findBestDelta([proposedTop, proposedTop + height / 2, proposedTop + height], refY) : null;
   const snappedLeft = deltaX === null ? proposedLeft : proposedLeft + deltaX;
   const snappedTop = deltaY === null ? proposedTop : proposedTop + deltaY;
 
@@ -4831,7 +4845,23 @@ document.addEventListener("keydown", (e) => {
     const geo = GRAPHIC_PAGES[gfxCurrentPage].elements[sid];
     if(box) gfxPositionBox(box, geo);
   });
+
+  // The same red lines a drag draws, so nudging by eye doesn't mean losing
+  // the alignment readout. A drag clears its guides on mouseup; a keypress
+  // has no "up", so it clears itself shortly after.
+  const vAll = new Set(), hAll = new Set();
+  gfxSelectedIds.forEach(sid => {
+    const geo = GRAPHIC_PAGES[gfxCurrentPage].elements[sid];
+    const o = gfxPending[sid];
+    const res = gfxSnap(sid, (geo.left + o.dx) * GFX_SCALE, (geo.top + o.dy) * GFX_SCALE, {pull:false});
+    res.vGuides.forEach(v => vAll.add(v));
+    res.hGuides.forEach(h => hAll.add(h));
+  });
+  gfxShowGuides([...vAll], [...hAll]);
+  clearTimeout(gfxGuideTimer);
+  gfxGuideTimer = setTimeout(gfxClearGuides, 700);
 });
+let gfxGuideTimer = null;
 
 // Click on empty stage background (not a box) deselects — unless
 // Ctrl/Cmd is held, so an accidental miss-click doesn't wipe out a
@@ -7769,10 +7799,79 @@ function ffgfxPositionBox(){
   });
 }
 
+/* Alignment guides, matching the MOBA and Valorant stages: red lines
+   appear when the dragged box lines up with something, so "is this
+   straight?" is answered while dragging rather than after saving and
+   looking at the output.
+
+   What it aligns TO is what actually matters on this graphic. The logo
+   column shares one offset across every row, so aligning against the
+   other rows is meaningless -- they all move together. The useful
+   references are the artwork's own anchor points: each row's original
+   left edge and centre line, plus the stage's centre. Snapping the
+   column back onto the position it was designed at is precisely the
+   "did I nudge this off true?" question being asked. */
+const FFGFX_SNAP_PX = 6;          // in 1920-space, same as the other stages
+
+function ffgfxShowGuides(vs, hs){
+  const c = document.getElementById("ffgfx_guides");
+  if(!c) return;
+  c.innerHTML =
+    vs.map(x => `<div style="position:absolute;left:${x * FFGFX_SCALE}px;top:0;width:1px;height:100%;background:#ff3b3b;"></div>`).join("") +
+    hs.map(y => `<div style="position:absolute;top:${y * FFGFX_SCALE}px;left:0;height:1px;width:100%;background:#ff3b3b;"></div>`).join("");
+}
+function ffgfxClearGuides(){
+  const c = document.getElementById("ffgfx_guides");
+  if(c) c.innerHTML = "";
+}
+
+/* Returns the nudge, plus the guide lines to draw for whatever it lines
+   up with.
+
+   pull:true (dragging) also PULLS the box onto an anchor within
+   FFGFX_SNAP_PX. pull:false (arrow keys) never moves it -- a keypress
+   has to be worth exactly the pixel it says, or single-pixel nudging is
+   impossible: sitting on an anchor, every 1px press would be dragged
+   straight back onto it and the box would look frozen. With no pull the
+   tolerance also has to shrink to a hair, otherwise a line would be drawn
+   through a box that is still standing next to it rather than on it. */
+function ffgfxSnap(dx, dy, opts){
+  const pull = !opts || opts.pull !== false;
+  const tol = pull ? FFGFX_SNAP_PX : 0.6;
+  const page = FFGFX_PAGES[ffgfxCurrentPage];
+  const first = page.positions[0];
+  const centreX = first.left + page.size / 2 + dx;
+  const centreY = first.top + dy;
+
+  const anchorsX = [first.left + page.size / 2, 1920 / 2];
+  const anchorsY = page.positions.map(p => p.top).concat([1080 / 2]);
+
+  const vs = [], hs = [];
+  let outX = dx, outY = dy;
+  for(const ax of anchorsX){
+    if(Math.abs(ax - centreX) <= tol){
+      if(pull) outX = Math.round(dx + (ax - centreX));
+      vs.push(ax);
+      break;
+    }
+  }
+  for(const ay of anchorsY){
+    if(Math.abs(ay - centreY) <= tol){
+      if(pull) outY = Math.round(dy + (ay - centreY));
+      hs.push(ay);
+      break;
+    }
+  }
+  return { dx: outX, dy: outY, vs, hs };
+}
+
+let ffgfxKeyArmed = false;
+
 function ffgfxWireDrag(){
   const box = document.getElementById("ffgfx_box");
   box.addEventListener("pointerdown", (e) => {
     e.preventDefault();
+    ffgfxKeyArmed = true;
     box.setPointerCapture(e.pointerId);
     const startX = e.clientX, startY = e.clientY;
     const startDx = ffgfxPending.dx, startDy = ffgfxPending.dy;
@@ -7783,11 +7882,16 @@ function ffgfxWireDrag(){
     // real amount of 1920-space it actually represents on THIS screen.
     const liveScale = document.getElementById("ffgfx_stage_wrap").getBoundingClientRect().width / 1920;
     const onMove = (ev) => {
-      ffgfxPending.dx = Math.round(startDx + (ev.clientX - startX) / liveScale);
-      ffgfxPending.dy = Math.round(startDy + (ev.clientY - startY) / liveScale);
+      const rawDx = Math.round(startDx + (ev.clientX - startX) / liveScale);
+      const rawDy = Math.round(startDy + (ev.clientY - startY) / liveScale);
+      const snapped = ffgfxSnap(rawDx, rawDy);
+      ffgfxPending.dx = snapped.dx;
+      ffgfxPending.dy = snapped.dy;
+      ffgfxShowGuides(snapped.vs, snapped.hs);
       ffgfxPositionBox();
     };
     const onUp = () => {
+      ffgfxClearGuides();
       box.removeEventListener("pointermove", onMove);
       box.removeEventListener("pointerup", onUp);
     };
@@ -7795,6 +7899,47 @@ function ffgfxWireDrag(){
     box.addEventListener("pointerup", onUp);
   });
 }
+
+/* Arrow-key nudging, same as the MOBA and Valorant stages: dragging
+   gets you close, single pixels get you right, and a mouse can't
+   reliably do the last one. Shift moves 10 at a time.
+   The offsetParent check is how the other stages avoid one keypress
+   moving another game's element at the same time -- the handler is on
+   document, so without it every stage would answer at once. */
+document.addEventListener("mousedown", (e) => {
+  const wrap = document.getElementById("ffgfx_stage_wrap");
+  if(wrap && !wrap.contains(e.target)) ffgfxKeyArmed = false;
+});
+
+document.addEventListener("keydown", (e) => {
+  const panel = document.getElementById("fftab-graphic");
+  if(!panel || panel.offsetParent === null) return;
+  if(!ffgfxKeyArmed) return;
+  const tag = document.activeElement && document.activeElement.tagName;
+  if(tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+  const step = e.shiftKey ? 10 : 1;
+  let dx = 0, dy = 0;
+  if(e.key === "ArrowLeft") dx = -step;
+  else if(e.key === "ArrowRight") dx = step;
+  else if(e.key === "ArrowUp") dy = -step;
+  else if(e.key === "ArrowDown") dy = step;
+  else return;
+
+  e.preventDefault();
+  // pull:false -- the key moves it by exactly the step asked for, and the
+  // guide only appears once it actually lands on an anchor. That way the
+  // arrow keys stay usable for the fine work a mouse can't do, and a red
+  // line still tells you the moment you're true.
+  const snapped = ffgfxSnap(ffgfxPending.dx + dx, ffgfxPending.dy + dy, {pull:false});
+  ffgfxPending.dx = snapped.dx;
+  ffgfxPending.dy = snapped.dy;
+  ffgfxShowGuides(snapped.vs, snapped.hs);
+  clearTimeout(ffgfxGuideTimer);
+  ffgfxGuideTimer = setTimeout(ffgfxClearGuides, 700);
+  ffgfxPositionBox();
+});
+let ffgfxGuideTimer = null;
 
 document.getElementById("ffgfx_scale").addEventListener("input", (e) => {
   ffgfxPending.scale = Number(e.target.value) || 1;
@@ -9449,7 +9594,10 @@ function valgfxBoxRect(id){
   return { left, right: left + width, top, bottom: top + height, centerX: left + width / 2, centerY: top + height / 2 };
 }
 
-function valgfxSnap(movingId, proposedLeft, proposedTop){
+// pull:false reports the guide lines without moving the box -- see the
+// note on gfxSnap; arrow-key nudging uses it.
+function valgfxSnap(movingId, proposedLeft, proposedTop, opts){
+  const pull = !opts || opts.pull !== false;
   const geo = VAL_GRAPHIC_PAGES[valgfxCurrentPage].elements[movingId];
   const o = valgfxPending[movingId];
   const width = geo.width * o.scale * VALGFX_SCALE;
@@ -9475,8 +9623,8 @@ function valgfxSnap(movingId, proposedLeft, proposedTop){
     return best;
   };
 
-  const deltaX = findBestDelta([proposedLeft, proposedLeft + width / 2, proposedLeft + width], refX);
-  const deltaY = findBestDelta([proposedTop, proposedTop + height / 2, proposedTop + height], refY);
+  const deltaX = pull ? findBestDelta([proposedLeft, proposedLeft + width / 2, proposedLeft + width], refX) : null;
+  const deltaY = pull ? findBestDelta([proposedTop, proposedTop + height / 2, proposedTop + height], refY) : null;
   const snappedLeft = deltaX === null ? proposedLeft : proposedLeft + deltaX;
   const snappedTop = deltaY === null ? proposedTop : proposedTop + deltaY;
 
@@ -9606,7 +9754,21 @@ document.addEventListener("keydown", (e) => {
     const geo = VAL_GRAPHIC_PAGES[valgfxCurrentPage].elements[sid];
     if(box) valgfxPositionBox(box, geo);
   });
+
+  // Guides while nudging -- see the matching block in the MOBA handler.
+  const vAll = new Set(), hAll = new Set();
+  valgfxSelectedIds.forEach(sid => {
+    const geo = VAL_GRAPHIC_PAGES[valgfxCurrentPage].elements[sid];
+    const o = valgfxPending[sid];
+    const res = valgfxSnap(sid, (geo.left + o.dx) * VALGFX_SCALE, (geo.top + o.dy) * VALGFX_SCALE, {pull:false});
+    res.vGuides.forEach(v => vAll.add(v));
+    res.hGuides.forEach(h => hAll.add(h));
+  });
+  valgfxShowGuides([...vAll], [...hAll]);
+  clearTimeout(valgfxGuideTimer);
+  valgfxGuideTimer = setTimeout(valgfxClearGuides, 700);
 });
+let valgfxGuideTimer = null;
 
 document.getElementById("valgfx_stage_wrap").addEventListener("mousedown", (e) => {
   if(e.ctrlKey || e.metaKey) return;
@@ -10476,7 +10638,12 @@ function dota2gfxBoxCenter(key){
 
 const DOTA2_GFX_SNAP_PX = 6; // 1920-space pixels -- how close counts as "aligned"
 
-function dota2gfxUpdateGuides(draggedKey){
+// tol defaults to the drag tolerance. Arrow-key nudging passes a tight
+// one and ignores the returned values: a keypress must move the box by
+// exactly the step it promises, so it never pulls -- but a line still
+// lights up the moment the box genuinely lands level with another.
+function dota2gfxUpdateGuides(draggedKey, tol){
+  if(tol === undefined) tol = DOTA2_GFX_SNAP_PX;
   const center = dota2gfxBoxCenter(draggedKey);
   const guideV = document.getElementById("dota2gfx_guide_v");
   const guideH = document.getElementById("dota2gfx_guide_h");
@@ -10485,8 +10652,8 @@ function dota2gfxUpdateGuides(draggedKey){
   Object.keys(DOTA2_GFX_GEOM).forEach(otherKey => {
     if(otherKey === draggedKey) return;
     const oc = dota2gfxBoxCenter(otherKey);
-    if(snappedX === null && Math.abs(oc.x - center.x) <= DOTA2_GFX_SNAP_PX) snappedX = oc.x;
-    if(snappedY === null && Math.abs(oc.y - center.y) <= DOTA2_GFX_SNAP_PX) snappedY = oc.y;
+    if(snappedX === null && Math.abs(oc.x - center.x) <= tol) snappedX = oc.x;
+    if(snappedY === null && Math.abs(oc.y - center.y) <= tol) snappedY = oc.y;
   });
 
   if(snappedX !== null){
@@ -10560,6 +10727,46 @@ function dota2gfxWireDrag(){
     });
   });
 }
+
+/* Arrow-key nudging, same as the MOBA, Valorant and Free Fire stages:
+   dragging gets a box close, single pixels get it right, and a mouse
+   can't reliably do the second one. Shift moves 10 at a time.
+
+   The offsetParent check is how the other stages keep one keypress from
+   moving another game's element at the same time -- every handler is on
+   document, so without it all four would answer at once. */
+let dota2gfxGuideTimer = null;
+
+document.addEventListener("keydown", (e) => {
+  const panel = document.getElementById("d2tab-graphic");
+  if(!panel || panel.offsetParent === null) return;
+  const tag = document.activeElement && document.activeElement.tagName;
+  if(tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if(!dota2gfxSelected) return;
+
+  const step = e.shiftKey ? 10 : 1;
+  let dx = 0, dy = 0;
+  if(e.key === "ArrowLeft") dx = -step;
+  else if(e.key === "ArrowRight") dx = step;
+  else if(e.key === "ArrowUp") dy = -step;
+  else if(e.key === "ArrowDown") dy = step;
+  else return;
+
+  e.preventDefault();
+  const key = dota2gfxSelected;
+  dota2gfxPending[key] = dota2gfxPending[key] || {dx:0, dy:0, scale:1};
+  dota2gfxPending[key].dx = (dota2gfxPending[key].dx || 0) + dx;
+  dota2gfxPending[key].dy = (dota2gfxPending[key].dy || 0) + dy;
+  dota2gfxPositionBox(key);
+  dota2gfxUpdateGuides(key, 0.6);
+  // A drag clears its guides on pointerup; a keypress has no "up", so the
+  // line would otherwise hang around long after the box moved off it.
+  clearTimeout(dota2gfxGuideTimer);
+  dota2gfxGuideTimer = setTimeout(() => {
+    document.getElementById("dota2gfx_guide_v").style.display = "none";
+    document.getElementById("dota2gfx_guide_h").style.display = "none";
+  }, 700);
+});
 
 document.getElementById("dota2gfx_scale").addEventListener("input", (e) => {
   if(!dota2gfxSelected) return;
