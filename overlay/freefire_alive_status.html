@@ -130,6 +130,64 @@
 
   #backdrop { position: absolute; inset: 0; width: 1920px; height: 1080px; }
 
+  /* The elimination card, in THIS page rather than a source of its own.
+     ---------------------------------------------------------------
+     It belongs here because it fires off the same event as the row
+     animation: one squad going out. Two browser sources meant two things
+     that could disagree, and one of them could be missing from the scene
+     without anything saying so. Here they cannot come apart -- the card
+     and the flyby are triggered by the same line of code.
+
+     Outside #stage on purpose: the table flies in and out on its own
+     schedule and the card must not travel with it. */
+  #elimCard {
+    position: absolute; inset: 0; display: none; z-index: 3;
+    pointer-events: none;
+  }
+  #elimCard.show { display: block; }
+
+  /* Its own layer for placement, because #elimInner's transform is
+     spoken for by the fly-in and an element only gets one. */
+  #elimPlace {
+    position: absolute; inset: 0;
+    transform-origin: var(--elim-cx, 960px) var(--elim-cy, 540px);
+  }
+  #elimInner { position: absolute; inset: 0; }
+
+  @keyframes ff-elim-in  { from { opacity: 0; transform: translateY(var(--elim-travel, -520px)); }
+                           to   { opacity: 1; transform: translateY(0); } }
+  @keyframes ff-elim-out { from { opacity: 1; transform: translateY(0); }
+                           to   { opacity: 0; transform: translateY(var(--elim-travel, -520px)); } }
+  /* In it overshoots very slightly and settles; out it accelerates away,
+     because a graphic being pulled should leave rather than drift. */
+  #elimCard.in  #elimInner { animation: ff-elim-in  620ms cubic-bezier(0.18, 0.96, 0.32, 1) both; }
+  #elimCard.out #elimInner { animation: ff-elim-out 420ms cubic-bezier(0.55, 0, 0.85, 0.35) both; }
+
+  #elimArt { position: absolute; inset: 0; width: 1920px; height: 1080px; }
+  #elimLogo {
+    position: absolute;
+    left: var(--elim-logo-x); top: var(--elim-logo-y);
+    width: var(--elim-logo-w); height: var(--elim-logo-h);
+    display: flex; align-items: center; justify-content: center;
+  }
+  #elimLogo img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  #elimName {
+    position: absolute;
+    left: var(--elim-name-x); top: var(--elim-name-y);
+    width: var(--elim-name-w); height: var(--elim-name-h);
+    display: flex; align-items: center; justify-content: center;
+    color: #ffffff; font-weight: 700; font-size: var(--elim-name-size);
+    letter-spacing: 0.5px; text-transform: uppercase;
+    white-space: nowrap; overflow: hidden;
+  }
+  #elimRank {
+    position: absolute;
+    left: var(--elim-rank-x); top: var(--elim-rank-y);
+    width: var(--elim-rank-w); height: var(--elim-rank-h);
+    display: flex; align-items: center; justify-content: center;
+    color: #ffffff; font-weight: 700; font-size: var(--elim-rank-size);
+  }
+
   /* Rows sit above the backdrop image in their own layer. */
   #rows { position: absolute; inset: 0; z-index: 1; }
 
@@ -366,6 +424,17 @@
   </div>
 </div>
 
+<div id="elimCard">
+  <div id="elimPlace">
+    <div id="elimInner">
+      <img id="elimArt" alt="">
+      <div id="elimRank"></div>
+      <div id="elimLogo"><img id="elimLogoImg" alt=""></div>
+      <div id="elimName"></div>
+    </div>
+  </div>
+</div>
+
 <script>
 const _params = new URLSearchParams(location.search);
 if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
@@ -475,6 +544,21 @@ const LAYOUTS = {
       "4_alive.png": { size: 65.56, px: -3.28, py: -24.08 },
     },
     originY: 536,          // centre of y 254..818
+
+    /* The elimination card that fires alongside a row going out.
+       Measured from Eliminated.png: panel x 631..1281, y 303..481; the
+       logo at 664..745 / 351..461; the name banner at 901..1207 /
+       325..350; the #00 at 677..726 / 316..333. Travel clears the
+       panel's own bottom edge so nothing of it stays in shot. */
+    elimCard: {
+      art: "Eliminated.png",
+      panel: { x: 631, y: 303, w: 651, h: 179 },
+      travel: -520,
+      logo: { x: 664, y: 351, w: 82, h: 111 },
+      name: { x: 901, y: 325, w: 307, h: 26, size: 24 },
+      rank: { x: 664, y: 316, w: 82, h: 18, size: 15 },
+      seconds: 3,
+    },
   },
 };
 
@@ -695,6 +779,91 @@ function makeRowEl(){
   return el;
 }
 
+/* ---- the elimination card ------------------------------------------- */
+let elimCardTimer = null;
+let elimCardOutTimer = null;
+
+function applyElimCardLayout(C, state){
+  const r = document.documentElement.style;
+  r.setProperty("--elim-cx", (C.panel.x + C.panel.w / 2) + "px");
+  r.setProperty("--elim-cy", (C.panel.y + C.panel.h / 2) + "px");
+  r.setProperty("--elim-travel", C.travel + "px");
+  r.setProperty("--elim-logo-x", C.logo.x + "px");
+  r.setProperty("--elim-logo-y", C.logo.y + "px");
+  r.setProperty("--elim-logo-w", C.logo.w + "px");
+  r.setProperty("--elim-logo-h", C.logo.h + "px");
+  r.setProperty("--elim-name-x", C.name.x + "px");
+  r.setProperty("--elim-name-y", C.name.y + "px");
+  r.setProperty("--elim-name-w", C.name.w + "px");
+  r.setProperty("--elim-name-h", C.name.h + "px");
+  r.setProperty("--elim-name-size", C.name.size + "px");
+  r.setProperty("--elim-rank-x", C.rank.x + "px");
+  r.setProperty("--elim-rank-y", C.rank.y + "px");
+  r.setProperty("--elim-rank-w", C.rank.w + "px");
+  r.setProperty("--elim-rank-h", C.rank.h + "px");
+  r.setProperty("--elim-rank-size", C.rank.size + "px");
+
+  // The same placement keys the dashboard's Graphic Fixing pages save,
+  // so dragging the card there moves it here.
+  const all = (state && state.graphicOverrides) || {};
+  const nudge = (sel, key) => {
+    const el = document.querySelector(sel);
+    if(!el) return;
+    const o = all[key] || {};
+    const dx = o.dx || 0, dy = o.dy || 0, sc = o.scale || 1;
+    const t = (dx || dy || sc !== 1) ? `translate(${dx}px, ${dy}px) scale(${sc})` : "";
+    if(el.style.transform !== t){ el.style.transform = t; el.style.transformOrigin = "center center"; }
+  };
+  nudge("#elimPlace", "elimCard");
+  nudge("#elimLogo", "elimLogo");
+  nudge("#elimName", "elimName");
+  nudge("#elimRank", "elimRank");
+}
+
+function showElimCard(state, rowEl, L){
+  const C = L.elimCard;
+  if(!C) return;                       // this package has no such card
+  const card = document.getElementById("elimCard");
+  // Never interrupt one already running: a name swapping out from under
+  // a card mid-animation reads as a fault, not as a second elimination.
+  if(card.classList.contains("show")) return;
+
+  const key = rowEl.dataset.teamKey || "";
+  const row = (((state.liveOps || {}).sidetableRows) || [])
+    .find(r => rowKeyOf(r) === key);
+  if(!row) return;
+
+  applyElimCardLayout(C, state);
+
+  const base = assetBase(state);
+  const art = base + C.art;
+  const artEl = document.getElementById("elimArt");
+  if(artEl.getAttribute("src") !== art) artEl.src = art;
+
+  const team = logoFor(row.teamName, state.roster);
+  document.getElementById("elimName").textContent =
+    (team && team.shortName) || row.teamName || "";
+  document.getElementById("elimRank").textContent =
+    row.finishRank == null ? "" : "#" + String(row.finishRank).padStart(2, "0");
+
+  const img = document.getElementById("elimLogoImg");
+  const logo = (team && team.logo) || "";
+  if(logo){ img.src = logo; img.style.display = ""; }
+  else { img.removeAttribute("src"); img.style.display = "none"; }
+
+  clearTimeout(elimCardTimer);
+  clearTimeout(elimCardOutTimer);
+  card.classList.remove("out");
+  card.classList.add("show", "in");
+  elimCardTimer = setTimeout(() => {
+    card.classList.remove("in");
+    card.classList.add("out");
+    // Left showing until the exit animation has actually run, or it would
+    // vanish instead of leaving.
+    elimCardOutTimer = setTimeout(() => card.classList.remove("show", "out"), 420);
+  }, C.seconds * 1000);
+}
+
 function playFlyby(el){
   const fly = el.querySelector(".flyby");
   fly.classList.remove("on");
@@ -750,6 +919,7 @@ function apply(state){
     let el = rowEls.get(key);
     if(!el){
       el = makeRowEl();
+      el.dataset.teamKey = key;
       rowEls.set(key, el);
       container.appendChild(el);
     }
@@ -850,6 +1020,12 @@ function apply(state){
   // because the next state_sync may not land on its own in time.
   if(newlyOut.length){
     newlyOut.forEach(playFlyby);
+    // The card rides the same event as the row animation, so the two can
+    // never disagree about who went out. Only the first of a batch gets
+    // one: a card per squad back to back would be unreadable, and with
+    // the approval gate holding every wipe until it is ticked, a batch
+    // means the table catching up rather than four squads dying at once.
+    showElimCard(state, newlyOut[0], L);
     holdOrderUntil = Date.now() + FLYBY_MS;
     setTimeout(() => { if(lastState) apply(lastState); }, FLYBY_MS + 40);
   }

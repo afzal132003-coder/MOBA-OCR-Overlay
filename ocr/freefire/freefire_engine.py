@@ -1809,11 +1809,23 @@ def gate_eliminations(rows):
             continue
         if key in approved:
             continue
-        remembered = _last_alive_by_team.get(key)
-        if not remembered:
-            continue          # nothing credible to show instead
+        # Held whether or not we have a remembered alive state. This used
+        # to skip a squad nobody had watched go down, sending it straight
+        # to air unticked -- which happens on every restart into a running
+        # match, and to any row newly pointed at a squad that was already
+        # out. Several went through at once, so the table fired several
+        # eliminations the operator never approved, and the card was
+        # suppressed as a resync. One cause, both symptoms.
+        #
+        # Where there IS a remembered reading it is restored, so the row
+        # keeps showing what it last really was. Where there isn't, the
+        # row keeps the bars it actually read -- nothing is invented -- it
+        # simply is not called eliminated until someone says so. Either
+        # way the tick is the single moment the elimination happens.
         pending.append({"teamName": team, "elims": row.get("elims")})
-        row["bars"], row["aliveCount"] = list(remembered[0]), remembered[1]
+        remembered = _last_alive_by_team.get(key)
+        if remembered:
+            row["bars"], row["aliveCount"] = list(remembered[0]), remembered[1]
         row["eliminated"] = False
         row["awaitingApproval"] = True
 
@@ -1847,7 +1859,21 @@ def assign_finish_ranks(rows):
     global _finish_ranks
     live = [r for r in rows if not r.get("eliminated")]
     if len(live) == len(rows):
-        _finish_ranks = {}            # fresh lobby, nobody out yet
+        # A fresh lobby. Everything that belongs to the LAST match goes
+        # with it -- positions, and the approvals that released each of
+        # those wipes.
+        #
+        # The approvals especially: that list was never cleared, so a
+        # squad ticked in game 1 stayed ticked for the rest of the event
+        # and its wipe in every later game went to air with nobody
+        # approving it. The gate quietly stopped working for exactly the
+        # teams that had used it most.
+        _finish_ranks = {}
+        ops = server_state.get("liveOps") or {}
+        if ops.get("approvedEliminations"):
+            ops["approvedEliminations"] = []
+        if ops.get("pendingEliminations"):
+            ops["pendingEliminations"] = []
         return rows
 
     named = [(r, (r.get("teamName") or "").strip().upper()) for r in rows]
