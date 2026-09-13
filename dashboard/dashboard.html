@@ -1846,6 +1846,10 @@ Team Charlie
         <button id="ff_aliveHereShow">Push Alive Status Up</button>
         <button class="secondary" id="ff_aliveHereHide">Pull Down</button>
         <span class="hint" id="ff_aliveHereState" style="align-self:center;"></span>
+        <label class="hint" id="ff_alivePointsWrap" style="align-self:center;margin-left:8px;display:none;">
+          <input type="checkbox" id="ff_alivePoints"> Show the PTS. column
+        </label>
+        <span class="hint" id="ff_alivePointsNote" style="align-self:center;"></span>
       </div>
       <button class="secondary" id="ff_aliveGridPreviewBtn">Capture Preview</button>
         <div class="team-form" style="max-width:300px;margin:0;">
@@ -6128,7 +6132,42 @@ function ffRenderAliveHereState(ff){
   const up = !!(ff.display && ff.display.aliveStatusVisible);
   el.textContent = up ? "● ON AIR" : "○ not on air";
   el.style.color = up ? "#4ade80" : "#6b7590";
+
+  /* The PTS. tickbox only appears for a package that HAS a second
+     version of the graphic with that column -- offering it where the
+     artwork has no such column would be a switch that does nothing.
+     GC ships both; CLT ships one. */
+  const pkg = (ff.event && ff.event.assetFolder) || "CLT";
+  const wrap = document.getElementById("ff_alivePointsWrap");
+  const box = document.getElementById("ff_alivePoints");
+  const note = document.getElementById("ff_alivePointsNote");
+  const hasPoints = FF_PACKAGES_WITH_POINTS.includes(pkg.toUpperCase());
+  if(wrap) wrap.style.display = hasPoints ? "" : "none";
+  // Skipped while the operator has it focused, same reason the team
+  // dropdowns are: a sync landing mid-click loses the click.
+  if(box && box !== document.activeElement){
+    const on = !!(ff.display && ff.display.aliveStatusPoints);
+    if(box.checked !== on) box.checked = on;
+  }
+  if(note){
+    note.textContent = hasPoints
+      ? (ff.display && ff.display.aliveStatusPoints
+          ? "showing each team's running total"
+          : "")
+      : "";
+  }
 }
+
+/* Packages whose artwork comes in both a with-points and a without-points
+   version. Mirrors bgPoints in freefire_alive_status.html's LAYOUTS --
+   that file decides what airs, this only decides whether to offer the
+   choice. */
+const FF_PACKAGES_WITH_POINTS = ["GC"];
+
+document.getElementById("ff_alivePoints").addEventListener("change", (e) => {
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffWs.send(JSON.stringify({ type: "alive_status_points", on: e.target.checked }));
+});
 
 document.getElementById("ff_elimApproval").addEventListener("change", (e) => {
   if(!ffState) return;

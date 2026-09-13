@@ -391,6 +391,11 @@ def default_state():
                     # The live 12-team side table overlay. Off by default:
                     # it belongs on air during a match, not between them.
                     "aliveStatusVisible": False,
+                    # Some graphics packages ship the alive table twice:
+                    # once with a running-points column and once without.
+                    # This picks which of the two airs. Packages with only
+                    # one version ignore it entirely.
+                    "aliveStatusPoints": False,
                     # The Booyah team stats card. Its own source, so it does
                     # not contend with the scoreboard/points table pair.
                     "booyahStatsVisible": False,
@@ -4071,6 +4076,10 @@ async def handle_client(websocket, path=None):
             elif payload.get("type") in ("damage_report_show", "damage_report_hide"):
                 server_state["display"]["damageReportVisible"] = (
                     payload["type"] == "damage_report_show")
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "alive_status_points":
+                server_state["display"]["aliveStatusPoints"] = bool(payload.get("on"))
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") in ("alive_status_show", "alive_status_hide"):
