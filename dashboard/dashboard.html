@@ -5782,6 +5782,41 @@ const FF_ALIVE_BAR_COLOR = { alive: "#4ade80", eliminated: "#f87171", unknown: "
 // whatever preview is showing (see ffApplyAliveGridPreview below, which
 // fills the SAME cells back in without touching the selects), so this
 // only rebuilds when the roster or the assignments actually change.
+/* A pick the operator has made that the engine hasn't echoed back yet:
+   row -> {value, at}. Without this, an unrelated state_sync -- and
+   during a match there's one on every kill -- lands between the click
+   and the engine's update still carrying the OLD assignment, and gets
+   applied straight over the new pick. That is the whole of "it isn't
+   getting saved": the engine had saved it correctly every time, the
+   dashboard just kept painting the previous value back on top. */
+const ffAlivePendingPick = new Map();
+const FF_PICK_CONFIRM_MS = 4000;
+
+/* Applies the saved assignments to the existing selects without
+   touching the DOM around them. Skips whichever one has focus (the
+   list may be open mid-choice), and skips a row whose pick is still
+   awaiting confirmation -- unless the engine has had long enough to
+   answer, in which case the server genuinely disagrees and wins. */
+function ffSyncAliveRowSelects(rowTeams){
+  const now = Date.now();
+  document.querySelectorAll(".ff-alive-grid-row").forEach(sel => {
+    if(sel === document.activeElement) return;
+    const row = Number(sel.dataset.row);
+    const want = rowTeams[row] || "";
+    const pending = ffAlivePendingPick.get(row);
+    if(pending){
+      if(want === pending.value){
+        ffAlivePendingPick.delete(row);      // confirmed by the engine
+      } else if(now - pending.at < FF_PICK_CONFIRM_MS){
+        return;                              // still in flight -- hold the pick
+      } else {
+        ffAlivePendingPick.delete(row);      // gave up; take the server's word
+      }
+    }
+    if(sel.value !== want) sel.value = want;
+  });
+}
+
 function ffRenderAliveGridRows(ff){
   const container = document.getElementById("ff_aliveGridRows");
   if(!container) return;
@@ -5794,9 +5829,21 @@ function ffRenderAliveGridRows(ff){
   // handlers below) without needing a round trip through state_sync --
   // rebuilding on every override change would wipe whatever preview is
   // showing in every OTHER row's auto-read cells for no reason.
-  const key = JSON.stringify([roster.map(t => t.name), rowTeams]);
-  if(key === ffLastAliveGridKey) return;
+  // Keyed on the ROSTER only -- the option list -- not on the current
+  // assignments. Assignments used to be in here too, which meant every
+  // pick destroyed and rebuilt all twelve selects. During a match the
+  // engine broadcasts on every kill, so a sync still carrying the OLD
+  // assignment routinely landed between the click and the engine's
+  // update, rebuilt the table from it, and snapped the selection back
+  // -- indistinguishable from "it didn't save", even though the engine
+  // had saved it correctly. Values are applied in place below instead.
+  const key = JSON.stringify(roster.map(t => t.name));
+  const rebuild = key !== ffLastAliveGridKey;
   ffLastAliveGridKey = key;
+  if(!rebuild){
+    ffSyncAliveRowSelects(rowTeams);
+    return;
+  }
 
   // Each bar cell holds two independent things: the auto-read
   // crop/status (ff-alive-bar-auto, filled in place by
@@ -5864,6 +5911,10 @@ function ffRenderAliveGridRows(ff){
   container.querySelectorAll(".ff-alive-grid-row").forEach(el => {
     el.addEventListener("change", () => {
       if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+      // Remember the pick until the engine echoes it, so a state_sync
+      // still carrying the old value can't paint over it -- see
+      // ffSyncAliveRowSelects.
+      ffAlivePendingPick.set(Number(el.dataset.row), { value: el.value, at: Date.now() });
       ffWs.send(JSON.stringify({
         type: "freefire_set_alive_row_team",
         row: Number(el.dataset.row), team: el.value,
