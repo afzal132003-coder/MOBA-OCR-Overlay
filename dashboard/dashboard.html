@@ -1859,6 +1859,25 @@ Team Charlie
         you put it instead of being calculated.</p>
       <div class="hint" id="ff_aliveCalibCmd" style="margin-top:4px;background:#0a0d18;border:1px solid #2b3348;
            border-radius:6px;padding:8px 10px;font-family:monospace;font-size:11px;word-break:break-all;"></div>
+      <div class="row" style="gap:14px;margin-top:14px;align-items:flex-start;">
+        <div>
+          <div class="hint" style="margin-bottom:4px;"><strong>The game, live</strong> — what the OCR is reading</div>
+          <img id="ff_aliveGameLive" alt=""
+            style="display:block;width:236px;border-radius:6px;border:1px solid #2b3348;background:#0a0d18;min-height:130px;">
+          <div class="hint" id="ff_aliveGameLiveAge" style="margin-top:3px;font-size:10px;">waiting for the engine…</div>
+        </div>
+        <div>
+          <div class="hint" style="margin-bottom:4px;"><strong>The overlay, live</strong> — what's going to air</div>
+          <div id="ff_aliveOutWrap" style="position:relative;width:236px;height:380px;overflow:hidden;
+               border-radius:6px;border:1px solid #2b3348;
+               background:#0a0d18 repeating-conic-gradient(#12172a 0% 25%, #0a0d18 0% 50%) 0 0/16px 16px;">
+            <iframe id="ff_aliveOutFrame" title="Alive status output"
+              style="position:absolute;width:1920px;height:1080px;border:0;transform-origin:top left;
+                     pointer-events:none;"></iframe>
+          </div>
+          <div class="hint" style="margin-top:3px;font-size:10px;">Only draws while Alive Status is pushed up.</div>
+        </div>
+      </div>
       <div id="ff_aliveGridRows" style="overflow-x:auto;margin-top:10px;"></div>
       <div class="hint" id="ff_aliveGridStatus" style="margin-top:8px;"></div>
     </div>
@@ -5058,6 +5077,7 @@ function ffConnect(){
       ffRenderLoadoutCapture(ffState);
       ffRenderAliveGridRows(ffState);
       ffUpdateAliveGridLive(ffState);
+      ffMountAliveOutput();
       ffRenderEvent(ffState);
       ffQmeSeedFromRoster(ffState);
       ffQmeUpdateExport();
@@ -5074,6 +5094,9 @@ function ffConnect(){
       if(img) img.src = msg.image;
       if(msg.region === "freefire_killfeed"){
         document.getElementById("ff_killfeedLastText").textContent = (msg.text && msg.text.trim()) ? msg.text : "(nothing read this frame)";
+      } else if(msg.region === "freefire_sidetable"){
+        // Already on the wire every second poll -- see ffShowAliveGameFrame.
+        ffShowAliveGameFrame(msg.image);
       }
     } else if(msg.type === "freefire_match_result"){
       if(ffRosterFromResultPending){
@@ -5782,6 +5805,60 @@ const FF_ALIVE_BAR_COLOR = { alive: "#4ade80", eliminated: "#f87171", unknown: "
 // whatever preview is showing (see ffApplyAliveGridPreview below, which
 // fills the SAME cells back in without touching the selects), so this
 // only rebuilds when the roster or the assignments actually change.
+/* Side-by-side live views in the assignment card: the game on the left,
+   the overlay on the right, so a wrong reading and its cause are
+   visible together without leaving the tab -- or looking at the game.
+
+   The game view costs NOTHING extra. The engine already crops the
+   calibrated side-table region and broadcasts it as a JPEG every
+   second poll, only to the dashboard, and only when it changed (see
+   the preview block in freefire_engine.py). That was still being sent
+   after the old raw-OCR-text panel was removed -- transmitted and
+   thrown away. This just shows it again.
+
+   The overlay view is the real overlay page in an iframe, on the same
+   relay, scaled and offset so the 1920x1080 canvas shows only the
+   table itself (x 1512..1920, y 247..905) -- a full-canvas thumbnail at
+   this width would be unreadable. */
+const FF_ALIVE_OUT = { x: 1512, y: 240, w: 408, h: 672 };
+let ffAliveOutLoaded = false;
+let ffAliveGameLiveAt = 0;
+
+function ffMountAliveOutput(){
+  const frame = document.getElementById("ff_aliveOutFrame");
+  const wrap = document.getElementById("ff_aliveOutWrap");
+  if(!frame || !wrap || ffAliveOutLoaded) return;
+  // Named directly rather than looked up in FF_PREVIEWS: that's a const
+  // declared further down the file, so this would only work because the
+  // mount happens to run after the script finishes. Not worth depending
+  // on for one filename.
+  ffAliveOutLoaded = true;
+  frame.src = ffPreviewUrl({ file: "freefire_alive_status.html" });
+  const scale = wrap.clientWidth / FF_ALIVE_OUT.w;
+  frame.style.transform = `scale(${scale})`;
+  frame.style.left = `${-FF_ALIVE_OUT.x * scale}px`;
+  frame.style.top = `${-FF_ALIVE_OUT.y * scale}px`;
+}
+
+function ffShowAliveGameFrame(dataUrl){
+  const img = document.getElementById("ff_aliveGameLive");
+  if(!img) return;
+  img.src = dataUrl;
+  ffAliveGameLiveAt = Date.now();
+}
+
+// "live" is worth stating plainly -- a frozen picture that LOOKS live is
+// worse than one that admits it's stale, especially when it's being used
+// to judge whether a reading is right.
+setInterval(() => {
+  const el = document.getElementById("ff_aliveGameLiveAge");
+  if(!el) return;
+  if(!ffAliveGameLiveAt){ el.textContent = "waiting for the engine…"; return; }
+  const age = Math.round((Date.now() - ffAliveGameLiveAt) / 1000);
+  el.textContent = age <= 2 ? "live" : `last frame ${age}s ago`;
+  el.style.color = age <= 3 ? "" : "#fbbf24";
+}, 1000);
+
 /* A pick the operator has made that the engine hasn't echoed back yet:
    row -> {value, at}. Without this, an unrelated state_sync -- and
    during a match there's one on every kill -- lands between the click
