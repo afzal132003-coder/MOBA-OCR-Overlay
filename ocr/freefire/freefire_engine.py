@@ -3848,19 +3848,35 @@ async def ocr_loop():
                     # collapses them onto one canonical key.
                     roster_teams = (server_state.get("roster") or {}).get("teams", []) or []
 
-                    def _join_key(name):
+                    def _resolved_key(name):
+                        """Canonical roster key, or None if this name
+                        can't be tied to a roster team at all."""
                         resolved = match_roster_team(name, roster_teams)
-                        return _ign_key((resolved or {}).get("name") or name or "")
+                        canonical = (resolved or {}).get("name")
+                        return _ign_key(canonical) if canonical else None
 
-                    by_key = {_join_key(r["teamName"]): r for r in grid_named_rows}
+                    by_key = {}
+                    for r in grid_named_rows:
+                        k = _resolved_key(r["teamName"]) or _ign_key(r["teamName"])
+                        by_key[k] = r
+
                     base = server_state["liveOps"].get("sidetableRows") or []
                     merged, seen = [], set()
                     for r in base:
-                        key = _join_key(r.get("teamName"))
+                        key = _resolved_key(r.get("teamName"))
+                        if key is None:
+                            # This log row can't be tied to any roster
+                            # team. Previously it was kept under its raw
+                            # name, which is how the same squad ended up
+                            # on air TWICE: once as the grid's row with
+                            # the real count, and once as this one
+                            # carrying the client's cumulative score
+                            # (32, 28, 17...). With the grid supplying
+                            # named rows there is nothing this can add --
+                            # it can't be matched, and its number isn't
+                            # this match's kills -- so it goes.
+                            continue
                         if key in by_key:
-                            # Grid wins, and only the first base row that
-                            # resolves to it survives -- a second one is
-                            # the duplicate this is here to remove.
                             if key not in seen:
                                 merged.append(by_key[key])
                                 seen.add(key)
