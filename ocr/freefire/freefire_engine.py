@@ -2981,6 +2981,37 @@ def compute_champion_rush(matches, threshold=110):
     }
 
 
+def _standings_identity(team, roster_teams):
+    """(key, display name, short name) for one result-file team row.
+
+    One function so the aggregation and the last-game lookup can never
+    disagree about which standings row a team belongs to."""
+    name = (team.get("teamName") or "").strip()
+    if not name:
+        return None, "", ""
+    short = team.get("shortName", "")
+    roster_team = match_roster_team(name, roster_teams) if roster_teams else None
+    if roster_team:
+        name = (roster_team.get("name") or name).strip()
+        short = roster_team.get("shortName") or short
+    # Normalised key even after resolving, so two spellings that both fail
+    # to resolve ("TSG ARMY" and "TSG  Army") still land in one row.
+    return (normalize_for_match(name) or name), name, short
+
+
+def _last_match_of_series(matches):
+    """The final game, for the rulebook's last tiebreaker.
+
+    By timestamp when every match carries one, otherwise the order they
+    were committed in -- sorting a mixed set by a missing timestamp would
+    quietly promote the ones without to the front of the series."""
+    if not matches:
+        return None
+    if all(m.get("timestamp") for m in matches):
+        return sorted(matches, key=lambda m: m["timestamp"])[-1]
+    return matches[-1]
+
+
 def compute_freefire_standings(matches, roster_teams=None):
     """Totals every committed match into one table, aggregating on the
     ROSTER's identity rather than on whatever string each match happened
@@ -3003,21 +3034,14 @@ def compute_freefire_standings(matches, roster_teams=None):
     agg = {}
     for match in matches:
         for team in match.get("teams", []):
-            name = (team.get("teamName") or "").strip()
-            if not name:
+            key, name, short = _standings_identity(team, roster_teams)
+            if not key:
                 continue
-            short = team.get("shortName", "")
-            roster_team = match_roster_team(name, roster_teams) if roster_teams else None
-            if roster_team:
-                name = (roster_team.get("name") or name).strip()
-                short = roster_team.get("shortName") or short
-            # Normalised key even after resolving, so two spellings that
-            # both fail to resolve ("TSG ARMY" and "TSG  Army") still land
-            # in one row rather than two.
-            row = agg.setdefault(normalize_for_match(name) or name, {
+            row = agg.setdefault(key, {
                 "teamName": name, "shortName": short,
                 "matches": 0, "totalKills": 0, "placementPoints": 0,
                 "totalPoints": 0, "bestRank": None, "booyahs": 0,
+                "lastGameRank": None,
             })
             row["matches"] += 1
             row["totalKills"] += team.get("killScore", 0)
@@ -3037,24 +3061,52 @@ def compute_freefire_standings(matches, roster_teams=None):
             # best result and so can't distinguish one win from five.
             if rank == 1:
                 row["booyahs"] += 1
+
+    # Where each team finished in the LAST game of the series -- the
+    # rulebook's final tiebreaker. Read after the loop rather than tracked
+    # inside it, because "last" is a property of the series, not of the
+    # order matches happen to be iterated in.
+    last_match = _last_match_of_series(matches)
+    if last_match:
+        for team in last_match.get("teams", []):
+            key, _, _ = _standings_identity(team, roster_teams)
+            if key in agg:
+                agg[key]["lastGameRank"] = team.get("rank")
+
+    # Every registered team appears, whether or not they have played yet:
+    # a squad that missed a game is still in the event, and a standings
+    # graphic with a hole in it reads as a bug rather than as a result.
+    # setdefault, so a team that HAS played keeps its real numbers.
+    for team in roster_teams:
+        name = (team.get("name") or "").strip()
+        if not name:
+            continue
+        agg.setdefault(normalize_for_match(name) or name, {
+            "teamName": name, "shortName": team.get("shortName", ""),
+            "matches": 0, "totalKills": 0, "placementPoints": 0,
+            "totalPoints": 0, "bestRank": None, "booyahs": 0,
+            "lastGameRank": None,
+        })
+
     standings = list(agg.values())
-    # Points, then kills -- as before -- and then a tail that makes the
-    # rest deterministic instead of leaving it to the order teams happened
-    # to appear in the result file. Measured before this: two teams level
-    # on points and kills were ordered by file position, so reversing the
+    # The event's own tiebreakers, in the rulebook's order:
+    #   total points, then Booyahs, then total eliminations across the
+    #   series, then placement in the LAST game of the series.
+    # Team name is appended as a backstop so a set of teams still level
+    # after all four never falls back to the order they happened to appear
+    # in the result file -- which is what decided it before: reversing the
     # file reversed the standings.
     #
-    # Placement points are deliberately NOT in the chain: totalScore is
-    # rankScore + killScore in every row the client writes (checked
-    # against the real file), so once points and kills are both level,
-    # placement points are level too and the criterion can never decide
-    # anything. Booyahs and best finish can, and team name is the final
-    # backstop so the answer never depends on input order.
+    # Placement points are deliberately absent. totalScore is
+    # rankScore + killScore in every row the client writes (checked against
+    # the real file), so by the time points and eliminations are both
+    # level, placement points are level too and could never decide
+    # anything.
     standings.sort(key=lambda r: (
         -r["totalPoints"],
-        -r["totalKills"],
         -r["booyahs"],
-        r["bestRank"] if r["bestRank"] is not None else 999,
+        -r["totalKills"],
+        r["lastGameRank"] if r["lastGameRank"] is not None else 999,
         r["teamName"].upper(),
     ))
     return standings
