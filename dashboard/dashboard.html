@@ -2320,6 +2320,10 @@ Team Charlie
         <button class="secondary" id="ffgfx_page_aliveStatusName">Alive: Name</button>
         <button class="secondary" id="ffgfx_page_aliveStatusKills">Alive: Kills</button>
         <button class="secondary" id="ffgfx_page_aliveStatusPip">Alive: Status</button>
+        <button class="secondary" id="ffgfx_page_elimCard">Elim Card: Whole</button>
+        <button class="secondary" id="ffgfx_page_elimLogo">Elim Card: Logo</button>
+        <button class="secondary" id="ffgfx_page_elimName">Elim Card: Name</button>
+        <button class="secondary" id="ffgfx_page_elimRank">Elim Card: #</button>
       </div>
       <div id="ffgfx_stage_wrap" style="position:relative;width:960px;height:540px;
            background:#000;border:1px solid #2b3348;border-radius:8px;overflow:hidden;">
@@ -8148,6 +8152,35 @@ const FFGFX_PAGES = {
     positions: ffgfxSbPositions(),
   },
 };
+
+/* The elimination card. Four things can be placed: the card itself, and
+   the logo, name and position label inside it. Measured from GC's
+   Eliminated.png -- panel x 631..1281, y 303..481; logo 664..745 /
+   351..461; name banner 901..1207 / 325..350; the #00 label 677..726 /
+   316..333. */
+const FFGFX_ELIM_BOXES = {
+  elimCard: { label: "Elimination Card — whole card",
+              rect: { left: 631, top: 303, width: 651, height: 179 } },
+  elimLogo: { label: "Elimination Card — logo",
+              rect: { left: 664, top: 351, width: 82, height: 111 } },
+  elimName: { label: "Elimination Card — team name",
+              rect: { left: 901, top: 325, width: 307, height: 26 } },
+  elimRank: { label: "Elimination Card — position (#00)",
+              rect: { left: 677, top: 316, width: 50, height: 18 } },
+};
+
+Object.entries(FFGFX_ELIM_BOXES).forEach(([key, el]) => {
+  FFGFX_PAGES[key] = {
+    label: el.label,
+    bg: () => "../overlay/assets/freefire/" +
+      ((ffState && ffState.event && ffState.event.assetFolder) || "CLT") + "/Eliminated.png",
+    rect: el.rect,
+    // Everything on this card scales about its own centre, matching the
+    // overlay: a box that grows from a corner walks away from the slot it
+    // was lined up with.
+    origin: { x: el.rect.left + el.rect.width / 2, y: el.rect.top + el.rect.height / 2 },
+  };
+});
 
 FFGFX_PAGES.aliveStatusPanel = {
   label: "Alive Status — Whole Panel",

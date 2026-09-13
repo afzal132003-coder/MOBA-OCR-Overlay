@@ -1850,16 +1850,37 @@ def assign_finish_ranks(rows):
         _finish_ranks = {}            # fresh lobby, nobody out yet
         return rows
 
-    for row in rows:
-        name = (row.get("teamName") or "").strip().upper()
+    named = [(r, (r.get("teamName") or "").strip().upper()) for r in rows]
+
+    # Squads that are out and have never been given a position. There is
+    # usually one; there can be several at once when the table first
+    # resolves, or when the engine is started into a match already in
+    # progress.
+    fresh = [(r, n) for r, n in named if n and r.get("eliminated") and n not in _finish_ranks]
+
+    # Positions are handed out from the bottom of what is left, one each.
+    # Giving them all len(live) + 1 -- which is what this did -- put five
+    # squads on 6th and three on 5th in a single real match, and only the
+    # first of each group could ever fire a card. Order among squads that
+    # transition in the same pass is arbitrary, but the positions are not
+    # shared.
+    top = len(live) + len(fresh)
+    for i, (row, name) in enumerate(fresh):
+        _finish_ranks[name] = top - i
+
+    # The card is for a squad going out, not for the table catching up.
+    # Several at once means a resync -- a restart mid-match, or the grid
+    # resolving for the first time -- and announcing one of them would be
+    # picking a name out of a hat and putting it on air.
+    if len(fresh) == 1:
+        row, name = fresh[0]
+        announce_elimination(row, _finish_ranks[name])
+
+    for row, name in named:
         if not name:
             continue
         if row.get("eliminated"):
-            if name not in _finish_ranks:
-                # +1 for this squad, which is already marked out.
-                _finish_ranks[name] = len(live) + 1
-                announce_elimination(row, _finish_ranks[name])
-            row["finishRank"] = _finish_ranks[name]
+            row["finishRank"] = _finish_ranks.get(name)
         else:
             _finish_ranks.pop(name, None)
     return rows

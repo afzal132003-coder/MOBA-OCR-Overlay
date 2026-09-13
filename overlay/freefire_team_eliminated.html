@@ -77,6 +77,18 @@
   #card.anim-enter { animation: flyIn 0.62s cubic-bezier(0.18, 0.96, 0.32, 1) both; }
   #card.anim-exit  { animation: flyOut 0.42s cubic-bezier(0.55, 0, 0.85, 0.35) both; }
 
+  /* Where the card finally sits, and how big it is.
+     ---------------------------------------------------------------
+     Its own layer, because #card's transform is already spoken for by
+     the fly-in and an element only gets one. Scaling is anchored to the
+     panel's own centre so making it smaller keeps it where it was put
+     rather than walking it toward a corner. */
+  #place {
+    position: absolute; inset: 0;
+    transform-origin: var(--panel-cx) var(--panel-cy);
+    will-change: transform;
+  }
+
   #art { position: absolute; inset: 0; width: 1920px; height: 1080px; }
 
   /* Laid out inside the dark panel of the artwork (x 712..1198,
@@ -131,12 +143,14 @@
 <body>
 
 <div id="card">
+  <div id="place">
   <img id="art" alt="">
   <div id="rank"></div>
   <div id="logo" class="empty"><img id="logoImg" alt=""></div>
   <div id="textBlock">
     <div id="teamName"></div>
     <div id="kills"></div>
+  </div>
   </div>
 </div>
 
@@ -210,6 +224,7 @@ const LAYOUTS = {
     text: { x: 824, y: 471, w: 356, h: 112, align: "flex-start", size: 36 },
     wideText: { x: 726, w: 454 },
     kills: true,
+    panel: { x: 712, y: 471, w: 486, h: 112, cx: 955, cy: 527 },
   },
   GC: {
     art: "Eliminated.png",
@@ -224,6 +239,8 @@ const LAYOUTS = {
     // keeps its own banner either way, so the box does not move.
     wideText: null,
     kills: false,
+    // x 631..1281, y 303..481, measured from Eliminated.png itself.
+    panel: { x: 631, y: 303, w: 651, h: 179, cx: 956.5, cy: 392.5 },
   },
 };
 
@@ -274,6 +291,50 @@ function logoFor(teamName, roster){
                       || (t.shortName || "").trim().toUpperCase() === want) || null;
 }
 
+/* Placement saved from the dashboard's Graphic Fixing tab.
+
+   Four separate things can be moved, because they are wanted for
+   different reasons: the whole card, to put it where this event's frame
+   has room; and the logo and the name within it, because a badge that is
+   very wide or a name that is very long needs its own room inside a box
+   that cannot change size.
+
+   Each is the same {dx, dy, scale} the rest of this system uses. */
+const ELIM_OVERRIDE_TARGETS = {
+  elimCard: null,                 // the whole card -- handled on #place
+  elimLogo: "#logo",
+  elimName: "#teamName",
+  elimRank: "#rank",
+};
+
+function applyElimOverrides(state, L){
+  const all = (state && state.graphicOverrides) || {};
+  const r = document.documentElement.style;
+  r.setProperty("--panel-cx", (L.panel ? L.panel.cx : 960) + "px");
+  r.setProperty("--panel-cy", (L.panel ? L.panel.cy : 540) + "px");
+
+  const card = all.elimCard || {};
+  const cdx = card.dx || 0, cdy = card.dy || 0, cscale = card.scale || 1;
+  const want = (cdx || cdy || cscale !== 1)
+    ? `translate(${cdx}px, ${cdy}px) scale(${cscale})` : "";
+  const place = document.getElementById("place");
+  if(place && place.style.transform !== want) place.style.transform = want;
+
+  Object.entries(ELIM_OVERRIDE_TARGETS).forEach(([key, sel]) => {
+    if(!sel) return;
+    const el = document.querySelector(sel);
+    if(!el) return;
+    const o = all[key] || {};
+    const dx = o.dx || 0, dy = o.dy || 0, scale = o.scale || 1;
+    const t = (dx || dy || scale !== 1)
+      ? `translate(${dx}px, ${dy}px) scale(${scale})` : "";
+    if(el.style.transform !== t){
+      el.style.transform = t;
+      el.style.transformOrigin = "center center";
+    }
+  });
+}
+
 let lastStatus = "idle";
 let hideTimer = null;
 
@@ -282,6 +343,7 @@ function apply(state){
   const folder = (state.event && state.event.assetFolder) || "CLT";
   const L = layoutFor(state);
   applyLayout(L);
+  applyElimOverrides(state, L);
   const el = document.getElementById("card");
 
   const artSrc = "assets/freefire/" + folder + "/" + L.art;
