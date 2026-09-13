@@ -304,6 +304,15 @@ def default_state():
             # as soon as it's detected, for when nobody is watching the
             # dashboard.
             "eliminationApproval": True,
+            # The RESULTS spreadsheet's LIVE tab, which already totals the
+            # series: team name in C, and Booyah / MP / PP / KP / TP across
+            # D..H. The engine reads TP from there rather than adding the
+            # matches up again, so the graphic and the sheet can never
+            # disagree about a team's total -- the sheet is the one doing
+            # the sums and this just reads the answer. Blank id disables
+            # the whole thing.
+            "livePointsSheetId": "1O6_lIfDB-O7vX50wHmMxii-57ExD3Nxb5KaxjlG01jA",
+            "livePointsTab": "LIVE",
         },
         # Filled in at startup with the engine's own folder -- see the
         # assignment after load_state(). Present here so an old state
@@ -1791,6 +1800,180 @@ def gate_eliminations(rows):
     if pending != live.get("pendingEliminations"):
         live["pendingEliminations"] = pending
     return rows
+
+
+# Free Fire's own placement table, the one the result file bakes into
+# RankScore. Needed live because a squad's points jump the moment it is
+# wiped, and the result file for this match does not exist yet.
+FREEFIRE_PLACEMENT_POINTS = {
+    1: 12, 2: 9, 3: 8, 4: 7, 5: 6, 6: 5, 7: 4, 8: 3, 9: 2, 10: 1, 11: 0, 12: 0,
+}
+
+# team -> the position it finished this match in, filled as squads die.
+_finish_ranks = {}
+
+
+def assign_finish_ranks(rows):
+    """Works out where each wiped squad finished, as it happens.
+
+    A squad's finishing position is simply how many teams were still in
+    when it went out, itself included: the first wipe of a twelve-team
+    lobby finishes 12th, the next 11th, and so on. Counted at the moment
+    of the transition rather than derived afterwards, because afterwards
+    every dead team looks alike.
+
+    Cleared when a match restarts -- nothing eliminated means a new game,
+    the same signal the overlay uses to reset its own ordering."""
+    global _finish_ranks
+    live = [r for r in rows if not r.get("eliminated")]
+    if len(live) == len(rows):
+        _finish_ranks = {}            # fresh lobby, nobody out yet
+        return rows
+
+    for row in rows:
+        name = (row.get("teamName") or "").strip().upper()
+        if not name:
+            continue
+        if row.get("eliminated"):
+            if name not in _finish_ranks:
+                # +1 for this squad, which is already marked out.
+                _finish_ranks[name] = len(live) + 1
+            row["finishRank"] = _finish_ranks[name]
+        else:
+            _finish_ranks.pop(name, None)
+    return rows
+
+
+# team (normalised) -> TP as the LIVE tab last reported it.
+_carry_points = {}
+
+
+def apply_live_points(rows):
+    """The number the PTS. column shows: what a team brought into this
+    match, plus what it has earned so far in it.
+
+    Carried total comes from the LIVE tab; this match contributes its
+    kills immediately, and its placement points only once the squad is
+    actually out -- until then there is no placement to award, and
+    guessing one would have the column jumping every time a squad moved
+    up or down the table.
+
+    Left as None when nothing is carried and nothing is known, so the
+    column stays blank rather than claiming a confident zero."""
+    for row in rows:
+        key = normalize_for_match(row.get("teamName"))
+        carry = _carry_points.get(key)
+        # The SAME guarded accessor the sheet push uses, not a fresh
+        # `elims or score`. score still holds a count the publish guard
+        # rejected as impossible, so reading it directly would put the
+        # rejected number back -- straight into a running total, where it
+        # is even harder to spot than in a kills column. Measured: a
+        # bogus 77 turned a 40-point team into 117.
+        kills = _sheet_elim_value(row)
+        placement = FREEFIRE_PLACEMENT_POINTS.get(row.get("finishRank")) if row.get("finishRank") else None
+        if carry is None and kills is None and placement is None:
+            row["livePoints"] = None
+            continue
+        row["livePoints"] = (carry or 0) + (kills or 0) + (placement or 0)
+        row["carryPoints"] = carry
+    return rows
+
+
+def _fetch_live_carry(sheet_id, tab):
+    """Reads team name and TP off the LIVE tab.
+
+    Columns are found by their HEADER, not by position: the tab reads
+    C=team then Booyah / MP / PP / KP / TP, and inserting a column one
+    day should not silently start publishing kill points as totals.
+    """
+    import urllib.request, urllib.parse, csv, io as _io
+
+    def fetch(cells):
+        url = ("https://docs.google.com/spreadsheets/d/%s/gviz/tq?tqx=out:csv&sheet=%s"
+               "&range=%s&headers=0" % (sheet_id, urllib.parse.quote(tab), cells))
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            return list(csv.reader(_io.StringIO(resp.read().decode("utf-8", "replace"))))
+
+    # Header row and data row fetched SEPARATELY. Asked for C1:H13 in one
+    # request, this endpoint decides row 1 is a header, folds it into the
+    # CSV's own column labels and then hands back a blank first line -- so
+    # the header arrives empty and nothing matches. headers=0 does not
+    # stop it. Asked for C1:H1 on its own, the same endpoint returns the
+    # header perfectly. Two small requests every twenty seconds is a fair
+    # price for a lookup that cannot silently return nothing.
+    head = fetch("C1:H1")
+    if not head or not head[0]:
+        return {}
+    header = [h.strip().upper() for h in head[0]]
+    try:
+        tp = header.index("TP")
+    except ValueError:
+        return {}
+    out, unmatched = {}, []
+    roster_teams = ((server_state.get("roster") or {}).get("teams")) or []
+    for line in fetch("C2:H13"):
+        if len(line) <= tp:
+            continue
+        label = (line[0] or "").strip()
+        if not label:
+            continue
+        try:
+            value = int(float(line[tp] or 0))
+        except (TypeError, ValueError):
+            continue
+        # Keyed by the ROSTER's name, because that is what the live rows
+        # carry. The tab is labelled the way the graphics are -- "TAG",
+        # "GODLIKE", "iQOO TG" -- so a straight string lookup would find
+        # almost nothing. match_roster_team is the same ladder the result
+        # files go through: taught alias, then exact on name or short
+        # name, then containment.
+        team = match_roster_team(label, roster_teams) if roster_teams else None
+        if team and team.get("name"):
+            out[normalize_for_match(team["name"])] = value
+        else:
+            out[normalize_for_match(label)] = value
+            unmatched.append(label)
+    if unmatched:
+        # Surfaced rather than swallowed: a label nobody can place is a
+        # team whose running total silently never appears on the graphic.
+        server_state["liveOps"]["carryUnmatched"] = unmatched
+    else:
+        server_state["liveOps"].pop("carryUnmatched", None)
+    return out
+
+
+_last_carry_fetch_at = 0.0
+_last_carry_error_at = 0.0
+
+
+async def refresh_live_carry_points():
+    """Pulls the carried totals in on a slow timer. Slow on purpose: a
+    team's series total only changes when a match is committed, so
+    polling it faster buys nothing and spends someone's quota."""
+    global _last_carry_fetch_at, _last_carry_error_at, _carry_points
+    settings = server_state.get("settings", {})
+    sheet_id = (settings.get("livePointsSheetId") or "").strip()
+    if not sheet_id:
+        return
+    now = time.time()
+    if now - _last_carry_fetch_at < FREEFIRE_CARRY_REFRESH_SECONDS:
+        return
+    _last_carry_fetch_at = now
+    tab = (settings.get("livePointsTab") or "LIVE").strip()
+    try:
+        loop = asyncio.get_running_loop()
+        fetched = await loop.run_in_executor(ocr_executor, _fetch_live_carry, sheet_id, tab)
+        if fetched:
+            _carry_points = fetched
+    except Exception as e:
+        if now - _last_carry_error_at > 60:
+            _last_carry_error_at = now
+            print(f"[live points] couldn't read the {tab} tab -- {e}")
+
+
+# How often to re-read the carried totals. They move once a match, so
+# this is about being current within a break, not within a gunfight.
+FREEFIRE_CARRY_REFRESH_SECONDS = 20
 
 
 def sanitise_published_elims(rows):
@@ -4294,7 +4477,7 @@ async def ocr_loop():
                     if linked["rows"]:
                         log_sidetable_rows = linked["rows"]
                         if linked["rows"] != server_state["liveOps"].get("sidetableRows"):
-                            published = apply_team_marks(gate_eliminations(sanitise_published_elims(linked["rows"])))
+                            published = apply_live_points(assign_finish_ranks(apply_team_marks(gate_eliminations(sanitise_published_elims(linked["rows"])))))
                             server_state["liveOps"]["sidetableRows"] = published
                             server_state["liveOps"]["sidetableSource"] = "log"
                             changed = True
@@ -4368,7 +4551,7 @@ async def ocr_loop():
                 )
                 ff_live = server_state["liveOps"]
                 if parsed["rows"] != ff_live.get("sidetableRows"):
-                    published = apply_team_marks(gate_eliminations(sanitise_published_elims(parsed["rows"])))
+                    published = apply_live_points(assign_finish_ranks(apply_team_marks(gate_eliminations(sanitise_published_elims(parsed["rows"])))))
                     ff_live["sidetableRows"] = published
                     ff_live["sidetableUsedPalette"] = parsed["usedPalette"]
                     ff_live["sidetableSource"] = "ocr"
@@ -4452,7 +4635,7 @@ async def ocr_loop():
                         if key not in seen:
                             merged.append(r)
                     if merged != server_state["liveOps"].get("sidetableRows"):
-                        published = apply_team_marks(gate_eliminations(sanitise_published_elims(merged)))
+                        published = apply_live_points(assign_finish_ranks(apply_team_marks(gate_eliminations(sanitise_published_elims(merged)))))
                         server_state["liveOps"]["sidetableRows"] = published
                         server_state["liveOps"]["sidetableSource"] = "grid"
                         changed = True
@@ -4478,6 +4661,9 @@ async def ocr_loop():
                         "type": "crop_preview", "region": region_key,
                         "image": data_url, "text": raw_text or "",
                     })
+
+            # Carried series totals, on their own slow timer.
+            await refresh_live_carry_points()
 
             # The sheet is written ONCE per poll, here, from whatever the
             # table finally says -- never from inside the three paths that

@@ -35,7 +35,11 @@
   html, body {
     margin: 0; padding: 0; background: transparent; overflow: hidden;
     width: 1920px; height: 1080px;
-    font-family: 'Gotham', Arial, sans-serif;
+    /* Per package -- see LAYOUTS. Neither face is bundled: both are
+       expected to be installed on the machine running the browser
+       source, the way a licensed font normally reaches a design tool
+       without redistributing the file. Falls back to Arial. */
+    font-family: var(--face, 'Gotham'), Arial, sans-serif;
   }
 
   /* Flies in from off the right edge rather than snapping on.
@@ -371,6 +375,7 @@ const LAYOUTS = {
     rowTops: [286, 335, 384, 434, 483, 532, 582, 631, 680, 730, 779, 828],
     row: { x: 1512, w: 408, h: 44 },
     ink: "#f2e9e6",
+    face: "'Gotham'",
     rank: null,
     logo: { x: 8, w: 40, img: 34 },
     name: { x: 54, w: 150, size: 17, align: "flex-start" },
@@ -394,6 +399,7 @@ const LAYOUTS = {
     rowTops: [291, 335, 379, 423, 467, 511, 555, 599, 643, 687, 731, 775],
     row: { x: 1455, w: 465, h: 43 },
     ink: "#ffffff",
+    face: "'Nippo Variable', 'Nippo'",
     rank: { x: 0, w: 52, size: 19 },          // digits centre on x 1481
     logo: { x: 65, w: 68, img: 36 },
     name: { x: 156, w: 112, size: 19, align: "flex-start" },
@@ -459,6 +465,7 @@ function applyLayout(L, showPoints){
   // Shrinking anchors to the panel's own vertical centre, which differs
   // per package: CLT's box runs y 247..905, GC's 254..818.
   r.setProperty("--panel-origin-y", L.originY + "px");
+  r.setProperty("--face", L.face);
 }
 
 // Set from the active layout on every apply(). The strip each moving row
@@ -704,6 +711,14 @@ function apply(state){
     const kills = effective < 0 ? "" : String(effective);
     const killsEl = el.querySelector(".kills");
     if(killsEl.textContent !== kills) killsEl.textContent = kills;
+
+    // What the squad carried in plus what it has earned here, worked out
+    // by the engine so this graphic and the sheet can never disagree
+    // about it. Blank rather than 0 when nothing is known yet -- a zero
+    // reads as a fact, and "no total yet" is not one.
+    const ptsEl = el.querySelector(".points");
+    const pts = row.livePoints == null ? "" : String(row.livePoints);
+    if(ptsEl.textContent !== pts) ptsEl.textContent = pts;
 
     const img = el.querySelector(".logo img");
     const logoSrc = (team && team.logo) || "";
