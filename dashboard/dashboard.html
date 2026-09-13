@@ -1859,17 +1859,24 @@ Team Charlie
         you put it instead of being calculated.</p>
       <div class="hint" id="ff_aliveCalibCmd" style="margin-top:4px;background:#0a0d18;border:1px solid #2b3348;
            border-radius:6px;padding:8px 10px;font-family:monospace;font-size:11px;word-break:break-all;"></div>
-      <div class="row" style="gap:14px;margin-top:14px;align-items:flex-start;">
-        <div>
+      <!-- Table on the left, both live views in a column beside it, so a
+           row and what it's reading are on screen together. The column
+           is sticky: the table is twelve rows tall and the whole point
+           is comparing a row against the picture, which fails if the
+           picture scrolls away. -->
+      <div style="display:flex;gap:14px;margin-top:12px;align-items:flex-start;">
+        <div style="flex:1;min-width:0;overflow-x:auto;">
+          <div id="ff_aliveGridRows"></div>
+        </div>
+        <div style="flex:0 0 272px;position:sticky;top:8px;">
           <div class="hint" style="margin-bottom:4px;"><strong>The game, live</strong> — what the OCR is reading</div>
           <img id="ff_aliveGameLive" alt=""
-            style="display:block;width:236px;border-radius:6px;border:1px solid #2b3348;background:#0a0d18;min-height:130px;">
+            style="display:block;width:100%;border-radius:6px;border:1px solid #2b3348;background:#0a0d18;min-height:130px;">
           <div class="hint" id="ff_aliveGameLiveAge" style="margin-top:3px;font-size:10px;">waiting for the engine…</div>
-        </div>
-        <div style="flex:1;min-width:320px;">
-          <div class="hint" style="margin-bottom:4px;"><strong>The overlay, live</strong> — what's going to air.
+
+          <div class="hint" style="margin:10px 0 4px;"><strong>The overlay, live</strong> — what's going to air.
             Drag to move, scroll to zoom.</div>
-          <div id="ff_aliveOutWrap" style="position:relative;width:100%;height:420px;overflow:hidden;
+          <div id="ff_aliveOutWrap" style="position:relative;width:100%;height:300px;overflow:hidden;
                border-radius:6px;border:1px solid #2b3348;cursor:grab;
                background:#0a0d18 repeating-conic-gradient(#12172a 0% 25%, #0a0d18 0% 50%) 0 0/16px 16px;">
             <iframe id="ff_aliveOutFrame" title="Alive status output"
@@ -1877,14 +1884,13 @@ Team Charlie
                      pointer-events:none;"></iframe>
           </div>
           <div class="row" style="gap:6px;margin-top:5px;">
-            <button class="secondary" id="ff_aliveOutFitTable" style="font-size:10px;padding:3px 8px;margin-top:0;">Fit table</button>
-            <button class="secondary" id="ff_aliveOutFitAll" style="font-size:10px;padding:3px 8px;margin-top:0;">Fit whole 1920×1080</button>
+            <button class="secondary" id="ff_aliveOutFitTable" style="font-size:10px;padding:3px 6px;margin-top:0;">Fit table</button>
+            <button class="secondary" id="ff_aliveOutFitAll" style="font-size:10px;padding:3px 6px;margin-top:0;">Fit 1080p</button>
             <span class="hint" id="ff_aliveOutZoom" style="font-size:10px;align-self:center;"></span>
           </div>
           <div class="hint" id="ff_aliveOutWhy" style="margin-top:3px;font-size:10px;"></div>
         </div>
       </div>
-      <div id="ff_aliveGridRows" style="overflow-x:auto;margin-top:10px;"></div>
       <div class="hint" id="ff_aliveGridStatus" style="margin-top:8px;"></div>
     </div>
 
@@ -5857,8 +5863,11 @@ function ffFitAliveOut(region){
   // iframe to nothing permanently. Fall back to the CSS height and a
   // sane width so a hidden-tab mount still produces a usable view, and
   // re-fit when it's actually on screen.
-  const w = wrap.clientWidth || 360;
-  const h = wrap.clientHeight || 420;
+  // Fallbacks must match the box's declared size in the markup above
+  // (272px column, 300px tall). They're only used before it's
+  // measurable, but a wrong guess there frames the first view badly.
+  const w = wrap.clientWidth || 272;
+  const h = wrap.clientHeight || 300;
   ffAliveOutView = {
     x: region.x, y: region.y,
     scale: Math.min(w / region.w, h / region.h),
