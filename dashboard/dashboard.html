@@ -2107,6 +2107,27 @@ Team Charlie
         <button id="ff_qmeCopy">Copy to Clipboard</button>
       </div>
       <div class="hint" id="ff_qmeStatus" style="margin-top:6px;"></div>
+
+      <div style="border-top:1px solid #2b3348;margin-top:14px;padding-top:12px;">
+        <h3 style="margin:0 0 6px;font-size:14px;">Push straight into the RESULTS tab</h3>
+        <p class="hint" style="margin-top:0;">The same two numbers, written into the sheet for you instead of
+          copied out. Each match owns a column pair on the RESULTS tab &mdash; match 1 in <code>D/E</code>, match 2
+          in <code>G/H</code>, match 3 in <code>J/K</code> and so on &mdash; so every game stays on the sheet and
+          its own overall-standings and tiebreak formulas have the whole series to work from.</p>
+        <p class="hint">This one does <strong>not</strong> use the row order above. It matches on the team name
+          already in column <code>C</code>, so a team lands on its own row whatever order the sheet is in. Needs
+          the same webhook URL as the live alive push (Live In-Game Ops &rarr; Broadcast Sheet Push), and the .gs
+          script re-deployed &mdash; see <code>ocr/freefire/freefire_sheet_push.gs</code>.</p>
+        <div class="row" style="gap:12px;align-items:flex-end;">
+          <div class="team-form" style="max-width:130px;">
+            <label>Write to match</label>
+            <input type="number" id="ff_resultsPushMatch" min="1" max="10" step="1" value="1">
+          </div>
+          <button id="ff_resultsPush">Push to RESULTS sheet</button>
+          <span class="hint" id="ff_resultsPushTarget" style="padding-bottom:8px;"></span>
+        </div>
+        <div class="hint" id="ff_resultsPushStatus" style="margin-top:6px;"></div>
+      </div>
     </div>
 
     <div class="card" id="ff_reviewCard" style="display:none;">
@@ -5202,6 +5223,8 @@ function ffConnect(){
       document.getElementById("ff_sheetWebhookStatus").textContent = msg.ok
         ? "✓ Test row sent — check your sheet's debug cell (see the .gs script) for the timestamp."
         : "⚠ Failed: " + (msg.error || "unknown error");
+    } else if(msg.type === "freefire_results_push_result"){
+      ffShowResultsPushResult(msg);
     } else if(msg.type === "freefire_alive_grid_preview"){
       ffApplyAliveGridPreview(msg);
     }
@@ -7693,6 +7716,13 @@ function ffQmeUpdateExport(){
   }
   label.textContent = "Exporting from: " + source.label;
 
+  // Follow the current match automatically, but never overwrite a number
+  // the operator typed themselves -- a re-fetch mid-review would otherwise
+  // move the target out from under them.
+  const matchInput = document.getElementById("ff_resultsPushMatch");
+  if(matchInput && !matchInput.dataset.touched) matchInput.value = ffResultsDefaultMatch();
+  ffUpdateResultsPushTarget();
+
   const lines = ffQmeTeams.map(name => {
     const t = name ? byName[normalize_for_matchJs(name)] : null;
     // A blank line for a row that didn't match, rather than skipping it
@@ -7708,6 +7738,104 @@ function ffQmeUpdateExport(){
   });
   output.value = lines.join("\n");
 }
+
+/* ---------- Push one match into the RESULTS tab -------------------------
+   The copy/paste the card above replaces, taken one step further: the
+   same placement points and kills, written into that match's own column
+   pair rather than handed over as text.
+
+   Deliberately NOT using the row order from the card above. The RESULTS
+   tab already has the team names in column C, so the script matches on
+   those -- which means a row can never land against the wrong team
+   because the sheet was reordered and nobody updated the dropdowns. */
+const FF_RESULTS_MATCH_MAX = 10;
+
+// Which match number this is about to write to, if the operator hasn't
+// said otherwise: the game a freshly-reviewed match is about to become,
+// or the last one committed.
+function ffResultsDefaultMatch(){
+  const committed = ((ffState && ffState.matches) || []).length;
+  const n = ffPendingMatch ? committed + 1 : committed;
+  return Math.min(FF_RESULTS_MATCH_MAX, Math.max(1, n));
+}
+
+// D/E, G/H, J/K ... mirroring RESULTS_FIRST_MATCH_COLUMN and
+// RESULTS_MATCH_COLUMN_STRIDE in freefire_sheet_push.gs, so the label can
+// name the actual cells rather than making the operator count columns.
+function ffResultsColumnPair(match){
+  const toLetters = (n) => {
+    let out = "";
+    while(n > 0){ const r = (n - 1) % 26; out = String.fromCharCode(65 + r) + out; n = (n - r - 1) / 26; }
+    return out;
+  };
+  const first = 4 + (match - 1) * 3;     // D = 4
+  return toLetters(first) + "/" + toLetters(first + 1);
+}
+
+function ffUpdateResultsPushTarget(){
+  const input = document.getElementById("ff_resultsPushMatch");
+  const target = document.getElementById("ff_resultsPushTarget");
+  if(!input || !target) return;
+  const match = Math.min(FF_RESULTS_MATCH_MAX, Math.max(1, Number(input.value) || 1));
+  const source = ffQmeSourceMatch();
+  target.textContent = source
+    ? "\u2192 columns " + ffResultsColumnPair(match) + ", from: " + source.label
+    : "Nothing to push yet \u2014 fetch or commit a match first.";
+}
+
+function ffShowResultsPushResult(msg){
+  const el = document.getElementById("ff_resultsPushStatus");
+  if(!el) return;
+  if(!msg.ok){
+    el.textContent = "\u26a0 Failed: " + (msg.error || "unknown error");
+    return;
+  }
+  let text = "\u2713 Match " + msg.match + " written \u2014 " + msg.matched + " of " + msg.total +
+             " teams matched a row in column C.";
+  // Naming them matters: an unmatched team is a team whose score silently
+  // didn't land, and the only fix is knowing which one.
+  if(msg.unmatched && msg.unmatched.length){
+    text += " No row found for: " + msg.unmatched.join(", ") + ".";
+  }
+  el.textContent = text;
+}
+
+document.getElementById("ff_resultsPushMatch").addEventListener("input", (e) => {
+  e.target.dataset.touched = "1";
+  ffUpdateResultsPushTarget();
+});
+
+document.getElementById("ff_resultsPush").addEventListener("click", () => {
+  const el = document.getElementById("ff_resultsPushStatus");
+  const source = ffQmeSourceMatch();
+  if(!source){
+    el.textContent = "Nothing to push \u2014 fetch or commit a match first.";
+    return;
+  }
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)){
+    el.textContent = "NOT sent \u2014 not connected to the Free Fire engine right now.";
+    return;
+  }
+  const match = Math.min(FF_RESULTS_MATCH_MAX,
+                         Math.max(1, Number(document.getElementById("ff_resultsPushMatch").value) || 1));
+
+  // Every team in the match, not just the twelve rows configured above:
+  // the sheet decides which of them it has a row for.
+  const rows = source.teams.map(t => ({
+    team: t.teamName || t.fileTeamName || "",
+    short: t.shortName || "",
+    // rankScore, NOT rank -- the points the file assigns for that finish
+    // (1st=12, 2nd=9, ... 0), which is what the sheet totals. `rank` rides
+    // along so the .gs can be switched to raw placement with one constant.
+    placement: t.rankScore != null ? t.rankScore : null,
+    kills: t.killScore != null ? t.killScore : null,
+    rank: t.rank != null ? t.rank : null,
+  })).filter(r => r.team);
+
+  ffWs.send(JSON.stringify({ type: "freefire_results_push", match, rows }));
+  el.textContent = "Sending " + rows.length + " teams to match " + match +
+    " (columns " + ffResultsColumnPair(match) + ")\u2026";
+});
 
 document.getElementById("ff_qmeCopy").addEventListener("click", async () => {
   const statusEl = document.getElementById("ff_qmeStatus");

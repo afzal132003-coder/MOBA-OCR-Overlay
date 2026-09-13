@@ -2803,14 +2803,24 @@ _last_sheet_push_error_at = 0.0
 
 
 def _post_sheet_payload(url, payload):
+    """POSTs to the Apps Script web app and returns whatever it answered.
+
+    The live alive push ignores the return value -- it fires many times a
+    minute and nothing useful could be done with a reply -- but the
+    per-match results push is a deliberate operator action, so it reports
+    back how many rows the script actually matched.
+
+    Apps Script answers a POST with a 302 to script.googleusercontent.com
+    and the real body is behind it; urllib follows that on its own, and by
+    then the script has already run."""
     import urllib.request
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         url, data=data, method="POST",
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=5) as resp:
-        resp.read()
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return resp.read().decode("utf-8", "replace")
 
 
 async def push_sidetable_to_sheet(rows):
@@ -3466,6 +3476,64 @@ async def handle_client(websocket, path=None):
                     except Exception as e:
                         await websocket.send(json.dumps({
                             "type": "freefire_sheet_push_test_result",
+                            "ok": False, "error": str(e),
+                        }))
+            elif payload.get("type") == "freefire_results_push":
+                # One match's placement points and kills into that match's
+                # own column pair on the RESULTS tab -- the copy/paste step
+                # the operator was doing by hand after every game.
+                #
+                # The rows come from the dashboard rather than being built
+                # here, because the match worth pushing is often the one
+                # under REVIEW: fetched, checked, not yet committed. That
+                # only exists in the dashboard (see ffQmeSourceMatch), and
+                # having two places decide "which match is current" is how
+                # they end up disagreeing. This side owns the webhook URL
+                # and the network call, which the browser can't do itself.
+                url = (server_state.get("settings", {}).get("sheetWebhookUrl") or "").strip()
+                rows = payload.get("rows") or []
+                try:
+                    match_number = int(payload.get("match"))
+                except (TypeError, ValueError):
+                    match_number = 0
+                if not url:
+                    await websocket.send(json.dumps({
+                        "type": "freefire_results_push_result",
+                        "ok": False, "error": "No webhook URL saved yet -- set it in Broadcast Sheet Push.",
+                    }))
+                elif not rows:
+                    await websocket.send(json.dumps({
+                        "type": "freefire_results_push_result",
+                        "ok": False, "error": "Nothing to push -- fetch or commit a match first.",
+                    }))
+                elif match_number < 1:
+                    await websocket.send(json.dumps({
+                        "type": "freefire_results_push_result",
+                        "ok": False, "error": f"Match number {payload.get('match')!r} isn't valid.",
+                    }))
+                else:
+                    body = {"kind": "results", "match": match_number, "rows": rows}
+                    try:
+                        loop = asyncio.get_running_loop()
+                        raw = await loop.run_in_executor(
+                            ocr_executor, _post_sheet_payload, url, body)
+                        try:
+                            answer = json.loads(raw)
+                        except Exception:
+                            # A sheet that isn't shared, or a deployment
+                            # that needs re-authorising, answers with an
+                            # HTML sign-in page rather than JSON. Say that
+                            # instead of showing the operator raw markup.
+                            answer = {"ok": False,
+                                      "error": "The web app answered with a page, not a result -- "
+                                               "re-deploy it with access set to \"Anyone with the link\"."}
+                        answer.setdefault("ok", False)
+                        answer["type"] = "freefire_results_push_result"
+                        answer["match"] = match_number
+                        await websocket.send(json.dumps(answer))
+                    except Exception as e:
+                        await websocket.send(json.dumps({
+                            "type": "freefire_results_push_result",
                             "ok": False, "error": str(e),
                         }))
             elif payload.get("type") == "freefire_fetch_loadout_capture":
