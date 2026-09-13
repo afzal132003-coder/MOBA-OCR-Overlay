@@ -1526,6 +1526,24 @@ def build_alive_grid(regions, rows=FREEFIRE_ALIVE_GRID_ROWS,
     elim_dx = r1elim["x"] - r1p1["x"]
     elim_dy = r1elim["y"] - r1p1["y"]
 
+    # Columns 3 and 4 are normally DERIVED from the p1->p2 spacing, which
+    # assumes the four slots are evenly spaced. They are on this artwork,
+    # but "assumes" is doing real work there -- so an optional anchor for
+    # any column overrides the derived position with a measured one. Left
+    # uncalibrated (the usual case) nothing changes; drawn, that column
+    # is pinned exactly where the operator put it, which is the fix when
+    # one crop sits off-centre and the rest are fine.
+    columns = []
+    for p in range(players):
+        pinned = regions.get(f"freefire_alive_r1p{p + 1}")
+        if pinned and p > 1:                     # p1/p2 already define the grid
+            columns.append((pinned["x"], pinned["w"], pinned["h"]))
+        else:
+            base = r1p2 if p == 1 else r1p1
+            columns.append((r1p1["x"] + p * bar_gap_x,
+                            base["w"] if p == 1 else r1p1["w"],
+                            base["h"] if p == 1 else r1p1["h"]))
+
     grid = []
     for row in range(rows):
         # row_gap_y is a float (see above) -- rounded to the nearest
@@ -1533,9 +1551,8 @@ def build_alive_grid(regions, rows=FREEFIRE_ALIVE_GRID_ROWS,
         # box's coordinates as a fraction mss.grab() can't use.
         row_y = round(r1p1["y"] + row * row_gap_y)
         bars = [
-            {"x": r1p1["x"] + p * bar_gap_x, "y": row_y,
-             "w": r1p1["w"], "h": r1p1["h"]}
-            for p in range(players)
+            {"x": cx, "y": row_y, "w": cw, "h": ch}
+            for (cx, cw, ch) in columns
         ]
         elim_box = {"x": r1p1["x"] + elim_dx, "y": row_y + elim_dy,
                     "w": r1elim["w"], "h": r1elim["h"]}

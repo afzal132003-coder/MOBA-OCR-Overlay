@@ -85,6 +85,16 @@ CATEGORIES = {
         "freefire_alive_rlastp1",
         "freefire_alive_r1elim",
     ],
+    # Optional per-column pins. NOT part of ff-alive-grid: columns 3 and
+    # 4 are derived from the p1->p2 spacing and that is right on evenly
+    # spaced artwork, so walking every operator through two extra boxes
+    # they don't need would be worse than useful. Calibrate one by name
+    # when a column's crop actually sits off-centre -- see
+    # build_alive_grid, which prefers a drawn box over the derived one.
+    "ff-alive-columns": [
+        "freefire_alive_r1p3",
+        "freefire_alive_r1p4",
+    ],
     "ff-loadout": [
         "freefire_loadout",
         "freefire_loadout_ign",
@@ -100,11 +110,13 @@ CATEGORIES = {
 
 REGION_ORDER = (
     CATEGORIES["ff-live"] + CATEGORIES["ff-alive-grid"]
+    + CATEGORIES["ff-alive-columns"]
     + CATEGORIES["ff-loadout"] + CATEGORIES["ff-lobby"]
 )
 
 CATEGORY_BLURB = {
     "ff-live": "LIVE IN-GAME boxes -- have a match actually running, with the killfeed and 12-team side table on screen.",
+    "ff-alive-columns": "ALIVE GRID optional column pins -- only for a column whose crop sits off-centre; normally derived, so normally skipped.",
     "ff-alive-grid": "ALIVE GRID anchors -- have a match running with the 12-team side table visible, same screen as ff-live. Draw TIGHT boxes, exactly matching one indicator/number each time -- these 4 boxes are used to work out the position of all 48.",
     "ff-loadout": "LOADOUT boxes -- have a player's loadout card on screen (the one Num5 captures).",
     "ff-lobby": "PRE-MATCH LOBBY boxes (2 squad cards) -- have the lobby team list on screen, scrolled to the top.",
@@ -121,6 +133,8 @@ LABELS = {
     "freefire_alive_r1p2": "ALIVE GRID: ROW 1, PLAYER 2 (next one to the right) alive indicator - same tight box, one slot over",
     "freefire_alive_rlastp1": "ALIVE GRID: LAST ROW (bottom-most team, row 12), PLAYER 1 (leftmost) alive indicator - same tight box as the very first one, but on the LAST row, not the second",
     "freefire_alive_r1elim": "ALIVE GRID: ROW 1's ELIMINATION COUNT number - tight box around just that number",
+    "freefire_alive_r1p3": "ALIVE GRID (optional): ROW 1, PLAYER 3 alive indicator - only needed if column 3's crop sits off-centre; otherwise it is derived from players 1 and 2",
+    "freefire_alive_r1p4": "ALIVE GRID (optional): ROW 1, PLAYER 4 alive indicator - only needed if column 4's crop sits off-centre; otherwise it is derived from players 1 and 2",
     "freefire_loadout": "LOADOUT CARD, WHOLE (the full player HUD card) - kept as the overall visual record; the per-slot boxes below are what actually get identified",
     "freefire_loadout_ign": "LOADOUT: PLAYER IGN - draw tightly around just the name text on the card (this one is read as TEXT, not matched as an icon)",
     "freefire_loadout_active": "LOADOUT: ACTIVE CHARACTER (the BIG character portrait) - draw tightly around just that icon",

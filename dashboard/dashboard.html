@@ -1843,13 +1843,19 @@ Team Charlie
             <option value="freefire_alive_r1p2">Row 1, player 2 (sets the column spacing)</option>
             <option value="freefire_alive_rlastp1">LAST row, player 1 (sets the row spacing)</option>
             <option value="freefire_alive_r1elim">Row 1 elim number (the KILLS box)</option>
+            <option value="freefire_alive_r1p3">Row 1, player 3 (pin column 3 — optional)</option>
+            <option value="freefire_alive_r1p4">Row 1, player 4 (pin column 4 — optional)</option>
           </select>
         </div>
         <button class="secondary" id="ff_aliveCalibCopy">Copy Command</button>
       </div>
       <p class="hint" style="margin-top:6px;">Paste into PowerShell at the repo root, with the match on screen.
-        Recalibrating one box only redraws that box — the other three keep their current values, so fixing a
-        single misaligned crop doesn't mean redoing all four. Restart the engine afterwards to pick it up.</p>
+        Recalibrating one box only redraws that box — the others keep their current values, so fixing a single
+        misaligned crop doesn't mean redoing them all. Restart the engine afterwards to pick it up.</p>
+      <p class="hint" style="margin-top:2px;">Players 3 and 4 are normally <em>derived</em> from the spacing
+        between players 1 and 2, so they have no box of their own and usually need none. Pin one only if that
+        column's crop actually sits off-centre while the others look right — once drawn, it's used exactly where
+        you put it instead of being calculated.</p>
       <div class="hint" id="ff_aliveCalibCmd" style="margin-top:4px;background:#0a0d18;border:1px solid #2b3348;
            border-radius:6px;padding:8px 10px;font-family:monospace;font-size:11px;word-break:break-all;"></div>
       <div id="ff_aliveGridRows" style="overflow-x:auto;margin-top:10px;"></div>
