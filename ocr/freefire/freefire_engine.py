@@ -1153,61 +1153,69 @@ DEFAULT_ALIVE_GRID_PALETTE = {
 }
 
 
-# Gold = alive, grey = eliminated, in OpenCV's HSV (hue 0-179). Measured
-# from the operator's own artwork: gold is RGB(255,215,0) -> hue ~25 at
-# full saturation; the eliminated bar is RGB(136,136,136) -> saturation
-# ~0. Saturation alone separates them, which is what makes this robust.
-ALIVE_BAR_HUE = (10, 45)
-ALIVE_BAR_MIN_SAT = 90
-ALIVE_BAR_MIN_VAL = 80
-DEAD_BAR_MAX_SAT = 70
-DEAD_BAR_VAL = (45, 215)
 # The blue-zone glow that sweeps the table. Pixels in this hue band are
-# the effect, not the bar, and are excluded from the vote entirely.
+# the effect, not the bar, and are dropped before anything is measured.
 GLOW_HUE = (85, 140)
+GLOW_MIN_SAT = 80
 
 
-def classify_alive_bar(patch_bgr):
-    """One alive bar -> "alive" / "eliminated" / "unknown", judged per
-    PIXEL rather than from the patch's average colour.
+def classify_alive_bar(patch_bgr, palette=None):
+    """One alive bar -> "alive" / "eliminated" / "unknown".
 
-    The average is what the blue-zone glow breaks. Blue is roughly
-    complementary to the bar's gold, so blending them desaturates
-    towards exactly the grey the eliminated bar is -- measured, a clean
-    gold bar under about 40% glow lands nearer the eliminated reference
-    than the alive one and flips. That's a live squad shown as wiped,
-    which is the worst way for this to be wrong.
+    Nearest-reference matching, same as before -- that part was never
+    wrong. In game the two bars share a hue (both ~18) and differ in
+    saturation and brightness: alive is S218/V240, eliminated is
+    S110/V150. Comparing against both references separates that
+    cleanly.
 
-    Counting pixels instead survives it: the glow covers part of a bar,
-    not all of it, and the pixels it does cover are identifiable as glow
-    by hue, so they're thrown out rather than allowed to drag an average
-    across the boundary. Whatever the bar actually is still holds the
-    majority of the pixels that remain.
+    What broke it was averaging the WHOLE patch first. Blue is roughly
+    complementary to the bar's orange, so the blue-zone glow blending
+    over a live bar desaturates it toward exactly what the eliminated
+    bar looks like -- measured, ~40% coverage flips it, showing a live
+    squad as wiped.
 
-    Returns "unknown" when almost nothing is left to judge (the glow at
-    full strength, or an uncalibrated box looking at background), since
-    a guess there is worth less than an honest gap."""
+    So the glow is removed BEFORE the average, by hue, and the average
+    is taken over what remains. The fix is subtraction, not a different
+    discriminator.
+
+    (An earlier attempt replaced the discriminator with hue/saturation
+    thresholds instead. Those were read off the OVERLAY ARTWORK -- pure
+    gold at S255, neutral grey at S0 -- which is a different thing
+    entirely from the in-game bar this looks at. The in-game
+    "eliminated" bar is a muted khaki at S110, which sat inside the
+    "gold" band, so every dead bar read as alive. Hence the explicit
+    numbers above: they're the IN-GAME colours.)
+
+    Returns "unknown" when the glow leaves too little to judge, since a
+    gap is worth more than a guess."""
     if patch_bgr is None or patch_bgr.size == 0:
         return "unknown"
+    palette = palette or DEFAULT_ALIVE_GRID_PALETTE
+
     hsv = cv2.cvtColor(patch_bgr, cv2.COLOR_BGR2HSV)
-    h, s, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+    h, s = hsv[:, :, 0], hsv[:, :, 1]
+    glow = (h >= GLOW_HUE[0]) & (h <= GLOW_HUE[1]) & (s >= GLOW_MIN_SAT)
 
-    glow = (h >= GLOW_HUE[0]) & (h <= GLOW_HUE[1]) & (s >= ALIVE_BAR_MIN_SAT)
-    considered = ~glow
-
-    gold = considered & (h >= ALIVE_BAR_HUE[0]) & (h <= ALIVE_BAR_HUE[1]) \
-        & (s >= ALIVE_BAR_MIN_SAT) & (v >= ALIVE_BAR_MIN_VAL)
-    grey = considered & (s < DEAD_BAR_MAX_SAT) \
-        & (v >= DEAD_BAR_VAL[0]) & (v <= DEAD_BAR_VAL[1])
-
-    gold_count = int(gold.sum())
-    grey_count = int(grey.sum())
+    keep = ~glow
     total = patch_bgr.shape[0] * patch_bgr.shape[1]
+    if int(keep.sum()) < max(4, total * 0.15):
+        return "unknown"          # almost entirely glow this frame
 
-    # Nothing recognisable left -- don't invent an answer.
-    if gold_count + grey_count < max(4, total * 0.10):
-        return "unknown"
-    return "alive" if gold_count > grey_count else "eliminated"
+    # Every remaining pixel votes for its own nearest reference, and the
+    # majority wins. Averaging first is what a partial glow defeats: a
+    # half-covered bar averages to something between the two references
+    # and lands on the wrong side, even though most of its pixels are
+    # still unambiguously one colour. Hue-masking alone can't rescue
+    # that either -- a pixel PART way blended sits at hue 22-89 with low
+    # saturation, well outside the glow band, so it survives the mask
+    # and drags the mean anyway. Voting makes partial coverage cost
+    # proportionally instead of catastrophically.
+    pixels = patch_bgr[keep].reshape(-1, 3).astype(np.float32)
+    statuses = list(palette.keys())
+    refs = np.array([palette[k] for k in statuses], dtype=np.float32)
+    distances = np.linalg.norm(pixels[:, None, :] - refs[None, :, :], axis=2)
+    votes = np.bincount(distances.argmin(axis=1), minlength=len(statuses))
+    return statuses[int(votes.argmax())]
 
 
 def classify_bar(patch_bgr, palette=None):
@@ -1744,6 +1752,65 @@ _alive_grid_elim_pending = {}
 # row's elim box is trusted again. See FREEFIRE_ELIM_SETTLE_FRAMES.
 _alive_grid_last_bars = {}
 _alive_grid_settle = {}
+
+
+# How many polls a CHANGED bar pattern must persist before it goes on
+# air. Second line of defence behind the per-pixel vote in
+# classify_alive_bar: the vote survives a glow covering up to half a
+# bar, but a sweep at full strength can cover more than that for an
+# instant. A real elimination persists; a sweep moves on. Half a second
+# at the current poll rate.
+FREEFIRE_BARS_AGREE_FRAMES = 2
+
+_alive_grid_accepted_bars = {}    # row index -> the bar pattern on air
+_alive_grid_bars_pending = {}     # row index -> (candidate pattern, polls seen)
+
+
+def hold_stable_bars(grid_rows, remember=True):
+    """Publishes a row's bars only once the same pattern has been read
+    on consecutive polls, so a momentary misread can't put a live squad
+    on air as wiped (or vice versa).
+
+    aliveCount is recomputed from whatever is published, not from the
+    raw read, so the count and the bars can never disagree.
+
+    remember=False applies the same rules without advancing anything --
+    the preview must show what's on air without a look counting as a
+    reading."""
+    for i, row in enumerate(grid_rows):
+        raw = row.get("bars") or []
+        # The live path carries bars as plain status strings; the preview
+        # carries {status, preview} dicts so the crop can be shown beside
+        # the reading. Same rules either way -- read the status out, write
+        # it back in place, and leave the dict's crop alone.
+        as_dicts = bool(raw) and isinstance(raw[0], dict)
+        reading = tuple(b["status"] if as_dicts else b for b in raw)
+        accepted = _alive_grid_accepted_bars.get(i)
+
+        if accepted is None or len(accepted) != len(reading):
+            accepted = reading            # first sight: nothing to compare to
+            if remember:
+                _alive_grid_accepted_bars[i] = reading
+        elif reading != accepted:
+            candidate, seen = _alive_grid_bars_pending.get(i, (None, 0))
+            seen = seen + 1 if candidate == reading else 1
+            if seen >= FREEFIRE_BARS_AGREE_FRAMES:
+                accepted = reading
+                if remember:
+                    _alive_grid_accepted_bars[i] = reading
+                    _alive_grid_bars_pending.pop(i, None)
+            elif remember:
+                _alive_grid_bars_pending[i] = (reading, seen)
+        elif remember:
+            _alive_grid_bars_pending.pop(i, None)
+
+        if as_dicts:
+            for b, status in zip(raw, accepted):
+                b["status"] = status
+        else:
+            row["bars"] = list(accepted)
+        row["aliveCount"] = sum(1 for b in accepted if b == "alive")
+    return grid_rows
 
 
 def hold_last_good_elims(grid_rows, remember=True):
@@ -3532,6 +3599,7 @@ async def handle_client(websocket, path=None):
                     # and the preview saying (unread) while the overlay
                     # showed a number is exactly that gap. remember=False:
                     # looking must not count as a reading.
+                    hold_stable_bars(rows_preview, remember=False)
                     hold_last_good_elims(rows_preview, remember=False)
                     # Layer the same manual overrides the real per-poll
                     # path applies (apply_alive_grid_overrides) -- shown
@@ -3666,6 +3734,8 @@ async def handle_live_signals(signals, gs_names):
             _alive_grid_elim_pending.clear()
             _alive_grid_last_bars.clear()
             _alive_grid_settle.clear()
+            _alive_grid_accepted_bars.clear()
+            _alive_grid_bars_pending.clear()
 
         elif signal["type"] == "match_end":
             _pending_match_fetch = signal["matchId"]
@@ -3882,6 +3952,7 @@ async def ocr_loop():
                     ocr_executor, classify_alive_grid_crops, alive_grid_crops,
                     config.get("alive_grid_colors") or DEFAULT_ALIVE_GRID_PALETTE,
                 )
+                grid_rows = hold_stable_bars(grid_rows)
                 grid_rows = hold_last_good_elims(grid_rows)
                 grid_rows = apply_alive_grid_overrides(
                     grid_rows, server_state["liveOps"].get("aliveGridOverrides"))
