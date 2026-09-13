@@ -2260,6 +2260,11 @@ Team Charlie
       <p class="hint">Same idea as Graphic Fixing on the MOBA/Valorant side — drag the box to where the team logo
         should sit, adjust its size, then save. Applies to every row on the graphic at once (all twelve use the
         same offset), so one drag fixes the whole column instead of nudging each row individually.</p>
+      <p class="hint"><strong>Alive: Whole Panel</strong> is the odd one out — it sizes and places the entire
+        alive-status table rather than one column inside it, so set <em>Panel scale</em> below 1 to make the whole
+        graphic smaller. It shrinks toward its own right edge, staying flush with the side of frame and at the same
+        height; everything inside it (rows, logos, kills, the status pips, the fire and zone effects) comes along
+        at the same size. The per-column pages still work on top of it.</p>
       <p class="hint">Red guide lines appear while you drag whenever the box lines up with a row's own anchor
         point or the canvas centre — drag onto one to snap to it. Arrow keys nudge 1px at a time (hold Shift
         for 10px) for the last bit of precision a mouse can't manage, and the line lights up the moment you
@@ -2267,6 +2272,7 @@ Team Charlie
       <div class="row" style="gap:8px;margin-bottom:10px;">
         <button class="secondary" id="ffgfx_page_pointsTableLogo">Overall Points Table</button>
         <button class="secondary" id="ffgfx_page_scoreboardLogo">Match Scoreboard</button>
+        <button class="secondary" id="ffgfx_page_aliveStatusPanel">Alive: Whole Panel</button>
         <button class="secondary" id="ffgfx_page_aliveStatusLogo">Alive: Logo</button>
         <button class="secondary" id="ffgfx_page_aliveStatusName">Alive: Name</button>
         <button class="secondary" id="ffgfx_page_aliveStatusKills">Alive: Kills</button>
@@ -2280,7 +2286,7 @@ Team Charlie
       </div>
       <div class="row" style="gap:16px;align-items:flex-end;margin-top:10px;">
         <div class="team-form" style="max-width:120px;">
-          <label>Size</label>
+          <label id="ffgfx_scale_label">Size</label>
           <input type="number" id="ffgfx_scale" min="0.3" max="3" step="0.05" value="1">
         </div>
         <button id="ffgfx_save">Save Position</button>
@@ -7754,6 +7760,19 @@ function ffgfxAsPositions(offsetX){
   return FFGFX_AS_ROW_TOPS.map(top => ({ left: FFGFX_AS_ROW_LEFT + offsetX, top: top + 22 }));
 }
 
+/* The whole panel rather than one column inside it -- the page that
+   answers "make the table smaller".
+
+   Bounds are the artwork's own, not eyeballed: ALIVE STATUS.png is a
+   full-frame 1920x1080 image whose non-transparent box measures
+   x 1512..1920, y 247..905. Scaling is anchored to the panel's right
+   edge and its vertical centre, matching #frame's transform-origin in
+   freefire_alive_status.html -- the table lives hard against the right
+   side, so shrinking it should keep it pinned there and at the same
+   height instead of walking it toward the middle of the screen. */
+const FFGFX_AS_PANEL = { left: 1512, top: 247, width: 408, height: 658 };
+const FFGFX_AS_PANEL_ORIGIN = { x: 1920, y: 247 + 658 / 2 };
+
 const FFGFX_PAGES = {
   pointsTableLogo: {
     label: "Overall Points Table",
@@ -7771,6 +7790,14 @@ const FFGFX_PAGES = {
     size: 34,
     positions: ffgfxSbPositions(),
   },
+};
+
+FFGFX_PAGES.aliveStatusPanel = {
+  label: "Alive Status — Whole Panel",
+  bg: () => "../overlay/assets/freefire/" +
+    ((ffState && ffState.event && ffState.event.assetFolder) || "CLT") + "/ALIVE STATUS.png",
+  rect: FFGFX_AS_PANEL,
+  origin: FFGFX_AS_PANEL_ORIGIN,
 };
 
 Object.entries(FFGFX_AS_ELEMENTS).forEach(([key, el]) => {
@@ -7797,6 +7824,9 @@ function ffgfxLoadPage(pageKey){
   const existing = (ffState && ffState.graphicOverrides && ffState.graphicOverrides[pageKey]) || {};
   ffgfxPending = Object.assign({ dx: 0, dy: 0, scale: 1 }, existing);
   document.getElementById("ffgfx_scale").value = ffgfxPending.scale;
+  // On a logo page the field sizes one badge; on the panel page it sizes
+  // the entire graphic. Same control, different stakes -- say which.
+  document.getElementById("ffgfx_scale_label").textContent = page.rect ? "Panel scale" : "Size";
   ffgfxDrawBox();
   document.getElementById("ffgfx_status").textContent = "";
 }
@@ -7815,6 +7845,14 @@ function ffgfxLoadPage(pageKey){
 function ffgfxDrawBox(){
   const stage = document.getElementById("ffgfx_stage");
   const page = FFGFX_PAGES[ffgfxCurrentPage];
+  // A whole-panel page has one box and no ghosts -- there is no column
+  // of twelve to show moving together, the box IS the graphic.
+  if(page.rect){
+    stage.innerHTML = `<div class="gfx-box" id="ffgfx_box"><span class="gfx-label">DRAG THE PANEL</span></div>`;
+    ffgfxPositionBox();
+    ffgfxWireDrag();
+    return;
+  }
   stage.innerHTML = page.positions.map((pos, i) => i === 0
     ? `<div class="gfx-box" id="ffgfx_box"><span class="gfx-label">DRAG ME</span></div>`
     : `<div class="gfx-box" id="ffgfx_ghost_${i}"
@@ -7827,8 +7865,33 @@ function ffgfxDrawBox(){
 // Repositions every row's box in place -- safe to call as often as
 // mousemove fires, since it never touches the DOM tree the drag's pointer
 // capture depends on (no element is created or removed here).
+/* Where the panel actually lands for a given nudge, in 1920-space --
+   the same arithmetic the browser performs for
+   `transform: translate(dx,dy) scale(s)` about #frame's origin, so the
+   preview box and what airs cannot disagree about it. */
+function ffgfxPanelRectFor(dx, dy){
+  const page = FFGFX_PAGES[ffgfxCurrentPage];
+  const r = page.rect, o = page.origin, s = ffgfxPending.scale || 1;
+  return {
+    left:   o.x + (r.left - o.x) * s + dx,
+    top:    o.y + (r.top  - o.y) * s + dy,
+    width:  r.width * s,
+    height: r.height * s,
+  };
+}
+
 function ffgfxPositionBox(){
   const page = FFGFX_PAGES[ffgfxCurrentPage];
+  if(page.rect){
+    const el = document.getElementById("ffgfx_box");
+    if(!el) return;
+    const r = ffgfxPanelRectFor(ffgfxPending.dx, ffgfxPending.dy);
+    el.style.left = (r.left * FFGFX_SCALE) + "px";
+    el.style.top = (r.top * FFGFX_SCALE) + "px";
+    el.style.width = (r.width * FFGFX_SCALE) + "px";
+    el.style.height = (r.height * FFGFX_SCALE) + "px";
+    return;
+  }
   const size = page.size * ffgfxPending.scale * FFGFX_SCALE;
   page.positions.forEach((pos, i) => {
     const el = document.getElementById(i === 0 ? "ffgfx_box" : "ffgfx_ghost_" + i);
@@ -7886,6 +7949,35 @@ function ffgfxSnap(dx, dy, opts){
   const pull = !opts || opts.pull !== false;
   const tol = pull ? FFGFX_SNAP_PX : 0.6;
   const page = FFGFX_PAGES[ffgfxCurrentPage];
+
+  /* A whole-panel page aligns by its EDGES, not by a centre point: once
+     the thing being placed is the graphic itself, the questions worth
+     answering are "is it still flush with the right of frame?" and "is
+     it back where it was designed to sit?". So every edge and centre of
+     the box is tested against the canvas's own edges and centre plus
+     the panel's home bounds. */
+  if(page.rect){
+    const box = ffgfxPanelRectFor(dx, dy);
+    const r = page.rect;
+    const refsX = [0, 1920 / 2, 1920, r.left, r.left + r.width];
+    const refsY = [0, 1080 / 2, 1080, r.top, r.top + r.height, r.top + r.height / 2];
+    const nearest = (cands, refs) => {
+      let delta = null, line = null;
+      cands.forEach(c => refs.forEach(ref => {
+        const d = ref - c;
+        if(Math.abs(d) <= tol && (delta === null || Math.abs(d) < Math.abs(delta))){ delta = d; line = ref; }
+      }));
+      return { delta, line };
+    };
+    const bx = nearest([box.left, box.left + box.width / 2, box.left + box.width], refsX);
+    const by = nearest([box.top, box.top + box.height / 2, box.top + box.height], refsY);
+    const vs = [], hs = [];
+    let outX = dx, outY = dy;
+    if(bx.line !== null){ if(pull) outX = Math.round(dx + bx.delta); vs.push(bx.line); }
+    if(by.line !== null){ if(pull) outY = Math.round(dy + by.delta); hs.push(by.line); }
+    return { dx: outX, dy: outY, vs, hs };
+  }
+
   const first = page.positions[0];
   const centreX = first.left + page.size / 2 + dx;
   const centreY = first.top + dy;

@@ -45,9 +45,14 @@
      as the panel arriving from nowhere.
 
      display:none can't be animated, which is why this parks the stage
-     OFF-CANVAS instead of hiding it: 470px clears the table's full
-     408px width plus the flame overhang, and body already has
-     overflow:hidden so nothing of it shows while it's out there.
+     OFF-CANVAS instead of hiding it: the default 470px clears the
+     table's full 408px width plus the flame overhang, and body already
+     has overflow:hidden so nothing of it shows while it's out there.
+
+     The distance is a variable because the panel can now be moved and
+     resized (see #frame): a table dragged left of its home position
+     needs further to travel, and a fixed 470 would leave part of it
+     parked in shot. applyPanelOverride() recomputes it.
 
      Different easing each way, on purpose. Coming in it overshoots
      very slightly and settles, which reads as deliberate; going out it
@@ -58,7 +63,7 @@
   #stage {
     position: absolute; inset: 0;
     opacity: 0;
-    transform: translateX(470px);
+    transform: translateX(var(--ff-fly-out, 470px));
     transition: transform 420ms cubic-bezier(0.55, 0, 0.85, 0.4),
                 opacity   260ms ease-in;
     will-change: transform, opacity;
@@ -68,6 +73,26 @@
     transform: translateX(0);
     transition: transform 640ms cubic-bezier(0.18, 0.96, 0.32, 1),
                 opacity   300ms ease-out;
+  }
+
+  /* Whole-panel size and placement, set from the dashboard's Graphic
+     Fixing tab (Alive: Whole Panel).
+     ---------------------------------------------------------------
+     It rides on its own wrapper rather than on #stage, because #stage's
+     transform is already spoken for by the fly-in/fly-out -- an element
+     only gets one transform, and these two change for entirely
+     different reasons at entirely different moments.
+
+     The origin is the panel's own right edge and vertical centre
+     (1920, 576), taken from the artwork's real bounds: ALIVE STATUS.png
+     is a full-frame image whose non-transparent box is x 1512..1920,
+     y 247..905. The table lives hard against the right side of frame,
+     so making it smaller should keep it pinned there and at the same
+     height, not walk it toward the middle of the screen. */
+  #frame {
+    position: absolute; inset: 0;
+    transform-origin: 1920px 576px;
+    will-change: transform;
   }
 
   #backdrop { position: absolute; inset: 0; width: 1920px; height: 1080px; }
@@ -270,9 +295,11 @@
 </head>
 <body>
 
-<div id="stage">
-  <img id="backdrop" alt="">
-  <div id="rows"></div>
+<div id="frame">
+  <div id="stage">
+    <img id="backdrop" alt="">
+    <div id="rows"></div>
+  </div>
 </div>
 
 <script>
@@ -635,8 +662,36 @@ const OVERRIDE_TARGETS = {
   aliveStatusPip: ".status-pip",
 };
 
+/* The whole panel, as opposed to one column within it -- the same
+   {dx, dy, scale}, applied to #frame. Written only when it actually
+   changes: this runs on every sync, and reassigning an identical
+   transform on a scaled layer is work the compositor doesn't need
+   mid-animation. */
+function applyPanelOverride(all){
+  const frame = document.getElementById("frame");
+  if(!frame) return;
+  const o = all.aliveStatusPanel || {};
+  const dx = o.dx || 0, dy = o.dy || 0, scale = o.scale || 1;
+  const want = (dx || dy || scale !== 1)
+    ? `translate(${dx}px, ${dy}px) scale(${scale})`
+    : "";
+  if(frame.style.transform !== want) frame.style.transform = want;
+
+  /* How far the stage has to travel to clear frame on the way out.
+     That translate happens INSIDE #frame, so it is in unscaled units:
+     the panel is 408 wide with its right edge on frame's right edge, so
+     408 just clears it when nothing has been moved, and a panel dragged
+     left (dx < 0) needs exactly that much more -- divided by scale,
+     because dx is measured in screen pixels while this is not. The
+     extra 62 is the flame overhang, the same margin the original fixed
+     470 carried. */
+  const clear = Math.round(408 - dx / (scale || 1) + 62);
+  frame.style.setProperty("--ff-fly-out", clear + "px");
+}
+
 function applyElementOverrides(state){
   const all = state.graphicOverrides || {};
+  applyPanelOverride(all);
   Object.entries(OVERRIDE_TARGETS).forEach(([key, selector]) => {
     const o = all[key] || {};
     const dx = o.dx || 0, dy = o.dy || 0, scale = o.scale || 1;
