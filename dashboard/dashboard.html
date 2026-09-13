@@ -1833,7 +1833,25 @@ Team Charlie
         Capture to check the calibration is landing on the right pixels before trusting it live. A row left
         unassigned just doesn't contribute to the alive/elim table or the sheet push — everything else keeps
         working either way.</p>
-      <button class="secondary" id="ff_aliveGridPreviewBtn">Capture Preview</button>
+      <div class="row" style="gap:8px;align-items:flex-end;">
+        <button class="secondary" id="ff_aliveGridPreviewBtn">Capture Preview</button>
+        <div class="team-form" style="max-width:300px;margin:0;">
+          <label>Recalibrate</label>
+          <select id="ff_aliveCalibPick">
+            <option value="ff-alive-grid">All 4 anchor boxes</option>
+            <option value="freefire_alive_r1p1">Row 1, player 1 (sets the grid's origin)</option>
+            <option value="freefire_alive_r1p2">Row 1, player 2 (sets the column spacing)</option>
+            <option value="freefire_alive_rlastp1">LAST row, player 1 (sets the row spacing)</option>
+            <option value="freefire_alive_r1elim">Row 1 elim number (the KILLS box)</option>
+          </select>
+        </div>
+        <button class="secondary" id="ff_aliveCalibCopy">Copy Command</button>
+      </div>
+      <p class="hint" style="margin-top:6px;">Paste into PowerShell at the repo root, with the match on screen.
+        Recalibrating one box only redraws that box — the other three keep their current values, so fixing a
+        single misaligned crop doesn't mean redoing all four. Restart the engine afterwards to pick it up.</p>
+      <div class="hint" id="ff_aliveCalibCmd" style="margin-top:4px;background:#0a0d18;border:1px solid #2b3348;
+           border-radius:6px;padding:8px 10px;font-family:monospace;font-size:11px;word-break:break-all;"></div>
       <div id="ff_aliveGridRows" style="overflow-x:auto;margin-top:10px;"></div>
       <div class="hint" id="ff_aliveGridStatus" style="margin-top:8px;"></div>
     </div>
@@ -5902,6 +5920,37 @@ function ffUpdateAliveGridLive(ff){
       `<div class="hint" style="font-size:10px;">${r.source === "grid" ? "grid" : (r.source || "log")}</div>`;
   });
 }
+
+/* Recalibration shortcut. calibrate.py already accepts either a
+   category or a single region key, so "fix just the elim box" is a real
+   command and not a workaround -- the other three anchors keep whatever
+   they had. PowerShell, because that's the shell this runs in: no &&,
+   so the cd is a separate statement. */
+function ffAliveCalibCommand(){
+  const pick = document.getElementById("ff_aliveCalibPick").value;
+  return `cd ocr\\freefire; python calibrate.py ${pick}`;
+}
+
+function ffRenderAliveCalibCmd(){
+  const el = document.getElementById("ff_aliveCalibCmd");
+  if(el) el.textContent = ffAliveCalibCommand();
+}
+
+document.getElementById("ff_aliveCalibPick").addEventListener("change", ffRenderAliveCalibCmd);
+ffRenderAliveCalibCmd();
+
+document.getElementById("ff_aliveCalibCopy").addEventListener("click", async () => {
+  const cmd = ffAliveCalibCommand();
+  const status = document.getElementById("ff_aliveGridStatus");
+  try {
+    await navigator.clipboard.writeText(cmd);
+    status.textContent = "Copied: " + cmd;
+  } catch (e) {
+    // Clipboard can be blocked outside a secure context -- the command is
+    // printed above either way, so selecting it by hand still works.
+    status.textContent = "Couldn't reach the clipboard — copy it from the box above: " + cmd;
+  }
+});
 
 document.getElementById("ff_aliveGridPreviewBtn").addEventListener("click", () => {
   if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
