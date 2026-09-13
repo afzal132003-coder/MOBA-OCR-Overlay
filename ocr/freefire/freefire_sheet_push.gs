@@ -30,11 +30,22 @@
  *   3. Check the constants below against your actual sheets -- ids, tab
  *      names, which column holds the team name, which columns are the
  *      alive checkboxes, where match 1 starts.
- *   4. Run -> pick doPost -> Run once, and accept the permission prompt.
- *      It will fail with an error about `e` being undefined; that is
- *      expected and harmless. The point is granting the script permission
- *      to open a spreadsheet OTHER than the one it is attached to, which
- *      it cannot ask for later from inside a web request.
+ *   4. Save (the disk icon, or Ctrl+S). Then pick `authorize` in the
+ *      function dropdown next to Run -- it is the first function in this
+ *      file -- press Run, and accept the permission prompt.
+ *
+ *      Do NOT try to run doPost by hand: it needs a real web request and
+ *      has nothing to do without one. authorize() exists to do the same
+ *      job properly -- it grants the script permission to open a
+ *      spreadsheet OTHER than the one it is attached to (which it cannot
+ *      ask for later, from inside a web request), and then prints what it
+ *      found in both sheets so you can see the wiring is right before
+ *      anything is deployed. Read the Execution log underneath.
+ *
+ *      If the dropdown doesn't list `authorize`, the file hasn't been
+ *      saved yet -- save and it appears. Functions whose names end in an
+ *      underscore are hidden from that list on purpose; that is why
+ *      pushAlive_ and the rest aren't there.
  *   5. Deploy -> New deployment -> type "Web app" -> Execute as: Me ->
  *      Who has access: Anyone with the link -> Deploy.
  *   6. Copy the URL it gives you (ends in /exec) into the dashboard's
@@ -116,6 +127,51 @@ var TEAM_ALIASES = {
 // thing between the two.
 var MIN_CONTAINMENT_LENGTH = 5;
 // ---------------------------------------------------------------------------
+
+
+/* Run this once from the editor, before deploying.
+   ------------------------------------------------------------------
+   Two jobs. It triggers Google's permission prompt -- opening a
+   spreadsheet by id needs a scope the script cannot request later from
+   inside a web request -- and it reports what it can actually see, so a
+   wrong id, a renamed tab or an empty team column shows up now rather
+   than mid-match.
+
+   Nothing is written. Read the Execution log underneath the editor. */
+function authorize() {
+  var lines = [];
+
+  function look(what, id, tabName, teamCol, startRow, endRow) {
+    try {
+      var book = openBook_(id);
+      if (!book) { lines.push(what + ": NO SPREADSHEET with id " + id); return; }
+      var sheet = tabOf_(book, tabName);
+      if (!sheet) {
+        lines.push(what + ': opened "' + book.getName() + '" but it has no tab named "' +
+                   tabName + '". Tabs in it: ' +
+                   book.getSheets().map(function (t) { return t.getName(); }).join(", "));
+        return;
+      }
+      var names = sheet.getRange(startRow, colToIndex_(teamCol), endRow - startRow + 1, 1)
+                       .getValues()
+                       .map(function (r) { return String(r[0] || "").trim(); })
+                       .filter(function (n) { return n; });
+      lines.push(what + ': "' + book.getName() + '" -> tab "' + sheet.getName() + '", ' +
+                 names.length + " teams in " + teamCol + startRow + ":" + teamCol + endRow +
+                 (names.length ? " -- " + names.join(", ") : " -- EMPTY, check the column and rows"));
+    } catch (err) {
+      lines.push(what + ": FAILED -- " + err);
+    }
+  }
+
+  look("LIVE STATUS", ALIVE_SPREADSHEET_ID, SHEET_NAME, TEAM_COLUMN, DATA_START_ROW, DATA_END_ROW);
+  look("RESULTS", RESULTS_SPREADSHEET_ID, RESULTS_SHEET_NAME, RESULTS_TEAM_COLUMN,
+       RESULTS_START_ROW, RESULTS_END_ROW);
+
+  var report = lines.join("\n");
+  Logger.log(report);
+  return report;
+}
 
 
 /* The spreadsheet an id names, or the one this script is bound to when
