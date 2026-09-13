@@ -470,7 +470,7 @@
   <div class="card">
     <h2>Match Clock</h2>
     <p class="hint">Counts up (elapsed match time), shown top-center on the In-Game overlay. Calibrate
-      <code>cd ocr/moba && python calibrate_hud.py game_timer</code> around the live MM:SS HUD clock and it reads automatically —
+      <code>python ocr\moba\calibrate_hud.py game_timer</code> around the live MM:SS HUD clock and it reads automatically —
       the crop + last OCR reading are shown live below so you can confirm it's catching the right thing. Manual
       Start/Pause/Reset below still work as a fallback for before calibration or whenever the clock isn't
       visible on screen.</p>
@@ -577,7 +577,7 @@
       the main HUD, for whenever you have time. Check the box next to any value to override it manually (locks that
       player's whole K/D/A reading, since OCR reads all three together); uncheck to hand it back to OCR:</p>
     <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-      cd ocr/moba &amp;&amp; python calibrate_teamstats.py
+      python ocr\moba\calibrate_teamstats.py
     </div>
     <div class="two-col" style="margin-top:14px;">
       <div class="col">
@@ -593,7 +593,7 @@
 
   <div class="card">
     <h2>Turtle &amp; Lord Announcement</h2>
-    <p class="hint">Calibrate with <code>cd ocr/moba && python calibrate_hud.py turtle_announcement</code> — draw the box around the
+    <p class="hint">Calibrate with <code>python ocr\moba\calibrate_hud.py turtle_announcement</code> — draw the box around the
       "Turtle spawning in Ns" / "Turtle Spawned" / "Lord Spawned" toast zone, generously (wider/taller than the
       text). Both objectives are read from this same zone, so one calibration covers both. The crop and the exact
       text OCR is reading are shown live below so you can confirm it's catching the right thing before trusting it
@@ -892,7 +892,7 @@
       needed. First time only: calibrate the 20 regions once with the command below (like you did for the HUD),
       it's reused after that.</p>
     <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-      cd ocr/moba &amp;&amp; python calibrate_postmatch_hero.py
+      python ocr\moba\calibrate_postmatch_hero.py
     </div>
     <button id="import_battleReport_capture">Capture From Screen Now</button>
     <div id="import_battleReport_status" class="hint"></div>
@@ -918,7 +918,7 @@
       player you select for the MVP graphic pulls their K/D/A from here. First time only: calibrate the 10 regions
       once with the command below.</p>
     <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-      cd ocr/moba &amp;&amp; python calibrate_postmatch_kda.py
+      python ocr\moba\calibrate_postmatch_kda.py
     </div>
     <button id="import_kda_capture">Capture From Screen Now</button>
     <div id="import_kda_status" class="hint"></div>
@@ -932,7 +932,7 @@
       Gold is read per player straight off the screen and summed per team automatically. First time only:
       calibrate the 10 regions once with the command below.</p>
     <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-      cd ocr/moba &amp;&amp; python calibrate_postmatch_gold.py
+      python ocr\moba\calibrate_postmatch_gold.py
     </div>
     <button id="import_gold_capture">Capture From Screen Now</button>
     <div id="import_gold_status" class="hint"></div>
@@ -1099,7 +1099,7 @@
         filled with a bad guess. First time only, calibrate each of the 10 slots tightly around just the agent art
         (not the name or lock-in icon):</p>
       <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-        cd ocr/valorant &amp;&amp; python calibrate_valorant.py valorant_charselect_team1_0 valorant_charselect_team1_1 valorant_charselect_team1_2 valorant_charselect_team1_3 valorant_charselect_team1_4 valorant_charselect_team2_0 valorant_charselect_team2_1 valorant_charselect_team2_2 valorant_charselect_team2_3 valorant_charselect_team2_4
+        python ocr\valorant\calibrate_valorant.py valorant_charselect_team1_0 valorant_charselect_team1_1 valorant_charselect_team1_2 valorant_charselect_team1_3 valorant_charselect_team1_4 valorant_charselect_team2_0 valorant_charselect_team2_1 valorant_charselect_team2_2 valorant_charselect_team2_3 valorant_charselect_team2_4
       </div>
       <button id="val_charselect_capture">Auto-Detect From Screen Now</button>
       <div id="val_charselect_status" class="hint"></div>
@@ -1214,7 +1214,7 @@
         and only drives the Hoax Overlay's score, not the main In-Game HUD (which stays fully manual/editorial on
         purpose). First time only, calibrate:</p>
       <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-        cd ocr/valorant &amp;&amp; python calibrate_valorant.py valo-ingame
+        python ocr\valorant\calibrate_valorant.py valo-ingame
       </div>
       <div class="stat-grid" id="val_ocrScoreGrid"></div>
     </div>
@@ -1240,7 +1240,7 @@
         whole match, e.g. by a dedicated observer PC — see tools/valorant_tab_hold.ahk). Name and agent portrait come
         from your roster/Agent Pick, not OCR. First time only, calibrate the 40 stat cells:</p>
       <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-        cd ocr/valorant &amp;&amp; python calibrate_valorant.py valo-livestats
+        python ocr\valorant\calibrate_valorant.py valo-livestats
       </div>
       <p class="hint" style="margin-top:10px;">Row → Player — the live scoreboard can re-sort as the match goes on;
         use these to say which roster player is CURRENTLY sitting at each on-screen row position. The crop + text
@@ -1375,7 +1375,7 @@
         (K/D/A, ACS, K/D, First Bloods, Plants per row — an interactive multi-step tool, follow its on-screen
         instructions):</p>
       <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-        cd ocr/valorant &amp;&amp; python calibrate_valorant.py valo-postmatch
+        python ocr\valorant\calibrate_valorant.py valo-postmatch
       </div>
       <button id="val_import_capture">Capture From Screen Now</button>
       <div id="val_import_status" class="hint"></div>
@@ -1849,10 +1849,10 @@ Team Charlie
         </div>
         <button class="secondary" id="ff_aliveCalibCopy">Copy Command</button>
       </div>
-      <p class="hint" style="margin-top:6px;">Paste into any terminal — cmd or PowerShell, from any folder — with
-        the match on screen. Recalibrating one box only redraws that box; the others keep their current values, so
-        fixing a single misaligned crop doesn't mean redoing them all. Restart the engine afterwards to pick it
-        up.</p>
+      <p class="hint" style="margin-top:6px;">Paste into any terminal — cmd or PowerShell — with the match on
+        screen. Recalibrating one box only redraws that box; the others keep their current values, so fixing a
+        single misaligned crop doesn't mean redoing them all. Restart the engine afterwards to pick it up.</p>
+      <p class="hint" id="ff_aliveCalibWhere" style="margin-top:2px;"></p>
       <p class="hint" style="margin-top:2px;">Players 3 and 4 are normally <em>derived</em> from the spacing
         between players 1 and 2, so they have no box of their own and usually need none. Pin one only if that
         column's crop actually sits off-centre while the others look right — once drawn, it's used exactly where
@@ -1927,7 +1927,7 @@ Team Charlie
         showed raw OCR text off the whole table, which didn't hold up — the Alive Table Row Assignment card below
         replaces it with a per-row preview of exactly what's being read. First time only, calibrate the region:</p>
       <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
-        cd ocr/freefire &amp;&amp; python calibrate.py
+        python ocr\freefire\calibrate.py
       </div>
       <p class="hint">Saves into <code>ocr/freefire_config.json</code> — separate from the MOBA engine's <code>config.json</code>, so calibrating here never touches the MOBA setup.</p>
       <div style="margin-top:14px;max-width:420px;">
@@ -5948,7 +5948,12 @@ function ffUpdateAliveGridLive(ff){
 function ffAliveCalibCommand(){
   const pick = document.getElementById("ff_aliveCalibPick").value;
   const dir = (ffState && ffState.enginePath) || "";
-  if(!dir) return `python calibrate.py ${pick}   (run from the ocr\\freefire folder — engine not connected, so its path is unknown)`;
+  // A command box must only ever contain a command. The fallback used
+  // to append an explanation in parentheses, which got pasted verbatim
+  // into a terminal -- of course it failed. When the engine hasn't
+  // reported its path yet, fall back to a repo-root-relative command
+  // that still RUNS; the caveat belongs in the hint text beside it.
+  if(!dir) return `python ocr\\freefire\\calibrate.py ${pick}`;
   // Quoted: the real path contains a space ("Yash Jadhav") on at least
   // one machine this runs on, and an unquoted path breaks there.
   return `python "${dir}\\calibrate.py" ${pick}`;
@@ -5957,6 +5962,15 @@ function ffAliveCalibCommand(){
 function ffRenderAliveCalibCmd(){
   const el = document.getElementById("ff_aliveCalibCmd");
   if(el) el.textContent = ffAliveCalibCommand();
+  // Where it has to be run FROM lives here, not inside the command --
+  // with the engine connected the path is absolute and the folder
+  // doesn't matter; without it, the command is repo-root-relative.
+  const note = document.getElementById("ff_aliveCalibWhere");
+  if(note){
+    note.textContent = (ffState && ffState.enginePath)
+      ? "Runs from any folder."
+      : "Engine not connected, so its path isn't known — run this one from the repo root (MOBA-OCR-Overlay), or start the engine for a command that works from anywhere.";
+  }
 }
 
 document.getElementById("ff_aliveCalibPick").addEventListener("change", ffRenderAliveCalibCmd);
@@ -8023,7 +8037,10 @@ const VAL_OCR_SCORE_FIELDS = [
 // the whole UI. Paste straight into a terminal already `cd`'d into
 // ocr/valorant (the `cd` prefix is included too in case it isn't).
 function valCopyCalibCommand(key, btn){
-  const cmd = `cd ocr/valorant && python calibrate_valorant.py ${key}`;
+  // Backslashes DOUBLED: this is a JS template literal, where \v is a
+  // vertical tab and \c is just "c" -- written singly it silently
+  // produced "python ocr<VT>alorantcalibrate_valorant.py".
+  const cmd = `python ocr\\valorant\\calibrate_valorant.py ${key}`;
   navigator.clipboard.writeText(cmd).then(() => {
     if(!btn) return;
     const old = btn.textContent;
