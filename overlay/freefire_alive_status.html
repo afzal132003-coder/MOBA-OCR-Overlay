@@ -142,27 +142,58 @@
      faster opacity flicker on a deliberately unrelated duration keeps
      the two from ever lining up into a visible loop. The blur is what
      turns hard gradient bands into something that reads as fire. */
+  /* TONGUES. Separate radial gradients, not one repeating band -- a
+     band slides past as a stripe, whereas discrete blobs of different
+     widths, anchored to the top and bottom edges, read as individual
+     flames. Three background layers each drift at their own speed, so
+     they overlap and separate continuously instead of marching in
+     step, and the whole thing is squashed and stretched vertically on
+     a fourth, unrelated timing for the licking motion. */
   .row.fire::before {
-    content: ""; position: absolute; inset: -5px; z-index: -1;
-    border-radius: 4px;
-    background: repeating-linear-gradient(100deg,
-      rgba(255, 60, 0, 0)    0px,
-      rgba(255, 95, 0, 0.90) 16px,
-      rgba(255, 200, 60, 1)  32px,
-      rgba(255, 120, 0, 0.9) 50px,
-      rgba(255, 55, 0, 0)    72px);
-    background-size: 144px 100%;
-    filter: blur(5px) saturate(1.35);
-    animation: ff-fire-run 1.05s linear infinite,
-               ff-fire-flicker 0.37s ease-in-out infinite alternate;
+    content: ""; position: absolute; inset: -6px; z-index: -1;
+    border-radius: 5px;
+    background:
+      radial-gradient(9px 16px at 12% 0%,   rgba(255,214,84,.95), rgba(255,120,0,.55) 48%, transparent 72%),
+      radial-gradient(13px 22px at 34% 100%, rgba(255,228,120,1),  rgba(255,110,0,.6) 45%, transparent 70%),
+      radial-gradient(8px 15px at 52% 0%,   rgba(255,196,54,.9),  rgba(255,95,0,.5) 48%, transparent 72%),
+      radial-gradient(14px 24px at 71% 100%, rgba(255,222,96,1),   rgba(255,120,0,.6) 45%, transparent 70%),
+      radial-gradient(10px 18px at 88% 0%,  rgba(255,206,70,.95), rgba(255,105,0,.55) 48%, transparent 72%),
+      radial-gradient(12px 20px at 97% 100%, rgba(255,216,90,.95), rgba(255,100,0,.55) 45%, transparent 70%);
+    background-size: 62% 100%, 78% 100%, 55% 100%, 84% 100%, 66% 100%, 72% 100%;
+    background-repeat: repeat-x;
+    filter: blur(3.5px) saturate(1.45);
+    animation: ff-fire-drift 2.3s linear infinite,
+               ff-fire-lick 0.42s ease-in-out infinite alternate;
   }
-  @keyframes ff-fire-run {
-    from { background-position: 0 0; }
-    to   { background-position: 144px 0; }
+  @keyframes ff-fire-drift {
+    from { background-position: 0 0, 0 0, 0 0, 0 0, 0 0, 0 0; }
+    to   { background-position: 62% 0, -78% 0, 55% 0, -84% 0, 66% 0, -72% 0; }
   }
-  @keyframes ff-fire-flicker {
-    from { opacity: 0.72; }
-    to   { opacity: 1; }
+  @keyframes ff-fire-lick {
+    from { transform: scaleY(0.86); opacity: 0.78; }
+    to   { transform: scaleY(1.1);  opacity: 1; }
+  }
+
+  /* EMBERS. Small bright specks rising off the box and fading out --
+     the detail that separates "fire" from "an orange light". Rises on
+     a longer, prime-ish duration so it never syncs with the tongues
+     underneath it. */
+  .row.fire::after {
+    content: ""; position: absolute; inset: -14px -6px -6px; z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(1.6px 1.6px at 18% 70%, rgba(255,230,150,.95), transparent 60%),
+      radial-gradient(1.3px 1.3px at 39% 85%, rgba(255,205,110,.9), transparent 60%),
+      radial-gradient(1.8px 1.8px at 58% 65%, rgba(255,236,170,1), transparent 60%),
+      radial-gradient(1.2px 1.2px at 77% 88%, rgba(255,200,100,.9), transparent 60%),
+      radial-gradient(1.5px 1.5px at 92% 72%, rgba(255,224,140,.95), transparent 60%);
+    filter: blur(0.6px);
+    animation: ff-fire-embers 1.9s linear infinite;
+  }
+  @keyframes ff-fire-embers {
+    0%   { transform: translateY(4px);   opacity: 0; }
+    25%  { opacity: 1; }
+    100% { transform: translateY(-14px); opacity: 0; }
   }
 
   /* A squad can be in the zone AND on a run. These no longer fight:

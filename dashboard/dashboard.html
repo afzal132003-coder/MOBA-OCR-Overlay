@@ -6184,12 +6184,13 @@ function ffRenderAliveGridRows(ff){
   container.innerHTML = `
     <table style="border-collapse:collapse;font-size:12px;white-space:nowrap;">
       <thead><tr style="text-align:left;color:#98a3bd;">
-        <th style="padding:4px 8px;">Row</th><th style="padding:4px 8px;">Team</th>
+        <th style="padding:4px 8px;">Row</th>
         <th style="padding:4px 8px;" colspan="4">Alive (crop → read → override)</th>
         <th style="padding:4px 8px;">Elim (crop → read → override)</th>
         <th style="padding:4px 6px;border-left:1px solid #2b3348;" title="Squad is in the blue zone">ZONE</th>
         <th style="padding:4px 6px;" title="Top killer / on a run">FIRE</th>
         <th style="padding:4px 10px;border-left:1px solid #2b3348;">ON AIR (live)</th>
+        <th style="padding:4px 8px;border-left:1px solid #2b3348;">Team</th>
       </tr></thead>
       <tbody>
       ${Array.from({length: FF_ALIVE_GRID_ROWS}, (_, i) => {
@@ -6199,14 +6200,14 @@ function ffRenderAliveGridRows(ff){
         return `
           <tr style="border-top:1px solid #2b3348;">
             <td style="padding:4px 8px;color:#6b7590;">${i + 1}</td>
-            <td style="padding:4px 8px;">
-              <select class="ff-alive-grid-row" data-row="${i}" style="min-width:160px;">${options.join("")}</select>
-            </td>
             ${[0, 1, 2, 3].map(b => barCell(i, b, barOverrides[`${i}_${b}`])).join("")}
             ${elimCell(i, elimOverrides[String(i)])}
             ${markCell(i, "zone")}
             ${markCell(i, "fire")}
             ${liveCell(i)}
+            <td style="padding:4px 8px;border-left:1px solid #2b3348;">
+              <select class="ff-alive-grid-row" data-row="${i}" style="min-width:160px;">${options.join("")}</select>
+            </td>
           </tr>`;
       }).join("")}
       </tbody>
