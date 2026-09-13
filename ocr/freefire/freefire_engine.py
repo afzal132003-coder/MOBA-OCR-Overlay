@@ -1866,7 +1866,7 @@ def assign_finish_ranks(rows):
 
 
 # How long the top-centre elimination card stays on screen once it fires.
-FREEFIRE_ELIM_CARD_SECONDS = 6
+FREEFIRE_ELIM_CARD_SECONDS = 3
 
 
 def announce_elimination(row, finish_rank):
