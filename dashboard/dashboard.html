@@ -2119,13 +2119,17 @@ Team Charlie
           the same webhook URL as the live alive push (Live In-Game Ops &rarr; Broadcast Sheet Push), and the .gs
           script re-deployed &mdash; see <code>ocr/freefire/freefire_sheet_push.gs</code>.</p>
         <div class="row" style="gap:12px;align-items:flex-end;">
+          <div class="team-form" style="max-width:340px;">
+            <label>Push which game's placement &amp; kills</label>
+            <select id="ff_resultsPushSource"></select>
+          </div>
           <div class="team-form" style="max-width:130px;">
-            <label>Write to match</label>
+            <label>Into match column</label>
             <input type="number" id="ff_resultsPushMatch" min="1" max="10" step="1" value="1">
           </div>
           <button id="ff_resultsPush">Push to RESULTS sheet</button>
-          <span class="hint" id="ff_resultsPushTarget" style="padding-bottom:8px;"></span>
         </div>
+        <div class="hint" id="ff_resultsPushTarget" style="margin-top:6px;"></div>
         <div class="hint" id="ff_resultsPushStatus" style="margin-top:6px;"></div>
       </div>
     </div>
@@ -7716,11 +7720,13 @@ function ffQmeUpdateExport(){
   }
   label.textContent = "Exporting from: " + source.label;
 
-  // Follow the current match automatically, but never overwrite a number
-  // the operator typed themselves -- a re-fetch mid-review would otherwise
+  // Follow the current match automatically, but never overwrite a choice
+  // the operator made themselves -- a re-fetch mid-review would otherwise
   // move the target out from under them.
+  ffRenderResultsSources();
   const matchInput = document.getElementById("ff_resultsPushMatch");
-  if(matchInput && !matchInput.dataset.touched) matchInput.value = ffResultsDefaultMatch();
+  const picked = ffResultsSelectedSource();
+  if(matchInput && !matchInput.dataset.touched && picked) matchInput.value = picked.game;
   ffUpdateResultsPushTarget();
 
   const lines = ffQmeTeams.map(name => {
@@ -7750,13 +7756,75 @@ function ffQmeUpdateExport(){
    because the sheet was reordered and nobody updated the dropdowns. */
 const FF_RESULTS_MATCH_MAX = 10;
 
-// Which match number this is about to write to, if the operator hasn't
-// said otherwise: the game a freshly-reviewed match is about to become,
-// or the last one committed.
-function ffResultsDefaultMatch(){
-  const committed = ((ffState && ffState.matches) || []).length;
-  const n = ffPendingMatch ? committed + 1 : committed;
-  return Math.min(FF_RESULTS_MATCH_MAX, Math.max(1, n));
+/* Every match that could be pushed, newest first: the one under review if
+   there is one, then every committed game.
+
+   Listing them all rather than only ever pushing "the current one" is
+   what makes a re-push possible -- a game that landed in the wrong column,
+   or a sheet that got cleared, can be sent again hours later without
+   re-fetching the result file. `game` is the number that game IS in the
+   series, which is also the column pair it belongs in, so picking a source
+   sets the destination for free. */
+function ffResultsSources(){
+  const out = [];
+  const matches = (ffState && ffState.matches) || [];
+  if(ffPendingMatch && ffPendingMatch.teams && ffPendingMatch.teams.length){
+    out.push({
+      key: "pending",
+      game: Math.min(FF_RESULTS_MATCH_MAX, matches.length + 1),
+      teams: ffPendingMatch.teams,
+      label: "Reviewed, not yet committed \u2014 " + (ffPendingMatch.fileName || ffPendingMatch.matchId),
+    });
+  }
+  matches.forEach((m, i) => {
+    if(!(m.teams && m.teams.length)) return;
+    out.push({
+      key: "committed:" + i,
+      game: Math.min(FF_RESULTS_MATCH_MAX, i + 1),
+      teams: m.teams,
+      label: "Game " + (i + 1) + " \u2014 matchId " + m.matchId,
+    });
+  });
+  return out;
+}
+
+/* Whichever is most CURRENT -- the same match the copy/paste box above is
+   showing. Not simply the first entry: the list reads in game order
+   (Game 1, Game 2, Game 3) because that is how an operator scans it, so
+   the newest committed game is at the BOTTOM. Defaulting to the top of
+   the list would have offered to push Game 1 after three games had been
+   played. */
+function ffResultsDefaultSourceKey(sources){
+  if(!sources.length) return "";
+  const pending = sources.find(s => s.key === "pending");
+  return pending ? pending.key : sources[sources.length - 1].key;
+}
+
+// The one actually selected, or the most current until the operator
+// picks. Falls back if a pinned choice disappears (the review was
+// committed, matches were cleared).
+function ffResultsSelectedSource(){
+  const sources = ffResultsSources();
+  if(!sources.length) return null;
+  const sel = document.getElementById("ff_resultsPushSource");
+  const wanted = sel && sel.value;
+  return sources.find(s => s.key === wanted)
+      || sources.find(s => s.key === ffResultsDefaultSourceKey(sources))
+      || sources[0];
+}
+
+function ffRenderResultsSources(){
+  const sel = document.getElementById("ff_resultsPushSource");
+  if(!sel) return;
+  const sources = ffResultsSources();
+  const keep = sel.value;
+  sel.innerHTML = sources.length
+    ? sources.map(s => '<option value="' + s.key + '">' + ffEscapeHtml(s.label) + '</option>').join("")
+    : '<option value="">No match fetched or committed yet</option>';
+  // Hold a deliberate pick across the rebuild; otherwise follow whatever
+  // is most current.
+  if(sel.dataset.touched && sources.some(s => s.key === keep)) sel.value = keep;
+  else if(sources.length) sel.value = ffResultsDefaultSourceKey(sources);
 }
 
 // D/E, G/H, J/K ... mirroring RESULTS_FIRST_MATCH_COLUMN and
@@ -7776,11 +7844,17 @@ function ffUpdateResultsPushTarget(){
   const input = document.getElementById("ff_resultsPushMatch");
   const target = document.getElementById("ff_resultsPushTarget");
   if(!input || !target) return;
+  const source = ffResultsSelectedSource();
+  if(!source){
+    target.textContent = "Nothing to push yet \u2014 fetch or commit a match first.";
+    return;
+  }
   const match = Math.min(FF_RESULTS_MATCH_MAX, Math.max(1, Number(input.value) || 1));
-  const source = ffQmeSourceMatch();
-  target.textContent = source
-    ? "\u2192 columns " + ffResultsColumnPair(match) + ", from: " + source.label
-    : "Nothing to push yet \u2014 fetch or commit a match first.";
+  const mismatch = match !== source.game
+    ? "  \u26a0 that game is normally match " + source.game + " (" + ffResultsColumnPair(source.game) + ")."
+    : "";
+  target.textContent = "Sending " + source.label + " \u2192 columns " +
+    ffResultsColumnPair(match) + " on the RESULTS tab." + mismatch;
 }
 
 function ffShowResultsPushResult(msg){
@@ -7805,9 +7879,23 @@ document.getElementById("ff_resultsPushMatch").addEventListener("input", (e) => 
   ffUpdateResultsPushTarget();
 });
 
+document.getElementById("ff_resultsPushSource").addEventListener("change", (e) => {
+  e.target.dataset.touched = "1";
+  // Picking a game moves the destination to that game's own columns --
+  // pushing game 2 into match 5's columns is nearly always a slip, and
+  // the operator can still override the number afterwards.
+  const source = ffResultsSelectedSource();
+  const input = document.getElementById("ff_resultsPushMatch");
+  if(source && input){
+    input.value = source.game;
+    delete input.dataset.touched;
+  }
+  ffUpdateResultsPushTarget();
+});
+
 document.getElementById("ff_resultsPush").addEventListener("click", () => {
   const el = document.getElementById("ff_resultsPushStatus");
-  const source = ffQmeSourceMatch();
+  const source = ffResultsSelectedSource();
   if(!source){
     el.textContent = "Nothing to push \u2014 fetch or commit a match first.";
     return;
@@ -7833,8 +7921,8 @@ document.getElementById("ff_resultsPush").addEventListener("click", () => {
   })).filter(r => r.team);
 
   ffWs.send(JSON.stringify({ type: "freefire_results_push", match, rows }));
-  el.textContent = "Sending " + rows.length + " teams to match " + match +
-    " (columns " + ffResultsColumnPair(match) + ")\u2026";
+  el.textContent = "Sending " + rows.length + " teams from " + source.label +
+    " to match " + match + " (columns " + ffResultsColumnPair(match) + ")\u2026";
 });
 
 document.getElementById("ff_qmeCopy").addEventListener("click", async () => {
