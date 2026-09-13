@@ -557,7 +557,7 @@ const LAYOUTS = {
       logo: { x: 664, y: 351, w: 82, h: 111 },
       name: { x: 901, y: 325, w: 307, h: 26, size: 24 },
       rank: { x: 664, y: 316, w: 82, h: 18, size: 15 },
-      seconds: 3,
+      seconds: 4,          // default; settings.elimCardSeconds overrides
     },
   },
 };
@@ -851,6 +851,10 @@ function showElimCard(state, rowEl, L){
   if(logo){ img.src = logo; img.style.display = ""; }
   else { img.removeAttribute("src"); img.style.display = "none"; }
 
+  // The operator's own figure wins over the package default, so the hold
+  // can be tuned mid-event without touching a file.
+  const hold = Number((state.settings || {}).elimCardSeconds) || C.seconds;
+
   clearTimeout(elimCardTimer);
   clearTimeout(elimCardOutTimer);
   card.classList.remove("out");
@@ -861,7 +865,7 @@ function showElimCard(state, rowEl, L){
     // Left showing until the exit animation has actually run, or it would
     // vanish instead of leaving.
     elimCardOutTimer = setTimeout(() => card.classList.remove("show", "out"), 420);
-  }, C.seconds * 1000);
+  }, hold * 1000);
 }
 
 function playFlyby(el){

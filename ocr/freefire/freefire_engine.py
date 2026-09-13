@@ -327,6 +327,11 @@ def default_state():
             # the whole thing.
             "livePointsSheetId": "1O6_lIfDB-O7vX50wHmMxii-57ExD3Nxb5KaxjlG01jA",
             "livePointsTab": "LIVE",
+            # How long the elimination card holds on screen once it has
+            # flown in, in seconds. The fly in and fly out are on top of
+            # this -- it is the time the card is actually READABLE, which
+            # is what an operator is judging when they change it.
+            "elimCardSeconds": 4,
         },
         # Filled in at startup with the engine's own folder -- see the
         # assignment after load_state(). Present here so an old state
@@ -1912,8 +1917,8 @@ def assign_finish_ranks(rows):
     return rows
 
 
-# How long the top-centre elimination card stays on screen once it fires.
-FREEFIRE_ELIM_CARD_SECONDS = 3
+# Fallback when the setting is missing -- see settings.elimCardSeconds.
+FREEFIRE_ELIM_CARD_SECONDS = 4
 
 
 def announce_elimination(row, finish_rank):
@@ -1934,7 +1939,8 @@ def announce_elimination(row, finish_rank):
     if te.get("status") == "shown" and (te.get("shownUntil") or 0) > now_ms:
         return
     te["status"] = "shown"
-    te["shownUntil"] = now_ms + FREEFIRE_ELIM_CARD_SECONDS * 1000
+    seconds = server_state.get("settings", {}).get("elimCardSeconds") or FREEFIRE_ELIM_CARD_SECONDS
+    te["shownUntil"] = now_ms + int(float(seconds) * 1000)
     te["teamName"] = row.get("teamName") or ""
     te["rank"] = finish_rank
     te["kills"] = _sheet_elim_value(row)
