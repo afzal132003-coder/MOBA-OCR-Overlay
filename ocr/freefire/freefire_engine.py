@@ -2823,6 +2823,14 @@ def _post_sheet_payload(url, payload):
         return resp.read().decode("utf-8", "replace")
 
 
+# The last payload actually delivered, so an unchanged table isn't
+# rewritten on every poll. Cleared on a failed send -- see below.
+_last_sheet_payload = None
+# True while a write is on the wire, so concurrent pushes can't stack up
+# and land out of order.
+_sheet_push_inflight = False
+
+
 def _sheet_elim_value(row):
     """What the sheet should show as this row's kill count.
 
@@ -2855,7 +2863,7 @@ def _sheet_elim_value(row):
 
 
 async def push_sidetable_to_sheet(rows):
-    global _last_sheet_push_error_at
+    global _last_sheet_push_error_at, _last_sheet_payload, _sheet_push_inflight
     url = (server_state.get("settings", {}).get("sheetWebhookUrl") or "").strip()
     if not url or not rows:
         return
@@ -2884,14 +2892,38 @@ async def push_sidetable_to_sheet(rows):
             for r in rows
         ],
     }
+    # Nothing to say, nothing to send. A match sits unchanged for most of
+    # its length -- twelve rows all alive, no kills yet -- and rewriting
+    # the same twelve rows four times a second is a write the sheet has to
+    # process, a quota it has to spend, and a cell that visibly repaints
+    # for anyone looking at it.
+    if payload == _last_sheet_payload:
+        return
+
+    # One write on the wire at a time. The poll fires these without
+    # waiting, and a POST outlasts several polls, so without this they
+    # stack up and land out of order -- which is its own way of making a
+    # cell flicker. Dropping this one is safe: the value is still in
+    # sidetableRows, so the next poll sends it, and only the newest
+    # version of the table ever reaches the sheet.
+    if _sheet_push_inflight:
+        return
+    _sheet_push_inflight = True
+    _last_sheet_payload = payload
+
     try:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(ocr_executor, _post_sheet_payload, url, payload)
     except Exception as e:
+        # Forget what was sent, so the next poll retries rather than
+        # treating a failed write as already delivered.
+        _last_sheet_payload = None
         now = time.time()
         if now - _last_sheet_push_error_at > 10:
             _last_sheet_push_error_at = now
             print(f"[sheet push] couldn't reach the webhook -- {e}")
+    finally:
+        _sheet_push_inflight = False
 
 
 def parse_freefire_safezone(text):
@@ -4266,17 +4298,6 @@ async def ocr_loop():
                             server_state["liveOps"]["sidetableRows"] = published
                             server_state["liveOps"]["sidetableSource"] = "log"
                             changed = True
-                            # The sheet gets the SAME rows that go on air, not
-                            # the raw read. Pushing the raw rows put numbers in
-                            # the sheet that the overlay had already rejected --
-                            # 43, 77, 75 elims against squads the graphic was
-                            # correctly showing on 0 and 2, because
-                            # sanitise_published_elims caps a team at
-                            # FREEFIRE_MAX_TEAM_ELIMS and gate_eliminations
-                            # holds a wipe until it is approved. Anything worth
-                            # withholding from air is worth withholding from the
-                            # sheet the broadcast reads off.
-                            asyncio.create_task(push_sidetable_to_sheet(published))
 
                     squads = linked.get("unresolved", [])
                     if squads != server_state["pending"].get("squads"):
@@ -4351,8 +4372,6 @@ async def ocr_loop():
                     ff_live["sidetableRows"] = published
                     ff_live["sidetableUsedPalette"] = parsed["usedPalette"]
                     ff_live["sidetableSource"] = "ocr"
-                    # Same rows as the graphic -- see the note on the log path.
-                    asyncio.create_task(push_sidetable_to_sheet(published))
                     changed = True
 
             # The alive grid, once calibrated -- see the block comment
@@ -4437,8 +4456,6 @@ async def ocr_loop():
                         server_state["liveOps"]["sidetableRows"] = published
                         server_state["liveOps"]["sidetableSource"] = "grid"
                         changed = True
-                        # Same rows as the graphic -- see the note on the log path.
-                        asyncio.create_task(push_sidetable_to_sheet(published))
 
             # Previews go to the dashboard only, and only when the crop
             # actually changed since the last one sent. Both guards are
@@ -4461,6 +4478,29 @@ async def ocr_loop():
                         "type": "crop_preview", "region": region_key,
                         "image": data_url, "text": raw_text or "",
                     })
+
+            # The sheet is written ONCE per poll, here, from whatever the
+            # table finally says -- never from inside the three paths that
+            # build it.
+            #
+            # Those paths run in sequence and each overwrites
+            # sidetableRows wholesale: the log path first, then the OCR
+            # fallback, then the alive grid, which is deliberately last so
+            # it has the final word. Pushing from inside each one meant the
+            # sheet received every intermediate answer -- the log's numbers
+            # and then the grid's, four times a second, two different sets
+            # of values. The dashboard only ever renders the settled state,
+            # which is exactly why it looked steady there while the sheet
+            # flickered.
+            #
+            # The rows that go on air are the rows the sheet gets, and it
+            # gets them once.
+            # Fired, not awaited: a POST to Apps Script takes a second or
+            # more, and this loop runs four times a second. Awaiting it
+            # would stall log tailing, OCR and every state_sync behind a
+            # write to a spreadsheet.
+            asyncio.create_task(
+                push_sidetable_to_sheet(server_state["liveOps"].get("sidetableRows") or []))
 
             if changed:
                 save_state()
