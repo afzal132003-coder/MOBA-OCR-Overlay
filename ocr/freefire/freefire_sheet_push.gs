@@ -50,9 +50,11 @@
  *      Who has access: Anyone with the link -> Deploy.
  *   6. Copy the URL it gives you (ends in /exec) into the dashboard's
  *      "Broadcast Sheet Push" card (Free Fire -> Live In-Game Ops), Save,
- *      then hit "Send Test Row" -- DEBUG_CELL below should show a fresh
- *      timestamp the moment that succeeds, whether or not "SHEET PUSH
- *      TEST" matches a real team name in your sheet.
+ *      then hit "Send Test Row" -- DEBUG_CELL below (AP5 on the
+ *      live-status tab) should show a fresh timestamp the moment that
+ *      succeeds. It will say 0/1 matched, which is correct: the test
+ *      sends a deliberately fake team name, so proving the pipe works
+ *      never depends on a real team matching.
  *   7. If you ever change this file, you have to Deploy -> Manage
  *      deployments -> edit -> New version for the change to actually
  *      take effect -- saving alone does not update a live deployment.
@@ -78,7 +80,7 @@ var ALIVE_COLUMN_COUNT = 4;        // how many alive checkboxes per team (usuall
 var ELIM_COLUMN = "U";             // column holding the elimination count
 var DATA_START_ROW = 5;            // first row that actually holds a team (skip headers above it)
 var DATA_END_ROW = 16;             // last row that holds a team
-var DEBUG_CELL = "Z1";             // any empty cell -- last-received marker, see step 5 above
+var DEBUG_CELL = "AP5";            // an empty cell on the live-status tab -- last-received marker
 
 // ---- RESULTS tab: one column group per match -----------------------------
 var RESULTS_SHEET_NAME = "RESULTS";      // the tab holding the per-match grid
