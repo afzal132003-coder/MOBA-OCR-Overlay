@@ -38,8 +38,37 @@
     font-family: 'Gotham', Arial, sans-serif;
   }
 
-  #stage { position: absolute; inset: 0; display: none; }
-  #stage.show { display: block; }
+  /* Flies in from off the right edge rather than snapping on.
+     ---------------------------------------------------------------
+     The table lives at x 1512..1920, hard against the right side, so
+     that's the direction it belongs coming from -- anything else reads
+     as the panel arriving from nowhere.
+
+     display:none can't be animated, which is why this parks the stage
+     OFF-CANVAS instead of hiding it: 470px clears the table's full
+     408px width plus the flame overhang, and body already has
+     overflow:hidden so nothing of it shows while it's out there.
+
+     Different easing each way, on purpose. Coming in it overshoots
+     very slightly and settles, which reads as deliberate; going out it
+     accelerates away without the overshoot, because a graphic being
+     pulled should leave promptly rather than linger. Opacity is
+     quicker than the slide in both directions so it's never a
+     half-faded rectangle mid-travel. */
+  #stage {
+    position: absolute; inset: 0;
+    opacity: 0;
+    transform: translateX(470px);
+    transition: transform 420ms cubic-bezier(0.55, 0, 0.85, 0.4),
+                opacity   260ms ease-in;
+    will-change: transform, opacity;
+  }
+  #stage.show {
+    opacity: 1;
+    transform: translateX(0);
+    transition: transform 640ms cubic-bezier(0.18, 0.96, 0.32, 1),
+                opacity   300ms ease-out;
+  }
 
   #backdrop { position: absolute; inset: 0; width: 1920px; height: 1080px; }
 
