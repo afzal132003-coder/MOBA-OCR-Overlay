@@ -7941,6 +7941,34 @@ document.getElementById("ff_resultsPushSource").addEventListener("change", (e) =
   ffUpdateResultsPushTarget();
 });
 
+/* The names to send the sheet for one result-file team.
+
+   A match is committed with whatever its result file called the team,
+   which for this event is the file's own shorthand -- TEV, NBE, Tag,
+   GODL. The RESULTS tab is labelled with registered names, and three or
+   four characters is below the floor the receiving script will match on
+   (it has to be: "TE" sits inside "TEAM EVOLUTION" and is a different
+   squad). So those rows matched nothing at all, and only BFA and TSG
+   ARMY -- spelled identically in both -- ever landed.
+
+   Resolving through the roster first turns every one of them into an
+   exact hit, and sends the short name alongside so a sheet labelled the
+   other way round works too. Falls back to the committed name when the
+   roster has never heard of the team, which is no worse than before. */
+function ffTeamNamesForSheet(t){
+  const raw = t.teamName || t.fileTeamName || "";
+  const keys = [normalize_for_matchJs(t.teamName), normalize_for_matchJs(t.fileTeamName)]
+    .filter(k => k);
+  const roster = ((ffState && ffState.roster && ffState.roster.teams) || []);
+  const hit = roster.find(rt =>
+    keys.includes(normalize_for_matchJs(rt.name)) ||
+    keys.includes(normalize_for_matchJs(rt.shortName)));
+  return {
+    team: (hit && hit.name) || raw,
+    short: (hit && hit.shortName) || t.shortName || "",
+  };
+}
+
 document.getElementById("ff_resultsPush").addEventListener("click", () => {
   const el = document.getElementById("ff_resultsPushStatus");
   const source = ffResultsSelectedSource();
@@ -7957,16 +7985,19 @@ document.getElementById("ff_resultsPush").addEventListener("click", () => {
 
   // Every team in the match, not just the twelve rows configured above:
   // the sheet decides which of them it has a row for.
-  const rows = source.teams.map(t => ({
-    team: t.teamName || t.fileTeamName || "",
-    short: t.shortName || "",
-    // rankScore, NOT rank -- the points the file assigns for that finish
-    // (1st=12, 2nd=9, ... 0), which is what the sheet totals. `rank` rides
-    // along so the .gs can be switched to raw placement with one constant.
-    placement: t.rankScore != null ? t.rankScore : null,
-    kills: t.killScore != null ? t.killScore : null,
-    rank: t.rank != null ? t.rank : null,
-  })).filter(r => r.team);
+  const rows = source.teams.map(t => {
+    const named = ffTeamNamesForSheet(t);
+    return {
+      team: named.team,
+      short: named.short,
+      // Both numbers travel: the sheet's PLACE column holds the finishing
+      // position, and RESULTS_PLACEMENT_VALUE in the .gs decides which of
+      // the two it writes.
+      placement: t.rankScore != null ? t.rankScore : null,
+      kills: t.killScore != null ? t.killScore : null,
+      rank: t.rank != null ? t.rank : null,
+    };
+  }).filter(r => r.team);
 
   ffWs.send(JSON.stringify({ type: "freefire_results_push", match, rows }));
   el.textContent = "Sending " + rows.length + " teams from " + source.label +
