@@ -458,6 +458,14 @@ def default_state():
             # reaches air ahead of the tick.
             "pendingEliminations": [],
             "approvedEliminations": [],
+            # Operator-set markers on a squad, keyed by UPPERCASED team
+            # name: {"TSG ARMY": {"zone": true, "fire": false}}. Keyed by
+            # team rather than by row because the table re-sorts itself
+            # constantly -- a mark belongs to the squad, not to whatever
+            # slot it happens to occupy. Neither is detected: being in
+            # the zone or on a hot streak is a judgement call, so it's a
+            # tick the operator makes.
+            "teamMarks": {},
         },
         # Sequential Num5 loadout capture. "pointer" indexes into the
         # flattened roster (team-then-player order, see
@@ -1717,6 +1725,20 @@ _alive_grid_last_elims = {}
 # timer). Kept generous on purpose: this only has to catch nonsense,
 # not police a plausible score.
 FREEFIRE_MAX_TEAM_ELIMS = 35
+
+
+def apply_team_marks(rows):
+    """Attaches the operator's zone/fire ticks to each published row.
+
+    Carried on the row itself rather than looked up separately in the
+    overlay, so every consumer of sidetableRows sees them the same way
+    and none of them needs its own copy of the team-name matching."""
+    marks = server_state["liveOps"].get("teamMarks") or {}
+    for row in rows:
+        mark = marks.get((row.get("teamName") or "").strip().upper()) or {}
+        row["inZone"] = bool(mark.get("zone"))
+        row["onFire"] = bool(mark.get("fire"))
+    return rows
 
 
 # team -> the bars/count it last showed while still alive, so a wipe
@@ -3649,6 +3671,19 @@ async def handle_client(websocket, path=None):
                             pass
                     save_state()
                     await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "freefire_set_team_mark":
+                # zone / fire markers. Stored against the team, cleared
+                # by unticking, and wiped entirely on a new match.
+                team = (payload.get("team") or "").strip().upper()
+                mark = payload.get("mark")
+                if team and mark in ("zone", "fire"):
+                    marks = server_state["liveOps"].setdefault("teamMarks", {})
+                    entry = marks.setdefault(team, {})
+                    entry[mark] = bool(payload.get("on"))
+                    if not any(entry.values()):
+                        marks.pop(team, None)
+                    save_state()
+                    await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") == "freefire_approve_elimination":
                 # The tick. Moves one squad from pending to approved, at
                 # which point gate_eliminations stops holding its wipe
@@ -3829,6 +3864,7 @@ async def handle_live_signals(signals, gs_names):
             _last_alive_by_team.clear()
             server_state["liveOps"]["approvedEliminations"] = []
             server_state["liveOps"]["pendingEliminations"] = []
+            server_state["liveOps"]["teamMarks"] = {}
 
         elif signal["type"] == "match_end":
             _pending_match_fetch = signal["matchId"]
@@ -3951,7 +3987,7 @@ async def ocr_loop():
                     if linked["rows"]:
                         log_sidetable_rows = linked["rows"]
                         if linked["rows"] != server_state["liveOps"].get("sidetableRows"):
-                            server_state["liveOps"]["sidetableRows"] = gate_eliminations(sanitise_published_elims(linked["rows"]))
+                            server_state["liveOps"]["sidetableRows"] = apply_team_marks(gate_eliminations(sanitise_published_elims(linked["rows"])))
                             server_state["liveOps"]["sidetableSource"] = "log"
                             changed = True
                             asyncio.create_task(push_sidetable_to_sheet(linked["rows"]))
@@ -4025,7 +4061,7 @@ async def ocr_loop():
                 )
                 ff_live = server_state["liveOps"]
                 if parsed["rows"] != ff_live.get("sidetableRows"):
-                    ff_live["sidetableRows"] = gate_eliminations(sanitise_published_elims(parsed["rows"]))
+                    ff_live["sidetableRows"] = apply_team_marks(gate_eliminations(sanitise_published_elims(parsed["rows"])))
                     ff_live["sidetableUsedPalette"] = parsed["usedPalette"]
                     ff_live["sidetableSource"] = "ocr"
                     asyncio.create_task(push_sidetable_to_sheet(parsed["rows"]))
@@ -4109,7 +4145,7 @@ async def ocr_loop():
                         if key not in seen:
                             merged.append(r)
                     if merged != server_state["liveOps"].get("sidetableRows"):
-                        server_state["liveOps"]["sidetableRows"] = gate_eliminations(sanitise_published_elims(merged))
+                        server_state["liveOps"]["sidetableRows"] = apply_team_marks(gate_eliminations(sanitise_published_elims(merged)))
                         server_state["liveOps"]["sidetableSource"] = "grid"
                         changed = True
                         asyncio.create_task(push_sidetable_to_sheet(merged))

@@ -1834,7 +1834,12 @@ Team Charlie
         unassigned just doesn't contribute to the alive/elim table or the sheet push — everything else keeps
         working either way.</p>
       <div class="row" style="gap:8px;align-items:flex-end;">
-        <button class="secondary" id="ff_aliveGridPreviewBtn">Capture Preview</button>
+        <div class="row" style="gap:8px;margin-bottom:10px;align-items:center;">
+        <button id="ff_aliveHereShow">Push Alive Status Up</button>
+        <button class="secondary" id="ff_aliveHereHide">Pull Down</button>
+        <span class="hint" id="ff_aliveHereState" style="align-self:center;"></span>
+      </div>
+      <button class="secondary" id="ff_aliveGridPreviewBtn">Capture Preview</button>
         <div class="team-form" style="max-width:300px;margin:0;">
           <label>Recalibrate</label>
           <select id="ff_aliveCalibPick">
@@ -5103,6 +5108,8 @@ function ffConnect(){
       ffMountAliveOutput();
       ffExplainAliveOutput(ffState);
       ffRenderPendingEliminations(ffState);
+      ffSyncAliveRowMarks(ffState);
+      ffRenderAliveHereState(ffState);
       ffRenderEvent(ffState);
       ffQmeSeedFromRoster(ffState);
       ffQmeUpdateExport();
@@ -6009,6 +6016,25 @@ function ffRenderPendingEliminations(ff){
   });
 }
 
+/* Push/pull right here. Same messages the Graphic tab sends -- this is
+   a second way to reach them, not a second source of truth -- because
+   going to another tab to put the graphic up mid-match costs time when
+   everything else needed for it is already on this screen. */
+document.getElementById("ff_aliveHereShow").addEventListener("click", () => {
+  if(ffWs && ffWs.readyState === WebSocket.OPEN) ffWs.send(JSON.stringify({ type: "alive_status_show" }));
+});
+document.getElementById("ff_aliveHereHide").addEventListener("click", () => {
+  if(ffWs && ffWs.readyState === WebSocket.OPEN) ffWs.send(JSON.stringify({ type: "alive_status_hide" }));
+});
+
+function ffRenderAliveHereState(ff){
+  const el = document.getElementById("ff_aliveHereState");
+  if(!el) return;
+  const up = !!(ff.display && ff.display.aliveStatusVisible);
+  el.textContent = up ? "● ON AIR" : "○ not on air";
+  el.style.color = up ? "#4ade80" : "#6b7590";
+}
+
 document.getElementById("ff_elimApproval").addEventListener("change", (e) => {
   if(!ffState) return;
   const settings = Object.assign({}, ffState.settings || {}, { eliminationApproval: e.target.checked });
@@ -6049,6 +6075,21 @@ const FF_PICK_CONFIRM_MS = 4000;
    list may be open mid-choice), and skips a row whose pick is still
    awaiting confirmation -- unless the engine has had long enough to
    answer, in which case the server genuinely disagrees and wins. */
+/* Ticks follow the TEAM, so a row reassigned to a different squad shows
+   that squad's marks rather than inheriting the previous one's. Applied
+   in place, skipping whatever has focus, for the same reason as the
+   team dropdown. */
+function ffSyncAliveRowMarks(ff){
+  const rowTeams = (ff.liveOps && ff.liveOps.aliveRowTeams) || [];
+  const marks = (ff.liveOps && ff.liveOps.teamMarks) || {};
+  document.querySelectorAll(".ff-alive-mark").forEach(box => {
+    if(box === document.activeElement) return;
+    const team = (rowTeams[Number(box.dataset.row)] || "").trim().toUpperCase();
+    const want = !!((marks[team] || {})[box.dataset.mark]);
+    if(box.checked !== want) box.checked = want;
+  });
+}
+
 function ffSyncAliveRowSelects(rowTeams){
   const now = Date.now();
   document.querySelectorAll(".ff-alive-grid-row").forEach(sel => {
@@ -6124,6 +6165,13 @@ function ffRenderAliveGridRows(ff){
   // consume, so it updates on every sync. The point is that a wrong
   // number is visible the moment it goes out, not whenever someone
   // thinks to check.
+  // Zone / fire ticks. Checked state is applied separately (see
+  // ffSyncAliveRowMarks) for the same reason the team dropdown is:
+  // rebuilding a control the operator is reaching for loses the click.
+  const markCell = (i, mark) => `
+    <td style="padding:4px 6px;text-align:center;${mark === "zone" ? "border-left:1px solid #2b3348;" : ""}">
+      <input type="checkbox" class="ff-alive-mark" data-row="${i}" data-mark="${mark}">
+    </td>`;
   const liveCell = (i) => `
     <td class="ff-alive-live" data-row="${i}" style="padding:4px 10px;text-align:center;
         min-width:96px;border-left:1px solid #2b3348;">
@@ -6139,6 +6187,8 @@ function ffRenderAliveGridRows(ff){
         <th style="padding:4px 8px;">Row</th><th style="padding:4px 8px;">Team</th>
         <th style="padding:4px 8px;" colspan="4">Alive (crop → read → override)</th>
         <th style="padding:4px 8px;">Elim (crop → read → override)</th>
+        <th style="padding:4px 6px;border-left:1px solid #2b3348;" title="Squad is in the blue zone">ZONE</th>
+        <th style="padding:4px 6px;" title="Top killer / on a run">FIRE</th>
         <th style="padding:4px 10px;border-left:1px solid #2b3348;">ON AIR (live)</th>
       </tr></thead>
       <tbody>
@@ -6154,6 +6204,8 @@ function ffRenderAliveGridRows(ff){
             </td>
             ${[0, 1, 2, 3].map(b => barCell(i, b, barOverrides[`${i}_${b}`])).join("")}
             ${elimCell(i, elimOverrides[String(i)])}
+            ${markCell(i, "zone")}
+            ${markCell(i, "fire")}
             ${liveCell(i)}
           </tr>`;
       }).join("")}
@@ -6173,6 +6225,24 @@ function ffRenderAliveGridRows(ff){
       }));
       document.getElementById("ff_aliveGridStatus").textContent =
         el.value ? `Row ${Number(el.dataset.row) + 1} → ${el.value}` : `Row ${Number(el.dataset.row) + 1} cleared`;
+    });
+  });
+
+  container.querySelectorAll(".ff-alive-mark").forEach(el => {
+    el.addEventListener("change", () => {
+      if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+      const team = ((ffState && ffState.liveOps && ffState.liveOps.aliveRowTeams) || [])[Number(el.dataset.row)] || "";
+      if(!team){
+        el.checked = false;
+        document.getElementById("ff_aliveGridStatus").textContent =
+          "Assign a team to that row first — the marker follows the squad, not the row.";
+        return;
+      }
+      ffWs.send(JSON.stringify({
+        type: "freefire_set_team_mark", team, mark: el.dataset.mark, on: el.checked,
+      }));
+      document.getElementById("ff_aliveGridStatus").textContent =
+        `${team}: ${el.dataset.mark} ${el.checked ? "on" : "off"}.`;
     });
   });
 
