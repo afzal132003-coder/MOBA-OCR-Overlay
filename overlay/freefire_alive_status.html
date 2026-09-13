@@ -43,6 +43,12 @@
 
   #backdrop { position: absolute; inset: 0; width: 1920px; height: 1080px; }
 
+  /* Establishes a stacking context for the rows. Without it, the fire
+     ring's z-index:-1 escapes to #stage and paints BEHIND the backdrop
+     image -- invisible. Confined here, -1 only means "behind my own
+     row", which is what makes the box cover the middle of the flame. */
+  #rows { position: absolute; inset: 0; z-index: 1; }
+
   /* Each row carries its OWN copy of the box, cropped live out of the
      backdrop artwork (see ROW_STRIP in the script). The boxes are drawn
      into ALIVE STATUS.png, so without this only the text and icons slid
@@ -119,20 +125,49 @@
     50%      { box-shadow: inset 0 0 22px 5px rgba(60, 170, 255, 0.42); }
   }
 
-  .row.fire { animation: ff-fire-glow 1.5s ease-in-out infinite; }
-  @keyframes ff-fire-glow {
-    0%, 100% { box-shadow: inset 0 0 14px 2px rgba(255, 150, 20, 0.24); }
-    50%      { box-shadow: inset 0 0 24px 6px rgba(255, 190, 40, 0.52); }
+  /* Fire is a BORDER effect, not a wash over the box -- a tint sitting
+     on top of the artwork just dulls the name and numbers, while flame
+     around the edge says "this squad" without touching what's inside
+     it.
+
+     Drawn in ::before, inset NEGATIVE so it extends past the box on all
+     sides, and placed at z-index -1 so the row's own box paints over
+     its middle. Only the overhang shows: a licking fringe around the
+     edges rather than a rectangle behind everything. #rows carries a
+     stacking context so that -1 stays above the backdrop instead of
+     disappearing behind it.
+
+     Two animations at once, on purpose: the gradient slides steadily
+     for the sense of flame travelling around the box, while a much
+     faster opacity flicker on a deliberately unrelated duration keeps
+     the two from ever lining up into a visible loop. The blur is what
+     turns hard gradient bands into something that reads as fire. */
+  .row.fire::before {
+    content: ""; position: absolute; inset: -5px; z-index: -1;
+    border-radius: 4px;
+    background: repeating-linear-gradient(100deg,
+      rgba(255, 60, 0, 0)    0px,
+      rgba(255, 95, 0, 0.90) 16px,
+      rgba(255, 200, 60, 1)  32px,
+      rgba(255, 120, 0, 0.9) 50px,
+      rgba(255, 55, 0, 0)    72px);
+    background-size: 144px 100%;
+    filter: blur(5px) saturate(1.35);
+    animation: ff-fire-run 1.05s linear infinite,
+               ff-fire-flicker 0.37s ease-in-out infinite alternate;
+  }
+  @keyframes ff-fire-run {
+    from { background-position: 0 0; }
+    to   { background-position: 144px 0; }
+  }
+  @keyframes ff-fire-flicker {
+    from { opacity: 0.72; }
+    to   { opacity: 1; }
   }
 
-  /* A squad can be in the zone AND on a run. The two animations would
-     otherwise overwrite each other's box-shadow, with whichever is
-     declared last simply winning and the other vanishing. */
-  .row.zone.fire { animation: ff-zone-fire-glow 2s ease-in-out infinite; }
-  @keyframes ff-zone-fire-glow {
-    0%, 100% { box-shadow: inset 0 0 16px 3px rgba(40, 140, 255, 0.30); }
-    50%      { box-shadow: inset 0 0 24px 6px rgba(255, 180, 40, 0.45); }
-  }
+  /* A squad can be in the zone AND on a run. These no longer fight:
+     the zone tints the inside via box-shadow, fire rings the outside
+     via ::before, so both simply show. */
 
   /* Rows slide to their new slot instead of snapping. This only works
      because a row's element PERSISTS between updates (see rowEls in the
