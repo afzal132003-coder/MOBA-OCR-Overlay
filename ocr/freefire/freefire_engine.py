@@ -1836,8 +1836,14 @@ FREEFIRE_ELIM_AGREE_FRAMES = 2
 # and the entire point is that what does land is real.
 FREEFIRE_ELIM_SETTLE_FRAMES = 4
 
-# row index -> (candidate value, how many consecutive polls have read it)
-_alive_grid_elim_pending = {}
+# How many of the last FREEFIRE_ELIM_WINDOW genuine reads must agree
+# before a new value is believed. Counted over a window rather than
+# consecutively -- see hold_last_good_elims for the two ways consecutive
+# counting starved a busy row.
+FREEFIRE_ELIM_WINDOW = 5
+
+# row index -> the last few genuine reads, newest last
+_alive_grid_elim_recent = {}
 # row index -> the bar pattern last seen, and polls left before this
 # row's elim box is trusted again. See FREEFIRE_ELIM_SETTLE_FRAMES.
 _alive_grid_last_bars = {}
@@ -1959,19 +1965,33 @@ def hold_last_good_elims(grid_rows, remember=True):
         if settling > 0:
             reading = None          # mid-animation: nothing here is real yet
 
-        if reading is None or reading == accepted:
+        # Agreement is counted over a WINDOW of recent genuine reads, not
+        # over consecutive polls. Two separate things starved the old
+        # consecutive rule, and the busiest row on the table hit both:
+        #
+        #   - A settling frame reads as None, and None used to clear the
+        #     pending counter. A squad whose bars keep changing settles
+        #     constantly, so its counter was wiped before it could ever
+        #     reach two -- its count could sit stale indefinitely while
+        #     every quieter row updated fine.
+        #   - A two-digit number that occasionally misreads (21, 2, 21,
+        #     27, 21) never produces two IDENTICAL reads back to back,
+        #     even though the true value is clearly the most common one.
+        #
+        # Counting occurrences in the last few genuine reads handles
+        # both: real values recur, garbage rarely repeats itself.
+        # Frames with nothing to read don't enter the window at all, so
+        # a settle simply pauses progress rather than undoing it.
+        if reading is not None:
+            recent = _alive_grid_elim_recent.get(i, [])
+            recent = (recent + [reading])[-FREEFIRE_ELIM_WINDOW:]
             if remember:
-                _alive_grid_elim_pending.pop(i, None)
-        else:
-            candidate, seen = _alive_grid_elim_pending.get(i, (None, 0))
-            seen = seen + 1 if candidate == reading else 1
-            if seen >= FREEFIRE_ELIM_AGREE_FRAMES:
+                _alive_grid_elim_recent[i] = recent
+            if reading != accepted and recent.count(reading) >= FREEFIRE_ELIM_AGREE_FRAMES:
                 accepted = reading
                 if remember:
                     _alive_grid_last_elims[i] = reading
-                    _alive_grid_elim_pending.pop(i, None)
-            elif remember:
-                _alive_grid_elim_pending[i] = (reading, seen)
+                    _alive_grid_elim_recent[i] = [reading]
 
         row["elims"] = accepted          # None until something is believed
         # True when this frame didn't confirm what's being published --
@@ -3662,7 +3682,7 @@ async def handle_client(websocket, path=None):
                         # clearing the force field is the way to say
                         # "forget what you think you saw and re-read".
                         _alive_grid_last_elims.pop(row, None)
-                        _alive_grid_elim_pending.pop(row, None)
+                        _alive_grid_elim_recent.pop(row, None)
                         _alive_grid_settle.pop(row, None)
                     else:
                         try:
@@ -3856,7 +3876,7 @@ async def handle_live_signals(signals, gs_names):
             # Last game's held elim counts must not carry into this one --
             # see _alive_grid_last_elims. Every row starts unread again.
             _alive_grid_last_elims.clear()
-            _alive_grid_elim_pending.clear()
+            _alive_grid_elim_recent.clear()
             _alive_grid_last_bars.clear()
             _alive_grid_settle.clear()
             _alive_grid_accepted_bars.clear()
