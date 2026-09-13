@@ -670,14 +670,29 @@ let elimSeq = new Map();     // team key -> when it went out (higher = later)
 let elimCounter = 0;
 
 function noteElimination(key, row){
-  if(elimSeq.has(key)) return;
-  // placement counts DOWN as teams survive longer (first out = 12), so a
-  // bigger placement is an earlier exit -- negate it to match the
-  // counter's "higher is later" ordering, and keep it below any
-  // elimination this page actually witnessed.
-  elimSeq.set(key, row && row.placement != null
-    ? -row.placement
-    : ++elimCounter);
+  /* Where this squad finished, which is what decides its slot once it is
+     out. finishRank is the engine's own answer -- 12 for the first
+     casualty, 1 for the winner -- and it is the same number the
+     elimination card prints, so the table and the card cannot disagree.
+
+     A real position ALWAYS wins, even if a provisional counter value was
+     recorded first. The counter only records the order this page happened
+     to notice a squad was out, and a reload, a row reassignment or a
+     name resolving late scrambles that: a squad that went out first could
+     be noticed last and land at the top of the table. That is the row
+     jumping to slot 1 on an unrelated update.
+
+     placement is still read because the log path supplies it; the grid
+     path never did, which is why the counter was doing all the work. */
+  const rank = row && row.finishRank != null ? row.finishRank
+             : row && row.placement != null ? row.placement
+             : null;
+  if(rank != null){
+    const want = -rank;     // negated: higher sorts first, and 1st beats 12th
+    if(elimSeq.get(key) !== want) elimSeq.set(key, want);
+    return;
+  }
+  if(!elimSeq.has(key)) elimSeq.set(key, ++elimCounter);
 }
 
 /* A kill count can be momentarily unknown -- an unreadable frame, or a
@@ -728,8 +743,10 @@ function orderRows(rows){
       return rowKeyOf(a) < rowKeyOf(b) ? -1 : 1;
     }
 
-    // Both out: most recently eliminated sits highest, so the first
-    // casualty ends up on the bottom row.
+    // Both out: ordered by where they finished, so 1st place sits
+    // directly under the alive block and the first casualty ends up on
+    // the bottom row. A squad with no position yet falls back to the
+    // order this page saw it go -- see noteElimination.
     const sa = elimSeq.has(rowKeyOf(a)) ? elimSeq.get(rowKeyOf(a)) : 0;
     const sb = elimSeq.has(rowKeyOf(b)) ? elimSeq.get(rowKeyOf(b)) : 0;
     if(sa !== sb) return sb - sa;
