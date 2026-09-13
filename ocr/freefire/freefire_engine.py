@@ -2981,15 +2981,41 @@ def compute_champion_rush(matches, threshold=110):
     }
 
 
-def compute_freefire_standings(matches):
+def compute_freefire_standings(matches, roster_teams=None):
+    """Totals every committed match into one table, aggregating on the
+    ROSTER's identity rather than on whatever string each match happened
+    to be committed with.
+
+    That distinction is the whole job here. A match committed before the
+    roster had short names in it stored the result file's own name --
+    "TEV", "NBE", "4NDS" -- while one committed afterwards resolves to
+    "TEAM EVOLUTION", "NEBULA ESP", "4ENDS ESP". Keyed on the literal
+    string, the same squad becomes two rows with half the points each.
+    Measured on the real state file: two games of eleven teams produced
+    TWENTY rows, and the only two that survived intact were the two whose
+    file name happens to equal their roster name.
+
+    Resolving here rather than only at commit time also means fixing a
+    roster entry (or teaching an alias) repairs matches already in the
+    book, instead of leaving them mis-keyed forever."""
+    if roster_teams is None:
+        roster_teams = ((server_state.get("roster") or {}).get("teams")) or []
     agg = {}
     for match in matches:
         for team in match.get("teams", []):
             name = (team.get("teamName") or "").strip()
             if not name:
                 continue
-            row = agg.setdefault(name, {
-                "teamName": name, "shortName": team.get("shortName", ""),
+            short = team.get("shortName", "")
+            roster_team = match_roster_team(name, roster_teams) if roster_teams else None
+            if roster_team:
+                name = (roster_team.get("name") or name).strip()
+                short = roster_team.get("shortName") or short
+            # Normalised key even after resolving, so two spellings that
+            # both fail to resolve ("TSG ARMY" and "TSG  Army") still land
+            # in one row rather than two.
+            row = agg.setdefault(normalize_for_match(name) or name, {
+                "teamName": name, "shortName": short,
                 "matches": 0, "totalKills": 0, "placementPoints": 0,
                 "totalPoints": 0, "bestRank": None, "booyahs": 0,
             })
@@ -3012,7 +3038,25 @@ def compute_freefire_standings(matches):
             if rank == 1:
                 row["booyahs"] += 1
     standings = list(agg.values())
-    standings.sort(key=lambda r: (-r["totalPoints"], -r["totalKills"]))
+    # Points, then kills -- as before -- and then a tail that makes the
+    # rest deterministic instead of leaving it to the order teams happened
+    # to appear in the result file. Measured before this: two teams level
+    # on points and kills were ordered by file position, so reversing the
+    # file reversed the standings.
+    #
+    # Placement points are deliberately NOT in the chain: totalScore is
+    # rankScore + killScore in every row the client writes (checked
+    # against the real file), so once points and kills are both level,
+    # placement points are level too and the criterion can never decide
+    # anything. Booyahs and best finish can, and team name is the final
+    # backstop so the answer never depends on input order.
+    standings.sort(key=lambda r: (
+        -r["totalPoints"],
+        -r["totalKills"],
+        -r["booyahs"],
+        r["bestRank"] if r["bestRank"] is not None else 999,
+        r["teamName"].upper(),
+    ))
     return standings
 
 
