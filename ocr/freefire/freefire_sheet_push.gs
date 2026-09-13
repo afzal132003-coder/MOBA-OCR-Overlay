@@ -73,7 +73,7 @@ var ALIVE_SPREADSHEET_ID = "1XX5CuUlGHPFzxd3PN8YPx6k_WEK0MdbKMus8cNwrNrk";
 var RESULTS_SPREADSHEET_ID = "1O6_lIfDB-O7vX50wHmMxii-57ExD3Nxb5KaxjlG01jA";
 
 // ---- ALIVE tab: the live side table --------------------------------------
-var SHEET_NAME = "";               // tab name; blank = the first tab in that spreadsheet
+var SHEET_NAME = "LIVESTATUS";     // tab name; blank = whichever tab happens to be first
 var TEAM_COLUMN = "P";             // column holding each row's team name
 var ALIVE_START_COLUMN = "Q";      // first of the alive checkbox columns
 var ALIVE_COLUMN_COUNT = 4;        // how many alive checkboxes per team (usually the squad size)
