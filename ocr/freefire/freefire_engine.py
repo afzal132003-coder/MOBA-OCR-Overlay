@@ -296,6 +296,10 @@ def default_state():
             # it entirely; nothing is sent anywhere by default.
             "sheetWebhookUrl": "",
         },
+        # Filled in at startup with the engine's own folder -- see the
+        # assignment after load_state(). Present here so an old state
+        # file still merges cleanly.
+        "enginePath": "",
         "currentMatchId": None,
         "currentContext": "",
         "knownContexts": [],
@@ -545,6 +549,12 @@ def save_state():
 
 
 server_state = load_state()
+# Where this engine is actually running from, so the dashboard can build
+# a calibration command that works on THIS machine. Set every start
+# rather than saved: a state file copied between machines (or a repo
+# moved) would otherwise hand out a path that no longer exists. The
+# dashboard is served from Vercel and has no other way to know it.
+server_state["enginePath"] = str(Path(__file__).resolve().parent)
 # Rebuilt every start rather than trusted from the saved state: the
 # operator can drop new artwork into assets/FFM between sessions, and a
 # stale list would hide it.

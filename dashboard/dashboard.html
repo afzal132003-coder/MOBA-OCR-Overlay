@@ -1849,9 +1849,10 @@ Team Charlie
         </div>
         <button class="secondary" id="ff_aliveCalibCopy">Copy Command</button>
       </div>
-      <p class="hint" style="margin-top:6px;">Paste into PowerShell at the repo root, with the match on screen.
-        Recalibrating one box only redraws that box — the others keep their current values, so fixing a single
-        misaligned crop doesn't mean redoing them all. Restart the engine afterwards to pick it up.</p>
+      <p class="hint" style="margin-top:6px;">Paste into any terminal — cmd or PowerShell, from any folder — with
+        the match on screen. Recalibrating one box only redraws that box; the others keep their current values, so
+        fixing a single misaligned crop doesn't mean redoing them all. Restart the engine afterwards to pick it
+        up.</p>
       <p class="hint" style="margin-top:2px;">Players 3 and 4 are normally <em>derived</em> from the spacing
         between players 1 and 2, so they have no box of their own and usually need none. Pin one only if that
         column's crop actually sits off-centre while the others look right — once drawn, it's used exactly where
@@ -5929,12 +5930,28 @@ function ffUpdateAliveGridLive(ff){
 
 /* Recalibration shortcut. calibrate.py already accepts either a
    category or a single region key, so "fix just the elim box" is a real
-   command and not a workaround -- the other three anchors keep whatever
-   they had. PowerShell, because that's the shell this runs in: no &&,
-   so the cd is a separate statement. */
+   command and not a workaround -- the other anchors keep whatever they
+   had.
+
+   No "cd" in the command, deliberately. The first version used a
+   relative path plus a PowerShell-style ";" separator, which failed
+   twice over: it assumed a shell (cmd.exe treats ";" as part of the
+   folder name, not a separator) and it assumed the terminal was already
+   at the repo root. calibrate.py resolves its own config from
+   __file__, so the working directory is irrelevant -- an absolute
+   script path with no cd runs identically in cmd, PowerShell and a
+   terminal opened anywhere.
+
+   The path comes from the engine itself (state.enginePath), since a
+   dashboard served from Vercel otherwise has no idea where the repo
+   lives on the machine actually running the capture. */
 function ffAliveCalibCommand(){
   const pick = document.getElementById("ff_aliveCalibPick").value;
-  return `cd ocr\\freefire; python calibrate.py ${pick}`;
+  const dir = (ffState && ffState.enginePath) || "";
+  if(!dir) return `python calibrate.py ${pick}   (run from the ocr\\freefire folder — engine not connected, so its path is unknown)`;
+  // Quoted: the real path contains a space ("Yash Jadhav") on at least
+  // one machine this runs on, and an unquoted path breaks there.
+  return `python "${dir}\\calibrate.py" ${pick}`;
 }
 
 function ffRenderAliveCalibCmd(){
