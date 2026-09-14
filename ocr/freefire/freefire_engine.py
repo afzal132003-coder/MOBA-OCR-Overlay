@@ -1929,6 +1929,27 @@ FREEFIRE_PLACEMENT_POINTS = {
 _finish_ranks = {}
 
 
+def _lobby_size(rows=None):
+    """How many squads started this match.
+
+    Read off the ROSTER, not off the live rows. The row list is whatever
+    the grid managed to make out on a given poll, so a single unread row
+    -- a name that did not resolve, two rows that read as the same squad
+    -- made the lobby look one smaller and shifted every finishing
+    position from that moment on. A real match dealt 1..11 where it owed
+    2..12, handing out 1st to a squad that went out ninth.
+
+    Falls back to the rows, then to twelve, which is a Free Fire lobby.
+    """
+    teams = ((server_state.get("roster") or {}).get("teams") or [])
+    named = sum(1 for t in teams if (t.get("name") or "").strip())
+    if named:
+        return named
+    if rows is None:
+        rows = (server_state.get("liveOps") or {}).get("sidetableRows") or []
+    return len(rows) or 12
+
+
 def assign_finish_ranks(rows):
     """Works out where each wiped squad finished, as it happens.
 
@@ -1990,7 +2011,11 @@ def assign_finish_ranks(rows):
     # holds. The live table had DESI GAMER and TEAM APEX both on 10th with
     # 11th unused, which is two squads claiming one finish.
     taken = set(_finish_ranks.values())
-    top = len(live) + len(fresh)
+    # Counted down from the lobby by how many have already finished,
+    # rather than up from how many rows currently read alive. Those two
+    # agree only while every row is being read cleanly, and the moment
+    # they disagree it is the position that is wrong.
+    top = _lobby_size(rows) - len(_finish_ranks)
     for row, name in fresh:
         while top in taken and top > 1:
             top -= 1
@@ -2065,25 +2090,14 @@ def claim_finish_rank(key, rows):
     never collide with one dealt automatically."""
     if key in _finish_ranks:
         return _finish_ranks[key]
-    # Rows not marked eliminated: any wipe still waiting for its own
-    # tick, and normally this squad too, since a held wipe is not shown
-    # as out until it is released.
-    still_in = sum(1 for r in rows if not r.get("eliminated"))
-    # But not always. A wipe that reached air without being held -- the
-    # gate with no alive reading to hold it, or confirmation switched off
-    # -- is already marked eliminated by the time anyone ticks it, so it
-    # was not in that count. Left uncorrected every such card came out
-    # one place too good: the last squad of eleven printed #01, as though
-    # it had won.
-    #
-    # A squad finishes where it STOOD, itself included.
-    counted = any(not r.get("eliminated")
-                  and (r.get("teamName") or "").strip().upper() == key
-                  for r in rows)
-    if not counted:
-        still_in += 1
+    # The same count the automatic path uses, for the same reason: what
+    # is left of the lobby once everyone who has already finished is
+    # taken out of it. Counting the rows that read alive instead made the
+    # answer depend on things that have nothing to do with the result --
+    # whether this wipe was held for the tick or had already gone
+    # through, and whether the grid read every row that poll.
     taken = set(_finish_ranks.values())
-    pos = max(1, still_in)
+    pos = max(1, _lobby_size(rows) - len(_finish_ranks))
     while pos in taken and pos > 1:
         pos -= 1
     _finish_ranks[key] = pos
