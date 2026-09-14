@@ -35,6 +35,11 @@ from urllib.parse import urlparse, parse_qs
 import cv2
 import numpy as np
 import mss
+
+# mss 10 renamed the entry point and warns on every mss.mss() call. The
+# old name still works, so this is cosmetic -- but it fires from four
+# places on startup and buries anything worth reading in the log.
+mss_grabber = getattr(mss, "MSS", None) or mss.mss
 import pytesseract
 import websockets
 import keyboard
@@ -1138,7 +1143,7 @@ def capture_lobby_blocks(regions_cfg, uid_pass=False):
     with an unreadable name still contributes its players and vice versa --
     with a single box, one bad read took the whole squad with it."""
     cards = []
-    with mss.mss() as sct:
+    with mss_grabber() as sct:
         for card in LOBBY_CARDS:
             def crop(key):
                 region = regions_cfg.get(key)
@@ -2014,6 +2019,12 @@ def assign_finish_ranks(rows):
 # Fallback when the setting is missing -- see settings.elimCardSeconds.
 FREEFIRE_ELIM_CARD_SECONDS = 4
 
+# How long a card keeps once another squad is waiting behind it. Cards
+# strictly in turn at four seconds each meant a tick could show nothing
+# for most of a ten-count, which reads as the button not working. Short,
+# but not so short that a card appears and vanishes.
+FREEFIRE_ELIM_CARD_RUSH_MS = 1200
+
 # Squads waiting for a card, in the order they went out.
 _elim_card_queue = []
 
@@ -2107,6 +2118,12 @@ def announce_elimination(row, finish_rank):
                 "rank": finish_rank,
                 "kills": _sheet_elim_value(row),
             })
+            # Someone is behind it now, so the card on screen gives up
+            # the rest of its hold rather than making the operator watch
+            # it out before their tick shows anything.
+            te["shownUntil"] = min(te.get("shownUntil") or 0,
+                                   now_ms + FREEFIRE_ELIM_CARD_RUSH_MS)
+            server_state["teamEliminated"] = te
         return
     te["status"] = "shown"
     seconds = server_state.get("settings", {}).get("elimCardSeconds") or FREEFIRE_ELIM_CARD_SECONDS
@@ -3776,7 +3793,7 @@ def on_num5_pressed():
     if pointer >= len(flat) or main_loop is None:
         return
 
-    with mss.mss() as sct:
+    with mss_grabber() as sct:
         crops = {
             slot: capture_region(sct, key)
             for slot, key in FREEFIRE_LOADOUT_SLOT_KEYS.items()
@@ -4512,7 +4529,7 @@ async def handle_client(websocket, path=None):
                         "error": "The alive grid isn't calibrated yet -- run the ff-alive-grid calibration first.",
                     }))
                 else:
-                    with mss.mss() as sct:
+                    with mss_grabber() as sct:
                         crops = capture_alive_grid_crops(sct, grid)
                     loop = asyncio.get_running_loop()
                     rows_preview = await loop.run_in_executor(
@@ -4708,7 +4725,7 @@ async def ocr_loop():
     interval = config.get("poll_interval_seconds", 0.25)
     loop = asyncio.get_running_loop()
 
-    with mss.mss() as sct:
+    with mss_grabber() as sct:
         frame_counter = 0
         while True:
             regions = config.get("regions", {})

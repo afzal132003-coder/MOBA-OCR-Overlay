@@ -949,14 +949,54 @@ function applyElimCardLayout(C, state){
    announcement is identified by the squad and the moment it fired. */
 let lastAnnounceKey = "";
 
-/* A squad whose card arrived while another was still on screen. Near the
-   end of a match two or three go within seconds of each other, and the
-   engine hands them over one at a time -- but it releases the next one
-   the moment its hold is up, while this card is still flying out for a
-   beat after that. Dropping it there is what left the 11th with no card
-   at all. It waits instead, and goes up as soon as the one in front has
-   left. */
-let pendingElimCard = null;
+/* Squads whose card arrived while another was still on screen, in the
+   order they went out. Near the end of a match two or three go within
+   seconds of each other, and the engine hands them over one at a time --
+   but it releases the next one the moment its hold is up, while this
+   card is still flying out for a beat after that. Dropping it there is
+   what left the 11th with no card at all.
+
+   A list rather than one slot: a single slot meant a third card
+   overwrote the second, and that one was never seen. */
+const pendingElimCards = [];
+
+/* Someone is waiting, so the card on screen gives up the rest of its
+   hold and starts leaving. Four seconds each, strictly in turn, is what
+   made the tick feel broken -- press, and nothing happens for most of a
+   ten-count. It still gets this long on air, because a card that appears
+   and vanishes reads as a fault rather than as an elimination. */
+const ELIM_CARD_RUSH_MS = 1200;
+let elimCardShownAt = 0;
+let elimCardExitAt = 0;
+
+function rushCurrentElimCard(){
+  if(!elimCardTimer) return;                    // already on its way out
+  const at = elimCardShownAt + ELIM_CARD_RUSH_MS;
+  // Only ever brings the exit FORWARD. An operator who has set a hold
+  // shorter than this floor gets the hold they asked for -- hurrying a
+  // queue must not be able to keep a card up longer than it was due.
+  if(at >= elimCardExitAt) return;
+  elimCardExitAt = at;
+  clearTimeout(elimCardTimer);
+  elimCardTimer = setTimeout(beginElimCardExit, Math.max(0, at - Date.now()));
+}
+
+function beginElimCardExit(){
+  const card = document.getElementById("elimCard");
+  clearTimeout(elimCardTimer);
+  elimCardTimer = null;
+  card.classList.remove("in");
+  card.classList.add("out");
+  // Left showing until the exit animation has actually run, or it would
+  // vanish instead of leaving.
+  clearTimeout(elimCardOutTimer);
+  elimCardOutTimer = setTimeout(() => {
+    card.classList.remove("show", "out");
+    currentElimRow = null;
+    const next = pendingElimCards.shift();
+    if(next && lastState) showElimCard(lastState, null, layoutFor(lastState), next);
+  }, 420);
+}
 
 function showAnnouncedElimCard(state, L){
   const te = state.teamEliminated;
@@ -1014,9 +1054,11 @@ function showElimCard(state, rowEl, L, forced){
   // squad is held rather than dropped, and raised the moment this one has
   // finished leaving.
   if(card.classList.contains("show")){
-    if(rowKeyOf(row) !== rowKeyOf(currentElimRow || {})
-       && rowKeyOf(row) !== rowKeyOf(pendingElimCard || {})){
-      pendingElimCard = row;
+    const key = rowKeyOf(row);
+    if(key !== rowKeyOf(currentElimRow || {})
+       && !pendingElimCards.some(r => rowKeyOf(r) === key)){
+      pendingElimCards.push(row);
+      rushCurrentElimCard();
     }
     return;
   }
@@ -1048,19 +1090,11 @@ function showElimCard(state, rowEl, L, forced){
   clearTimeout(elimCardOutTimer);
   card.classList.remove("out");
   card.classList.add("show", "in");
-  elimCardTimer = setTimeout(() => {
-    card.classList.remove("in");
-    card.classList.add("out");
-    // Left showing until the exit animation has actually run, or it would
-    // vanish instead of leaving.
-    elimCardOutTimer = setTimeout(() => {
-      card.classList.remove("show", "out");
-      currentElimRow = null;
-      const next = pendingElimCard;
-      pendingElimCard = null;
-      if(next && lastState) showElimCard(lastState, null, layoutFor(lastState), next);
-    }, 420);
-  }, hold * 1000);
+  elimCardShownAt = Date.now();
+  elimCardExitAt = elimCardShownAt + hold * 1000;
+  elimCardTimer = setTimeout(beginElimCardExit, hold * 1000);
+  // Already someone behind it, so it does not sit out its full hold.
+  if(pendingElimCards.length) rushCurrentElimCard();
 }
 
 function playFlyby(el){
