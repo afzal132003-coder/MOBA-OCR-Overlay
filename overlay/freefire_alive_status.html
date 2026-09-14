@@ -382,55 +382,69 @@
     filter: url(#ffFireEdge) blur(1.3px) saturate(1.5) brightness(1.16);
   }
 
-  /* The profile. 15px of the strip lies outside the box and 3px in, so
-     white-hot at 77-88% lands the bright band on the box's own edge and
+  /* The profile. 11px of the strip lies outside the box and 2px in, so
+     white-hot at 80-90% lands the bright band on the box's own edge and
      everything else burns OUTWARD. The flame has no business over the
      rank or the name -- that space is the glow's, and a tongue crossing
      a number is just a number you cannot read. */
-  .fireframe .fe.t, .fireframe .fe.b { left: -15px; right: -15px; height: 18px; }
-  .fireframe .fe.l, .fireframe .fe.r { top: -15px; bottom: -15px; width: 18px; }
-  .fireframe .fe.t { top: -15px;
+  /* Each strip runs the length of its OWN edge and stops there, give or
+     take the 3px it takes for two to meet. Overshooting the corner by
+     the full flame depth was what put a plus at each one: the top
+     strip's bright line carried 15px out past the left edge and the left
+     strip's carried 15px up past the top, crossing in mid-air instead of
+     turning a corner. */
+  .fireframe .fe.t, .fireframe .fe.b { left: -3px; right: -3px; height: 13px; }
+  .fireframe .fe.l, .fireframe .fe.r { top: -3px; bottom: -3px; width: 13px; }
+  .fireframe .fe.t { top: -11px;
     background-image: linear-gradient(to bottom, var(--ff-flame)); }
-  .fireframe .fe.b { bottom: -15px;
+  .fireframe .fe.b { bottom: -11px;
     background-image: linear-gradient(to top, var(--ff-flame)); }
-  .fireframe .fe.l { left: -15px;
+  .fireframe .fe.l { left: -11px;
     background-image: linear-gradient(to right, var(--ff-flame)); }
-  .fireframe .fe.r { right: -15px;
+  .fireframe .fe.r { right: -11px;
     background-image: linear-gradient(to left, var(--ff-flame)); }
 
   .fireframe {
     --ff-flame:
-      rgba(130,14,0,0) 0%, rgba(210,34,0,.36) 15%, rgba(255,66,0,.66) 33%,
-      rgba(255,128,0,.88) 52%, rgba(255,200,80,.98) 68%,
-      rgba(255,250,226,1) 77%, rgba(255,252,232,1) 88%,
-      rgba(255,190,55,.60) 95%, rgba(255,120,0,0) 100%;
+      rgba(130,14,0,0) 0%, rgba(210,34,0,.30) 18%, rgba(255,66,0,.58) 38%,
+      rgba(255,128,0,.82) 58%, rgba(255,204,84,.96) 72%,
+      rgba(255,250,226,1) 80%, rgba(255,252,232,1) 90%,
+      rgba(255,190,55,.55) 96%, rgba(255,120,0,0) 100%;
     /* The tongues. Uneven stops on purpose: evenly spaced flames read as
        a dashed line, and the eye finds the repeat immediately. */
     --ff-tongues:
-      rgba(0,0,0,1) 0px, rgba(0,0,0,.62) 12px, rgba(0,0,0,1) 21px,
-      rgba(0,0,0,.52) 30px, rgba(0,0,0,.95) 38px, rgba(0,0,0,.68) 47px,
-      rgba(0,0,0,1) 57px, rgba(0,0,0,.58) 67px, rgba(0,0,0,1) 78px;
+      rgba(0,0,0,1) 0px, rgba(0,0,0,.54) 8px, rgba(0,0,0,1) 15px,
+      rgba(0,0,0,.44) 22px, rgba(0,0,0,.92) 27px, rgba(0,0,0,.60) 34px,
+      rgba(0,0,0,1) 40px, rgba(0,0,0,.50) 47px, rgba(0,0,0,1) 54px;
+    /* The short edges get their own, shorter run. A row is 465 wide and
+       43 tall, so the pattern above does not complete once down the
+       sides -- they came out as solid bars while the top and bottom
+       flickered. */
+    --ff-tongues-y:
+      rgba(0,0,0,1) 0px, rgba(0,0,0,.48) 5px, rgba(0,0,0,.96) 10px,
+      rgba(0,0,0,.40) 15px, rgba(0,0,0,1) 20px, rgba(0,0,0,.56) 25px,
+      rgba(0,0,0,1) 29px;
   }
   .fireframe .fe.t, .fireframe .fe.b {
     -webkit-mask-image: repeating-linear-gradient(90deg, var(--ff-tongues));
             mask-image: repeating-linear-gradient(90deg, var(--ff-tongues));
-    animation: ff-flame-along-x 1.05s linear infinite,
+    animation: ff-flame-along-x 0.62s linear infinite,
                ff-fireframe-breathe 0.47s ease-in-out infinite alternate;
   }
-  .fireframe .fe.b { animation-duration: 1.31s, 0.53s; }
+  .fireframe .fe.b { animation-duration: 0.79s, 0.43s; }
   .fireframe .fe.l, .fireframe .fe.r {
-    -webkit-mask-image: repeating-linear-gradient(0deg, var(--ff-tongues));
-            mask-image: repeating-linear-gradient(0deg, var(--ff-tongues));
-    animation: ff-flame-along-y 0.9s linear infinite,
+    -webkit-mask-image: repeating-linear-gradient(0deg, var(--ff-tongues-y));
+            mask-image: repeating-linear-gradient(0deg, var(--ff-tongues-y));
+    animation: ff-flame-along-y 0.54s linear infinite,
                ff-fireframe-breathe 0.41s ease-in-out infinite alternate;
   }
-  .fireframe .fe.r { animation-duration: 1.17s, 0.61s; }
+  .fireframe .fe.r { animation-duration: 0.71s, 0.49s; }
 
   /* The edge itself, alight. Barely blurred so it stays a LINE: the
      strips above are blurred and torn enough to churn, and something
      has to hold the shape of the box while they do. */
   .fireframe .core {
-    position: absolute; inset: -1px; padding: 3px; box-sizing: border-box;
+    position: absolute; inset: -1px; padding: 2px; box-sizing: border-box;
     -webkit-mask-image: linear-gradient(#000 0 0), linear-gradient(#000 0 0);
     -webkit-mask-clip: content-box, border-box;
     -webkit-mask-composite: xor;
@@ -444,7 +458,7 @@
         rgba(255,150,30,.45) 40px);
     background-size: 170% 170%;
     filter: blur(0.8px) brightness(1.2);
-    animation: ff-fireframe-core 0.83s linear infinite,
+    animation: ff-fireframe-core 0.58s linear infinite,
                ff-fireframe-flicker 0.29s ease-in-out infinite alternate;
   }
 
@@ -452,11 +466,11 @@
      speed, so the four never line up into one shape going round. */
   @keyframes ff-flame-along-x {
     from { -webkit-mask-position: 0 0;    mask-position: 0 0; }
-    to   { -webkit-mask-position: 78px 0; mask-position: 78px 0; }
+    to   { -webkit-mask-position: 54px 0; mask-position: 54px 0; }
   }
   @keyframes ff-flame-along-y {
     from { -webkit-mask-position: 0 0;    mask-position: 0 0; }
-    to   { -webkit-mask-position: 0 78px; mask-position: 0 78px; }
+    to   { -webkit-mask-position: 0 29px; mask-position: 0 29px; }
   }
   @keyframes ff-fireframe-core {
     from { background-position:    0%   0%; }
@@ -554,12 +568,12 @@
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <filter id="ffFireEdge" x="-40%" y="-70%" width="180%" height="240%"
           color-interpolation-filters="sRGB">
-    <feTurbulence type="fractalNoise" baseFrequency="0.045 0.10"
+    <feTurbulence type="fractalNoise" baseFrequency="0.07 0.15"
                   numOctaves="3" seed="2" result="noise">
       <animate attributeName="seed" values="2;9;4;15;7;11;3;13"
-               dur="0.6s" calcMode="discrete" repeatCount="indefinite"/>
+               dur="0.44s" calcMode="discrete" repeatCount="indefinite"/>
     </feTurbulence>
-    <feDisplacementMap in="SourceGraphic" in2="noise" scale="4.5"
+    <feDisplacementMap in="SourceGraphic" in2="noise" scale="3.5"
                        xChannelSelector="R" yChannelSelector="G"/>
   </filter>
 </svg>
