@@ -728,9 +728,31 @@ function effectiveKills(row){
   return remembered == null ? -1 : remembered;
 }
 
-function orderRows(rows){
+function orderRows(rows, byPoints){
   const killsOf = (r) => effectiveKills(r);
   const aliveOf = (r) => (r.aliveCount == null ? 0 : r.aliveCount);
+  const ptsOf = (r) => (r.livePoints == null ? -1 : r.livePoints);
+
+  /* With the PTS. column showing, this graphic stops being a picture of
+     the lobby and becomes the scoreboard: 1st to 12th by total points,
+     whether a squad is still in or not. A squad that is out with 40
+     points outranks one still playing on 12, because that is what the
+     standing IS -- sinking it to the bottom for being dead would be
+     answering a different question from the one the column asks.
+
+     Ties fall to this match's kills and then to the name, so two squads
+     level on points hold the same order poll after poll rather than
+     trading places on an unrelated update. */
+  if(byPoints){
+    return rows.slice().sort((a, b) => {
+      const dp = ptsOf(b) - ptsOf(a);
+      if(dp) return dp;
+      const dk = killsOf(b) - killsOf(a);
+      if(dk) return dk;
+      return rowKeyOf(a) < rowKeyOf(b) ? -1 : 1;
+    });
+  }
+
   return rows.map((r, i) => ({ r, i })).sort((A, B) => {
     const a = A.r, b = B.r;
     const aOut = !!a.eliminated, bOut = !!b.eliminated;
@@ -1146,7 +1168,7 @@ function apply(state){
   // duplicate itself is an upstream problem, but the table should
   // degrade by showing that team once, not by scrambling the layout.
   const targetOrder = [];
-  orderRows(source).forEach(r => {
+  orderRows(source, showPoints).forEach(r => {
     const k = rowKeyOf(r);
     if(k && !targetOrder.includes(k)) targetOrder.push(k);
   });
