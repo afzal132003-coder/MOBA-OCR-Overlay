@@ -1173,26 +1173,41 @@ function apply(state){
     // Hold the order, but still place any row that has no slot yet
     // (a team appearing mid-flyby would otherwise sit at top:0).
     targetOrder.forEach(k => { if(!displayOrder.includes(k)) displayOrder.push(k); });
-    displayOrder = displayOrder.filter(k => rowEls.has(k));
+    // Keys the table no longer has go, or a squad that has left the
+    // lobby holds a slot through the whole freeze and pushes a real one
+    // off the bottom.
+    displayOrder = displayOrder.filter(k => rowEls.has(k) && targetOrder.includes(k));
   } else {
     displayOrder = targetOrder;
   }
 
+  /* Slots are filled in order and only by rows that are actually going
+     to be drawn.
+
+     The slot used to be the entry's index in displayOrder, which meant
+     anything skipped -- an entry whose element has gone, a team the
+     table dropped mid-order -- left its slot EMPTY while every row below
+     kept its own index. One hole in the middle of the table and the rest
+     apparently fine, which is exactly how it looked: eleven squads and a
+     blank line. A running count cannot leave a gap; if something is
+     skipped, everything below simply moves up. */
   const placed = new Set();
-  displayOrder.forEach((key, i) => {
+  let slot = 0;
+  displayOrder.forEach((key) => {
     const el = rowEls.get(key);
-    if(!el || i >= ROW_TOPS.length) return;
+    if(!el || slot >= ROW_TOPS.length) return;
     placed.add(key);
     el.style.display = "";
-    const top = ROW_TOPS[i] + "px";
+    const top = ROW_TOPS[slot] + "px";
     if(el.style.top !== top) el.style.top = top;
     // The slot number, on the packages that don't print it into the
     // artwork. Written here rather than with the row's other content
     // because it belongs to the SLOT, not the team -- a squad that
     // climbs the table takes its neighbour's number, not its own.
     const rankEl = el.querySelector(".rank");
-    const rank = String(i + 1);
+    const rank = String(slot + 1);
     if(rankEl && rankEl.textContent !== rank) rankEl.textContent = rank;
+    slot++;
     // First placement lands instantly; every move after that animates.
     if(el.classList.contains("no-anim")){
       void el.offsetWidth;
