@@ -828,14 +828,28 @@ function rowKeyOf(row){ return (row.teamName || "").trim().toUpperCase(); }
    one thing this graphic exists to say. */
 function fillFromRoster(rows, state){
   const slots = 12;
-  const teams = ((state.roster || {}).teams) || [];
-  if(!teams.length || rows.length >= slots) return rows;
+  if(rows.length >= slots) return rows;
+
+  /* Two places to find the names, because either can be empty at the
+     moment it is needed. The roster is the proper one. The row
+     assignments are the operator's own mapping of table row to squad,
+     and they are twelve names too -- so a page that arrives before the
+     roster has synced, or one pointed at an engine whose roster was
+     cleared, still fills its table instead of showing gaps. */
+  const roster = ((state.roster || {}).teams) || [];
+  const assigned = ((state.liveOps || {}).aliveRowTeams) || [];
+  const candidates = roster.map(t => (t.name || "").trim())
+    .concat(assigned.map(n => (n || "").trim()))
+    .filter(n => n);
+  if(!candidates.length) return rows;
+
   const have = new Set(rows.map(rowKeyOf));
   const filled = rows.slice();
-  teams.forEach(t => {
-    const name = (t.name || "").trim();
-    if(!name || filled.length >= slots) return;
-    if(have.has(name.toUpperCase())) return;
+  candidates.forEach(name => {
+    if(filled.length >= slots) return;
+    const key = name.toUpperCase();
+    if(have.has(key)) return;
+    have.add(key);
     filled.push({
       teamName: name, eliminated: false, aliveCount: null, elims: null,
       statusUnknown: true,
