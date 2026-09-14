@@ -932,10 +932,32 @@ function showAnnouncedElimCard(state, L){
   const te = state.teamEliminated;
   if(!te || te.status !== "shown" || !te.teamName) return;
   if(!te.shownUntil || te.shownUntil <= Date.now()) return;   // already over
+
+  /* The tick, checked again on the side that actually draws the card.
+     The engine checks it too, but the engine is not the only thing that
+     can leave an announcement standing -- one from before the setting was
+     turned on, one an older engine wrote, one still sitting in the state
+     a page picks up when it loads. This graphic is the thing the audience
+     sees, so it enforces the setting itself rather than trusting that
+     whatever handed it an announcement already did. */
+  const live = state.liveOps || {};
+  if(state.settings && state.settings.eliminationApproval){
+    const approved = (live.approvedEliminations || [])
+      .map(t => (t || "").trim().toUpperCase());
+    if(!approved.includes(te.teamName.trim().toUpperCase())) return;
+  }
+
   const stamp = te.teamName + "@" + te.shownUntil;
   if(stamp === lastAnnounceKey) return;
   lastAnnounceKey = stamp;
-  showElimCard(state, null, L, { teamName: te.teamName, finishRank: te.rank });
+
+  // The announcement carries the position, but fall back to the table's
+  // own row for it -- a card with a blank corner is worse than one a beat
+  // late, and the table always knows where a squad finished.
+  const row = (live.sidetableRows || [])
+    .find(r => rowKeyOf(r) === te.teamName.trim().toUpperCase());
+  const rank = te.rank != null ? te.rank : (row && row.finishRank);
+  showElimCard(state, null, L, { teamName: te.teamName, finishRank: rank });
 }
 
 function showElimCard(state, rowEl, L, forced){
