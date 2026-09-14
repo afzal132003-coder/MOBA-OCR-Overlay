@@ -837,7 +837,30 @@ function applyElimCardLayout(C, state){
   nudge("#elimRank", "elimRank");
 }
 
-function showElimCard(state, rowEl, L){
+/* The engine's own announcement, as a second way in.
+
+   The card has two triggers on purpose. The table's own "this row just
+   went out" is the precise one -- it fires with the flyby, so the two
+   cannot disagree. But it only fires for a squad this page WATCHED go
+   down: one that is first seen already eliminated is deliberately not
+   animated, and a page that loaded mid-match sees exactly that. The
+   engine knows regardless, because it assigned the finishing position.
+
+   So either can raise the card and neither can raise it twice: each
+   announcement is identified by the squad and the moment it fired. */
+let lastAnnounceKey = "";
+
+function showAnnouncedElimCard(state, L){
+  const te = state.teamEliminated;
+  if(!te || te.status !== "shown" || !te.teamName) return;
+  if(!te.shownUntil || te.shownUntil <= Date.now()) return;   // already over
+  const stamp = te.teamName + "@" + te.shownUntil;
+  if(stamp === lastAnnounceKey) return;
+  lastAnnounceKey = stamp;
+  showElimCard(state, null, L, { teamName: te.teamName, finishRank: te.rank });
+}
+
+function showElimCard(state, rowEl, L, forced){
   const C = L.elimCard;
   if(!C) return;                       // this package has no such card
   const card = document.getElementById("elimCard");
@@ -845,10 +868,19 @@ function showElimCard(state, rowEl, L){
   // a card mid-animation reads as a fault, not as a second elimination.
   if(card.classList.contains("show")) return;
 
-  const key = rowEl.dataset.teamKey || "";
-  const row = (((state.liveOps || {}).sidetableRows) || [])
-    .find(r => rowKeyOf(r) === key);
+  let row = forced || null;
+  if(!row){
+    const key = rowEl ? (rowEl.dataset.teamKey || "") : "";
+    row = (((state.liveOps || {}).sidetableRows) || [])
+      .find(r => rowKeyOf(r) === key);
+  }
   if(!row) return;
+  // Raised by the table, so the announcement must not raise it again for
+  // the same squad a moment later.
+  const te = state.teamEliminated;
+  if(!forced && te && te.teamName && rowKeyOf(row) === rowKeyOf(te)){
+    lastAnnounceKey = te.teamName + "@" + te.shownUntil;
+  }
 
   applyElimCardLayout(C, state);
 
@@ -1103,6 +1135,10 @@ function apply(state){
   rowEls.forEach((el, key) => {
     if(!placed.has(key)) el.style.display = "none";
   });
+
+  // Checked on every sync, not only when the table noticed a transition,
+  // so a card still appears for a squad this page never saw alive.
+  showAnnouncedElimCard(state, L);
 
   applyElementOverrides(state);
 }
