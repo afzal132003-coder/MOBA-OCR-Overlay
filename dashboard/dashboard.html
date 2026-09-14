@@ -1925,6 +1925,15 @@ Team Charlie
               then the table keeps showing that squad as it was, so nothing goes out ahead of you. Untick to fire
               automatically instead.</p>
             <div id="ff_elimPending" style="margin-top:8px;"></div>
+
+            <div class="row" style="gap:8px;align-items:center;margin-top:10px;
+                 border-top:1px solid #2b3348;padding-top:9px;">
+              <button class="secondary" id="ff_aliveReset"
+                style="margin-top:0;font-size:11px;padding:4px 10px;">Reset for next game</button>
+              <span class="hint" style="font-size:10px;flex:1;min-width:0;">Clean slate between games —
+                all squads alive, kills back to 0, finishing positions and ticks cleared. The log does this
+                by itself when a game starts; use this when it doesn't.</span>
+            </div>
           </div>
         </div>
       </div>
@@ -6131,6 +6140,22 @@ function ffRenderPendingEliminations(ff){
     });
   });
 }
+
+/* "That game is done." Everything the engine holds for ONE game goes:
+   finishing positions, the ticks that released each wipe, any card
+   waiting to go up, and the kill counts. Confirmed because it cannot be
+   undone and the numbers it clears are on air. */
+document.getElementById("ff_aliveReset").addEventListener("click", () => {
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)){
+    alert("Not connected to the Free Fire engine.");
+    return;
+  }
+  if(!confirm("Reset the alive table for a new game?\n\n"
+    + "Every squad goes back to alive with 0 kills, and finishing positions, "
+    + "confirmed eliminations and any pending card are cleared. This is pushed "
+    + "live immediately, including to the broadcast sheet.")) return;
+  ffWs.send(JSON.stringify({ type: "freefire_reset_alive" }));
+});
 
 /* Push/pull right here. Same messages the Graphic tab sends -- this is
    a second way to reach them, not a second source of truth -- because

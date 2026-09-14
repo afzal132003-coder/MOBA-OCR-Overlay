@@ -2076,6 +2076,52 @@ def claim_finish_rank(key, rows):
     return pos
 
 
+def reset_alive_for_new_match(reason=""):
+    """Everything that belongs to ONE game, cleared in one place.
+
+    Two things start a game: the log's own match_start line, and the
+    operator saying so. The button exists because that line does not
+    always come -- a custom room restarted without it, an engine attached
+    between games, a game that ended while the engine was down. Both go
+    through here so the button can never be a weaker reset than the
+    automatic one, which is the opposite of what it is for.
+
+    The table is left looking like a fresh lobby rather than emptied: a
+    blank table between games is indistinguishable from a broken one, and
+    the next poll overwrites these values with real readings anyway.
+    """
+    global _finish_ranks
+    _alive_grid_last_elims.clear()
+    _alive_grid_elim_recent.clear()
+    _alive_grid_last_bars.clear()
+    _alive_grid_settle.clear()
+    _alive_grid_accepted_bars.clear()
+    _alive_grid_bars_pending.clear()
+    _last_alive_by_team.clear()
+    _wipe_streak.clear()
+    _finish_ranks = {}
+    del _elim_card_queue[:]
+
+    ops = server_state.setdefault("liveOps", {})
+    ops["approvedEliminations"] = []
+    ops["pendingEliminations"] = []
+    ops["teamMarks"] = {}
+    for row in (ops.get("sidetableRows") or []):
+        width = len(row.get("bars") or []) or 4
+        row["bars"] = ["alive"] * width
+        row["aliveCount"] = width
+        row["eliminated"] = False
+        row["elims"] = 0
+        row["finishRank"] = None
+        row.pop("awaitingApproval", None)
+
+    # Any card mid-flight belongs to the game that just ended.
+    server_state["teamEliminated"] = {"status": "idle", "shownUntil": None,
+                                      "teamName": "", "rank": None,
+                                      "photo": "", "kills": 0}
+    print("[alive] reset for a new game" + (f" ({reason})" if reason else ""))
+
+
 def announce_elimination(row, finish_rank):
     """Puts the eliminated squad on the top-centre card, automatically.
 
@@ -4517,6 +4563,14 @@ async def handle_client(websocket, path=None):
                         announce_elimination(row, rank)
                     save_state()
                     await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "freefire_reset_alive":
+                # "This game is over, start the next one." The log's
+                # match_start does this by itself when it arrives; this is
+                # for when it does not.
+                reset_alive_for_new_match("operator")
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state,
+                                 "locked": list(locked_fields)})
             elif payload.get("type") == "freefire_fetch_alive_grid_preview":
                 # One fresh, on-demand capture -- not the regular per-poll
                 # path, so this can afford to also encode every crop as a
@@ -4673,16 +4727,8 @@ async def handle_live_signals(signals, gs_names):
         elif signal["type"] == "match_start":
             # Last game's held elim counts must not carry into this one --
             # see _alive_grid_last_elims. Every row starts unread again.
-            _alive_grid_last_elims.clear()
-            _alive_grid_elim_recent.clear()
-            _alive_grid_last_bars.clear()
-            _alive_grid_settle.clear()
-            _alive_grid_accepted_bars.clear()
-            _alive_grid_bars_pending.clear()
-            _last_alive_by_team.clear()
-            server_state["liveOps"]["approvedEliminations"] = []
-            server_state["liveOps"]["pendingEliminations"] = []
-            server_state["liveOps"]["teamMarks"] = {}
+            reset_alive_for_new_match("match_start in the log")
+            changed = True
 
         elif signal["type"] == "match_end":
             _pending_match_fetch = signal["matchId"]
