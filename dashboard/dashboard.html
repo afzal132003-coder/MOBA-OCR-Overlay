@@ -1852,6 +1852,10 @@ Team Charlie
         <span class="hint" id="ff_alivePointsNote" style="align-self:center;"></span>
       </div>
       <button class="secondary" id="ff_aliveGridPreviewBtn">Capture Preview</button>
+        <label class="hint" style="margin:0 0 0 8px;align-self:center;">
+          <input type="checkbox" id="ff_aliveGridLive"> Keep it live
+        </label>
+        <span class="hint" id="ff_aliveGridLiveNote" style="margin:0;align-self:center;"></span>
         <div class="team-form" style="max-width:300px;margin:0;">
           <label>Recalibrate</label>
           <select id="ff_aliveCalibPick">
@@ -6552,10 +6556,58 @@ document.getElementById("ff_aliveCalibCopy").addEventListener("click", async () 
   }
 });
 
-document.getElementById("ff_aliveGridPreviewBtn").addEventListener("click", () => {
-  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
-  document.getElementById("ff_aliveGridStatus").textContent = "Capturing...";
+function ffRequestAliveGridPreview(){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return false;
   ffWs.send(JSON.stringify({ type: "freefire_fetch_alive_grid_preview" }));
+  return true;
+}
+
+document.getElementById("ff_aliveGridPreviewBtn").addEventListener("click", () => {
+  if(!ffRequestAliveGridPreview()) return;
+  document.getElementById("ff_aliveGridStatus").textContent = "Capturing...";
+});
+
+/* Keep the crops coming while the calibration is being worked on.
+
+   These are a separate, on-demand capture rather than something riding
+   along with every poll, and deliberately so: sixty crops encoded and
+   sent four times a second is megabytes a second into the relay, and
+   everything else the dashboard asks for queues behind it. So this is a
+   repeat of the same one-shot request rather than a new firehose, and it
+   stops the moment it is not being looked at -- unticked, or the tab
+   switched away from. A calibration is a minute's work; the cost should
+   last a minute, not the whole event. */
+const FF_ALIVE_LIVE_MS = 1200;
+let ffAliveLiveTimer = null;
+
+function ffAliveLiveTick(){
+  const box = document.getElementById("ff_aliveGridLive");
+  const note = document.getElementById("ff_aliveGridLiveNote");
+  const panel = document.getElementById("fftab-liveops");
+  // offsetParent is null when the tab is not on screen -- no point paying
+  // for crops nobody is looking at.
+  const watching = box && box.checked && panel && panel.offsetParent !== null;
+  if(!watching){
+    if(note) note.textContent = box && box.checked ? "paused — tab not open" : "";
+    return;
+  }
+  if(!ffRequestAliveGridPreview()){
+    if(note) note.textContent = "waiting for the engine…";
+    return;
+  }
+  if(note) note.textContent = "live — recapturing every " + (FF_ALIVE_LIVE_MS / 1000) + "s";
+}
+
+document.getElementById("ff_aliveGridLive").addEventListener("change", (e) => {
+  clearInterval(ffAliveLiveTimer);
+  ffAliveLiveTimer = null;
+  const note = document.getElementById("ff_aliveGridLiveNote");
+  if(e.target.checked){
+    ffAliveLiveTick();
+    ffAliveLiveTimer = setInterval(ffAliveLiveTick, FF_ALIVE_LIVE_MS);
+  } else if(note){
+    note.textContent = "";
+  }
 });
 
 // Fills the SAME bar/elim cells ffRenderAliveGridRows already built,
@@ -6586,8 +6638,11 @@ function ffApplyAliveGridPreview(msg){
         `<span style="color:#ffc400;font-weight:700;">${r.elims == null ? "(unread)" : r.elims}</span>${badge}`;
     }
   });
+  const liveOn = document.getElementById("ff_aliveGridLive");
   document.getElementById("ff_aliveGridStatus").textContent =
-    "Captured " + new Date().toLocaleTimeString() + " — refresh anytime with Capture Preview.";
+    liveOn && liveOn.checked
+      ? "Live — every box below is a fresh crop, " + new Date().toLocaleTimeString()
+      : "Captured " + new Date().toLocaleTimeString() + " — refresh anytime with Capture Preview.";
 }
 
 function ffRenderLoadoutCapture(ff){
