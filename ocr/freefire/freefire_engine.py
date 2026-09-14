@@ -2065,9 +2065,23 @@ def claim_finish_rank(key, rows):
     never collide with one dealt automatically."""
     if key in _finish_ranks:
         return _finish_ranks[key]
-    # Rows not marked eliminated -- which includes this squad, still held,
-    # and any other wipe still waiting for its own tick.
+    # Rows not marked eliminated: any wipe still waiting for its own
+    # tick, and normally this squad too, since a held wipe is not shown
+    # as out until it is released.
     still_in = sum(1 for r in rows if not r.get("eliminated"))
+    # But not always. A wipe that reached air without being held -- the
+    # gate with no alive reading to hold it, or confirmation switched off
+    # -- is already marked eliminated by the time anyone ticks it, so it
+    # was not in that count. Left uncorrected every such card came out
+    # one place too good: the last squad of eleven printed #01, as though
+    # it had won.
+    #
+    # A squad finishes where it STOOD, itself included.
+    counted = any(not r.get("eliminated")
+                  and (r.get("teamName") or "").strip().upper() == key
+                  for r in rows)
+    if not counted:
+        still_in += 1
     taken = set(_finish_ranks.values())
     pos = max(1, still_in)
     while pos in taken and pos > 1:

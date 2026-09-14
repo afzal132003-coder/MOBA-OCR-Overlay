@@ -303,59 +303,34 @@
     50%      { box-shadow: inset 0 0 22px 5px rgba(60, 170, 255, 0.42); }
   }
 
-  /* Fire flowing ACROSS the box, like wind carrying it.
-     ---------------------------------------------------------------
-     The previous attempt used discrete radial blobs, which is exactly
-     why it read as dots travelling around rather than as fire: separate
-     shapes stay separate no matter how they move. Flame is continuous,
-     so this is continuous -- wide soft bands that overlap into one
-     sheet, all drifting the SAME way at different speeds. The speed
-     difference is what makes the sheet churn instead of sliding as a
-     single rigid texture.
+  /* The box lit by its own burning frame.
 
-     mix-blend-mode: screen is what sells it. Screen only ever
-     brightens, so the flame LIGHTS the box it passes over rather than
-     painting a coloured rectangle on top of it -- dark parts of the
-     gradient vanish entirely instead of greying the artwork, which is
-     what makes it look like fire on the box rather than over it.
+     This used to be flame in its own right -- bands of it drifting
+     across the row. With the frame alight that was too much: two fires
+     on one small box, and the sheet moving over the name and the numbers
+     made them hard to read. What is left is what a burning edge would
+     actually do to the box it surrounds, which is light it from the
+     rim inward.
 
-     Sits above the box but below the text (z-index 0, contents at 1):
-     the name and numbers have to stay readable through it. */
+     Screen only ever brightens, so this LIGHTS the artwork rather than
+     laying orange over it -- the dark part of the glow disappears
+     instead of greying the box. Nothing moves across the text: it
+     breathes, and that is all. */
   .row.fire::before {
     content: ""; position: absolute; inset: 0; z-index: 0;
     pointer-events: none;
     mix-blend-mode: screen;
-    background:
-      linear-gradient(101deg,
-        transparent 0%, rgba(255,104,0,.50) 9%, rgba(255,182,46,.92) 19%,
-        rgba(255,236,150,.98) 25%, rgba(255,150,20,.72) 33%,
-        rgba(255,88,0,.36) 42%, transparent 52%),
-      linear-gradient(94deg,
-        transparent 0%, rgba(255,80,0,.34) 14%, rgba(255,208,86,.80) 27%,
-        rgba(255,120,0,.46) 38%, transparent 50%),
-      linear-gradient(110deg,
-        transparent 0%, rgba(255,140,10,.42) 12%, rgba(255,246,190,.70) 21%,
-        rgba(255,110,0,.34) 30%, transparent 44%);
-    background-size: 58% 260%, 82% 240%, 44% 280%;
-    background-repeat: repeat;
-    filter: blur(6px) saturate(1.5) brightness(1.12);
-    animation: ff-fire-flow 1.45s linear infinite,
-               ff-fire-breathe 0.53s ease-in-out infinite alternate;
+    box-shadow:
+      inset 0  0 15px  2px rgba(255,142,22,.62),
+      inset 0  0 40px 10px rgba(255,70,0,.30),
+      /* Weighted from below, the way a fire lights a thing standing in
+         it -- an even rim glow reads as a selection highlight. */
+      inset 0 -8px 18px -5px rgba(255,100,0,.26);
+    animation: ff-fire-glow 1.45s ease-in-out infinite alternate;
   }
-  /* All three travel left-to-right -- one direction, like airflow.
-     Different distances per cycle give the parallax that makes it
-     churn. */
-  @keyframes ff-fire-flow {
-    from { background-position:   0% 50%,   0% 40%,   0% 60%; }
-    to   { background-position: 116% 50%, 164% 40%,  88% 60%; }
-  }
-  /* Held well back now that the box has a burning frame of its own. At
-     its old strength the sheet filled the row and the two together read
-     as a gold bar rather than as a squad on fire -- the frame is the
-     effect, and this is the flame moving over the box inside it. */
-  @keyframes ff-fire-breathe {
-    from { opacity: .26; }
-    to   { opacity: .50; }
+  @keyframes ff-fire-glow {
+    from { opacity: .62; }
+    to   { opacity: .95; }
   }
 
   /* ---- the box itself burning ----------------------------------------
@@ -407,27 +382,28 @@
     filter: url(#ffFireEdge) blur(1.3px) saturate(1.5) brightness(1.16);
   }
 
-  /* The profile. White-hot sits at 74% -- with 10px of the strip outside
-     the box and 5px in, that lands the bright line on the box's own edge,
-     with the flame falling away outward and a short inner glow. */
-  .fireframe .fe.t, .fireframe .fe.b { left: -12px; right: -12px; height: 20px; }
-  .fireframe .fe.l, .fireframe .fe.r { top: -12px; bottom: -12px; width: 20px; }
-  .fireframe .fe.t { top: -12px;
+  /* The profile. 15px of the strip lies outside the box and 3px in, so
+     white-hot at 77-88% lands the bright band on the box's own edge and
+     everything else burns OUTWARD. The flame has no business over the
+     rank or the name -- that space is the glow's, and a tongue crossing
+     a number is just a number you cannot read. */
+  .fireframe .fe.t, .fireframe .fe.b { left: -15px; right: -15px; height: 18px; }
+  .fireframe .fe.l, .fireframe .fe.r { top: -15px; bottom: -15px; width: 18px; }
+  .fireframe .fe.t { top: -15px;
     background-image: linear-gradient(to bottom, var(--ff-flame)); }
-  .fireframe .fe.b { bottom: -12px;
+  .fireframe .fe.b { bottom: -15px;
     background-image: linear-gradient(to top, var(--ff-flame)); }
-  .fireframe .fe.l { left: -12px;
+  .fireframe .fe.l { left: -15px;
     background-image: linear-gradient(to right, var(--ff-flame)); }
-  .fireframe .fe.r { right: -12px;
+  .fireframe .fe.r { right: -15px;
     background-image: linear-gradient(to left, var(--ff-flame)); }
 
   .fireframe {
     --ff-flame:
-      rgba(130,14,0,0) 0%, rgba(210,34,0,.40) 18%, rgba(255,66,0,.70) 33%,
-      rgba(255,132,0,.92) 45%, rgba(255,206,88,1) 53%,
-      rgba(255,250,226,1) 58%, rgba(255,252,232,1) 64%,
-      rgba(255,196,60,.95) 71%, rgba(255,110,0,.55) 82%,
-      rgba(198,28,0,.20) 92%, rgba(130,14,0,0) 100%;
+      rgba(130,14,0,0) 0%, rgba(210,34,0,.36) 15%, rgba(255,66,0,.66) 33%,
+      rgba(255,128,0,.88) 52%, rgba(255,200,80,.98) 68%,
+      rgba(255,250,226,1) 77%, rgba(255,252,232,1) 88%,
+      rgba(255,190,55,.60) 95%, rgba(255,120,0,0) 100%;
     /* The tongues. Uneven stops on purpose: evenly spaced flames read as
        a dashed line, and the eye finds the repeat immediately. */
     --ff-tongues:
@@ -583,7 +559,7 @@
       <animate attributeName="seed" values="2;9;4;15;7;11;3;13"
                dur="0.6s" calcMode="discrete" repeatCount="indefinite"/>
     </feTurbulence>
-    <feDisplacementMap in="SourceGraphic" in2="noise" scale="6"
+    <feDisplacementMap in="SourceGraphic" in2="noise" scale="4.5"
                        xChannelSelector="R" yChannelSelector="G"/>
   </filter>
 </svg>
