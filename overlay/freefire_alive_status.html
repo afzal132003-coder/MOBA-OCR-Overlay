@@ -790,6 +790,38 @@ let lastState = null;
 
 function rowKeyOf(row){ return (row.teamName || "").trim().toUpperCase(); }
 
+/* Every registered squad gets a line, whether or not the table has one
+   for it this poll.
+
+   A squad the grid has not resolved yet -- a row waiting to be assigned,
+   a name that has not read cleanly -- simply was not in the published
+   rows, so its slot showed the backdrop's empty box: a hole in the middle
+   of a table of twelve, which reads as a fault rather than as a gap in
+   the data.
+
+   What a filled line does NOT do is guess at its status. Its kills show 0,
+   the same as any squad yet to get one, and its indicator is left off
+   entirely rather than showing four grey bars -- claiming a squad is dead
+   because nothing has been read for it would be a confident lie about the
+   one thing this graphic exists to say. */
+function fillFromRoster(rows, state){
+  const slots = 12;
+  const teams = ((state.roster || {}).teams) || [];
+  if(!teams.length || rows.length >= slots) return rows;
+  const have = new Set(rows.map(rowKeyOf));
+  const filled = rows.slice();
+  teams.forEach(t => {
+    const name = (t.name || "").trim();
+    if(!name || filled.length >= slots) return;
+    if(have.has(name.toUpperCase())) return;
+    filled.push({
+      teamName: name, eliminated: false, aliveCount: null, elims: null,
+      statusUnknown: true,
+    });
+  });
+  return filled;
+}
+
 function makeRowEl(){
   const el = document.createElement("div");
   el.className = "row no-anim";
@@ -940,7 +972,7 @@ function playFlyby(el){
 function apply(state){
   lastState = state;
   const live = state.liveOps || {};
-  const source = (live.sidetableRows || []).slice(0, 12);
+  const source = fillFromRoster((live.sidetableRows || []).slice(0, 12), state);
   const base = assetBase(state);
   // ?preview=1 draws regardless of whether the graphic is on air. A
   // preview that only works once something is already live isn't a
@@ -1006,12 +1038,14 @@ function apply(state){
 
     const nameEl = el.querySelector(".name");
     if(nameEl.textContent !== label) nameEl.textContent = label;
-    // Shows the last count actually seen when this frame has none, so
-    // the number doesn't blink out and back on every redraw. Still
-    // blank if nothing has ever been read for this team -- that's a
-    // genuine gap, not a momentary one.
+    // Shows the last count actually seen when this frame has none, so the
+    // number doesn't blink out and back on every redraw. A team nothing
+    // has ever been read for shows 0 rather than an empty cell: every
+    // squad starts a match on nought, so 0 is the truth until something
+    // says otherwise, and a blank cell in a column of numbers reads as a
+    // fault rather than as a score.
     const effective = effectiveKills(row);
-    const kills = effective < 0 ? "" : String(effective);
+    const kills = effective < 0 ? "0" : String(effective);
     const killsEl = el.querySelector(".kills");
     if(killsEl.textContent !== kills) killsEl.textContent = kills;
 
@@ -1030,6 +1064,9 @@ function apply(state){
       else { img.removeAttribute("src"); img.style.display = "none"; }
     }
     const pip = el.querySelector(".status-pip");
+    // Nothing has been read for this squad, so nothing is claimed about
+    // it -- see fillFromRoster.
+    pip.style.visibility = row.statusUnknown ? "hidden" : "";
     const pipSrc = `url('${base}${art}')`;
     if(pip.style.backgroundImage !== pipSrc){
       pip.style.backgroundImage = pipSrc;

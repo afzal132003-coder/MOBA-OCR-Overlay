@@ -1961,9 +1961,23 @@ def assign_finish_ranks(rows):
     # first of each group could ever fire a card. Order among squads that
     # transition in the same pass is arbitrary, but the positions are not
     # shared.
+    # Positions are handed out from the bottom of what is left, one each,
+    # and never reissued to a second squad.
+    #
+    # Without the "taken" check a position could be given out twice: a
+    # squad whose read flickers back to alive loses its position (see the
+    # loop below), and the next assignment -- computed from a live count
+    # that has since changed -- lands on a number somebody else already
+    # holds. The live table had DESI GAMER and TEAM APEX both on 10th with
+    # 11th unused, which is two squads claiming one finish.
+    taken = set(_finish_ranks.values())
     top = len(live) + len(fresh)
-    for i, (row, name) in enumerate(fresh):
-        _finish_ranks[name] = top - i
+    for row, name in fresh:
+        while top in taken and top > 1:
+            top -= 1
+        _finish_ranks[name] = top
+        taken.add(top)
+        top -= 1
 
     # The card is for a squad going out, not for the table catching up.
     # Several at once means a resync -- a restart mid-match, or the grid
