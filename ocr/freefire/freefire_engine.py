@@ -1885,11 +1885,24 @@ def gate_eliminations(rows):
         # that actually went to air.
         remembered = _last_alive_by_team.get(key) or last_published.get(key)
         if not remembered:
-            # Never seen alive by either. It genuinely is out and there is
-            # nothing honest to show instead, so it goes through. The
-            # overlay does not animate a squad it is seeing dead for the
-            # first time, so this does not fire anything.
-            continue
+            # Never seen alive by either -- an engine attached mid-match,
+            # or a row that has read dead from the moment it was first
+            # understood.
+            #
+            # This used to go straight through, on the grounds that
+            # inventing an "alive" reading was worse than showing what was
+            # actually read. That was the wrong trade. It put eliminations
+            # on air that nobody ticked, and worse, such a squad never
+            # reached the tick list at all -- so it could not be approved
+            # even after the fact, and never got its card. Exactly the one
+            # thing this setting exists to prevent.
+            #
+            # It waits like every other wipe, shown as still in until the
+            # tick. A full squad is the state every team starts a match
+            # in, so it is the least wrong thing to show for a squad
+            # nothing is known about.
+            width = len(row.get("bars") or []) or 4
+            remembered = (["alive"] * width, width)
         pending.append({"teamName": team, "elims": row.get("elims")})
         row["bars"], row["aliveCount"] = list(remembered[0]), remembered[1]
         row["eliminated"] = False
@@ -3328,17 +3341,25 @@ async def push_sidetable_to_sheet(rows):
         if name and team.get("shortName"):
             shorts[name] = team["shortName"]
 
-    payload = {
-        "rows": [
-            {
-                "team": r.get("teamName") or r.get("rawText") or "",
-                "short": shorts.get(normalize_for_match(r.get("teamName")), ""),
-                "aliveCount": r.get("aliveCount"),
-                "elims": _sheet_elim_value(r),
-            }
-            for r in rows
-        ],
-    }
+    # One line per squad, and none for a row with no name. A misread name
+    # can have two rows claiming the same squad; sending both wrote that
+    # team's cells twice in one push, with whichever arrived last winning,
+    # so the sheet could show another row's numbers under its name. The
+    # first reading wins and the rest is dropped.
+    sent = set()
+    sheet_rows = []
+    for r in rows:
+        name = (r.get("teamName") or r.get("rawText") or "").strip()
+        if not name or name.upper() in sent:
+            continue
+        sent.add(name.upper())
+        sheet_rows.append({
+            "team": name,
+            "short": shorts.get(normalize_for_match(r.get("teamName")), ""),
+            "aliveCount": r.get("aliveCount"),
+            "elims": _sheet_elim_value(r),
+        })
+    payload = {"rows": sheet_rows}
     # Nothing to say, nothing to send. A match sits unchanged for most of
     # its length -- twelve rows all alive, no kills yet -- and rewriting
     # the same twelve rows four times a second is a write the sheet has to

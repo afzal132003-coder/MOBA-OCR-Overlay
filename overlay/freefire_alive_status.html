@@ -832,6 +832,23 @@ function rowKeyOf(row){ return (row.teamName || "").trim().toUpperCase(); }
    one thing this graphic exists to say. */
 function fillFromRoster(rows, state){
   const slots = 12;
+
+  /* Counted by DISTINCT squad, not by how long the list is. A row that
+     came back with no name at all, and two rows that read as the same
+     squad, both collapse into a single drawn row further down -- so
+     twelve rows went in and eleven came out, with a team simply absent.
+     Either is an ordinary OCR miss on one row's name. They are dropped
+     here, and the slot each one freed fills from the roster like any
+     other gap, which puts the missing squad back. */
+  const have = new Set();
+  const kept = [];
+  rows.forEach(r => {
+    const key = rowKeyOf(r);
+    if(!key || have.has(key)) return;
+    have.add(key);
+    kept.push(r);
+  });
+  rows = kept;
   if(rows.length >= slots) return rows;
 
   /* Two places to find the names, because either can be empty at the
@@ -847,7 +864,6 @@ function fillFromRoster(rows, state){
     .filter(n => n);
   if(!candidates.length) return rows;
 
-  const have = new Set(rows.map(rowKeyOf));
   const filled = rows.slice();
   candidates.forEach(name => {
     if(filled.length >= slots) return;
