@@ -185,7 +185,11 @@
     left: var(--elim-rank-x); top: var(--elim-rank-y);
     width: var(--elim-rank-w); height: var(--elim-rank-h);
     display: flex; align-items: center; justify-content: center;
-    color: #ffffff; font-weight: 700; font-size: var(--elim-rank-size);
+    /* NOT white: this label sits on the card's white corner, so white on
+       white is invisible -- which is why the position never appeared. The
+       designer's own reference draws it in the deep violet below. */
+    color: var(--elim-rank-ink, #351590);
+    font-weight: 700; font-size: var(--elim-rank-size);
   }
 
   /* Rows sit above the backdrop image in their own layer. */
@@ -556,7 +560,9 @@ const LAYOUTS = {
       travel: -520,
       logo: { x: 664, y: 351, w: 82, h: 111 },
       name: { x: 901, y: 325, w: 307, h: 26, size: 24 },
-      rank: { x: 664, y: 316, w: 82, h: 18, size: 15 },
+      // ink sampled from the reference render: the label is drawn in the
+      // deep violet, on the card's white corner.
+      rank: { x: 664, y: 316, w: 82, h: 18, size: 15, ink: "#351590" },
       seconds: 4,          // default; settings.elimCardSeconds overrides
     },
   },
@@ -773,6 +779,9 @@ const FLYBY_MS = 1150;
 const rowEls = new Map();        // team key -> row element
 let displayOrder = [];           // team keys, in the order currently on screen
 let holdOrderUntil = 0;          // while in the future, don't re-sort
+// How long to wait for a finishing position before sorting without one.
+const RANK_WAIT_MS = 1500;
+let awaitingRankSince = 0;
 let previouslyEliminated = new Set();
 // Teams this page has rendered at least once. A squad has to have been
 // SEEN before its death counts as something that just happened.
@@ -819,6 +828,7 @@ function applyElimCardLayout(C, state){
   r.setProperty("--elim-rank-w", C.rank.w + "px");
   r.setProperty("--elim-rank-h", C.rank.h + "px");
   r.setProperty("--elim-rank-size", C.rank.size + "px");
+  r.setProperty("--elim-rank-ink", C.rank.ink || "#ffffff");
 
   // The same placement keys the dashboard's Graphic Fixing pages save,
   // so dragging the card there moves it here.
@@ -1097,6 +1107,30 @@ function apply(state){
     const k = rowKeyOf(r);
     if(k && !targetOrder.includes(k)) targetOrder.push(k);
   });
+
+  /* A squad that has just gone out but has no finishing position yet is
+     worth waiting a moment for.
+
+     Sorting it now means sorting it by a guess, and then moving it AGAIN
+     when the real position lands a poll later -- the row visibly stepping
+     through a slot it never belonged in, with whatever it displaced
+     stepping back. Holding the order until the position is known makes it
+     one move, made with the right answer.
+
+     Bounded, so a position that never arrives -- an older engine, a squad
+     the table cannot place -- costs a beat rather than freezing the
+     table for the rest of the match. */
+  const rankPending = (source || []).some(
+    r => r.eliminated && r.finishRank == null && ffSeenTeams.has(rowKeyOf(r)));
+  if(rankPending){
+    if(!awaitingRankSince) awaitingRankSince = Date.now();
+    if(Date.now() - awaitingRankSince < RANK_WAIT_MS){
+      holdOrderUntil = Math.max(holdOrderUntil, Date.now() + 120);
+      setTimeout(() => { if(lastState) apply(lastState); }, 160);
+    }
+  } else {
+    awaitingRankSince = 0;
+  }
 
   if(Date.now() < holdOrderUntil){
     // Hold the order, but still place any row that has no slot yet
