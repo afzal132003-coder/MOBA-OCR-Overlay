@@ -1941,6 +1941,7 @@ def assign_finish_ranks(rows):
         # teams that had used it most.
         _finish_ranks = {}
         ops = server_state.get("liveOps") or {}
+        del _elim_card_queue[:]      # last match's cards are not owed
         if ops.get("approvedEliminations"):
             ops["approvedEliminations"] = []
         if ops.get("pendingEliminations"):
@@ -2000,6 +2001,56 @@ def assign_finish_ranks(rows):
 # Fallback when the setting is missing -- see settings.elimCardSeconds.
 FREEFIRE_ELIM_CARD_SECONDS = 4
 
+# Squads waiting for a card, in the order they went out.
+_elim_card_queue = []
+
+
+def drain_elim_card_queue():
+    """Shows the next squad waiting for a card, once the last has had its
+    time. Called on the poll, so waiting costs nothing."""
+    if not _elim_card_queue:
+        return False
+    te = server_state.get("teamEliminated") or {}
+    now_ms = int(time.time() * 1000)
+    if te.get("status") == "shown" and (te.get("shownUntil") or 0) > now_ms:
+        return False
+    nxt = _elim_card_queue.pop(0)
+    seconds = server_state.get("settings", {}).get("elimCardSeconds") or FREEFIRE_ELIM_CARD_SECONDS
+    te["status"] = "shown"
+    te["shownUntil"] = now_ms + int(float(seconds) * 1000)
+    te["teamName"] = nxt["teamName"]
+    te["rank"] = nxt["rank"]
+    te["kills"] = nxt["kills"]
+    server_state["teamEliminated"] = te
+    print(f"[elimination] {nxt['teamName']} finished #{nxt['rank']} -- card fired (queued)")
+    return True
+
+
+def claim_finish_rank(key, rows):
+    """Fixes where a squad finished, at the moment it is decided.
+
+    A squad finishes in the position equal to how many squads are still
+    in, itself included -- the same rule assign_finish_ranks applies when
+    a wipe reaches air. Used when the OPERATOR decides it, by ticking: a
+    held wipe has no position yet, because the position is assigned when
+    the gate releases it on the next poll, and the card is raised on the
+    tick itself. That left the card printing an empty corner for the
+    first eliminations of a match, when nothing had a position yet.
+
+    Positions already handed out are skipped, so deciding one by tick can
+    never collide with one dealt automatically."""
+    if key in _finish_ranks:
+        return _finish_ranks[key]
+    # Rows not marked eliminated -- which includes this squad, still held,
+    # and any other wipe still waiting for its own tick.
+    still_in = sum(1 for r in rows if not r.get("eliminated"))
+    taken = set(_finish_ranks.values())
+    pos = max(1, still_in)
+    while pos in taken and pos > 1:
+        pos -= 1
+    _finish_ranks[key] = pos
+    return pos
+
 
 def announce_elimination(row, finish_rank):
     """Puts the eliminated squad on the top-centre card, automatically.
@@ -2020,7 +2071,8 @@ def announce_elimination(row, finish_rank):
     The card is also not touched while it is already showing someone: two
     squads can go out within a second of each other, and swapping the
     name out from under a card mid-animation reads as a glitch rather
-    than as two eliminations. The second simply doesn't get a card.
+    than as two eliminations. The second waits in a queue and gets its
+    own card as soon as the first has had its time.
     """
     settings = server_state.get("settings", {})
     if settings.get("eliminationApproval", True):
@@ -2032,6 +2084,16 @@ def announce_elimination(row, finish_rank):
     te = server_state.get("teamEliminated") or {}
     now_ms = int(time.time() * 1000)
     if te.get("status") == "shown" and (te.get("shownUntil") or 0) > now_ms:
+        # It is not dropped, though: near the end of a match two or three
+        # squads go within seconds of each other, and an operator who ticks
+        # three should see three cards. It waits its turn instead.
+        name = (row.get("teamName") or "")
+        if name and not any(q["teamName"] == name for q in _elim_card_queue):
+            _elim_card_queue.append({
+                "teamName": name,
+                "rank": finish_rank,
+                "kills": _sheet_elim_value(row),
+            })
         return
     te["status"] = "shown"
     seconds = server_state.get("settings", {}).get("elimCardSeconds") or FREEFIRE_ELIM_CARD_SECONDS
@@ -4404,11 +4466,17 @@ async def handle_client(websocket, path=None):
                     # again and never got a card at all. Ticking it is the
                     # moment, so this is where it fires.
                     key = team.strip().upper()
-                    known = _finish_ranks.get(key)
-                    row = next((r for r in (live.get("sidetableRows") or [])
+                    rows_now = live.get("sidetableRows") or []
+                    row = next((r for r in rows_now
                                 if (r.get("teamName") or "").strip().upper() == key), None)
                     if row is not None:
-                        announce_elimination(row, row.get("finishRank") or known)
+                        # A held wipe has no position yet -- it is given one
+                        # when the gate releases it, a poll after this. The
+                        # card is raised HERE, so the position is decided
+                        # here too, or it prints an empty corner.
+                        rank = row.get("finishRank") or claim_finish_rank(key, rows_now)
+                        row["finishRank"] = rank
+                        announce_elimination(row, rank)
                     save_state()
                     await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") == "freefire_fetch_alive_grid_preview":
@@ -4883,6 +4951,11 @@ async def ocr_loop():
                         "type": "crop_preview", "region": region_key,
                         "image": data_url, "text": raw_text or "",
                     })
+
+            # Anyone still waiting for a card gets it as soon as the one
+            # before has had its time.
+            if drain_elim_card_queue():
+                changed = True
 
             # Carried series totals, on their own slow timer.
             await refresh_live_carry_points()

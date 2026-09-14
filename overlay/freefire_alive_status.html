@@ -874,6 +874,7 @@ function makeRowEl(){
 }
 
 /* ---- the elimination card ------------------------------------------- */
+let currentElimRow = null;       // who the card is showing right now
 let elimCardTimer = null;
 let elimCardOutTimer = null;
 
@@ -928,6 +929,15 @@ function applyElimCardLayout(C, state){
    announcement is identified by the squad and the moment it fired. */
 let lastAnnounceKey = "";
 
+/* A squad whose card arrived while another was still on screen. Near the
+   end of a match two or three go within seconds of each other, and the
+   engine hands them over one at a time -- but it releases the next one
+   the moment its hold is up, while this card is still flying out for a
+   beat after that. Dropping it there is what left the 11th with no card
+   at all. It waits instead, and goes up as soon as the one in front has
+   left. */
+let pendingElimCard = null;
+
 function showAnnouncedElimCard(state, L){
   const te = state.teamEliminated;
   if(!te || te.status !== "shown" || !te.teamName) return;
@@ -964,9 +974,6 @@ function showElimCard(state, rowEl, L, forced){
   const C = L.elimCard;
   if(!C) return;                       // this package has no such card
   const card = document.getElementById("elimCard");
-  // Never interrupt one already running: a name swapping out from under
-  // a card mid-animation reads as a fault, not as a second elimination.
-  if(card.classList.contains("show")) return;
 
   let row = forced || null;
   if(!row){
@@ -981,6 +988,19 @@ function showElimCard(state, rowEl, L, forced){
   if(!forced && te && te.teamName && rowKeyOf(row) === rowKeyOf(te)){
     lastAnnounceKey = te.teamName + "@" + te.shownUntil;
   }
+
+  // Never interrupt one already running: a name swapping out from under a
+  // card mid-animation reads as a fault, not as a second elimination. The
+  // squad is held rather than dropped, and raised the moment this one has
+  // finished leaving.
+  if(card.classList.contains("show")){
+    if(rowKeyOf(row) !== rowKeyOf(currentElimRow || {})
+       && rowKeyOf(row) !== rowKeyOf(pendingElimCard || {})){
+      pendingElimCard = row;
+    }
+    return;
+  }
+  currentElimRow = row;
 
   applyElimCardLayout(C, state);
 
@@ -1013,7 +1033,13 @@ function showElimCard(state, rowEl, L, forced){
     card.classList.add("out");
     // Left showing until the exit animation has actually run, or it would
     // vanish instead of leaving.
-    elimCardOutTimer = setTimeout(() => card.classList.remove("show", "out"), 420);
+    elimCardOutTimer = setTimeout(() => {
+      card.classList.remove("show", "out");
+      currentElimRow = null;
+      const next = pendingElimCard;
+      pendingElimCard = null;
+      if(next && lastState) showElimCard(lastState, null, layoutFor(lastState), next);
+    }, 420);
   }, hold * 1000);
 }
 
