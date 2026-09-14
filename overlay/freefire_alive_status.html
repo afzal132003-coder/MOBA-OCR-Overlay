@@ -1125,7 +1125,13 @@ function apply(state){
     // one: a card per squad back to back would be unreadable, and with
     // the approval gate holding every wipe until it is ticked, a batch
     // means the table catching up rather than four squads dying at once.
-    showElimCard(state, newlyOut[0], L);
+    // With "confirm eliminations" on, the card comes from the engine's
+    // announcement and nowhere else -- the engine is the only side that
+    // knows whether the tick was given. The table's own trigger stays for
+    // auto-fire, where there is no tick to wait for.
+    if(!(state.settings && state.settings.eliminationApproval)){
+      showElimCard(state, newlyOut[0], L);
+    }
     holdOrderUntil = Date.now() + FLYBY_MS;
     setTimeout(() => { if(lastState) apply(lastState); }, FLYBY_MS + 40);
   }

@@ -2005,15 +2005,30 @@ def announce_elimination(row, finish_rank):
     """Puts the eliminated squad on the top-centre card, automatically.
 
     Fired from the point where a squad is first given a finishing
-    position, which is downstream of gate_eliminations -- so a wipe the
-    operator has not approved yet does not fire it either. One decision
-    about whether an elimination is real, and both graphics follow it.
+    position. That is downstream of gate_eliminations, which was taken as
+    enough -- it is not. The gate has one way through without a tick: a
+    wipe it has no alive reading for, which is every engine started into a
+    running match and every row just pointed at a squad already out. Those
+    reach here, take a position, and put a card on air that nobody
+    approved.
 
-    The card is not touched while it is already showing someone: two
+    So the tick is checked here too, on its own account. While "confirm
+    eliminations" is on, a squad that is not in the approved list does not
+    get a card, however it arrived. The setting says before they go ON
+    AIR, and this is the loudest thing that goes on air.
+
+    The card is also not touched while it is already showing someone: two
     squads can go out within a second of each other, and swapping the
     name out from under a card mid-animation reads as a glitch rather
     than as two eliminations. The second simply doesn't get a card.
     """
+    settings = server_state.get("settings", {})
+    if settings.get("eliminationApproval", True):
+        live = server_state.get("liveOps") or {}
+        approved = {t.strip().upper() for t in (live.get("approvedEliminations") or [])}
+        if (row.get("teamName") or "").strip().upper() not in approved:
+            return
+
     te = server_state.get("teamEliminated") or {}
     now_ms = int(time.time() * 1000)
     if te.get("status") == "shown" and (te.get("shownUntil") or 0) > now_ms:
@@ -4378,6 +4393,22 @@ async def handle_client(websocket, path=None):
                         p for p in (live.get("pendingEliminations") or [])
                         if (p.get("teamName") or "").strip().upper() != team.upper()
                     ]
+                    # The tick raises the card, not just the row.
+                    #
+                    # The card is normally raised at the moment a squad is
+                    # first given a finishing position. A squad that
+                    # reached air without a tick -- the gate's one way
+                    # through, for a wipe it had no alive reading to hold
+                    # with -- already has its position by the time anyone
+                    # ticks it, so it would never be "newly positioned"
+                    # again and never got a card at all. Ticking it is the
+                    # moment, so this is where it fires.
+                    key = team.strip().upper()
+                    known = _finish_ranks.get(key)
+                    row = next((r for r in (live.get("sidetableRows") or [])
+                                if (r.get("teamName") or "").strip().upper() == key), None)
+                    if row is not None:
+                        announce_elimination(row, row.get("finishRank") or known)
                     save_state()
                     await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") == "freefire_fetch_alive_grid_preview":
