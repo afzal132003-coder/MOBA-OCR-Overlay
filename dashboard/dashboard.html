@@ -6927,6 +6927,25 @@ function ffRenderLoadoutReview(msg){
   }
   const loadout = (player.loadouts || {})[String(msg.gameNumber)] || {};
   const slots = loadout.slots || {};
+  /* The runners-up, offered as a click.
+
+     Two faces of the same build trade places and no threshold makes that
+     untrue -- but the right one is nearly always a place or two behind.
+     Measured on real captures with the answer known: 1st, 3rd, 2nd. So
+     the fix for a wrong read is to pick the right one, which takes a
+     second, rather than to re-shoot the card or live with it. */
+  const alternatives = (slot, s) => {
+    const alts = s.alts || [];
+    if(!alts.length) return "";
+    return `<div style="margin-top:3px;display:flex;flex-direction:column;gap:2px;align-items:center;">`
+      + alts.map(a => `<button type="button" class="secondary ff-slot-pick"
+            data-slot="${ffEscapeHtml(slot)}" data-label="${ffEscapeHtml(a.label)}"
+            title="Not ${ffEscapeHtml(String(s.name || s.label || ""))}? Set this instead."
+            style="margin-top:0;font-size:9px;padding:1px 5px;max-width:72px;overflow:hidden;
+                   text-overflow:ellipsis;white-space:nowrap;">${ffEscapeHtml(a.name || a.label)}</button>`).join("")
+      + `</div>`;
+  };
+
   const cells = Object.keys(FF_SLOT_LABELS).map(slot => {
     const s = slots[slot] || {};
     const img = (msg.images || {})[slot];
@@ -6937,8 +6956,10 @@ function ffRenderLoadoutReview(msg){
         <div style="font-size:10px;color:#98a3bd;margin-bottom:3px;">${FF_SLOT_LABELS[slot]}</div>
         ${img ? `<img src="${img}" style="width:72px;height:72px;object-fit:contain;border:1px solid #2b3348;border-radius:4px;background:#0a0d18;">`
               : `<div style="width:72px;height:72px;border:1px solid #2b3348;border-radius:4px;background:#0a0d18;display:flex;align-items:center;justify-content:center;color:#6b7590;font-size:9px;">no crop</div>`}
-        <div style="font-size:11px;font-weight:700;color:${colour};margin-top:3px;max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${ffEscapeHtml(String(shown))}</div>
-        <div style="font-size:9px;color:#6b7590;">${s.label ? `conf ${s.confidence}` : ""}</div>
+        <div style="font-size:11px;font-weight:700;color:${colour};margin-top:3px;max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+             title="${ffEscapeHtml(String(shown))}">${ffEscapeHtml(String(shown))}</div>
+        <div style="font-size:9px;color:#6b7590;">${s.manual ? "you set this" : (s.label ? `conf ${s.confidence}` : "")}</div>
+        ${alternatives(slot, s)}
       </div>`;
   }).join("");
 
@@ -6974,6 +6995,21 @@ function ffRenderLoadoutReview(msg){
         <img src="${cardImg}" style="max-width:320px;border:1px solid #2b3348;border-radius:4px;">
       </div>` : ""}
     </div>`;
+
+  // Picking a runner-up. The engine re-renders this panel off the state
+  // change, so the button that was clicked is gone by the time the reply
+  // lands -- which is why nothing here tries to update it in place.
+  body.querySelectorAll(".ff-slot-pick").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+      btn.disabled = true;
+      ffWs.send(JSON.stringify({
+        type: "freefire_set_loadout_slot",
+        team: msg.teamIndex, player: msg.playerIndex, game: msg.gameNumber,
+        slot: btn.dataset.slot, label: btn.dataset.label,
+      }));
+    });
+  });
 }
 
 document.getElementById("ff_loadoutReviewClose").addEventListener("click", () => {

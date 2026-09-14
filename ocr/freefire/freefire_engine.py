@@ -2673,27 +2673,57 @@ def build_alive_grid_preview(crops, palette=None):
 _icon_signature_cache = {}
 
 
-def _icon_signature(img_bgr, grid=4):
-    """Average BGR per cell of a grid x grid split, normalised for overall
-    brightness. The normalisation matters here in a way it doesn't for
-    Valorant portraits: the same character icon renders noticeably dimmer
-    on a knocked/greyed-out HUD card than on a healthy one, and without it
-    that brightness shift alone can outweigh the actual colour differences
-    between two different characters."""
-    resized = cv2.resize(img_bgr, (grid * 8, grid * 8), interpolation=cv2.INTER_AREA)
-    cells = []
-    h, w = resized.shape[:2]
-    for gy in range(grid):
-        for gx in range(grid):
-            y0, y1 = h * gy // grid, h * (gy + 1) // grid
-            x0, x1 = w * gx // grid, w * (gx + 1) // grid
-            cell = resized[y0:y1, x0:x1]
-            cells.append(cell.reshape(-1, 3).mean(axis=0))
-    sig = np.array(cells, dtype=np.float32)
-    mean = sig.mean()
-    if mean > 1e-6:
-        sig = sig / mean
-    return sig
+def _icon_signature(img_bgr, size=32):
+    """A standardised, centre-weighted grayscale thumbnail of the icon.
+
+    This was a 4x4 grid of average BGR -- 48 numbers, nearly all of which
+    described the BACKGROUND. In game the portraits sit on a coloured
+    panel (salmon, green, slate) that the reference art does not have, so
+    the tint swamped the face: measured against real captures with the
+    answer known by eye, the true character came back 66th, 42nd and 34th
+    out of eighty. That is not matching, it is a lottery with a
+    confidence number attached.
+
+    Three things fix it, and each was measured on those same captures
+    rather than assumed.
+
+    Grayscale, standardised. Subtracting the mean and dividing by the
+    spread means a flat colour cast shifts every pixel alike and falls
+    straight out, along with the HUD's dimming of a knocked player's
+    card. What is left is where the light and dark actually sit, which is
+    the face rather than the panel behind it.
+
+    Centre-weighted. The background lives around the edge and the face is
+    in the middle, so the middle is what counts. This was the single
+    ingredient that mattered -- every configuration that scored well had
+    it, and every one that dropped it scored worse.
+
+    And enough resolution to tell two faces apart. 32x32 standardised is
+    a thousand numbers about the picture instead of forty-eight about its
+    colour; past that it stops helping, so it stops there.
+
+    Those same three captures now come back 1st, 3rd and 2nd. Not
+    perfect -- similar faces (dark hair, beard) still trade places, which
+    is why the match carries its runners-up and why an operator can
+    correct one.
+    """
+    g = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    g = cv2.resize(g, (size, size), interpolation=cv2.INTER_AREA).astype(np.float32)
+    g -= g.mean()
+    spread = g.std()
+    if spread > 1e-6:
+        g /= spread
+    global _ICON_WINDOW
+    if _ICON_WINDOW is None or _ICON_WINDOW.shape[0] != size:
+        yy, xx = np.mgrid[0:size, 0:size]
+        c = (size - 1) / 2.0
+        r = np.sqrt((yy - c) ** 2 + (xx - c) ** 2) / (size / 2.0)
+        _ICON_WINDOW = np.clip(1.45 - r, 0.0, 1.0).astype(np.float32)
+    return (g * _ICON_WINDOW).reshape(-1)
+
+
+# Built once, on first use -- see _icon_signature.
+_ICON_WINDOW = None
 
 
 def load_reference_image(path):
@@ -2904,11 +2934,32 @@ def match_icon(img_bgr, library_name):
         confidence = 0.0
     else:
         confidence = max(0.0, 1.0 - (best_distance / runner_up))
+    # The runners-up, carried with the answer.
+    #
+    # Two faces of the same build -- dark hair, beard, same lighting --
+    # still trade places, and no threshold makes that not so. What helps
+    # is that the right one is almost always a place or two behind: on
+    # the captures measured by hand it sat 1st, 3rd and 2nd. Offering
+    # them turns "it read wrong" into one click, which is worth far more
+    # than another decimal place of confidence.
+    alts = []
+    seen = {best_name.strip().upper()}
+    for distance, label in scored[1:]:
+        name = library[label][1]
+        key = (name or "").strip().upper()
+        if key in seen:
+            continue
+        seen.add(key)
+        alts.append({"label": label, "name": name})
+        if len(alts) >= 3:
+            break
+
     return {
         "label": best_label,
         "name": library[best_label][1],
         "confidence": round(confidence, 3),
         "lowConfidence": confidence < ICON_MATCH_MIN_CONFIDENCE,
+        "alts": alts,
     }
 
 
@@ -4686,6 +4737,28 @@ async def handle_client(websocket, path=None):
                         announce_elimination(row, rank)
                     save_state()
                     await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "freefire_set_loadout_slot":
+                # The operator naming a slot outright. A matcher that is
+                # right most of the time still needs this, and without it
+                # a wrong read had to be lived with or re-shot.
+                try:
+                    player = server_state["roster"]["teams"][int(payload["team"])]                                          ["players"][int(payload["player"])]
+                    entry = player["loadouts"][str(payload["game"])]
+                    slot = str(payload["slot"])
+                    label = payload.get("label") or ""
+                    lib = load_icon_library(FREEFIRE_ICON_LIBRARIES.get(slot, ""))
+                    ref = lib.get(label)
+                    if ref is not None:
+                        entry.setdefault("slots", {})[slot] = {
+                            "label": label, "name": ref[1],
+                            "confidence": 1.0, "lowConfidence": False,
+                            "manual": True,
+                        }
+                        save_state()
+                        await broadcast({"type": "state_sync", "data": server_state,
+                                         "locked": list(locked_fields)})
+                except (KeyError, IndexError, ValueError, TypeError) as e:
+                    print(f"[loadout] couldn't set that slot: {e}")
             elif payload.get("type") == "freefire_reload_icon_library":
                 # Artwork added, or a name typed into names.json, while
                 # the engine is up. Without this neither takes effect
