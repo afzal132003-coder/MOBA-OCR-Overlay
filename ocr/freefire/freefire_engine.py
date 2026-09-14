@@ -1780,6 +1780,38 @@ def apply_team_marks(rows):
 _last_alive_by_team = {}
 
 
+# How many polls in a row must agree that a squad is wiped before the
+# wipe is believed at all.
+#
+# A wipe is the single most consequential reading this system takes: it
+# fires an animation, a card, a re-sort, and points -- and on a false one
+# an operator is handed a tick that says a living squad is out. Yet it
+# was acted on from a single frame, while a mere KILL COUNT already has
+# to agree across a window before it is published.
+#
+# Four polls is about a second. A real wipe is permanent, so a second
+# costs nothing and no viewer can tell; a flicker from a glow sweep, a
+# particle effect or a frame caught mid-animation never survives it.
+FREEFIRE_WIPE_CONFIRM_FRAMES = 4
+
+# team -> consecutive polls it has read as wiped.
+_wipe_streak = {}
+
+
+def wipe_is_confirmed(key, wiped):
+    """True once a squad has read as wiped for long enough to believe.
+
+    The streak resets the moment a single read says otherwise, which is
+    what makes this a confirmation rather than a delay: one credible
+    "still alive" is enough to throw the whole thing out."""
+    if not wiped:
+        _wipe_streak.pop(key, None)
+        return False
+    n = _wipe_streak.get(key, 0) + 1
+    _wipe_streak[key] = n
+    return n >= FREEFIRE_WIPE_CONFIRM_FRAMES
+
+
 def gate_eliminations(rows):
     """Holds a detected squad wipe off air until the operator ticks it.
 
@@ -1814,7 +1846,26 @@ def gate_eliminations(rows):
     for row in rows:
         team = (row.get("teamName") or "").strip()
         key = team.upper()
-        wiped = bool(row.get("eliminated")) or row.get("aliveCount") == 0
+        read_wiped = bool(row.get("eliminated")) or row.get("aliveCount") == 0
+        # Counted before anything else is decided, so a read that says
+        # "alive" clears the streak even on a row we go on to skip.
+        wiped = wipe_is_confirmed(key, read_wiped)
+        if read_wiped and not wiped:
+            # Read as wiped, but not for long enough to believe yet. Show
+            # what it last really was and say nothing -- an unconfirmed
+            # wipe must not reach the operator's tick list, because a tick
+            # is a decision and there is nothing decided yet.
+            #
+            # The same two places to look as a held wipe, and for the same
+            # reason: leaving the dead bars in place would put an
+            # unconfirmed wipe on air off a single frame, which is the
+            # thing this whole check exists to stop. With neither, there
+            # is nothing honest to show and it goes through as read.
+            remembered = _last_alive_by_team.get(key) or last_published.get(key)
+            if remembered:
+                row["bars"], row["aliveCount"] = list(remembered[0]), remembered[1]
+                row["eliminated"] = False
+            continue
         if not wiped:
             if row.get("aliveCount") is not None:
                 _last_alive_by_team[key] = (list(row.get("bars") or []), row.get("aliveCount"))
