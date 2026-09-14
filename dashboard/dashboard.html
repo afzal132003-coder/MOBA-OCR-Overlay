@@ -2016,8 +2016,8 @@ Team Charlie
 
     <div class="card">
       <h2>Loadout Capture (Num5)</h2>
-      <p class="hint">Calibrate the eight loadout boxes first by running <code>calibrate_freefire_loadout.bat</code>
-        (or <code>python calibrate.py freefire_loadout_active</code> for a single box). While armed, pressing Num5 anywhere — even
+      <p class="hint">Calibrate the eight loadout boxes first — the Recalibrate control below writes the exact
+        command for you, or run <code>ocr\freefire\calibrate_freefire_loadout.bat</code>. While armed, pressing Num5 anywhere — even
         with the game focused, which needs the engine running as Administrator on Windows — captures the next
         player below, identifies each slot against the reference images in <code>overlay/assets/FFM</code>, and
         advances. Import the roster on the Pre-Match tab first, and set <strong>Current Game</strong> there so
@@ -2028,6 +2028,35 @@ Team Charlie
         <button class="secondary" id="ff_loadoutSkip">Skip (no capture)</button>
         <button class="secondary" id="ff_loadoutResetPointer">Reset to Start</button>
       </div>
+
+      <div class="row" style="gap:8px;align-items:flex-end;margin-top:12px;
+           border-top:1px solid #2b3348;padding-top:10px;">
+        <div class="team-form" style="max-width:340px;margin:0;">
+          <label>Recalibrate</label>
+          <select id="ff_loadoutCalibPick">
+            <option value="ff-loadout">All 8 loadout boxes</option>
+            <option value="freefire_loadout_active">Active character (the big portrait)</option>
+            <option value="freefire_loadout_passive1">Passive character 1 (first small portrait)</option>
+            <option value="freefire_loadout_passive2">Passive character 2 (second small portrait)</option>
+            <option value="freefire_loadout_passive3">Passive character 3 (third small portrait)</option>
+            <option value="freefire_loadout_pet">Pet</option>
+            <option value="freefire_loadout_equipment">Equipment</option>
+            <option value="freefire_loadout_ign">Player IGN (read as text, not matched)</option>
+            <option value="freefire_loadout">Whole loadout card (the visual record)</option>
+          </select>
+        </div>
+        <button class="secondary" id="ff_loadoutCalibCopy" style="margin-top:0;">Copy Command</button>
+      </div>
+      <p class="hint" style="margin-top:6px;">Paste into any terminal — cmd or PowerShell — with a player's
+        loadout card on screen, the same one Num5 captures. Recalibrating one box only redraws that box; the
+        others keep their current values, so fixing one misaligned slot doesn't mean redoing all eight.
+        Restart the engine afterwards to pick it up.</p>
+      <p class="hint" id="ff_loadoutCalibWhere" style="margin-top:2px;"></p>
+      <p class="hint" style="margin-top:2px;">If a slot is being read as the wrong character or pet while its
+        crop looks correct, the box is fine and the reference library is what needs the work — add or replace
+        the artwork in <code>overlay/assets/FFM</code>. Recalibrating only moves where it looks.</p>
+      <div class="hint" id="ff_loadoutCalibStatus" style="margin-top:6px;font-size:11px;word-break:break-all;"></div>
+
       <div class="hint" id="ff_loadoutCaptureStatus" style="margin-top:10px;font-size:14px;"></div>
       <div id="ff_loadoutCaptureGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:12px;"></div>
       <p class="hint" id="ff_loadoutCaptureEmpty">No roster imported yet.</p>
@@ -5828,7 +5857,60 @@ document.getElementById("ff_loadoutSave").addEventListener("click", () => {
   ffSendManualUpdate(ffState);
 });
 
+
+/* Windows path separator, named rather than written inline. */
+const CALIB_SEP = String.fromCharCode(92);
 /* ---------- Live Ops: Num5 loadout capture ---------- */
+
+/* The same recalibrate-and-copy control the alive grid has, for the
+   eight loadout boxes. Those boxes drift for the ordinary reason: a
+   different capture card, a resolution change, a UI update that moves
+   the card a few pixels. Reaching for the command meant remembering
+   which script, which key, and which folder it runs from -- so it is
+   written out here instead.
+
+   One box at a time matters more here than anywhere else. There are
+   eight of them, they only line up while a loadout card is on screen,
+   and getting a card up is the slow part -- redoing all eight to fix
+   one is most of that work for nothing. */
+function ffLoadoutCalibCommand(){
+  const pick = document.getElementById("ff_loadoutCalibPick").value;
+  const dir = (ffState && ffState.enginePath) || "";
+  // A command box must only ever contain a command -- anything else in
+  // it gets pasted into a terminal verbatim and fails there. When the
+  // engine has not reported its path, fall back to one that still RUNS
+  // from the repo root; the caveat goes in the hint beside it.
+  if(!dir) return "python ocr" + CALIB_SEP + "freefire" + CALIB_SEP + "calibrate.py " + pick;
+  // Quoted: the real path contains a space ("Yash Jadhav") on at least
+  // one machine this runs on, and unquoted it breaks there.
+  return 'python "' + dir + CALIB_SEP + 'calibrate.py" ' + pick;
+}
+
+function ffRenderLoadoutCalibWhere(){
+  const note = document.getElementById("ff_loadoutCalibWhere");
+  if(!note) return;
+  note.textContent = (ffState && ffState.enginePath)
+    ? "Runs from any folder."
+    : "Engine not connected, so its path isn't known — run this one from the repo root (MOBA-OCR-Overlay), or start the engine for a command that works from anywhere.";
+}
+
+document.getElementById("ff_loadoutCalibPick")
+  .addEventListener("change", ffRenderLoadoutCalibWhere);
+ffRenderLoadoutCalibWhere();
+
+document.getElementById("ff_loadoutCalibCopy").addEventListener("click", async () => {
+  const cmd = ffLoadoutCalibCommand();
+  const status = document.getElementById("ff_loadoutCalibStatus");
+  try {
+    await navigator.clipboard.writeText(cmd);
+    status.textContent = "Copied: " + cmd;
+  } catch (e) {
+    // The clipboard is blocked outside a secure context. Printing the
+    // command means selecting it by hand still works.
+    status.textContent = "Couldn't reach the clipboard — copy it from here: " + cmd;
+  }
+});
+
 function ffFlattenRosterPlayers(roster){
   const flat = [];
   ((roster && roster.teams) || []).forEach((t, ti) => {
