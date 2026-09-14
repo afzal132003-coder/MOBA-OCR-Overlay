@@ -349,12 +349,155 @@
     from { background-position:   0% 50%,   0% 40%,   0% 60%; }
     to   { background-position: 116% 50%, 164% 40%,  88% 60%; }
   }
+  /* Held well back now that the box has a burning frame of its own. At
+     its old strength the sheet filled the row and the two together read
+     as a gold bar rather than as a squad on fire -- the frame is the
+     effect, and this is the flame moving over the box inside it. */
   @keyframes ff-fire-breathe {
-    from { opacity: .72; }
-    to   { opacity: 1; }
+    from { opacity: .26; }
+    to   { opacity: .50; }
   }
 
-  /* Keeps the text above the flame sheet. */
+  /* ---- the box itself burning ----------------------------------------
+     A line of fire around the row, flame licking off it, rather than a
+     glow sitting behind it.
+
+     Two rings, not one. A thin white-hot core on the box's own edge, and
+     a thicker soft flame body moving either side of it. One ring cannot
+     do both jobs: what makes fire read as fire is a hard bright line
+     with soft motion around it, and blurring a single ring enough to
+     make the flame churn stops the line being a line.
+
+     Each ring is cut from its own box -- the element minus its content
+     box leaves exactly the padding as a ring. Thickness is then one
+     number, and the corners come out properly joined instead of as four
+     bars overlapping at the ends.
+
+     Held close to the edge deliberately. Rows are 43px tall and sit 44px
+     apart, so there is 1px between them: flame thrown well outward would
+     be licking the squads above and below rather than this one. It
+     reaches about 4px out and 5px in, which is its own box. */
+  .fireframe {
+    position: absolute; inset: 0; z-index: 0;
+    display: none; pointer-events: none;
+    /* Screen only ever brightens, so the flame LIGHTS what it crosses
+       instead of painting an orange rectangle over it -- the same reason
+       the flame inside the box uses it. */
+    mix-blend-mode: screen;
+  }
+  .row.fire .fireframe { display: block; }
+
+  /* One strip per edge, rather than one ring around all four.
+
+     A ring is a band of fixed thickness, so every flame on it is the
+     same height -- which is what made the first attempt read as gold
+     moulding rather than as burning. Fire needs a CROSS-SECTION: dark,
+     then deepening red, then white-hot at the line itself, then falling
+     away again. That profile runs perpendicular to each edge, and one
+     gradient cannot run perpendicular to four edges at once.
+
+     So: four strips, each with its own profile across it, and a mask
+     along its length that cuts the sheet into separate tongues with
+     gaps between them. They overlap at the corners, which is where fire
+     piles up anyway. */
+  .fireframe .fe {
+    position: absolute;
+    -webkit-mask-repeat: repeat;
+            mask-repeat: repeat;
+    filter: url(#ffFireEdge) blur(1.3px) saturate(1.5) brightness(1.16);
+  }
+
+  /* The profile. White-hot sits at 74% -- with 10px of the strip outside
+     the box and 5px in, that lands the bright line on the box's own edge,
+     with the flame falling away outward and a short inner glow. */
+  .fireframe .fe.t, .fireframe .fe.b { left: -12px; right: -12px; height: 20px; }
+  .fireframe .fe.l, .fireframe .fe.r { top: -12px; bottom: -12px; width: 20px; }
+  .fireframe .fe.t { top: -12px;
+    background-image: linear-gradient(to bottom, var(--ff-flame)); }
+  .fireframe .fe.b { bottom: -12px;
+    background-image: linear-gradient(to top, var(--ff-flame)); }
+  .fireframe .fe.l { left: -12px;
+    background-image: linear-gradient(to right, var(--ff-flame)); }
+  .fireframe .fe.r { right: -12px;
+    background-image: linear-gradient(to left, var(--ff-flame)); }
+
+  .fireframe {
+    --ff-flame:
+      rgba(130,14,0,0) 0%, rgba(210,34,0,.40) 18%, rgba(255,66,0,.70) 33%,
+      rgba(255,132,0,.92) 45%, rgba(255,206,88,1) 53%,
+      rgba(255,250,226,1) 58%, rgba(255,252,232,1) 64%,
+      rgba(255,196,60,.95) 71%, rgba(255,110,0,.55) 82%,
+      rgba(198,28,0,.20) 92%, rgba(130,14,0,0) 100%;
+    /* The tongues. Uneven stops on purpose: evenly spaced flames read as
+       a dashed line, and the eye finds the repeat immediately. */
+    --ff-tongues:
+      rgba(0,0,0,1) 0px, rgba(0,0,0,.62) 12px, rgba(0,0,0,1) 21px,
+      rgba(0,0,0,.52) 30px, rgba(0,0,0,.95) 38px, rgba(0,0,0,.68) 47px,
+      rgba(0,0,0,1) 57px, rgba(0,0,0,.58) 67px, rgba(0,0,0,1) 78px;
+  }
+  .fireframe .fe.t, .fireframe .fe.b {
+    -webkit-mask-image: repeating-linear-gradient(90deg, var(--ff-tongues));
+            mask-image: repeating-linear-gradient(90deg, var(--ff-tongues));
+    animation: ff-flame-along-x 1.05s linear infinite,
+               ff-fireframe-breathe 0.47s ease-in-out infinite alternate;
+  }
+  .fireframe .fe.b { animation-duration: 1.31s, 0.53s; }
+  .fireframe .fe.l, .fireframe .fe.r {
+    -webkit-mask-image: repeating-linear-gradient(0deg, var(--ff-tongues));
+            mask-image: repeating-linear-gradient(0deg, var(--ff-tongues));
+    animation: ff-flame-along-y 0.9s linear infinite,
+               ff-fireframe-breathe 0.41s ease-in-out infinite alternate;
+  }
+  .fireframe .fe.r { animation-duration: 1.17s, 0.61s; }
+
+  /* The edge itself, alight. Barely blurred so it stays a LINE: the
+     strips above are blurred and torn enough to churn, and something
+     has to hold the shape of the box while they do. */
+  .fireframe .core {
+    position: absolute; inset: -1px; padding: 3px; box-sizing: border-box;
+    -webkit-mask-image: linear-gradient(#000 0 0), linear-gradient(#000 0 0);
+    -webkit-mask-clip: content-box, border-box;
+    -webkit-mask-composite: xor;
+            mask-image: linear-gradient(#000 0 0), linear-gradient(#000 0 0);
+            mask-clip: content-box, border-box;
+            mask-composite: exclude;
+    background:
+      repeating-linear-gradient(74deg,
+        rgba(255,150,30,.45) 0px, rgba(255,252,228,1) 11px,
+        rgba(255,206,110,.8) 19px, rgba(255,120,0,.40) 28px,
+        rgba(255,150,30,.45) 40px);
+    background-size: 170% 170%;
+    filter: blur(0.8px) brightness(1.2);
+    animation: ff-fireframe-core 0.83s linear infinite,
+               ff-fireframe-flicker 0.29s ease-in-out infinite alternate;
+  }
+
+  /* The tongues travel along their edge. Each side runs at its own
+     speed, so the four never line up into one shape going round. */
+  @keyframes ff-flame-along-x {
+    from { -webkit-mask-position: 0 0;    mask-position: 0 0; }
+    to   { -webkit-mask-position: 78px 0; mask-position: 78px 0; }
+  }
+  @keyframes ff-flame-along-y {
+    from { -webkit-mask-position: 0 0;    mask-position: 0 0; }
+    to   { -webkit-mask-position: 0 78px; mask-position: 0 78px; }
+  }
+  @keyframes ff-fireframe-core {
+    from { background-position:    0%   0%; }
+    to   { background-position: -170% 170%; }
+  }
+  @keyframes ff-fireframe-breathe {
+    from { opacity: .74; }
+    to   { opacity: 1; }
+  }
+  /* Uneven against the breathe above, so the two never throb together. */
+  @keyframes ff-fireframe-flicker {
+    0%   { opacity: .78; }
+    100% { opacity: 1; }
+  }
+
+  /* Keeps the text above the flame sheet, the frame included. */
+  .row .rank, .row .points,
   .row .logo, .row .name, .row .kills, .row .status-pip { z-index: 1; }
 
   /* A squad can be in the zone AND on a run. These no longer fight:
@@ -420,6 +563,30 @@
 </style>
 </head>
 <body>
+
+<!-- What turns the burning frame from a brass bar into fire.
+
+     Gradients alone give smooth bands, and smooth is the one thing flame
+     never is -- blurred, they read as polished metal. This tears the ring
+     up with noise before it is blurred, so the edge breaks into tongues
+     with gaps between them.
+
+     The noise is re-seeded in discrete steps rather than eased, because
+     fire does not interpolate: it jumps. Eight frames at 0.6s is about
+     13 a second, which is roughly where hand-drawn flame cycles sit and
+     is far cheaper than re-rendering noise every frame. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="ffFireEdge" x="-40%" y="-70%" width="180%" height="240%"
+          color-interpolation-filters="sRGB">
+    <feTurbulence type="fractalNoise" baseFrequency="0.045 0.10"
+                  numOctaves="3" seed="2" result="noise">
+      <animate attributeName="seed" values="2;9;4;15;7;11;3;13"
+               dur="0.6s" calcMode="discrete" repeatCount="indefinite"/>
+    </feTurbulence>
+    <feDisplacementMap in="SourceGraphic" in2="noise" scale="6"
+                       xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+</svg>
 
 <div id="frame">
   <div id="stage">
@@ -882,6 +1049,10 @@ function makeRowEl(){
   const el = document.createElement("div");
   el.className = "row no-anim";
   el.innerHTML =
+    '<div class="fireframe">' +
+      '<span class="fe t"></span><span class="fe b"></span>' +
+      '<span class="fe l"></span><span class="fe r"></span>' +
+      '<span class="core"></span></div>' +
     '<div class="rank"></div>' +
     '<div class="logo"><img alt="" style="display:none"></div>' +
     '<div class="name"></div>' +
