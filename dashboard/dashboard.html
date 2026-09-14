@@ -2057,6 +2057,15 @@ Team Charlie
         the artwork in <code>overlay/assets/FFM</code>. Recalibrating only moves where it looks.</p>
       <div class="hint" id="ff_loadoutCalibStatus" style="margin-top:6px;font-size:11px;word-break:break-all;"></div>
 
+      <div class="row" style="gap:8px;align-items:center;margin-top:10px;">
+        <button class="secondary" id="ff_iconLibReload" style="margin-top:0;">Reload reference images</button>
+        <span class="hint" id="ff_iconLibStatus" style="font-size:11px;flex:1;min-width:0;"></span>
+      </div>
+      <p class="hint" style="margin-top:4px;font-size:10px;">What each slot is matched against. Artwork added
+        or names edited while the engine is running don't take effect until this is pressed — and pressing it
+        also re-reads the names onto captures already taken, so naming a character fixes every card that
+        already matched it instead of only the next one.</p>
+
       <div class="hint" id="ff_loadoutCaptureStatus" style="margin-top:10px;font-size:14px;"></div>
       <div id="ff_loadoutCaptureGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:12px;"></div>
       <p class="hint" id="ff_loadoutCaptureEmpty">No roster imported yet.</p>
@@ -5241,6 +5250,7 @@ function ffConnect(){
       ffRenderTeamNamesList(ffState);
       ffRenderLoadouts(ffState);
       ffRenderLoadoutCapture(ffState);
+      ffRenderIconLibraries(ffState);
       ffRenderAliveGridRows(ffState);
       ffUpdateAliveGridLive(ffState);
       ffMountAliveOutput();
@@ -5293,6 +5303,13 @@ function ffConnect(){
         : "⚠ Failed: " + (msg.error || "unknown error");
     } else if(msg.type === "freefire_results_push_result"){
       ffShowResultsPushResult(msg);
+    } else if(msg.type === "freefire_icon_library_reloaded"){
+      const renamed = msg.renamed || 0;
+      const total = Object.values(msg.libraries || {})
+        .reduce((n, r) => n + (r.images || 0), 0);
+      document.getElementById("ff_loadoutCalibStatus").textContent =
+        `Re-read ${total} reference image(s)`
+        + (renamed ? `, and renamed ${renamed} slot(s) on captures already taken.` : ".");
     } else if(msg.type === "freefire_alive_grid_preview"){
       ffApplyAliveGridPreview(msg);
     }
@@ -5861,6 +5878,46 @@ document.getElementById("ff_loadoutSave").addEventListener("click", () => {
 /* Windows path separator, named rather than written inline. */
 const CALIB_SEP = String.fromCharCode(92);
 /* ---------- Live Ops: Num5 loadout capture ---------- */
+
+/* What the slots are actually matched against, said out loud.
+
+   An unidentified slot shows a dash, and a dash is the same shape
+   whether the box is uncalibrated, the folder is missing, or the icon
+   simply isn't in it. Pet and equipment read blank through a whole event
+   because neither folder existed -- the reason was in a tooltip, and
+   nobody hovers a tooltip to find out why a thing they believe they set
+   up isn't working. */
+function ffRenderIconLibraries(ff){
+  const el = document.getElementById("ff_iconLibStatus");
+  if(!el) return;
+  const rep = (ff && ff.loadoutLibraries) || {};
+  const names = Object.keys(rep).sort();
+  if(!names.length){ el.textContent = "Reference folders not surveyed yet."; return; }
+  const parts = names.map(n => {
+    const r = rep[n] || {};
+    if(!r.exists) return `<span style="color:#f5a4a4;">${ffEscapeHtml(n)}: folder missing</span>`;
+    if(!r.images) return `<span style="color:#f5a4a4;">${ffEscapeHtml(n)}: 0 images</span>`;
+    const unnamed = r.images - (r.named || 0);
+    const tail = unnamed ? `, <span style="color:#fbbf24;">${unnamed} unnamed</span>` : "";
+    return `<span style="color:#4ade80;">${ffEscapeHtml(n)}: ${r.images}</span>${tail}`;
+  });
+  const missing = names.filter(n => !(rep[n] || {}).exists);
+  el.innerHTML = parts.join(" &middot; ")
+    + (missing.length
+        ? `<div style="color:#f5a4a4;margin-top:3px;">Create ${missing
+            .map(n => `<code>${ffEscapeHtml((rep[n] || {}).folder || n)}</code>`).join(" and ")}
+           and put the icons in — that is where the engine looks, and why those slots are blank.</div>`
+        : "");
+}
+
+document.getElementById("ff_iconLibReload").addEventListener("click", () => {
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)){
+    document.getElementById("ff_iconLibStatus").textContent = "Not connected to the Free Fire engine.";
+    return;
+  }
+  document.getElementById("ff_iconLibStatus").textContent = "Re-reading…";
+  ffWs.send(JSON.stringify({ type: "freefire_reload_icon_library" }));
+});
 
 /* The same recalibrate-and-copy control the alive grid has, for the
    eight loadout boxes. Those boxes drift for the ordinary reason: a

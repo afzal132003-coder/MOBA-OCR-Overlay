@@ -611,6 +611,10 @@ def save_state():
 
 
 server_state = load_state()
+# Filled in once the icon helpers below are defined -- see the call after
+# match_icon's section. Declared here so an old state file that predates
+# it still has the key.
+server_state.setdefault("loadoutLibraries", {})
 # Where this engine is actually running from, so the dashboard can build
 # a calibration command that works on THIS machine. Set every start
 # rather than saved: a state file copied between machines (or a repo
@@ -2758,6 +2762,92 @@ def load_icon_library(library_name):
     return library
 
 
+def icon_library_report():
+    """What each reference library actually holds, right now.
+
+    A slot that cannot be identified shows a dash, and a dash looks the
+    same whether the box is uncalibrated, the folder is missing, or the
+    icon simply is not in it. Pets and equipment read as blank for a whole
+    event because neither folder existed -- the reason was sitting in a
+    tooltip nobody hovers. Reported as a number the operator can see.
+    """
+    report = {}
+    for library_name in sorted(set(FREEFIRE_ICON_LIBRARIES.values())):
+        folder = (FREEFIRE_ASSETS_DIR if library_name == "characters"
+                  else FREEFIRE_ASSETS_DIR / library_name)
+        # Counted off the folder rather than by loading the library: this
+        # runs at startup and on every reload, and decoding eighty-odd
+        # PNGs to answer "how many are there" is work for nothing.
+        files, named = [], 0
+        if folder.is_dir():
+            names = load_icon_names(folder)
+            files = [f for f in sorted(folder.iterdir())
+                     if f.is_file() and f.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp")]
+            named = sum(1 for f in files
+                        if names.get(f.stem, "").strip()
+                        and not names.get(f.stem, "").strip().isdigit()
+                        and names.get(f.stem, "").strip() != f.stem)
+        report[library_name] = {
+            "folder": str(folder),
+            "exists": folder.is_dir(),
+            "images": len(files),
+            "named": named,
+            "slots": sorted(k for k, v in FREEFIRE_ICON_LIBRARIES.items()
+                            if v == library_name),
+        }
+    return report
+
+
+def reload_icon_libraries():
+    """Re-reads the reference folders, and re-stamps the names onto
+    captures that have already been taken.
+
+    Two separate problems, one button.
+
+    The signatures are cached for the life of the process, so artwork
+    added or renamed while the engine is running had no effect at all --
+    which reads as "I added the pets and nothing happened".
+
+    And a capture stores the name as it stood when the shot was taken, so
+    naming a character afterwards left every earlier capture showing the
+    file id. A whole lobby's worth of cards read 102000052 where the
+    operator had since typed Oscar, and no amount of renaming fixed them
+    because nothing ever looked again. Re-stamping is by LABEL, which is
+    the file the match actually landed on and does not change.
+    """
+    _icon_signature_cache.clear()
+    libraries = {name: load_icon_library(name)
+                 for name in set(FREEFIRE_ICON_LIBRARIES.values())}
+
+    renamed = 0
+    for team in ((server_state.get("roster") or {}).get("teams") or []):
+        for player in (team.get("players") or []):
+            for entry in (player.get("loadouts") or {}).values():
+                for slot, got in (entry.get("slots") or {}).items():
+                    label = (got or {}).get("label")
+                    if not label:
+                        continue
+                    lib = libraries.get(FREEFIRE_ICON_LIBRARIES.get(slot, ""), {})
+                    ref = lib.get(label)
+                    if ref and got.get("name") != ref[1]:
+                        got["name"] = ref[1]
+                        renamed += 1
+
+    report = icon_library_report()
+    server_state["loadoutLibraries"] = report
+    total = sum(v["images"] for v in report.values())
+    print(f"[loadout] reference images reloaded -- {total} in all, "
+          f"{renamed} earlier capture(s) renamed")
+    return report, renamed
+
+
+def _report_icon_libraries_at_startup():
+    try:
+        server_state["loadoutLibraries"] = icon_library_report()
+    except Exception as e:                      # never block startup on this
+        print(f"[loadout] couldn't survey the reference folders: {e}")
+
+
 def match_icon(img_bgr, library_name):
     """Returns {"label", "confidence", "lowConfidence"} for the closest
     reference image, or a null label when the library is empty.
@@ -2820,6 +2910,11 @@ def match_icon(img_bgr, library_name):
         "confidence": round(confidence, 3),
         "lowConfidence": confidence < ICON_MATCH_MIN_CONFIDENCE,
     }
+
+
+# Surveyed once at import, so the dashboard has the picture on its first
+# sync rather than after the first capture.
+_report_icon_libraries_at_startup()
 
 
 # ---------------------------------------------------------------------------
@@ -4591,6 +4686,19 @@ async def handle_client(websocket, path=None):
                         announce_elimination(row, rank)
                     save_state()
                     await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "freefire_reload_icon_library":
+                # Artwork added, or a name typed into names.json, while
+                # the engine is up. Without this neither takes effect
+                # until a restart, and the names never reach captures
+                # already taken at all.
+                report, renamed = reload_icon_libraries()
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state,
+                                 "locked": list(locked_fields)})
+                await websocket.send(json.dumps({
+                    "type": "freefire_icon_library_reloaded",
+                    "libraries": report, "renamed": renamed,
+                }))
             elif payload.get("type") == "freefire_reset_alive":
                 # "This game is over, start the next one." The log's
                 # match_start does this by itself when it arrives; this is
