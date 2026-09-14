@@ -545,7 +545,11 @@ const LAYOUTS = {
       "1_alive.png": { size: 63.03, px: -2.02, py: -22.82 },
       "2_alive.png": { size: 63.03, px: -2.02, py: -22.82 },
       "3_alive.png": { size: 63.03, px: -2.02, py: -22.82 },
-      "4_alive.png": { size: 65.56, px: -3.28, py: -24.08 },
+      /* Was cropped differently to compensate for 4_alive.png having its
+         bar drawn ~4% smaller inside the same canvas than the other four.
+         The file was re-framed onto their box instead, so it shares the
+         one crop now -- kept listed so the set reads as a set. */
+      "4_alive.png": { size: 63.03, px: -2.02, py: -22.82 },
     },
     originY: 536,          // centre of y 254..818
 
