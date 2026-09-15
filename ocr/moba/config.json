@@ -10,7 +10,7 @@
   "relay": {
     "enabled": true,
     "url": "wss://titanium-relay.duckdns.org",
-    "token": "7NAmOd7tkqRC7IUcgdG3fHeWtmpQw82z"
+    "token": ""
   },
   "regions": {
     "team1_kills": {

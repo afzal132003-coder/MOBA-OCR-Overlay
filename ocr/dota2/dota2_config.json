@@ -4,7 +4,206 @@
   "relay": {
     "enabled": true,
     "url": "wss://titanium-relay.duckdns.org",
-    "token": "7NAmOd7tkqRC7IUcgdG3fHeWtmpQw82z"
+    "token": ""
   },
-  "regions": {}
+  "regions": {
+    "dota2_team1_p0_kda": {
+      "x": -1496,
+      "y": 694,
+      "w": 78,
+      "h": 26
+    },
+    "dota2_team1_p1_kda": {
+      "x": -1389,
+      "y": 696,
+      "w": 77,
+      "h": 20
+    },
+    "dota2_team1_p2_kda": {
+      "x": -1280,
+      "y": 696,
+      "w": 74,
+      "h": 22
+    },
+    "dota2_team1_p3_kda": {
+      "x": -1177,
+      "y": 697,
+      "w": 80,
+      "h": 22
+    },
+    "dota2_team1_p4_kda": {
+      "x": -1064,
+      "y": 693,
+      "w": 71,
+      "h": 28
+    },
+    "dota2_team1_p0_networth": {
+      "x": -1490,
+      "y": 673,
+      "w": 75,
+      "h": 23
+    },
+    "dota2_team1_p1_networth": {
+      "x": -1382,
+      "y": 675,
+      "w": 79,
+      "h": 22
+    },
+    "dota2_team1_p2_networth": {
+      "x": -1279,
+      "y": 676,
+      "w": 81,
+      "h": 21
+    },
+    "dota2_team1_p3_networth": {
+      "x": -1177,
+      "y": 676,
+      "w": 93,
+      "h": 21
+    },
+    "dota2_team1_p4_networth": {
+      "x": -1065,
+      "y": 676,
+      "w": 87,
+      "h": 22
+    },
+    "dota2_team2_p0_kda": {
+      "x": -919,
+      "y": 693,
+      "w": 77,
+      "h": 26
+    },
+    "dota2_team2_p1_kda": {
+      "x": -811,
+      "y": 693,
+      "w": 83,
+      "h": 29
+    },
+    "dota2_team2_p2_kda": {
+      "x": -703,
+      "y": 694,
+      "w": 79,
+      "h": 24
+    },
+    "dota2_team2_p3_kda": {
+      "x": -595,
+      "y": 697,
+      "w": 74,
+      "h": 25
+    },
+    "dota2_team2_p4_kda": {
+      "x": -491,
+      "y": 693,
+      "w": 80,
+      "h": 27
+    },
+    "dota2_team2_p0_networth": {
+      "x": -912,
+      "y": 675,
+      "w": 76,
+      "h": 23
+    },
+    "dota2_team2_p1_networth": {
+      "x": -807,
+      "y": 673,
+      "w": 78,
+      "h": 24
+    },
+    "dota2_team2_p2_networth": {
+      "x": -701,
+      "y": 674,
+      "w": 80,
+      "h": 22
+    },
+    "dota2_team2_p3_networth": {
+      "x": -590,
+      "y": 674,
+      "w": 84,
+      "h": 24
+    },
+    "dota2_team2_p4_networth": {
+      "x": -481,
+      "y": 670,
+      "w": 74,
+      "h": 29
+    },
+    "dota2_team1_score": {
+      "x": -1105,
+      "y": 292,
+      "w": 94,
+      "h": 90
+    },
+    "dota2_team2_score": {
+      "x": -907,
+      "y": 293,
+      "w": 102,
+      "h": 90
+    },
+    "dota2_duration": {
+      "x": -1005,
+      "y": 324,
+      "w": 96,
+      "h": 45
+    },
+    "dota2_team1_p0_damage": {
+      "x": -326,
+      "y": 325,
+      "w": 62,
+      "h": 49
+    },
+    "dota2_team1_p1_damage": {
+      "x": -327,
+      "y": 381,
+      "w": 61,
+      "h": 35
+    },
+    "dota2_team1_p2_damage": {
+      "x": -322,
+      "y": 431,
+      "w": 58,
+      "h": 37
+    },
+    "dota2_team1_p3_damage": {
+      "x": -324,
+      "y": 483,
+      "w": 69,
+      "h": 33
+    },
+    "dota2_team1_p4_damage": {
+      "x": -322,
+      "y": 530,
+      "w": 60,
+      "h": 34
+    },
+    "dota2_team2_p0_damage": {
+      "x": -328,
+      "y": 633,
+      "w": 68,
+      "h": 36
+    },
+    "dota2_team2_p1_damage": {
+      "x": -329,
+      "y": 680,
+      "w": 65,
+      "h": 44
+    },
+    "dota2_team2_p2_damage": {
+      "x": -334,
+      "y": 732,
+      "w": 81,
+      "h": 41
+    },
+    "dota2_team2_p3_damage": {
+      "x": -321,
+      "y": 778,
+      "w": 53,
+      "h": 46
+    },
+    "dota2_team2_p4_damage": {
+      "x": -327,
+      "y": 830,
+      "w": 67,
+      "h": 41
+    }
+  }
 }

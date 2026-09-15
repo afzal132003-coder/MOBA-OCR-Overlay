@@ -7,56 +7,56 @@
   "relay": {
     "enabled": true,
     "url": "wss://titanium-relay.duckdns.org",
-    "token": "7NAmOd7tkqRC7IUcgdG3fHeWtmpQw82z"
+    "token": ""
   },
   "regions": {
     "freefire_loadout": {
-      "x": -1212,
-      "y": 875,
-      "w": 663,
-      "h": 159
+      "x": -603,
+      "y": 912,
+      "w": 53,
+      "h": 52
     },
     "freefire_loadout_ign": {
-      "x": -1211,
-      "y": 905,
-      "w": 281,
-      "h": 46
+      "x": -1210,
+      "y": 829,
+      "w": 204,
+      "h": 44
     },
     "freefire_loadout_active": {
-      "x": -807,
-      "y": 911,
-      "w": 71,
-      "h": 66
+      "x": -809,
+      "y": 829,
+      "w": 70,
+      "h": 78
     },
     "freefire_loadout_passive1": {
-      "x": -815,
-      "y": 985,
-      "w": 54,
-      "h": 51
+      "x": -812,
+      "y": 910,
+      "w": 51,
+      "h": 56
     },
     "freefire_loadout_passive2": {
-      "x": -760,
-      "y": 989,
-      "w": 53,
-      "h": 55
+      "x": -761,
+      "y": 911,
+      "w": 51,
+      "h": 52
     },
     "freefire_loadout_passive3": {
-      "x": -708,
-      "y": 986,
+      "x": -707,
+      "y": 912,
       "w": 53,
-      "h": 48
+      "h": 54
     },
     "freefire_loadout_pet": {
-      "x": -655,
-      "y": 988,
-      "w": 54,
-      "h": 45
+      "x": -654,
+      "y": 910,
+      "w": 51,
+      "h": 54
     },
     "freefire_loadout_equipment": {
-      "x": -602,
-      "y": 986,
-      "w": 50,
-      "h": 50
+      "x": -603,
+      "y": 914,
+      "w": 55,
+      "h": 47
     },
     "freefire_killfeed": {
       "x": -662,
@@ -84,15 +84,15 @@
     },
     "freefire_alive_r1p1": {
       "x": -60,
-      "y": 310,
-      "w": 11,
-      "h": 29
+      "y": 303,
+      "w": 9,
+      "h": 27
     },
     "freefire_alive_r1p2": {
       "x": -46,
-      "y": 311,
-      "w": 9,
-      "h": 28
+      "y": 303,
+      "w": 8,
+      "h": 27
     },
     "freefire_alive_r2p1": {
       "x": -59,
@@ -101,15 +101,27 @@
       "h": 28
     },
     "freefire_alive_r1elim": {
-      "x": -131,
-      "y": 301,
-      "w": 52,
-      "h": 44
+      "x": -130,
+      "y": 292,
+      "w": 41,
+      "h": 47
     },
     "freefire_alive_rlastp1": {
-      "x": -59,
-      "y": 932,
-      "w": 8,
+      "x": -60,
+      "y": 923,
+      "w": 9,
+      "h": 27
+    },
+    "freefire_alive_r1p3": {
+      "x": -34,
+      "y": 306,
+      "w": 10,
+      "h": 28
+    },
+    "freefire_alive_r1p4": {
+      "x": -20,
+      "y": 307,
+      "w": 10,
       "h": 26
     }
   },

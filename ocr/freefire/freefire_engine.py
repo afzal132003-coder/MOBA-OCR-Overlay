@@ -29,6 +29,7 @@ import json
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
+import os
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
@@ -5295,6 +5296,20 @@ async def relay_client_loop():
         return
     url = relay_cfg.get("url", "")
     token = relay_cfg.get("token", "")
+    # A token written in the config is a token anyone can read: these
+    # files are committed and this repo is public, so the relay's write
+    # credential sat on GitHub. Config is still honoured for anyone
+    # running a private fork, but the secret belongs outside git --
+    # RELAY_TOKEN in the environment, or ocr/.relay_token, which
+    # .gitignore keeps out.
+    if not token:
+        token = os.environ.get("RELAY_TOKEN", "").strip()
+    if not token:
+        try:
+            token = (Path(__file__).resolve().parent.parent / ".relay_token"
+                     ).read_text(encoding="utf-8").strip()
+        except OSError:
+            token = ""
     if not url or not token:
         print("Relay is enabled in freefire_config.json but 'url'/'token' aren't both set -- skipping relay connection.")
         return

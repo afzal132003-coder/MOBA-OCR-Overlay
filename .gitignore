@@ -19,3 +19,9 @@ ocr/freefire/captures/
 # overlays actually reference ARE committed.
 *.psd
 *.gtzip
+
+# The relay's shared secret. This repo is PUBLIC and the config files
+# above are committed, so a token written in one is a token anyone can
+# read -- and the OCR role can write, not just read. Kept here instead,
+# or in the RELAY_TOKEN environment variable.
+ocr/.relay_token

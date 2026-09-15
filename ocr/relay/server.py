@@ -211,8 +211,15 @@ async def main():
     # state_sync tried to pass through, which broke the connection in an
     # endless connect/reject/retry loop. 16 MiB comfortably covers a couple
     # of uploaded logo images plus everything else in server_state.
-    async with websockets.serve(handler, "0.0.0.0", PORT, max_size=16 * 1024 * 1024):
-        print(f"Relay listening on 0.0.0.0:{PORT}")
+    # Bind address, because "reachable from the internet" should be a
+    # decision rather than a default. Behind Caddy the relay only ever
+    # needs to answer localhost, and a directly-reachable port is an
+    # unencrypted way in to the same service -- tokens in clear text on
+    # the wire, for no gain. Default stays 0.0.0.0 so a plain local run
+    # still works; the deployed unit sets HOST=127.0.0.1.
+    host = os.environ.get("HOST", "0.0.0.0")
+    async with websockets.serve(handler, host, PORT, max_size=16 * 1024 * 1024):
+        print(f"Relay listening on {host}:{PORT}")
         await asyncio.Future()  # run forever
 
 
