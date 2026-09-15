@@ -49,6 +49,15 @@ ARCHIVE_KEEP_DAYS = int(os.environ.get("ARCHIVE_KEEP_DAYS", "60"))
 # a genuinely still lobby.
 SILENCE_SECONDS = int(os.environ.get("SILENCE_SECONDS", "300"))
 
+# How long the engine must be absent before anyone is told. An engine
+# restarting is gone for a few seconds by definition, and so is one
+# whose connection blips -- alerting on that trains people to ignore the
+# alert, which costs more than the outage it was meant to catch. Proved
+# necessary the first time: rotating the relay tokens dropped the engine
+# briefly and fired two "disconnected" alerts for something that was
+# already fixing itself.
+DOWN_GRACE_SECONDS = int(os.environ.get("DOWN_GRACE_SECONDS", "45"))
+
 # Don't say the same thing twice in a row, and don't say anything twice
 # within this many seconds -- an alert that repeats is an alert people
 # learn to ignore.
@@ -117,13 +126,17 @@ class Alerter:
         self.last_key = None
         self.last_at = 0.0
 
-    def fire(self, key, title, body, colour):
+    async def fire(self, key, title, body, colour):
         now = time.time()
         if key == self.last_key and now - self.last_at < ALERT_COOLDOWN:
             return
         self.last_key = key
         self.last_at = now
-        post_discord(title, body, colour)
+        # Off the event loop. urlopen blocks for up to ten seconds, and
+        # doing that here stops the watchdog reading its own socket --
+        # so an unreachable Discord would make the monitor look exactly
+        # like the outage it is trying to report.
+        await asyncio.to_thread(post_discord, title, body, colour)
 
 
 class Archive:
@@ -197,6 +210,8 @@ async def run():
     engine_up = False
     last_state_at = 0.0
     warned_silent = False
+    down_since = None          # when it went away, or None if it is here
+    warned_down = False        # whether anyone has actually been told
 
     while True:
         try:
@@ -208,12 +223,21 @@ async def run():
                         raw = await asyncio.wait_for(ws.recv(), timeout=30)
                     except asyncio.TimeoutError:
                         # Quiet is normal. Check the clock and carry on.
+                        if (down_since and not warned_down
+                                and time.time() - down_since >= DOWN_GRACE_SECONDS):
+                            warned_down = True
+                            await alerter.fire(
+                                "down", "Engine disconnected",
+                                f"Nothing has been pushing to the relay for "
+                                f"{int(time.time() - down_since)}s. Every "
+                                f"graphic on air is frozen at its last value.",
+                                0xE03B3B)
                         if (engine_up and last_state_at
                                 and time.time() - last_state_at > SILENCE_SECONDS
                                 and not warned_silent):
                             warned_silent = True
                             mins = int((time.time() - last_state_at) / 60)
-                            alerter.fire(
+                            await alerter.fire(
                                 "silent", "Engine has gone quiet",
                                 f"Still connected, but nothing has been pushed "
                                 f"for {mins} minutes. On air this looks exactly "
@@ -233,29 +257,33 @@ async def run():
                         ocr = (msg.get("roles") or {}).get("ocr", 0)
                         now_up = ocr > 0
                         if now_up and not engine_up:
-                            if engine_seen:
-                                alerter.fire(
+                            # Back before anyone was told: say nothing.
+                            if engine_seen and down_since is None:
+                                pass
+                            elif engine_seen and warned_down:
+                                await alerter.fire(
                                     "up", "Engine reconnected",
                                     "It is pushing state to the relay again.",
                                     0x3BA55D)
                             engine_seen = True
                             warned_silent = False
+                            warned_down = False
+                            down_since = None
                             print("[watchdog] engine connected")
                         elif engine_up and not now_up:
-                            alerter.fire(
-                                "down", "Engine disconnected",
-                                "Nothing is pushing to the relay. Every "
-                                "graphic on air is now frozen at its last "
-                                "value.", 0xE03B3B)
-                            print("[watchdog] engine GONE")
+                            # Start the clock rather than the siren.
+                            down_since = time.time()
+                            print("[watchdog] engine gone -- waiting "
+                                  f"{DOWN_GRACE_SECONDS}s before saying so")
                         engine_up = now_up
 
                     elif kind == "state_sync":
                         last_state_at = time.time()
                         if warned_silent:
                             warned_silent = False
-                            alerter.fire("resumed", "Engine is pushing again",
-                                         "State updates have resumed.", 0x3BA55D)
+                            await alerter.fire(
+                                "resumed", "Engine is pushing again",
+                                "State updates have resumed.", 0x3BA55D)
                         data = msg.get("data")
                         if isinstance(data, dict) and archive.write(data):
                             if archive.written % 200 == 0:
