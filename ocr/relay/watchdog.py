@@ -92,7 +92,16 @@ def post_discord(title, body, colour):
     }).encode()
     req = urlrequest.Request(
         DISCORD_WEBHOOK, data=payload,
-        headers={"Content-Type": "application/json"})
+        headers={
+            "Content-Type": "application/json",
+            # Cloudflare sits in front of Discord and rejects the stock
+            # "Python-urllib/3.x" agent outright -- 403, error 1010, with
+            # a body that says nothing about the real reason. The webhook
+            # itself is fine; it simply never sees the request. Discord's
+            # documented format is DiscordBot (url, version).
+            "User-Agent": "DiscordBot (https://github.com/afzal132003-coder/"
+                          "MOBA-OCR-Overlay, 1.0) relay-watchdog",
+        })
     try:
         with urlrequest.urlopen(req, timeout=10) as r:
             r.read()
