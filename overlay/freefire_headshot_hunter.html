@@ -72,7 +72,22 @@
 const _params = new URLSearchParams(location.search);
 if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
 if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
-const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || "";
+/* Served BY the relay host, connect back to it.
+
+   These pages are now served off the same VM as the relay, and a page
+   loaded over https from that host has no business needing to be told
+   its own address. Without this every browser source and every dashboard
+   tab has to carry ?relay=wss://... forever, and one that is missing it
+   silently falls back to ws://localhost:8765 and sits there dead --
+   which looks exactly like the engine being down.
+
+   Only when actually served over https from a real host: a page opened
+   from disk, or off localhost while testing, keeps the old behaviour
+   untouched. An explicit ?relay= still wins over all of it. */
+const _sameOrigin = (location.protocol === "https:"
+  && location.hostname && !/^(localhost|127\.|\[?::1)/.test(location.hostname))
+  ? "wss://" + location.host : "";
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || _sameOrigin;
 const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
 const WS_URL = _relay
   ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_headshot_hunter"
