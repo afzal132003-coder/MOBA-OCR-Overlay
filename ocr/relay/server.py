@@ -79,10 +79,27 @@ def presence_counts():
     return counts
 
 
+def role_counts():
+    """How many of each role are connected.
+
+    Pages alone cannot answer "is an OCR engine attached", which is the
+    one thing worth alerting on: an engine connects with a token and no
+    page parameter, so it lands in the "unknown" bucket alongside
+    anything else that forgot one. The role is what the relay actually
+    authenticated, so the role is what gets reported.
+
+    Additive -- older pages ignore the extra field."""
+    counts = {}
+    for role in connected.values():
+        counts[role] = counts.get(role, 0) + 1
+    return counts
+
+
 async def broadcast_presence():
     if not connected:
         return
-    raw = json.dumps({"type": "presence", "pages": presence_counts()})
+    raw = json.dumps({"type": "presence", "pages": presence_counts(),
+                      "roles": role_counts()})
     stale = []
     # Iterate a SNAPSHOT, not the live dict. `await peer.send()` yields, and
     # any client connecting or disconnecting during that yield mutates
