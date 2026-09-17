@@ -8437,17 +8437,32 @@ function ffShowResultsPushResult(msg){
   const el = document.getElementById("ff_resultsPushStatus");
   if(!el) return;
   if(!msg.ok){
-    el.textContent = "\u26a0 Failed: " + (msg.error || "unknown error");
+    el.style.color = "#f5a4a4";
+    el.textContent = "⚠ Failed: " + (msg.error || "unknown error");
     return;
   }
-  let text = "\u2713 Match " + msg.match + " written \u2014 " + msg.matched + " of " + msg.total +
-             " teams matched a row in column C.";
-  // Naming them matters: an unmatched team is a team whose score silently
-  // didn't land, and the only fix is knowing which one.
-  if(msg.unmatched && msg.unmatched.length){
-    text += " No row found for: " + msg.unmatched.join(", ") + ".";
+  /* A push that "worked" while dropping half the teams is the worst
+     outcome here: the sheet looks updated and quietly is not. Naming the
+     missing teams was already happening, but as a footnote on a line that
+     started with a tick -- so it read as success. When any are missing
+     this now says so first, and says what it actually means. */
+  const missing = (msg.unmatched || []).length;
+  if(!missing){
+    el.style.color = "#4ade80";
+    el.textContent = "✓ Match " + msg.match + " written — all " +
+      msg.matched + " teams matched a row in column C.";
+    return;
   }
-  el.textContent = text;
+  el.style.color = "#f5a4a4";
+  el.innerHTML =
+    "⚠ Match " + msg.match + " written for only <strong>" + msg.matched +
+    " of " + msg.total + "</strong> teams." +
+    "<div style='margin-top:4px;'>No row in column C for: <strong>" +
+    (msg.unmatched || []).map(ffEscapeHtml).join(", ") + "</strong></div>" +
+    "<div style='margin-top:4px;color:#98a3bd;'>Their scores were written nowhere. " +
+    "Either that tab is set up for a different set of teams, or these are spelled " +
+    "differently there. A team is matched against the sheet's own column C: full name " +
+    "first, then short name, then an alias, then a partial match.</div>";
 }
 
 document.getElementById("ff_resultsPushMatch").addEventListener("input", (e) => {
