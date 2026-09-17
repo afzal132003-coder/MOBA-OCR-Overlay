@@ -96,6 +96,21 @@ last_state_sync = None
 # where short ones belong. That reached air once already.
 last_roster = None
 
+# websocket -> whether it connected with rostercache=1.
+#
+# Putting the roster back for EVERYONE, which is what this did at first,
+# fixes the uplink and leaves the fan-out exactly as heavy as it was: the
+# engine sends 48KB, and this turns it back into 269KB for every client
+# on the far side. Measured with that in place, the engine was publishing
+# 3.6 states a second and subscribers here were seeing 0.3 -- the relay's
+# own egress had become the bottleneck the uplink used to be.
+#
+# So a page that has said it can keep a roster is sent the small payload
+# untouched, and only a page that has not is served the re-inflated one.
+# The cached snapshot stays full whatever happens, because a late joiner
+# has no roster to keep yet.
+roster_cache_peers = {}
+
 
 def role_for_token(token):
     return TOKEN_ROLES.get(token)
@@ -159,6 +174,9 @@ async def handler(websocket):
 
     connected[websocket] = role
     connected_pages[websocket] = (query.get("page") or ["unknown"])[0]
+    # A page that says it keeps the last roster it was sent can be given
+    # the small payload as it arrived, instead of the re-inflated one.
+    roster_cache_peers[websocket] = (query.get("rostercache") or ["0"])[0] == "1"
     print(f"[connect] role={role} total_connected={len(connected)}")
     await broadcast_presence()
     try:
@@ -196,12 +214,17 @@ async def handler(websocket):
             # Put the roster back before this message is cached or sent
             # on. See last_roster above for why the engine is allowed to
             # leave it out in the first place.
+            # `raw` is what a page that cannot keep a roster gets, and
+            # what is cached. `lean` is the message exactly as it arrived,
+            # for pages that can -- None when there is nothing to save.
+            lean = None
             if msg.get("type") == "state_sync":
                 data = msg.get("data")
                 if isinstance(data, dict):
                     if data.get("roster") is not None:
                         last_roster = data["roster"]
                     elif last_roster is not None:
+                        lean = raw
                         data["roster"] = last_roster
                         # Re-serialised, because `raw` is what actually
                         # gets cached and forwarded below.
@@ -239,15 +262,19 @@ async def handler(websocket):
                 if target_pages is not None and connected_pages.get(peer) not in target_pages:
                     continue
                 try:
-                    await peer.send(raw)
+                    await peer.send(
+                        lean if (lean is not None
+                                 and roster_cache_peers.get(peer)) else raw)
                 except websockets.exceptions.ConnectionClosed:
                     stale.append(peer)
             for peer in stale:
                 connected.pop(peer, None)
                 connected_pages.pop(peer, None)
+                roster_cache_peers.pop(peer, None)
     finally:
         connected.pop(websocket, None)
         connected_pages.pop(websocket, None)
+        roster_cache_peers.pop(websocket, None)
         print(f"[disconnect] role={role} total_connected={len(connected)}")
         await broadcast_presence()
 
