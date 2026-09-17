@@ -5980,15 +5980,30 @@ async def ocr_loop():
                     read_teams, team_reads = read_row_teams(
                         grid_rows, roster_for_read, row_teams)
                     # The read wins where it is confident; the operator's
-                    # own assignment stands everywhere else. aliveRowTeams
-                    # is NEVER written here -- that field belongs to the
-                    # dropdown, and an engine that edits it is an engine
-                    # that erases whatever was just picked.
+                    # own assignment stands everywhere else.
                     row_teams = [
                         (read_teams[i] if i < len(read_teams) and read_teams[i]
                          else (row_teams[i] if i < len(row_teams) else ""))
                         for i in range(len(grid_rows))
                     ]
+                    # And it is written back, so the dropdown SHOWS what
+                    # the row actually is.
+                    #
+                    # This was taken out earlier, when the dropdown was
+                    # visibly erasing picks -- but that was the reads
+                    # being broken, not the writing being wrong. A row
+                    # reading CTZ while its dropdown says TAG is worse
+                    # than either: the operator cannot tell which one the
+                    # data followed. One field, one answer.
+                    #
+                    # A settled read only moves after eight agreeing
+                    # polls, so a deliberate pick is not snatched away
+                    # mid-click; to hold a row against the screen for
+                    # longer than that, untick "Read the team names off
+                    # the screen" and the reads stop writing entirely.
+                    if row_teams != server_state["liveOps"].get("aliveRowTeams"):
+                        server_state["liveOps"]["aliveRowTeams"] = row_teams
+                        changed = True
                     if team_reads != server_state["liveOps"].get("aliveRowReads"):
                         server_state["liveOps"]["aliveRowReads"] = team_reads
                         changed = True
