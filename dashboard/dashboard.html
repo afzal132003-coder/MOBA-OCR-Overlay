@@ -2238,6 +2238,8 @@ Team Charlie
             <label>Push which game's placement &amp; kills</label>
             <select id="ff_resultsPushSource"></select>
           </div>
+          <button class="secondary" id="ff_resultsReload"
+            title="Re-read every MatchResult file in the game folder">Reload games from disk</button>
           <div class="team-form" style="max-width:130px;">
             <label>Into match column</label>
             <input type="number" id="ff_resultsPushMatch" min="1" max="10" step="1" value="1">
@@ -5421,6 +5423,12 @@ function ffOpen(url){
       ffRenderIconLibraries(ffState);
       ffRenderAliveGridRows(ffState);
       ffRenderLobby();
+      // Once per connection: the dropdown should be usable the moment
+      // the tab is opened, not after someone finds the button.
+      if(!ffAskedForMatchFiles){
+        ffAskedForMatchFiles = true;
+        ffRequestMatchFiles();
+      }
       ffUpdateAliveGridLive(ffState);
       ffMountAliveOutput();
       ffExplainAliveOutput(ffState);
@@ -5472,6 +5480,8 @@ function ffOpen(url){
         : "⚠ Failed: " + (msg.error || "unknown error");
     } else if(msg.type === "freefire_results_push_result"){
       ffShowResultsPushResult(msg);
+    } else if(msg.type === "freefire_match_files"){
+      ffShowMatchFiles(msg);
     } else if(msg.type === "freefire_fill_roster_result"){
       ffShowLobbyFillResult(msg);
     } else if(msg.type === "freefire_icon_library_reloaded"){
@@ -8670,6 +8680,10 @@ function ffQmeUpdateExport(){
   const label = document.getElementById("ff_qmeSourceLabel");
   const output = document.getElementById("ff_qmeOutput");
   const { source, byName } = ffQmeMatchIndex();
+  // Rendered BEFORE the early return: with nothing committed and nothing
+  // loaded the dropdown was left completely blank rather than saying so,
+  // which reads as broken instead of as empty.
+  ffRenderResultsSources();
   if(!source){
     label.textContent = "No match to export yet — fetch or commit one first.";
     output.value = "";
@@ -8781,6 +8795,39 @@ function ffBooyahUnplaced(block){
   return block.players.filter(p => !p.matched && !p.overridden);
 }
 
+/* Games read straight off disk, as the engine reports them.
+
+   The push dropdown listed COMMITTED matches only, so a night with six
+   games played and none committed offered nothing to push at all --
+   every game had to be fetched, reviewed and committed before its
+   scores could reach the sheet, typically in the middle of the next
+   one. The files are the same source a fetch reads, so they can be
+   offered directly.
+
+   Declared HERE, above ffResultsSources, because that function runs on
+   the first state_sync -- a `let` further down the file is still in its
+   temporal dead zone at that point and throws. */
+let ffMatchFiles = [];
+let ffAskedForMatchFiles = false;
+
+function ffRequestMatchFiles(){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return false;
+  ffWs.send(JSON.stringify({ type: "freefire_list_match_files" }));
+  return true;
+}
+
+function ffShowMatchFiles(msg){
+  ffMatchFiles = (msg.files || []).filter(f => f.teams && f.teams.length);
+  const el = document.getElementById("ff_resultsPushTarget");
+  if(msg.error && el){
+    el.style.color = "#fbbf24";
+    el.textContent = msg.error;
+  }
+  ffRenderResultsSources();
+  if(!msg.error) ffUpdateResultsPushTarget();
+  if(typeof ffRenderBooyahCard === "function") ffRenderBooyahCard();
+}
+
 function ffResultsSources(){
   const out = [];
   const matches = (ffState && ffState.matches) || [];
@@ -8801,7 +8848,29 @@ function ffResultsSources(){
       label: "Game " + (i + 1) + " \u2014 matchId " + m.matchId,
     });
   });
+  // Files on disk the engine has not been asked to commit. Skipped when
+  // the same matchId is already committed, so one game never appears
+  // twice under two different names.
+  const committedIds = new Set(matches.map(m => String(m.matchId || "")));
+  ffMatchFiles.forEach(f => {
+    if(committedIds.has(String(f.matchId || ""))) return;
+    out.push({
+      key: "file:" + f.matchId,
+      game: Math.min(FF_RESULTS_MATCH_MAX, f.game),
+      teams: f.teams,
+      label: "Game " + f.game + " \u2014 " + ffFileClock(f.timestamp) +
+             " (on disk, not committed)",
+    });
+  });
   return out;
+}
+
+/* "2026-09-17-23-27-37" -> "23:27". The stamp in the filename is the
+   only thing telling two games apart in a dropdown, and the raw form is
+   unreadable at a glance. */
+function ffFileClock(stamp){
+  const m = /^\d{4}-\d{2}-\d{2}-(\d{2})-(\d{2})/.exec(stamp || "");
+  return m ? m[1] + ":" + m[2] : (stamp || "");
 }
 
 /* Whichever is most CURRENT -- the same match the copy/paste box above is
@@ -8886,9 +8955,42 @@ function ffPushTiming(msg){
     "s</strong>" + (slow ? " — slower than usual." : "") + "</div>";
 }
 
+/* The last push's payload, so a confirmed overwrite sends exactly what
+   was refused rather than rebuilding it from a dropdown that may have
+   moved on. */
+let ffLastPushPayload = null;
+
 function ffShowResultsPushResult(msg){
   const el = document.getElementById("ff_resultsPushStatus");
   if(!el) return;
+
+  /* The sheet refused because those columns already hold a result.
+     Nothing was written. This is the guard against a game 6 result
+     landing in match 1's columns, which happened and took far longer to
+     unpick than the push saved. */
+  if(msg.needsConfirm){
+    el.style.color = "#fbbf24";
+    el.innerHTML =
+      "⚠ <strong>Match " + msg.match + " already has scores for " +
+      msg.occupied + " team(s).</strong> Nothing was written." +
+      "<div style='margin-top:6px;'>" +
+      "<button id='ff_pushOverwrite' style='margin:0;'>Overwrite match " +
+      msg.match + "</button>" +
+      "<span class='hint' style='margin-left:8px;'>Check the match number " +
+      "first &mdash; this replaces what is there.</span></div>";
+    const btn = document.getElementById("ff_pushOverwrite");
+    if(btn) btn.addEventListener("click", () => {
+      if(!(ffWs && ffWs.readyState === WebSocket.OPEN) || !ffLastPushPayload){
+        el.textContent = "NOT sent — not connected to the Free Fire engine.";
+        return;
+      }
+      ffWs.send(JSON.stringify(
+        Object.assign({}, ffLastPushPayload, { overwrite: true })));
+      el.style.color = "#98a3bd";
+      el.textContent = "Overwriting match " + msg.match + "…";
+    });
+    return;
+  }
   if(!msg.ok){
     el.style.color = "#f5a4a4";
     el.innerHTML = "⚠ Failed: " + ffEscapeHtml(msg.error || "unknown error") + ffPushTiming(msg);
@@ -8937,8 +9039,12 @@ function ffShowResultsPushResult(msg){
   if(!missing){
     const missedEntirely = ffLastBooyahSent && !msg.booyah;
     el.style.color = missedEntirely ? "#f5a4a4" : (booyahBad ? "#e8c76a" : "#4ade80");
+    const replaced = msg.overwrote
+      ? "<div style='margin-top:4px;color:#e8c76a;'>Replaced scores that were " +
+        "already there for " + msg.overwrote + " team(s).</div>"
+      : "";
     el.innerHTML = (booyahBad ? "⚠ " : "✓ ") + "Match " + msg.match + " written — all " +
-      msg.matched + " teams matched a row in column C." + booyahNote + ffPushTiming(msg);
+      msg.matched + " teams matched a row in column C." + replaced + booyahNote + ffPushTiming(msg);
     return;
   }
   el.style.color = "#f5a4a4";
@@ -9229,6 +9335,17 @@ document.addEventListener("change", (e) => {
   ffRenderBooyahCard();
 });
 
+document.getElementById("ff_resultsReload").addEventListener("click", () => {
+  const el = document.getElementById("ff_resultsPushTarget");
+  if(!ffRequestMatchFiles()){
+    el.style.color = "#f5a4a4";
+    el.textContent = "Not connected to the Free Fire engine.";
+    return;
+  }
+  el.style.color = "#98a3bd";
+  el.textContent = "Reading the game folder...";
+});
+
 document.getElementById("ff_resultsPushMatch").addEventListener("input", (e) => {
   e.target.dataset.touched = "1";
   ffUpdateResultsPushTarget();
@@ -9320,13 +9437,14 @@ document.getElementById("ff_resultsPush").addEventListener("click", () => {
   // PROBLEM if we sent one, and nothing at all if we didn't.
   ffLastBooyahSent = !!booyah;
 
-  ffWs.send(JSON.stringify({ type: "freefire_results_push", match, rows,
+  ffLastPushPayload = { type: "freefire_results_push", match, rows,
     booyah: booyah ? {
       team: booyah.team, short: booyah.short,
       // uid/matched/overridden are this page's bookkeeping -- the sheet
       // is told a name and a number, nothing about where they came from.
       players: booyah.players.map(p => ({ ign: p.ign, kills: p.kills })),
-    } : null }));
+    } : null };
+  ffWs.send(JSON.stringify(ffLastPushPayload));
   el.textContent = "Sending " + rows.length + " teams from " + source.label +
     (booyah ? " (Booyah: " + booyah.team + ")" : " (no Booyah in that result)") +
     " to match " + match + " (columns " + ffResultsColumnPair(match) + ")\u2026";

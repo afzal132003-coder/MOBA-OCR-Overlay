@@ -5302,6 +5302,10 @@ async def handle_client(websocket, path=None):
                     # showing two different games. Built in the dashboard
                     # alongside the rows, for the reason given above.
                     body = {"kind": "results", "match": match_number, "rows": rows}
+                    # Only ever true when the operator has been shown what
+                    # is already in those columns and said to replace it.
+                    if payload.get("overwrite"):
+                        body["overwrite"] = True
                     booyah = payload.get("booyah")
                     if isinstance(booyah, dict) and booyah.get("team"):
                         body["booyah"] = booyah
@@ -5851,6 +5855,49 @@ async def handle_client(websocket, path=None):
                     "added": added, "alreadyThere": skipped,
                     "noUid": no_uid, "unplaced": unplaced,
                     "lobbySeen": len(lobby),
+                }))
+            elif payload.get("type") == "freefire_list_match_files":
+                # Every result file on disk, oldest first, parsed and
+                # resolved exactly as a fetch would.
+                #
+                # The push dropdown used to list only COMMITTED matches,
+                # which meant a night with six games played and none
+                # committed offered nothing to push at all -- the operator
+                # had to fetch, review and commit each game before its
+                # scores could reach the sheet, in the middle of the next
+                # one. The files are right there and are the same source a
+                # fetch reads.
+                folder = (server_state.get("settings", {})
+                          .get("matchResultFolder") or "")
+                entries, error = [], None
+                folder_path = Path(folder) if folder else None
+                if not folder_path or not folder_path.is_dir():
+                    error = f"No match result folder set, or {folder!r} is not a folder."
+                else:
+                    found = []
+                    for f in folder_path.iterdir():
+                        m = FREEFIRE_MATCH_FILENAME_REGEX.match(f.name)
+                        if m:
+                            found.append((m.group("timestamp"), f, m))
+                    # Oldest first, so game 1 is the first one played --
+                    # which is the order the RESULTS grid's columns are in.
+                    found.sort(key=lambda x: x[0])
+                    for index, (stamp, path, _m) in enumerate(found):
+                        built = build_match_result_payload(folder, _m.group("match_id"))
+                        if built.get("error") or not built.get("teams"):
+                            continue
+                        entries.append({
+                            "game": index + 1,
+                            "matchId": built.get("matchId"),
+                            "fileName": built.get("fileName"),
+                            "timestamp": stamp,
+                            "teams": built.get("teams") or [],
+                        })
+                    if not entries:
+                        error = f"No readable MatchResult files in {folder}."
+                await websocket.send(json.dumps({
+                    "type": "freefire_match_files",
+                    "files": entries, "folder": folder, "error": error,
                 }))
             elif payload.get("type") == "freefire_reset_alive":
                 # "This game is over, start the next one." The log's

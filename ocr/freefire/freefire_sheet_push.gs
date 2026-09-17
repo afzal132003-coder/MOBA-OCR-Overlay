@@ -425,6 +425,34 @@ function pushResults_(body, result) {
   // Built as one block and written in a single setValues call rather than
   // a write per cell: a 12-team push is two or three dozen round trips
   // that way, and Apps Script charges for every one of them.
+  // REFUSE to overwrite a match that already has scores, unless the
+  // operator has said so.
+  //
+  // A game 6 result went into match 1's columns by a slip of the number
+  // box, and unpicking it by hand took far longer than the push saved.
+  // Nothing made that recoverable: the write landed silently and the
+  // previous scores were simply gone.
+  //
+  // The check costs one read of a range already being read anyway, and
+  // it only ever stops a push that would destroy something.
+  var existing = sheet.getRange(RESULTS_START_ROW, placementCol,
+                                numDataRows, width).getValues();
+  var filled = 0;
+  for (var er = 0; er < existing.length; er++) {
+    for (var ec = 0; ec < existing[er].length; ec++) {
+      var cell = existing[er][ec];
+      if (cell !== "" && cell !== null) { filled++; break; }
+    }
+  }
+  if (filled > 0 && !body.overwrite) {
+    result.needsConfirm = true;
+    result.occupied = filled;
+    result.error = "Match " + match + " already has scores for " + filled +
+                   " team(s). Nothing was written.";
+    return sheet;
+  }
+  result.overwrote = filled;
+
   var block = [];
   for (var i = 0; i < numDataRows; i++) {
     var blank = [];
