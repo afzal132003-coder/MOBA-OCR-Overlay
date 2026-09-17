@@ -1,17 +1,14 @@
 @echo off
 REM ---------------------------------------------------------------------
-REM  Use this INSTEAD of ocr\start_freefire.bat, once.
 REM  Close the engine window first, then double-click this.
+REM  It just restarts the engine with today's fixes.
 REM
-REM  It turns off the engine's debugger-log reader, then starts the engine
-REM  exactly the way start_freefire.bat does.
-REM
-REM  Why: the log reader skipped the log's history on purpose (so it would
-REM  not fire seventy old eliminations onto air), which leaves it thinking
-REM  the match is a fresh lobby -- everyone alive, nobody with kills. It
-REM  publishes that picture whenever the alive grid misses a poll, so the
-REM  table flips between two truths, teams appear to die and come back,
-REM  and the engine stalls long enough that your ticks never arrive.
+REM  The log reader stays ON: you keep the kill feed, automatic match-end
+REM  result fetching, and match start/end detection. What changed is that
+REM  the alive GRID now owns the side table while it is reading, so the
+REM  log's fresh-lobby picture can no longer overwrite it -- that fight is
+REM  what made squads die and come back, and what stalled the engine so
+REM  your ticks never arrived.
 REM ---------------------------------------------------------------------
 
 cd /d "%~dp0"
@@ -29,11 +26,11 @@ if not errorlevel 1 (
 )
 echo        ok, nothing running.
 
-echo  [2/3] Turning off the log reader...
-python tools\set-debugger-folder.py "C:\Temp\nologs"
+echo  [2/3] Making sure the log reader is ON (kill feed, auto results)...
+python tools\set-debugger-folder.py
 if errorlevel 1 (
     echo.
-    echo  Could not change the setting -- stopping, so nothing is half-done.
+    echo  Could not check the setting -- stopping so nothing is half-done.
     pause
     exit /b 1
 )

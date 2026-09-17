@@ -2020,6 +2020,28 @@ FREEFIRE_PLACEMENT_POINTS = {
     1: 12, 2: 9, 3: 8, 4: 7, 5: 6, 6: 5, 7: 4, 8: 3, 9: 2, 10: 1, 11: 0, 12: 0,
 }
 
+# When the alive grid last produced real rows, and how long its word
+# stands afterwards.
+#
+# Three things build this table and they do not agree. The log reader is
+# the awkward one: starting into a match already in progress it skips the
+# log's history on purpose -- otherwise every old elimination would fire
+# onto air -- so it believes the lobby is fresh, everyone alive, nobody
+# with kills. That picture then went out on any poll the grid missed, and
+# the table flipped between two truths several times a minute: squads
+# dying and coming back, positions handed to teams that were fine.
+#
+# So the grid holds the table while it is reading. The log keeps every
+# other job it has -- the kill feed, match start and end, fetching the
+# result file -- because none of those are in dispute. It simply stops
+# overwriting a reading that is better than its own.
+#
+# The window is generous: a grid that misses a few polls in a row is
+# still the best source in the room, and going quiet for fifteen seconds
+# is what a real stoppage looks like.
+_grid_rows_at = 0.0
+GRID_AUTHORITY_SECONDS = 15
+
 # team -> the position it finished this match in, filled as squads die.
 _finish_ranks = {}
 
@@ -5077,6 +5099,10 @@ async def ocr_loop():
     """Only captures the two Free Fire live-ops regions -- there's no
     numeric HUD pipeline here at all, unlike ocr_engine.py's REGION_ORDER
     loop, since none of that applies to Free Fire."""
+    # Written below when the grid produces rows, read above when the log
+    # decides whether to yield the table -- both in this function, so
+    # without this the read raises UnboundLocalError and the engine dies.
+    global _grid_rows_at
     # 0.25s (4/sec), not the 1.0s this used to default to. Measured
     # against the real calibrated setup with OCR out of the loop (see the
     # comment above the OCR gating below): finding the log, tailing it,
@@ -5164,9 +5190,11 @@ async def ocr_loop():
                     # The 12-team side table, straight from the client's own
                     # narration rather than read back off the screen.
                     linked = link_live_teams(_live_match, server_state.get("roster", {}))
+                    grid_is_live = (time.time() - _grid_rows_at) < GRID_AUTHORITY_SECONDS
                     if linked["rows"]:
                         log_sidetable_rows = linked["rows"]
-                        if linked["rows"] != server_state["liveOps"].get("sidetableRows"):
+                        if (not grid_is_live
+                                and linked["rows"] != server_state["liveOps"].get("sidetableRows")):
                             published = apply_live_points(assign_finish_ranks(apply_team_marks(gate_eliminations(sanitise_published_elims(linked["rows"])))))
                             server_state["liveOps"]["sidetableRows"] = published
                             server_state["liveOps"]["sidetableSource"] = "log"
@@ -5268,6 +5296,7 @@ async def ocr_loop():
                 row_teams = server_state["liveOps"].get("aliveRowTeams") or []
                 grid_named_rows = apply_alive_grid_identities(grid_rows, row_teams)
                 if grid_named_rows:
+                    _grid_rows_at = time.time()
                     # Join the grid's rows onto whatever the log/OCR path
                     # left behind, THROUGH THE ROSTER -- not by comparing
                     # the two teamName strings directly.
