@@ -440,8 +440,8 @@ const _sameOrigin = (location.protocol === "https:"
 const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || _sameOrigin;
 const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
 const WS_URL = _relay
-  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_alive_status"
-  : "ws://localhost:8765?page=freefire_alive_status";
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_alive_status&rostercache=1"
+  : "ws://localhost:8765?page=freefire_alive_status&rostercache=1";
 
 // Set only by the dashboard's own preview frames -- see apply().
 const PREVIEW_MODE = _params.get("preview") === "1";
@@ -630,12 +630,27 @@ function applyLayout(L, showPoints){
 let ROW_TOPS = LAYOUTS.CLT.rowTops;
 let ROW_BLOCK = { x: LAYOUTS.CLT.row.x, y: ROW_TOPS[0] };
 
+let _lastRoster = null;
 let ws;
 function connect(){
   ws = new WebSocket(WS_URL);
   ws.onmessage = (evt) => {
     const msg = JSON.parse(evt.data);
-    if(msg.type === "state_sync") apply(msg.data);
+    if(msg.type === "state_sync"){
+      /* The engine leaves `roster` out of a state_sync when it has not
+         changed since the last one. It is 220KB of team logos and it is
+         the same all match, and re-sending it three times a second was
+         saturating the uplink to the relay -- which showed up as this
+         graphic trailing the game while the dashboard looked instant.
+         Every client is sent a complete state on connect, so holding the
+         last roster we were given and putting it back keeps everything
+         below here working on a whole state, exactly as before. */
+      if(msg.data){
+        if(msg.data.roster) _lastRoster = msg.data.roster;
+        else if(_lastRoster) msg.data.roster = _lastRoster;
+      }
+      apply(msg.data);
+    }
   };
   ws.onclose = () => setTimeout(connect, 2000);
   ws.onerror = () => ws.close();

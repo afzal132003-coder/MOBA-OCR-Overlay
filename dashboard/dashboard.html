@@ -5312,6 +5312,7 @@ function connect(){
    above (there's already a top-level `connect`/`currentState`/
    `sendManualUpdate`, all MOBA-specific). ---------- */
 let ffWs;
+let ffLastRoster = null;
 let ffState = null; // this IS the flat freefire state object -- freefire_engine.py's
                      // server_state has no wrapper, unlike MOBA's data.freefire used to be
 let ffHydrated = false;
@@ -5410,6 +5411,19 @@ function ffOpen(url){
       return;
     }
     if(msg.type === "state_sync"){
+      /* The Free Fire engine leaves `roster` out of a state_sync when it
+         has not changed. It is 220KB of team logos, unchanged all match,
+         and re-sending it three times a second saturated the uplink to
+         the relay -- the graphics trailed the game by seconds while this
+         page, on localhost, looked instant. A complete state still
+         arrives on connect, so keeping the last roster and putting it
+         back leaves everything below working on a whole state.
+         Only this handler needs it: the Valorant and Dota engines are
+         untouched and still send theirs every time. */
+      if(msg.data){
+        if(msg.data.roster) ffLastRoster = msg.data.roster;
+        else if(ffLastRoster) msg.data.roster = ffLastRoster;
+      }
       ffState = msg.data;
       if(!ffHydrated){
         ffHydrate(ffState);
