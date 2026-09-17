@@ -1973,6 +1973,23 @@ Team Charlie
         <button class="secondary" id="ff_sheetWebhookTest">Send Test Row</button>
       </div>
       <div class="hint" id="ff_sheetWebhookStatus" style="margin-top:8px;"></div>
+
+      <div class="row" style="gap:8px;align-items:center;margin-top:12px;
+           border-top:1px solid #2b3348;padding-top:10px;">
+        <div class="team-form" style="max-width:320px;margin:0;">
+          <label>Live alive/elim push</label>
+          <select id="ff_liveSheetPush">
+            <option value="off">Off — don't write the live table (default)</option>
+            <option value="on">On — write it as it changes</option>
+          </select>
+        </div>
+        <span class="hint" id="ff_liveSheetPushNote" style="font-size:11px;flex:1;min-width:0;"></span>
+      </div>
+      <p class="hint" style="margin-top:4px;font-size:10px;">This is the CONTINUOUS push of the live side table
+        only. Apps Script answers in its own time and this runs from the poll loop, so a slow reply holds one of
+        the engine's worker threads for up to fifteen seconds — worth it when someone is watching the sheet
+        during a match, pure cost when nobody opens it. <strong>Your post-match results push is not affected:</strong>
+        picking a game and sending it to RESULTS works the same either way.</p>
     </div>
 
     <div class="card">
@@ -6057,6 +6074,18 @@ function ffRenderEvent(ff){
   setIfFree("ff_afterGameLabel", ev.afterGameLabel || "");
   setIfFree("ff_debuggerStartAt", (ff.settings && ff.settings.debuggerStartAt) || "");
   setIfFree("ff_sheetWebhookUrl", (ff.settings && ff.settings.sheetWebhookUrl) || "");
+  const lsp = document.getElementById("ff_liveSheetPush");
+  if(lsp && document.activeElement !== lsp){
+    lsp.value = (ff.settings && ff.settings.liveSheetPush) ? "on" : "off";
+  }
+  const lspNote = document.getElementById("ff_liveSheetPushNote");
+  if(lspNote){
+    const on = !!(ff.settings && ff.settings.liveSheetPush);
+    lspNote.textContent = on
+      ? "Writing the live table to the sheet on every change."
+      : "Not writing the live table. Post-match results still push normally.";
+    lspNote.style.color = on ? "#4ade80" : "#98a3bd";
+  }
   document.getElementById("ff_championBadge").checked =
     !!(ff.display && ff.display.championRushBadgeVisible);
   const st = ff.settings || {};
@@ -6278,6 +6307,59 @@ function ffExplainAliveOutput(ff){
   }
 }
 
+/* A tick that is sent and never lands is worse than one that fails
+   loudly: the operator watched a squad go out, pressed the button, and
+   nothing happened -- no card, no row movement, no complaint.
+
+   It happens for reasons the dashboard cannot see. The engine's relay
+   connection drops and reconnects on its own (measured: eleven times in
+   twenty minutes on a bad line), and anything sent into that gap is
+   simply gone -- the relay forwards to whoever is connected and nobody
+   is keeping it for later.
+
+   So the tick is checked rather than assumed. If the squad has not
+   appeared in approvedEliminations within a couple of seconds, it is
+   sent again, a few times, and only then given up on out loud. This
+   costs nothing when the connection is healthy: the first confirmation
+   normally arrives well inside the first wait. */
+const FF_APPROVE_TRIES = 4;
+const FF_APPROVE_WAIT_MS = 2000;
+const ffApproveWatch = new Map();       // team -> timer
+
+function ffTeamIsApproved(team){
+  const list = ((ffState && ffState.liveOps && ffState.liveOps.approvedEliminations) || []);
+  return list.some(t => (t || "").trim().toUpperCase() === (team || "").trim().toUpperCase());
+}
+
+function ffApproveWithConfirmation(team, attempt){
+  attempt = attempt || 1;
+  if(ffTeamIsApproved(team)) return;            // already landed
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)){
+    document.getElementById("ff_aliveGridStatus").textContent =
+      `${team}: not connected — tick NOT sent. Press it again when the engine is back.`;
+    return;
+  }
+  ffWs.send(JSON.stringify({ type: "freefire_approve_elimination", team }));
+  if(attempt > 1){
+    document.getElementById("ff_aliveGridStatus").textContent =
+      `${team}: no answer from the engine, sending again (${attempt}/${FF_APPROVE_TRIES})…`;
+  }
+  clearTimeout(ffApproveWatch.get(team));
+  ffApproveWatch.set(team, setTimeout(() => {
+    if(ffTeamIsApproved(team)){ ffApproveWatch.delete(team); return; }
+    if(attempt >= FF_APPROVE_TRIES){
+      ffApproveWatch.delete(team);
+      document.getElementById("ff_aliveGridStatus").textContent =
+        `${team}: the engine never confirmed the tick after ${FF_APPROVE_TRIES} tries. ` +
+        `It is still waiting below — press it again.`;
+      ffLastElimPendingKey = "";           // force the row (and its button) back
+      if(ffState) ffRenderPendingEliminations(ffState);
+      return;
+    }
+    ffApproveWithConfirmation(team, attempt + 1);
+  }, FF_APPROVE_WAIT_MS));
+}
+
 /* Eliminations waiting on the tick. Rebuilt only when the list or the
    setting actually changes -- this sits in the state_sync path, which
    fires several times a second during a fight, and re-rendering a
@@ -6312,9 +6394,13 @@ function ffRenderPendingEliminations(ff){
 
   box.querySelectorAll(".ff-elim-ok").forEach(btn => {
     btn.addEventListener("click", () => {
-      if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+      if(!(ffWs && ffWs.readyState === WebSocket.OPEN)){
+        document.getElementById("ff_aliveGridStatus").textContent =
+          "Not connected to the engine — the tick was NOT sent.";
+        return;
+      }
       btn.disabled = true;
-      ffWs.send(JSON.stringify({ type: "freefire_approve_elimination", team: btn.dataset.team }));
+      ffApproveWithConfirmation(btn.dataset.team);
     });
   });
 }
@@ -7764,6 +7850,20 @@ function ffWebhookUrlComplaint(url){
   }
   return "";
 }
+
+/* Takes effect immediately -- there is no Save for it, because a
+   setting you have to remember to save is one you will find switched
+   the wrong way at the worst moment. */
+document.getElementById("ff_liveSheetPush").addEventListener("change", (e) => {
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN && ffState)) return;
+  const settings = Object.assign({}, ffState.settings || {},
+                                 { liveSheetPush: e.target.value === "on" });
+  ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { settings } } }));
+  document.getElementById("ff_sheetWebhookStatus").textContent =
+    e.target.value === "on"
+      ? "Live push ON — the side table is being written to the sheet as it changes."
+      : "Live push OFF — post-match results still push normally.";
+});
 
 document.getElementById("ff_sheetWebhookSave").addEventListener("click", () => {
   if(!ffState) return;

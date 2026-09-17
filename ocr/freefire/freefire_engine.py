@@ -384,6 +384,8 @@ def default_state():
     return {
         "settings": {
             "matchResultFolder": "", "safezoneFolder": "",
+            # Off by default: see push_sidetable_to_sheet.
+            "liveSheetPush": False,
             # Where the client writes its debugger-*.log files. Same folder
             # as the result files on a standard install; kept separate so a
             # setup that relocates one doesn't break the other.
@@ -3713,7 +3715,25 @@ def _sheet_elim_value(row):
 
 
 async def push_sidetable_to_sheet(rows):
+    """The LIVE alive/elim table, written to the broadcast sheet as it
+    changes. Off by default -- see liveSheetPush.
+
+    This is not the post-match results push. That one is on demand, from
+    the operator picking a game, and is untouched by this setting: a
+    finished match still goes to RESULTS exactly as before.
+    """
     global _last_sheet_push_error_at, _last_sheet_payload, _sheet_push_inflight
+
+    # Off unless the operator asks for it.
+    #
+    # Apps Script answers in its own time, and this runs from the poll
+    # loop, so a slow response holds one of the engine's worker threads
+    # for up to fifteen seconds. Worth it when the sheet is on a screen
+    # someone is watching; pure cost on a day when nobody opens it, which
+    # is most days.
+    if not server_state.get("settings", {}).get("liveSheetPush"):
+        return
+
     url = (server_state.get("settings", {}).get("sheetWebhookUrl") or "").strip()
     if not url or not rows:
         return
