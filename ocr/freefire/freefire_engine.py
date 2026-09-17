@@ -1509,6 +1509,17 @@ _ocr_memo_misses = 0
 # seconds late.
 FREEFIRE_OCR_BUDGET_MS = 140
 
+# And a ceiling on ONE call. The budget above decides how many reads may
+# START; it cannot help once a read has begun, and on a machine short of
+# memory a tesseract spawn has been measured here between 158ms and
+# several seconds. One of those inside a poll IS the whole poll, which
+# is why capping the count alone still left two-second pushes.
+#
+# pytesseract kills the process when this expires and raises, which is
+# the right outcome: that crop is unread this frame, the row keeps its
+# last good value, and the loop stays responsive.
+FREEFIRE_OCR_CALL_TIMEOUT = 1.2
+
 _OCR_SKIPPED = object()      # "not read this poll" -- not "read nothing"
 _ocr_deadline = None
 _ocr_skipped_count = 0
@@ -1654,8 +1665,13 @@ def ocr_small_number(img_bgr, upscale=4):
         for variant in candidates:
             bordered = cv2.copyMakeBorder(variant, 10, 10, 10, 10,
                                           cv2.BORDER_CONSTANT, value=255)
-            text = pytesseract.image_to_string(
-                bordered, config=TESS_CONFIG_DIGITS).strip()
+            try:
+                text = pytesseract.image_to_string(
+                    bordered, config=TESS_CONFIG_DIGITS,
+                    timeout=FREEFIRE_OCR_CALL_TIMEOUT).strip()
+            except Exception:
+                # Timed out, or tesseract failed. Unread, never wrong.
+                return None
             match = re.search(r"\d{1,3}", text)
             if match:
                 return int(match.group())
@@ -2156,9 +2172,11 @@ def ocr_team_name(img_bgr, upscale=3):
                                           cv2.BORDER_CONSTANT, value=255)
             try:
                 text = pytesseract.image_to_string(
-                    bordered, config=TESS_CONFIG_TEAM_NAME).strip()
+                    bordered, config=TESS_CONFIG_TEAM_NAME,
+                    timeout=FREEFIRE_OCR_CALL_TIMEOUT).strip()
             except Exception:
-                continue
+                # Timed out, or tesseract failed. Unread, never wrong.
+                return ""
             # Punctuation-only reads ("|", "-") are noise off a panel edge.
             if len(re.sub(r"[^A-Za-z0-9]", "", text)) >= 2:
                 return " ".join(text.split())
