@@ -30,6 +30,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 import os
+import socket
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
@@ -44,6 +45,95 @@ mss_grabber = getattr(mss, "MSS", None) or mss.mss
 import pytesseract
 import websockets
 import keyboard
+
+
+# --- DNS that survives a bad minute ------------------------------------
+_dns_cache = {}
+_real_getaddrinfo = socket.getaddrinfo
+
+# Remembered across restarts, because the failure that prompted this
+# happened AT STARTUP -- the engine came up, could not resolve the relay,
+# and an in-memory cache is empty at exactly that moment. Kept beside the
+# relay token, and out of git for the same reason it is not interesting
+# to anyone else: it describes one machine's network, not the project.
+_DNS_CACHE_FILE = Path(__file__).resolve().parent.parent / ".dns_cache.json"
+
+
+def _load_dns_cache():
+    try:
+        raw = json.loads(_DNS_CACHE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    for key, entries in raw.items():
+        host, _, port = key.rpartition("|")
+        try:
+            _dns_cache[(host, int(port))] = [
+                (fam, typ, proto, canon, tuple(addr))
+                for fam, typ, proto, canon, addr in entries
+            ]
+        except (TypeError, ValueError):
+            continue
+
+
+def _save_dns_cache():
+    """Best effort, and never fatal.
+
+    Catching everything rather than just OSError on purpose: this runs
+    inside getaddrinfo, so anything raised here would come back out of
+    every name lookup the engine makes. A cache that cannot be written is
+    worth exactly nothing and must cost exactly nothing -- resolution has
+    already succeeded by the time we get here."""
+    try:
+        _DNS_CACHE_FILE.write_text(json.dumps({
+            f"{host}|{port}": [
+                [fam, typ, proto, canon, list(addr)]
+                for fam, typ, proto, canon, addr in entries
+            ]
+            for (host, port), entries in _dns_cache.items()
+        }), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _getaddrinfo_with_fallback(host, port, *args, **kwargs):
+    """Uses the last good answer when a lookup fails outright.
+
+    The relay is reached by NAME, because the TLS certificate is issued to
+    the name -- so every reconnect is a fresh DNS lookup, and a free
+    dynamic-DNS service having a bad minute takes the engine off air
+    exactly as if the server were down. Seen live:
+
+        Relay connection lost/failed ([Errno 11002] getaddrinfo failed)
+
+    11002 is WSATRY_AGAIN: not "no such host", but "ask me later". The
+    address had not changed and the relay was up the whole time.
+
+    Only ever a FALLBACK. A successful lookup always wins and replaces
+    what is remembered, so an address that genuinely changes is picked up
+    the moment DNS can answer again -- this buys resilience without
+    pinning anything to a stale IP.
+
+    Patched at the socket layer rather than around the relay connect,
+    because asyncio resolves through here too, and so does the sheet
+    push: one shim covers every outbound call the engine makes.
+    """
+    key = (host, port)
+    try:
+        result = _real_getaddrinfo(host, port, *args, **kwargs)
+        if result and _dns_cache.get(key) != result:
+            _dns_cache[key] = result
+            _save_dns_cache()
+        return result
+    except socket.gaierror:
+        cached = _dns_cache.get(key)
+        if not cached:
+            raise
+        print(f"[dns] {host} didn't resolve -- using the last known address")
+        return cached
+
+
+_load_dns_cache()
+socket.getaddrinfo = _getaddrinfo_with_fallback
 
 CONFIG_PATH = Path(__file__).parent / "freefire_config.json"
 STATE_PATH = Path(__file__).parent / "freefire_state.json"

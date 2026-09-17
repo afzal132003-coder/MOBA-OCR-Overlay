@@ -25,3 +25,10 @@ ocr/freefire/captures/
 # read -- and the OCR role can write, not just read. Kept here instead,
 # or in the RELAY_TOKEN environment variable.
 ocr/.relay_token
+
+# Rotated relay tokens, written for the operator. Never committed.
+RELAY-SECRETS.txt
+
+# Last known address of the relay, so a DNS outage at startup is not
+# fatal. Describes one machine's network, not the project.
+ocr/.dns_cache.json
