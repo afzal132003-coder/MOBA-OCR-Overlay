@@ -611,6 +611,7 @@ def default_state():
             # gate_eliminations: while a wipe is pending, the table
             # keeps showing that squad as it last was, so nothing
             # reaches air ahead of the tick.
+            "lobbyPlayers": [],
             "pendingEliminations": [],
             "approvedEliminations": [],
             # Operator-set markers on a squad, keyed by UPPERCASED team
@@ -3784,6 +3785,42 @@ def link_live_teams(live, roster):
     return {"rows": rows, "gsNames": gs_names, "unresolved": unresolved}
 
 
+def live_lobby_players(live, id_map, linked=None):
+    """Every player the log has seen join, with their UID -- live.
+
+    The client writes "Player Join, <uid>, <pid>, <ign>" as each player
+    connects, so this is all available from the moment a squad enters the
+    lobby. Nothing here waits for the match to end and a MatchResult file
+    to appear, which is the wait that makes people type a roster by hand.
+
+    The UID is the half that matters. It is the account: stable across a
+    name change, across a re-register, across events -- and it is what
+    match_roster_player() keys on before it will look at a name at all.
+    The IGN beside it is only what they happen to be called today.
+
+    Already parsed for the kill feed; this just surfaces it. gsIgns is
+    keyed by SQUAD, so the grouping comes for free, and link_live_teams'
+    gsNames says which roster team each squad resolved to -- blank where
+    it resolved to none, which is exactly the case worth showing.
+    """
+    gs_names = (linked or {}).get("gsNames") or {}
+    out = []
+    for gs_team, players in sorted((live.get("gsIgns") or {}).items()):
+        for pid, ign in sorted(players.items()):
+            entry = id_map.get(str(pid)) or {}
+            uid = str(entry.get("uid") or "").strip()
+            out.append({
+                "pid": str(pid),
+                "uid": uid,
+                # The join line's own spelling wins over the spectator-add
+                # line's, which is abbreviated on some client builds.
+                "ign": (entry.get("ign") or ign or "").strip(),
+                "gsTeam": gs_team,
+                "team": gs_names.get(gs_team) or "",
+            })
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Pushing the live alive/elim side table to an operator's own broadcast
 # sheet, replacing a person ticking checkboxes by hand while watching the
@@ -5164,6 +5201,67 @@ async def handle_client(websocket, path=None):
                     "type": "freefire_icon_library_reloaded",
                     "libraries": report, "renamed": renamed,
                 }))
+            elif payload.get("type") == "freefire_fill_roster_from_lobby":
+                # Take the squads the log has seen join and write their
+                # players into the roster, keyed on UID.
+                #
+                # Merged, never replaced. A roster carries things the log
+                # cannot know -- short names, logos, the IGN an operator
+                # wants on air instead of the one being played under -- and
+                # losing those to a convenience would make this worse than
+                # typing it out. So a player already present by UID is left
+                # exactly as they are, and only genuinely new ones are
+                # added.
+                assignments = payload.get("assignments") or {}
+                lobby = server_state["liveOps"].get("lobbyPlayers") or []
+                roster = server_state.setdefault("roster", {}).setdefault("teams", [])
+                by_name = {(t.get("name") or "").strip().upper(): t for t in roster}
+
+                added, skipped, no_uid, unplaced = 0, 0, 0, []
+                by_squad = {}
+                for p in lobby:
+                    by_squad.setdefault(str(p.get("gsTeam")), []).append(p)
+
+                for gs_team, players in sorted(by_squad.items()):
+                    target = (assignments.get(gs_team)
+                              or (players[0].get("team") if players else "") or "").strip()
+                    team = by_name.get(target.upper()) if target else None
+                    if team is None:
+                        unplaced.append({"gsTeam": gs_team,
+                                         "igns": [p.get("ign") for p in players]})
+                        continue
+                    existing = team.setdefault("players", [])
+                    known = {str(q.get("uid") or "").strip()
+                             for q in existing if str(q.get("uid") or "").strip()}
+                    for p in players:
+                        uid = str(p.get("uid") or "").strip()
+                        if not uid:
+                            # Without a UID there is nothing stable to key
+                            # on, and adding by name would create a second
+                            # copy the next time they are spelled
+                            # differently.
+                            no_uid += 1
+                            continue
+                        if uid in known:
+                            skipped += 1
+                            continue
+                        existing.append({
+                            "ign": p.get("ign") or "", "uid": uid,
+                            "displayIgn": "", "photo": "",
+                        })
+                        known.add(uid)
+                        added += 1
+
+                if added:
+                    save_state()
+                    await broadcast({"type": "state_sync", "data": server_state,
+                                     "locked": list(locked_fields)})
+                await websocket.send(json.dumps({
+                    "type": "freefire_fill_roster_result",
+                    "added": added, "alreadyThere": skipped,
+                    "noUid": no_uid, "unplaced": unplaced,
+                    "lobbySeen": len(lobby),
+                }))
             elif payload.get("type") == "freefire_reset_alive":
                 # "This game is over, start the next one." The log's
                 # match_start does this by itself when it arrives; this is
@@ -5466,6 +5564,14 @@ async def ocr_loop():
                     squads = linked.get("unresolved", [])
                     if squads != server_state["pending"].get("squads"):
                         server_state["pending"]["squads"] = squads
+                        changed = True
+
+                    # The lobby, with UIDs, published as soon as people
+                    # join -- so a roster can be filled during game 1
+                    # instead of after it.
+                    lobby = live_lobby_players(_live_match, _debugger_id_map, linked)
+                    if lobby != server_state["liveOps"].get("lobbyPlayers"):
+                        server_state["liveOps"]["lobbyPlayers"] = lobby
                         changed = True
 
                     if await handle_live_signals(signals, linked["gsNames"]):

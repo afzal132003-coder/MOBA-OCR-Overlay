@@ -2238,6 +2238,23 @@ Team Charlie
       </div>
     </div>
 
+    <div class="card" id="ff_lobbyCard">
+      <h2>Live Lobby <span id="ff_lobbyWhen" style="color:#6b7590;font-size:12px;font-weight:400;"></span></h2>
+      <p class="hint">Every squad the client has narrated joining, with each player's IGN and UID &mdash;
+        read straight from the debugger log as they connect, so it is there from the moment the lobby fills.
+        It does not wait for the game to end or for a result file to be written.</p>
+      <p class="hint">The <strong>UID</strong> is the part worth having. It is the account, not the name:
+        stable across a rename and across events, and it is what a result file is matched on before any name is
+        looked at. Adding these to the roster once means every later game resolves to your registered names by
+        itself &mdash; including the IGNs on the Booyah tab.</p>
+      <div class="row" style="gap:8px;align-items:center;">
+        <button class="secondary" id="ff_lobbyFetch">Fetch from the lobby</button>
+        <button id="ff_lobbyFill">Add these players to the roster</button>
+        <span class="hint" id="ff_lobbyStatus" style="align-self:center;"></span>
+      </div>
+      <div id="ff_lobbySquads" style="margin-top:10px;"></div>
+    </div>
+
     <div class="card" id="ff_booyahCard" style="display:none;">
       <h2>Booyah Squad <span id="ff_booyahTeam" style="color:#6b7590;font-size:12px;font-weight:400;"></span></h2>
       <p class="hint">Exactly what is about to be written to the <strong>Booyah</strong> tab &mdash; B1 the team,
@@ -5392,6 +5409,7 @@ function ffOpen(url){
       ffRenderLoadoutCapture(ffState);
       ffRenderIconLibraries(ffState);
       ffRenderAliveGridRows(ffState);
+      ffRenderLobby();
       ffUpdateAliveGridLive(ffState);
       ffMountAliveOutput();
       ffExplainAliveOutput(ffState);
@@ -5443,6 +5461,8 @@ function ffOpen(url){
         : "⚠ Failed: " + (msg.error || "unknown error");
     } else if(msg.type === "freefire_results_push_result"){
       ffShowResultsPushResult(msg);
+    } else if(msg.type === "freefire_fill_roster_result"){
+      ffShowLobbyFillResult(msg);
     } else if(msg.type === "freefire_icon_library_reloaded"){
       const renamed = msg.renamed || 0;
       const total = Object.values(msg.libraries || {})
@@ -8803,6 +8823,188 @@ function ffShowResultsPushResult(msg){
     "Either that tab is set up for a different set of teams, or these are spelled " +
     "differently there. A team is matched against the sheet's own column C: full name " +
     "first, then short name, then an alias, then a partial match.</div>" + booyahNote;
+}
+
+/* ---------- The live lobby: team name + its four players, with UIDs ----
+   Filled from liveOps.lobbyPlayers, which the engine republishes as the
+   log narrates each join. Nothing here waits for a match to finish. */
+let ffLobbyAssign = {};            // gsTeam -> roster team the operator chose
+
+function ffLobbySquads(){
+  const players = ((ffState && ffState.liveOps && ffState.liveOps.lobbyPlayers) || []);
+  const bySquad = new Map();
+  players.forEach(p => {
+    const key = String(p.gsTeam);
+    if(!bySquad.has(key)) bySquad.set(key, { gsTeam: key, team: p.team || "", players: [] });
+    const squad = bySquad.get(key);
+    // The log names a squad through whichever of its players resolved,
+    // so take the first non-blank rather than only the first player's.
+    if(!squad.team && p.team) squad.team = p.team;
+    squad.players.push(p);
+  });
+  return Array.from(bySquad.values());
+}
+
+/* Which roster team a squad probably is, read off its players' names.
+
+   link_live_teams can only name a squad by recognising its players, and
+   it needs roster players to do that -- which is precisely what is
+   missing the first time anyone opens this. So fall back to the thing a
+   human does at a glance: four IGNs reading CTZ.KOU27IK, CTZ.SHUBH25,
+   CTZ.BULLY07, CTZ.klaus.i are obviously CLUTZA ESPORTS.
+
+   Votes across the whole squad rather than trusting one name, because a
+   two-letter tag like TG will occasionally appear inside an unrelated
+   IGN; it will not do so three times in the same four players. Only ever
+   a SUGGESTION -- it fills the dropdown, and is labelled as a guess. */
+function ffLobbyGuessTeam(squad, roster){
+  const votes = new Map();
+  squad.players.forEach(p => {
+    const ign = normalize_for_matchJs(p.ign);
+    if(!ign) return;
+    roster.forEach(t => {
+      [t.shortName, t.name].forEach(candidate => {
+        const key = normalize_for_matchJs(candidate);
+        if(key.length < 2 || ign.indexOf(key) < 0) return;
+        // A longer tag matching is stronger evidence than a short one.
+        votes.set(t.name, (votes.get(t.name) || 0) + key.length);
+      });
+    });
+  });
+  if(!votes.size) return "";
+  let best = "", score = 0;
+  votes.forEach((v, name) => { if(v > score){ best = name; score = v; } });
+  // One weak hit across four players is a coincidence, not an answer.
+  return score >= 4 ? best : "";
+}
+
+function ffRenderLobby(){
+  const host = document.getElementById("ff_lobbySquads");
+  if(!host) return;
+  const squads = ffLobbySquads();
+  const roster = ((ffState && ffState.roster && ffState.roster.teams) || []).filter(t => t.name);
+  const when = document.getElementById("ff_lobbyWhen");
+
+  if(!squads.length){
+    when.textContent = "";
+    host.innerHTML = '<p class="hint">Nothing yet — the log has narrated no joins. ' +
+      'This fills as players connect to the lobby.</p>';
+    return;
+  }
+  const total = squads.reduce((n, s) => n + s.players.length, 0);
+  const withUid = squads.reduce((n, s) =>
+    n + s.players.filter(p => p.uid).length, 0);
+  when.textContent = squads.length + " squads, " + total + " players (" +
+    withUid + " with a UID)";
+
+  host.innerHTML = squads.map(sq => {
+    // Already in the roster by UID? Then there is nothing to add for
+    // them, and saying so stops the button looking like it did nothing.
+    const known = new Set();
+    roster.forEach(t => (t.players || []).forEach(p => {
+      const u = String(p.uid || "").trim();
+      if(u) known.add(u);
+    }));
+    const guess = sq.team ? "" : ffLobbyGuessTeam(sq, roster);
+    const chosen = ffLobbyAssign[sq.gsTeam] || sq.team || guess || "";
+    const opts = ['<option value="">— which team is this? —</option>']
+      .concat(roster.map(t => `<option value="${ffEscapeHtml(t.name)}" ${
+        t.name === chosen ? "selected" : ""}>${ffEscapeHtml(t.name)}</option>`));
+
+    const rows = sq.players.map(p => {
+      const have = p.uid && known.has(p.uid);
+      return `
+        <tr style="border-top:1px solid #2b3348;">
+          <td style="padding:4px 8px;">${ffEscapeHtml(p.ign || "(no name)")}</td>
+          <td style="padding:4px 8px;font-family:monospace;font-size:11px;color:#98a3bd;">
+            ${p.uid ? ffEscapeHtml(p.uid)
+                    : '<span style="color:#fbbf24;">no UID in the log</span>'}</td>
+          <td style="padding:4px 8px;font-size:11px;">${
+            have ? '<span style="color:#4ade80;">already in the roster</span>'
+                 : (p.uid ? '<span style="color:#98a3bd;">new</span>'
+                          : '<span style="color:#6b7590;">can’t be added</span>')}</td>
+        </tr>`;
+    }).join("");
+
+    return `
+      <div style="border:1px solid #2b3348;border-radius:6px;padding:8px 10px;margin-bottom:8px;">
+        <div class="row" style="gap:8px;align-items:center;margin-bottom:6px;">
+          <strong style="font-size:13px;">${
+            sq.team ? ffEscapeHtml(sq.team)
+                    : (guess
+                        ? '<span style="color:#e8c76a;">' + ffEscapeHtml(guess) +
+                          ' — guessed from the player names</span>'
+                        : '<span style="color:#fbbf24;">squad ' + ffEscapeHtml(sq.gsTeam) +
+                          ' — not matched to a roster team</span>')}</strong>
+          <select class="ff-lobby-assign" data-gs="${ffEscapeHtml(sq.gsTeam)}"
+            style="min-width:200px;font-size:11px;">${opts.join("")}</select>
+        </div>
+        <table style="border-collapse:collapse;font-size:12px;width:100%;">
+          <thead><tr style="text-align:left;color:#98a3bd;">
+            <th style="padding:3px 8px;">IGN</th>
+            <th style="padding:3px 8px;">UID</th>
+            <th style="padding:3px 8px;"></th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }).join("");
+}
+
+document.addEventListener("change", (e) => {
+  if(!e.target.classList.contains("ff-lobby-assign")) return;
+  ffLobbyAssign[e.target.dataset.gs] = e.target.value;
+  ffRenderLobby();
+});
+
+document.getElementById("ff_lobbyFetch").addEventListener("click", () => {
+  // The engine republishes this on every poll, so there is nothing to
+  // request -- this just redraws from the latest state and says what it
+  // is looking at, which is what "fetch" means from here.
+  const el = document.getElementById("ff_lobbyStatus");
+  ffRenderLobby();
+  const squads = ffLobbySquads();
+  el.style.color = squads.length ? "#98a3bd" : "#fbbf24";
+  el.textContent = squads.length
+    ? "Read " + squads.length + " squads from the live lobby."
+    : "Nothing in the lobby yet — the log has narrated no joins.";
+});
+
+document.getElementById("ff_lobbyFill").addEventListener("click", () => {
+  const el = document.getElementById("ff_lobbyStatus");
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)){
+    el.style.color = "#f5a4a4";
+    el.textContent = "NOT sent — not connected to the Free Fire engine.";
+    return;
+  }
+  const assignments = {};
+  ffLobbySquads().forEach(sq => {
+    const roster = ((ffState && ffState.roster && ffState.roster.teams) || []).filter(t => t.name);
+    const pick = ffLobbyAssign[sq.gsTeam] || sq.team || ffLobbyGuessTeam(sq, roster) || "";
+    if(pick) assignments[sq.gsTeam] = pick;
+  });
+  ffWs.send(JSON.stringify({
+    type: "freefire_fill_roster_from_lobby", assignments }));
+  el.style.color = "#98a3bd";
+  el.textContent = "Adding…";
+});
+
+function ffShowLobbyFillResult(msg){
+  const el = document.getElementById("ff_lobbyStatus");
+  if(!el) return;
+  const bits = [];
+  if(msg.added) bits.push(msg.added + " player(s) added to the roster");
+  if(msg.alreadyThere) bits.push(msg.alreadyThere + " already there");
+  if(msg.noUid) bits.push(msg.noUid + " skipped with no UID");
+  el.style.color = msg.added ? "#4ade80" : "#e8c76a";
+  el.innerHTML = (msg.added ? "✓ " : "⚠ ") +
+    (bits.length ? bits.join(", ") + "." : "Nothing to add.") +
+    ((msg.unplaced && msg.unplaced.length)
+      ? "<div style='margin-top:4px;color:#fbbf24;'>" + msg.unplaced.length +
+        " squad(s) had no team chosen, so their players went nowhere. Pick a team " +
+        "in the dropdown beside each and press it again.</div>"
+      : "");
+  ffRenderLobby();
 }
 
 /* The card above Match Review: what is about to be written, and a way
