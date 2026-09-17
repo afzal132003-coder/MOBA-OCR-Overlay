@@ -3157,10 +3157,23 @@ def apply_alive_grid_identities(grid_rows, row_teams):
     contribution yet (the caller merges this with the log/OCR fallback,
     so an unassigned row still gets SOMETHING once one of those has it)."""
     rows = []
+    # One squad, one row. The overlay keys its row ELEMENTS by team, so
+    # the same name twice makes two slots share one element -- and the
+    # loser shows whatever the winner last wrote into it: another team's
+    # logo, another team's kills. Seen live, with a stale hand-made
+    # assignment that had PVS on rows 2 and 7.
+    #
+    # The first row wins, which is the top of the client's own table and
+    # so the one more likely to be the live reading.
+    used = set()
     for i, row in enumerate(grid_rows):
         team = (row_teams[i] if i < len(row_teams) else "") or ""
         if not team:
             continue
+        key = _ign_key(team)
+        if key in used:
+            continue
+        used.add(key)
         rows.append({
             "teamName": team,
             "elims": row["elims"],
