@@ -3331,7 +3331,15 @@ def read_row_teams(grid_rows, roster_teams, row_teams):
         text = (row.get("teamText") or "").strip()
         detail = {"row": i, "text": text, "team": "", "frames": 0, "why": ""}
         if not text:
-            detail["why"] = "no name box, or nothing read"
+            # "teamText absent" and "teamText empty" mean different
+            # things and used to read the same. Absent is the budget
+            # deferring this row to the next poll; empty is the box being
+            # read and nothing legible found. Telling an operator there
+            # is no name box when they can see the crop right beside it
+            # is worse than saying nothing.
+            detail["why"] = ("waiting its turn to be read"
+                             if row.get("teamText") is None
+                             else "nothing legible in the name box")
             _team_read_streak.pop(i, None)
             reads.append(detail)
             continue
