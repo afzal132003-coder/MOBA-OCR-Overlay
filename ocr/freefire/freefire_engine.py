@@ -1800,6 +1800,23 @@ def build_alive_grid(regions, rows=FREEFIRE_ALIVE_GRID_ROWS,
 
     bar_gap_x = r1p2["x"] - r1p1["x"]
     row_gap_y = (rlastp1["y"] - r1p1["y"]) / max(1, rows - 1)
+
+    # A zero row pitch means the LAST-ROW anchor was drawn on the first
+    # row -- an easy mistake, since all four anchors are drawn in one
+    # sitting and three of them genuinely are on row 1. The result is
+    # silent and total: every row reads row 1's pixels, so twelve
+    # identical crops, one team name repeated twelve times, and every
+    # elim count the same. Caught here because the symptom downstream
+    # looks like bad OCR rather than bad geometry, and an operator can
+    # lose a match chasing it.
+    if abs(rlastp1["y"] - r1p1["y"]) < rows:
+        print("[alive grid] IGNORED: the last-row anchor is at y="
+              + str(rlastp1["y"]) + " and row 1 is at y=" + str(r1p1["y"])
+              + " -- that is the same row, so every row would read the "
+              + "same pixels. Redraw freefire_alive_rlastp1 on the BOTTOM "
+              + "row of the table:" + chr(10)
+              + "    python ocr\\freefire\\calibrate.py freefire_alive_rlastp1")
+        return None
     elim_dx = r1elim["x"] - r1p1["x"]
     elim_dy = r1elim["y"] - r1p1["y"]
 
