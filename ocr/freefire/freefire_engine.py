@@ -3553,9 +3553,23 @@ def apply_banner_wipes(rows):
     the ordinary eliminated flag so the card, the re-sort and the sheet
     push all behave exactly as they always have.
 
-    It only ever turns a row OFF. A squad the banner has not mentioned is
-    left entirely to the bars, so this can add a wipe early but can never
-    hold one back or resurrect one.
+    The BARS decide, and this only ever brings their answer forward. A
+    squad is out when all four of its indicators are out -- that is what
+    the client is showing and what anyone watching can check -- and a
+    banner saying otherwise is outvoted by the row it is talking about.
+
+    That matters because the banner CAN be wrong. It is a name read off a
+    strip at the moment it animates in, and a misread there used to be
+    permanent: the squad went into _banner_wiped, this rewrote its bars to
+    four dead on every poll afterwards, and nothing could put it back
+    until a fresh lobby. Seen on air as a team with two players still up
+    greyed out on the graphic -- while the dashboard beside it correctly
+    showed alive, alive, eliminated, eliminated for that same row.
+
+    So a row whose indicators still show someone alive is left exactly as
+    it was read, and the banner's claim about it is dropped rather than
+    retried forever. A squad the banner has not mentioned is left to the
+    bars as before.
     """
     if not _banner_wiped:
         return rows
@@ -3564,6 +3578,16 @@ def apply_banner_wipes(rows):
         if not key or key not in _banner_wiped or row.get("eliminated"):
             continue
         bars = row.get("bars") or []
+        if any(b == "alive" for b in bars):
+            # The screen disagrees, and the screen wins. Forgotten rather
+            # than held, so one bad reading cannot bury a live squad for
+            # the rest of the match.
+            _banner_wiped.discard(key)
+            _banner_finishes.pop(key, None)
+            print(f"[banner] ignoring the wipe for {row.get('teamName')} -- "
+                  f"{sum(1 for b in bars if b == 'alive')} of its indicators "
+                  f"are still alive")
+            continue
         row["bars"] = ["eliminated"] * len(bars)
         row["barDetail"] = [{"status": "eliminated"} for _ in bars]
         row["aliveCount"] = 0
