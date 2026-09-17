@@ -2173,13 +2173,26 @@ def assign_finish_ranks(rows):
         if r.get("eliminated")
         and (r.get("teamName") or "").strip().upper() not in fresh_keys
     )
-    top = max(1, _lobby_size(rows) - finished_before)
-    for row, name in fresh:
-        while top in taken and top > 1:
-            top -= 1
-        _finish_ranks[name] = top
-        taken.add(top)
-        top -= 1
+    # Dealt from the places that are actually FREE, highest first, rather
+    # than by counting down from a starting number.
+    #
+    # Counting down decremented once per squad with no floor, so a batch
+    # of eliminations -- which is exactly what a resync produces -- ran
+    # past 1 into 0 and then negatives. Live: finishing positions of 0,
+    # -1, -2, -3, -4, -5 and -6 on one table. The old "skip what is
+    # taken" check could not help, because it stopped at 1 and the
+    # decrement after it did not.
+    #
+    # A place is a number between 1 and the lobby size that nobody else
+    # holds. Enumerating those directly cannot produce anything else, and
+    # if there are somehow more squads going out than places left, the
+    # extras simply get none -- which shows as a blank corner rather than
+    # as a squad finishing minus sixth.
+    lobby = _lobby_size(rows)
+    free = [p for p in range(lobby, 0, -1) if p not in taken]
+    for (row, name), place in zip(fresh, free):
+        _finish_ranks[name] = place
+        taken.add(place)
 
     # The card is for a squad going out, not for the table catching up.
     # Several at once means a resync -- a restart mid-match, or the grid
@@ -2438,9 +2451,13 @@ def apply_live_points(rows):
         # bogus 77 turned a 40-point team into 117.
         kills = _sheet_elim_value(row)
         placement = FREEFIRE_PLACEMENT_POINTS.get(row.get("finishRank")) if row.get("finishRank") else None
-        if carry is None and kills is None and placement is None:
-            row["livePoints"] = None
-            continue
+        # Always a number, never blank.
+        #
+        # It used to go blank when nothing was known, on the grounds that
+        # an unknown total should not claim a confident zero. On air that
+        # reads as broken, not as careful: three squads sat with an empty
+        # PTS column while the rest showed numbers, and the honest answer
+        # for a squad with nothing carried and nothing scored is nought.
         row["livePoints"] = (carry or 0) + (kills or 0) + (placement or 0)
         row["carryPoints"] = carry
     return rows
