@@ -47,6 +47,15 @@ import os
 from urllib.parse import urlparse, parse_qs
 
 import websockets
+# Imported by name rather than reached for as websockets.exceptions.X.
+# requirements.txt pins nothing, so this deploys against whatever version
+# is current, and newer ones expose their submodules through a lazy
+# import shim where that attribute is not always resolvable. An `except`
+# clause is only evaluated when something is raised -- so a reference
+# that does not resolve sits there working perfectly until the first
+# client disconnects, and then throws AttributeError from inside the
+# handler that exists to deal with disconnections.
+from websockets.exceptions import ConnectionClosed
 
 PORT = int(os.environ.get("PORT", "8765"))
 
@@ -112,6 +121,31 @@ last_roster = None
 roster_cache_peers = {}
 
 
+# How long any one peer may take to accept a message before the relay
+# stops waiting on it. Generous next to a send that normally completes in
+# milliseconds, and far below the point where a stalled peer would be
+# noticeable to everyone else.
+SEND_TIMEOUT_SECONDS = 5
+
+
+async def _send_guarded(peer, data):
+    """Returns False when the peer is gone and should be dropped.
+
+    A slow peer is not dropped -- it simply misses this message and gets
+    the next one. Only a closed connection is cleaned up here.
+    """
+    try:
+        await asyncio.wait_for(peer.send(data), SEND_TIMEOUT_SECONDS)
+        return True
+    except ConnectionClosed:
+        return False
+    except Exception:
+        # Timed out or otherwise wedged. Left connected: its own handler
+        # tidies up when the connection actually closes, and nothing here
+        # should wait for that.
+        return True
+
+
 def role_for_token(token):
     return TOKEN_ROLES.get(token)
 
@@ -154,7 +188,7 @@ async def broadcast_presence():
     for peer in list(connected):
         try:
             await peer.send(raw)
-        except websockets.exceptions.ConnectionClosed:
+        except ConnectionClosed:
             stale.append(peer)
     for peer in stale:
         connected.pop(peer, None)
@@ -252,25 +286,49 @@ async def handler(websocket):
                 # DIFFERENT page's benefit.
                 last_state_sync = raw
 
-            stale = []
             # Snapshot for the same reason as broadcast_presence above --
             # a peer joining or leaving mid-fanout must not blow up the
             # send loop and disconnect whoever was being broadcast to.
+            targets = []
             for peer in list(connected):
                 if peer is websocket:
                     continue
                 if target_pages is not None and connected_pages.get(peer) not in target_pages:
                     continue
-                try:
-                    await peer.send(
-                        lean if (lean is not None
-                                 and roster_cache_peers.get(peer)) else raw)
-                except websockets.exceptions.ConnectionClosed:
-                    stale.append(peer)
-            for peer in stale:
-                connected.pop(peer, None)
-                connected_pages.pop(peer, None)
-                roster_cache_peers.pop(peer, None)
+                targets.append(peer)
+
+            # All at once, and none of them able to hold up the rest.
+            #
+            # This used to be a loop of bare awaits, one peer after
+            # another. A send does not complete until that peer's socket
+            # drains, so the slowest client on the relay decided how fast
+            # EVERY other client was served -- and the next message in
+            # from the engine waited behind all of it, because this is the
+            # same task that reads the socket.
+            #
+            # One tab on a poor connection, or one that has stopped
+            # reading without closing, is enough. Measured from a
+            # subscriber here while it was happening: messages arriving
+            # 112ms apart in bursts with ten to seventeen SECOND holes
+            # between them, while the engine was publishing steadily every
+            # 250ms. Bursts and holes are what a queue behind one blocked
+            # write looks like from the far end.
+            #
+            # The engine already learned this (see _send_guarded and the
+            # note above SEND_TIMEOUT_SECONDS in freefire_engine.py): send
+            # concurrently, give each peer a deadline, and let a peer that
+            # cannot keep up be the only one that suffers for it.
+            results = await asyncio.gather(*[
+                _send_guarded(peer,
+                              lean if (lean is not None
+                                       and roster_cache_peers.get(peer))
+                              else raw)
+                for peer in targets], return_exceptions=True)
+            for peer, ok in zip(targets, results):
+                if ok is False:
+                    connected.pop(peer, None)
+                    connected_pages.pop(peer, None)
+                    roster_cache_peers.pop(peer, None)
     finally:
         connected.pop(websocket, None)
         connected_pages.pop(websocket, None)
