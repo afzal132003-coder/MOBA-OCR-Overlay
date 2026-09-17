@@ -1124,6 +1124,40 @@ function showElimCard(state, rowEl, L, forced){
   if(pendingElimCards.length) rushCurrentElimCard();
 }
 
+/* Squads that have already had their ELIMINATED sweep this match.
+
+   Belt and braces over previouslyEliminated, which only remembers the
+   LAST render: if the table flickers a squad back to alive for a poll --
+   two sources disagreeing, a grid miss -- that set empties, and on the
+   next poll every eliminated row looks brand new and they all sweep at
+   once. Three at a time was seen on air. A squad going out is a thing
+   that happens once. */
+let flybyDone = new Set();
+
+// How many renders in a row must show nobody eliminated before this page
+// believes a new match has started. See the reset below.
+const FRESH_MATCH_RENDERS = 3;
+let allAliveRenders = 0;
+
+/* Waiting their turn. Several ticks in a row is normal near the end of a
+   match, and playing them together is unreadable -- the words land on top
+   of each other and none of them can be read. One at a time, in the order
+   they went out. */
+let flybyQueue = [];
+let flybyTimer = null;
+
+function queueFlyby(el){
+  flybyQueue.push(el);
+  if(flybyTimer === null) runFlybyQueue();
+}
+
+function runFlybyQueue(){
+  const el = flybyQueue.shift();
+  if(!el){ flybyTimer = null; return; }
+  playFlyby(el);
+  flybyTimer = setTimeout(runFlybyQueue, FLYBY_MS + 120);
+}
+
 function playFlyby(el){
   const fly = el.querySelector(".flyby");
   fly.classList.remove("on");
@@ -1258,19 +1292,36 @@ function apply(state){
       // reassigning a row in the dashboard introduced "new" names and
       // fired the flyby for several already-dead squads at once, which
       // is exactly the random multi-fire that was reported.
-      if(ffSeenTeams.has(key) && !previouslyEliminated.has(key)) newlyOut.push(el);
+      if(ffSeenTeams.has(key) && !previouslyEliminated.has(key)
+         && !flybyDone.has(key)){
+        flybyDone.add(key);
+        newlyOut.push(el);
+      }
     }
     ffSeenTeams.add(key);
   });
 
-  // A fresh match: everyone is back up, so last game's elimination
-  // stack has to go or it would still be dictating where teams land.
-  if(!nowEliminated.size && elimSeq.size){
+  /* A fresh match: everyone is back up, so last game's elimination
+     stack has to go or it would still be dictating where teams land.
+
+     Confirmed over several renders rather than believed at once. One
+     poll showing nobody eliminated is not a new match -- it is what a
+     flicker looks like, and acting on it wiped the record of which
+     squads had already had their ELIMINATED sweep, so the next poll
+     played it again for every one of them. Three on air at once.
+
+     A real new match stays that way for many polls, so waiting costs
+     nothing. */
+  allAliveRenders = nowEliminated.size ? 0 : allAliveRenders + 1;
+  if(allAliveRenders >= FRESH_MATCH_RENDERS && elimSeq.size){
     elimSeq = new Map();
     elimCounter = 0;
     // Last game's readings go with it -- holding one over into a new
     // match would show a squad as out before a shot was fired.
     forgetHeldStatus();
+    flybyDone = new Set();
+    flybyQueue = [];
+    if(flybyTimer !== null){ clearTimeout(flybyTimer); flybyTimer = null; }
   }
 
   // Anything no longer in the table (roster changed, new match) goes.
@@ -1287,7 +1338,7 @@ function apply(state){
   // last saw that team -- THEN everything slides. Re-applied on a timer
   // because the next state_sync may not land on its own in time.
   if(newlyOut.length){
-    newlyOut.forEach(playFlyby);
+    newlyOut.forEach(queueFlyby);
     // The card rides the same event as the row animation, so the two can
     // never disagree about who went out. Only the first of a batch gets
     // one: a card per squad back to back would be unreadable, and with
@@ -1300,8 +1351,12 @@ function apply(state){
     if(!(state.settings && state.settings.eliminationApproval)){
       showElimCard(state, newlyOut[0], L);
     }
-    holdOrderUntil = Date.now() + FLYBY_MS;
-    setTimeout(() => { if(lastState) apply(lastState); }, FLYBY_MS + 40);
+    // Long enough for the whole queue, not just the first: rows sliding
+    // to new places under a word that is still playing is the jumpiness
+    // that was reported.
+    const span = (FLYBY_MS + 120) * newlyOut.length;
+    holdOrderUntil = Date.now() + span;
+    setTimeout(() => { if(lastState) apply(lastState); }, span + 40);
   }
   previouslyEliminated = nowEliminated;
 
