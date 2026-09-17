@@ -4690,7 +4690,14 @@ async def handle_client(websocket, path=None):
                         "ok": False, "error": f"Match number {payload.get('match')!r} isn't valid.",
                     }))
                 else:
+                    # The winning squad travels with the same POST, so
+                    # the Booyah tab and the RESULTS grid can never end up
+                    # showing two different games. Built in the dashboard
+                    # alongside the rows, for the reason given above.
                     body = {"kind": "results", "match": match_number, "rows": rows}
+                    booyah = payload.get("booyah")
+                    if isinstance(booyah, dict) and booyah.get("team"):
+                        body["booyah"] = booyah
                     try:
                         loop = asyncio.get_running_loop()
                         raw = await loop.run_in_executor(

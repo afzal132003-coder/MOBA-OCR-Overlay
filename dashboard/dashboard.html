@@ -8579,11 +8579,20 @@ function ffShowResultsPushResult(msg){
      missing teams was already happening, but as a footnote on a line that
      started with a tick -- so it read as success. When any are missing
      this now says so first, and says what it actually means. */
+  /* What happened to the Booyah tab, said out loud either way. It is
+     written by the same call, so silence would be indistinguishable
+     between "wrote it" and "the tab is missing and nobody noticed". */
+  const booyahNote = msg.booyah
+    ? "<div style='margin-top:4px;color:#98a3bd;'>Booyah tab: " +
+      ffEscapeHtml(String(msg.booyah)) + "</div>"
+    : "";
+  const booyahBad = /failed|no tab|nothing written/i.test(String(msg.booyah || ""));
+
   const missing = (msg.unmatched || []).length;
   if(!missing){
-    el.style.color = "#4ade80";
-    el.textContent = "✓ Match " + msg.match + " written — all " +
-      msg.matched + " teams matched a row in column C.";
+    el.style.color = booyahBad ? "#e8c76a" : "#4ade80";
+    el.innerHTML = (booyahBad ? "⚠ " : "✓ ") + "Match " + msg.match + " written — all " +
+      msg.matched + " teams matched a row in column C." + booyahNote;
     return;
   }
   el.style.color = "#f5a4a4";
@@ -8595,7 +8604,7 @@ function ffShowResultsPushResult(msg){
     "<div style='margin-top:4px;color:#98a3bd;'>Their scores were written nowhere. " +
     "Either that tab is set up for a different set of teams, or these are spelled " +
     "differently there. A team is matched against the sheet's own column C: full name " +
-    "first, then short name, then an alias, then a partial match.</div>";
+    "first, then short name, then an alias, then a partial match.</div>" + booyahNote;
 }
 
 document.getElementById("ff_resultsPushMatch").addEventListener("input", (e) => {
@@ -8675,8 +8684,35 @@ document.getElementById("ff_resultsPush").addEventListener("click", () => {
     };
   }).filter(r => r.team);
 
-  ffWs.send(JSON.stringify({ type: "freefire_results_push", match, rows }));
+  /* The Booyah squad rides along on the same push.
+
+     Whoever finished 1st in THIS match, with their IGNs and each one's
+     kills, out of the same result the rows above come from -- so the
+     Booyah tab and the RESULTS grid cannot end up describing different
+     games. That tab is overwritten every time by design: it holds the
+     squad currently being shown as having won, not a record. Keeping the
+     per-game history is the RESULTS grid's job and it already does it.
+
+     Players go in the file's own order rather than sorted by kills --
+     that is the order the squad appears in everywhere else, and a
+     leaderboard is not what was asked for. */
+  const won = source.teams.find(t => Number(t.rank) === 1);
+  const wonNames = won ? ffTeamNamesForSheet(won) : null;
+  const booyah = won ? {
+    team: wonNames.team,
+    short: wonNames.short,
+    players: (won.players || []).map(p => ({
+      // p.name is already the roster's IGN where the player matched and
+      // the file's where they didn't -- resolved when the result was
+      // read, exactly as the team name is.
+      ign: p.name || p.fileName || "",
+      kills: p.kills != null ? p.kills : null,
+    })).filter(p => p.ign),
+  } : null;
+
+  ffWs.send(JSON.stringify({ type: "freefire_results_push", match, rows, booyah }));
   el.textContent = "Sending " + rows.length + " teams from " + source.label +
+    (booyah ? " (Booyah: " + booyah.team + ")" : " (no Booyah in that result)") +
     " to match " + match + " (columns " + ffResultsColumnPair(match) + ")\u2026";
 });
 

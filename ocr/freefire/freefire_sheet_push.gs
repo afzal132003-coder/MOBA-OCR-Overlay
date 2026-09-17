@@ -20,9 +20,19 @@
  *           overall-standings and tiebreak formulas have real data to
  *           work from.
  *
- * Both are matched by TEAM NAME, never by row position: the sheet's own
- * team column is the source of truth for which row a team owns, so
- * nothing depends on the sheet and the dashboard agreeing about order.
+ *   BOOYAH  (rides along with RESULTS)  The squad that just won, on its
+ *           own tab: the team name in B1, its player IGNs in B3:B6 and
+ *           each one's kills in C3:C6. Written by the same button press
+ *           as the RESULTS grid, so the two cannot end up showing
+ *           different games. OVERWRITTEN every time on purpose -- it is
+ *           a broadcast scratchpad for the Booyah graphic, not a record.
+ *           The per-game history is the RESULTS grid's job.
+ *
+ * The first two are matched by TEAM NAME, never by row position: the
+ * sheet's own team column is the source of truth for which row a team
+ * owns, so nothing depends on the sheet and the dashboard agreeing about
+ * order. The Booyah tab needs no matching -- it has one team on it, and
+ * the push says which.
  *
  * SETUP (one time, on YOUR sheet):
  *   1. Open the sheet -> Extensions -> Apps Script.
@@ -55,7 +65,12 @@
  *      succeeds. It will say 0/1 matched, which is correct: the test
  *      sends a deliberately fake team name, so proving the pipe works
  *      never depends on a real team matching.
- *   7. If you ever change this file, you have to Deploy -> Manage
+ *   7. For the Booyah half: make a tab called "Booyah" in the RESULTS
+ *      spreadsheet. Nothing else to set up -- it is written to, never
+ *      read from, so whatever else is on it is yours to lay out. If
+ *      there is no such tab the results push still works and says so
+ *      in the dashboard rather than failing.
+ *   8. If you ever change this file, you have to Deploy -> Manage
  *      deployments -> edit -> New version for the change to actually
  *      take effect -- saving alone does not update a live deployment.
  *
@@ -127,6 +142,21 @@ var TEAM_ALIASES = {
   "iQOO OGXTE": "TEAM ELITE",
   "iQOO OG X ELITE": "TEAM ELITE"
 };
+
+// ---- BOOYAH tab: whoever won the game that was just pushed ---------------
+// Overwritten on every results push, deliberately. This is a broadcast
+// scratchpad -- the squad currently being shown as having won -- not a
+// record: the per-game history already lives in the RESULTS grid, one
+// column group per match, and a second copy here would only be one more
+// thing to keep in step.
+//
+// Blank BOOYAH_SHEET_NAME to switch the whole thing off.
+var BOOYAH_SHEET_NAME = "Booyah";        // tab in the RESULTS spreadsheet
+var BOOYAH_TEAM_CELL = "B1";             // the winning team's name
+var BOOYAH_IGN_COLUMN = "B";             // player IGNs, one per row
+var BOOYAH_KILLS_COLUMN = "C";           // that player's kills, beside the IGN
+var BOOYAH_PLAYER_START_ROW = 3;         // so B3:B6 / C3:C6 with four players
+var BOOYAH_PLAYER_ROWS = 4;
 
 // How short a name may be before containment matching stops trusting it.
 // "GODLIKE" inside "GODLIKE ESPORTS" is obviously the same team; "TE"
@@ -361,8 +391,74 @@ function pushResults_(body, result) {
   sheet.getRange(RESULTS_START_ROW, placementCol, numDataRows, width).setValues(block);
 
   if (unmatched.length) result.unmatched = unmatched;
+
+  // Same button, same moment, same game -- see pushBooyah_.
+  pushBooyah_(sheet.getParent(), body.booyah, result);
+
   result.ok = true;
   return sheet;
+}
+
+
+/* The winning squad of the match just pushed, onto its own tab.
+
+   Called from pushResults_ so one button press does both -- splitting it
+   into a second action is how the two end up showing different games.
+
+   Never fatal. The RESULTS write is the one that matters and has already
+   happened by the time this runs; a missing tab or a renamed column
+   should be reported, not turned into a failed push that invites someone
+   to press the button again and rewrite the grid. */
+function pushBooyah_(book, booyah, result) {
+  if (!BOOYAH_SHEET_NAME) return;
+  if (!booyah || !booyah.team) {
+    result.booyah = "no team finished 1st in that match -- nothing written";
+    return;
+  }
+
+  var sheet = tabOf_(book, BOOYAH_SHEET_NAME);
+  if (!sheet) {
+    result.booyah = 'no tab named "' + BOOYAH_SHEET_NAME + '" -- nothing written';
+    return;
+  }
+
+  try {
+    sheet.getRange(BOOYAH_TEAM_CELL).setValue(booyah.team);
+
+    // Padded to the full block rather than written short: last game's
+    // fourth player must not be left sitting under this game's third.
+    var players = booyah.players || [];
+    var block = [];
+    for (var i = 0; i < BOOYAH_PLAYER_ROWS; i++) {
+      var p = players[i];
+      block.push(p ? [p.ign || "", (p.kills === null || p.kills === undefined) ? "" : p.kills]
+                   : ["", ""]);
+    }
+
+    var ignCol = colToIndex_(BOOYAH_IGN_COLUMN);
+    var killsCol = colToIndex_(BOOYAH_KILLS_COLUMN);
+    if (killsCol === ignCol + 1) {
+      // The normal case -- B and C -- is one write.
+      sheet.getRange(BOOYAH_PLAYER_START_ROW, ignCol, BOOYAH_PLAYER_ROWS, 2)
+           .setValues(block);
+    } else {
+      // Non-adjacent columns still work, just as two writes.
+      sheet.getRange(BOOYAH_PLAYER_START_ROW, ignCol, BOOYAH_PLAYER_ROWS, 1)
+           .setValues(block.map(function (r) { return [r[0]]; }));
+      sheet.getRange(BOOYAH_PLAYER_START_ROW, killsCol, BOOYAH_PLAYER_ROWS, 1)
+           .setValues(block.map(function (r) { return [r[1]]; }));
+    }
+
+    var written = players.slice(0, BOOYAH_PLAYER_ROWS).length;
+    result.booyah = booyah.team + " (" + written + " player" +
+                    (written === 1 ? "" : "s") + ")";
+    if (players.length > BOOYAH_PLAYER_ROWS) {
+      result.booyah += " -- " + (players.length - BOOYAH_PLAYER_ROWS) +
+                       " more in the squad than there are rows for";
+    }
+  } catch (err) {
+    result.booyah = "failed -- " + err;
+  }
 }
 
 
