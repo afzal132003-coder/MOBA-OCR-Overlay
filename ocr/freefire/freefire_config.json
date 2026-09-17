@@ -101,10 +101,10 @@
       "h": 28
     },
     "freefire_alive_r1elim": {
-      "x": -130,
-      "y": 292,
-      "w": 41,
-      "h": 47
+      "x": -131,
+      "y": 306,
+      "w": 51,
+      "h": 37
     },
     "freefire_alive_rlastp1": {
       "x": -60,
@@ -123,6 +123,12 @@
       "y": 307,
       "w": 10,
       "h": 26
+    },
+    "freefire_alive_r1team": {
+      "x": -228,
+      "y": 311,
+      "w": 97,
+      "h": 28
     }
   },
   "sidetable_colors": {
