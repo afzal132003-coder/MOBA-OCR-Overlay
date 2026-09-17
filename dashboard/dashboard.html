@@ -2238,6 +2238,19 @@ Team Charlie
       </div>
     </div>
 
+    <div class="card" id="ff_booyahCard" style="display:none;">
+      <h2>Booyah Squad <span id="ff_booyahTeam" style="color:#6b7590;font-size:12px;font-weight:400;"></span></h2>
+      <p class="hint">Exactly what is about to be written to the <strong>Booyah</strong> tab &mdash; B1 the team,
+        B3:B6 these IGNs, C3:C6 these kills &mdash; for whichever game is selected in Broadcast Sheet Push above.
+        A player the roster placed shows their registered name. One it could not is flagged with the IGN and UID
+        the game gave, so it can be corrected here rather than discovered on air.</p>
+      <p class="hint">An override is keyed on the <strong>UID</strong>, not the name, so it holds for that account
+        for the rest of the event even if the in-game name changes again. Clear the box to go back to what the
+        result file says.</p>
+      <div id="ff_booyahPlayers"></div>
+      <div class="hint" id="ff_booyahStatus" style="margin-top:8px;"></div>
+    </div>
+
     <div class="card" id="ff_reviewCard" style="display:none;">
       <h2>Match Review <span id="ff_reviewMatchId" style="color:#6b7590;font-size:12px;font-weight:400;"></span></h2>
       <p class="hint">Fetched from disk but not counted in standings yet — review the parse below before committing.</p>
@@ -8373,6 +8386,9 @@ function ffQmeSeedFromRoster(ff){
     if(ff.qmeResultPicks && typeof ff.qmeResultPicks === "object"){
       ffQmeResultPicks = Object.assign({}, ff.qmeResultPicks);
     }
+    if(ff.booyahIgnOverrides && typeof ff.booyahIgnOverrides === "object"){
+      ffBooyahIgnOverrides = Object.assign({}, ff.booyahIgnOverrides);
+    }
   }
   const used = new Set(ffQmeTeams.filter(Boolean).map(normalize_for_matchJs));
   let toppedUp = false;
@@ -8534,6 +8550,7 @@ function ffQmeUpdateExport(){
   const picked = ffResultsSelectedSource();
   if(matchInput && !matchInput.dataset.touched && picked) matchInput.value = picked.game;
   ffUpdateResultsPushTarget();
+  ffRenderBooyahCard();
 
   const lines = ffQmeTeams.map(name => {
     // Same resolution the rows above show, hand bindings included --
@@ -8578,6 +8595,53 @@ const FF_RESULTS_MATCH_MAX = 10;
    here rather than sent, because the sheet cannot know: it is told a
    name, not where the name came from. */
 let ffLastBooyahUnmatched = [];
+
+/* Names the operator typed over, keyed by UID.
+
+   UID rather than name on purpose: it is the account, and the whole
+   reason an override is needed is that the NAME was not recognisable.
+   Keying on the name would mean re-typing it the next time the same
+   player turns up under a third spelling; keyed on the UID it holds for
+   the rest of the event. */
+let ffBooyahIgnOverrides = {};
+
+/* The Booyah block for a given match -- the ONE place it is built.
+
+   The card below and the push both read this, so what is previewed is
+   the thing that gets sent. Two implementations of "who won and what
+   are they called" would eventually disagree, and the first anyone
+   would know of it is the wrong name on air. */
+function ffBooyahBlockFor(source){
+  const won = source && source.teams
+    ? source.teams.find(t => Number(t.rank) === 1) : null;
+  if(!won) return null;
+  const named = ffTeamNamesForSheet(won);
+  const players = (won.players || []).map(p => {
+    const uid = String(p.uid || "").trim();
+    const override = uid ? (ffBooyahIgnOverrides[uid] || "") : "";
+    return {
+      uid,
+      // What the game called them, always kept -- it is what the
+      // operator recognises the row by.
+      fileIgn: p.fileName || p.name || "",
+      // p.name is the REGISTERED IGN wherever the player resolved
+      // against the roster, and the file's where they did not. An
+      // override beats both, because it is the operator saying so.
+      ign: override || p.name || p.fileName || "",
+      kills: p.kills != null ? p.kills : null,
+      matched: p.matched === true,
+      overridden: !!override,
+    };
+  }).filter(p => p.ign || p.fileIgn);
+  return { team: named.team, short: named.short, players };
+}
+
+/* Everything in that block still going up under the name the GAME gave
+   -- neither placed by the roster nor corrected by hand. */
+function ffBooyahUnplaced(block){
+  if(!block) return [];
+  return block.players.filter(p => !p.matched && !p.overridden);
+}
 
 function ffResultsSources(){
   const out = [];
@@ -8719,6 +8783,100 @@ function ffShowResultsPushResult(msg){
     "first, then short name, then an alias, then a partial match.</div>" + booyahNote;
 }
 
+/* The card above Match Review: what is about to be written, and a way
+   to fix a name before it is. */
+function ffRenderBooyahCard(){
+  const card = document.getElementById("ff_booyahCard");
+  if(!card) return;
+  const block = ffBooyahBlockFor(ffResultsSelectedSource());
+  if(!block){
+    card.style.display = "none";
+    return;
+  }
+  card.style.display = "block";
+  document.getElementById("ff_booyahTeam").textContent =
+    block.team + " — goes to B1";
+
+  const rows = block.players.map((p, i) => {
+    const where = "B" + (3 + i) + " / C" + (3 + i);
+    const flag = p.overridden
+      ? '<span style="color:#e8c76a;">✎ typed over</span>'
+      : p.matched
+        ? '<span style="color:#4ade80;">✓ registered</span>'
+        : '<span style="color:#fbbf24;">⚠ not in the roster</span>';
+    // Shown whenever the name going up is not the name the game gave,
+    // whatever the reason -- that includes a cleanly registered player,
+    // which is the case the whole feature exists for: seeing that
+    // "cute legend" really did become TG.LEGEND. Hidden only when the
+    // two are the same string, where it would be noise.
+    const source = (p.fileIgn && p.fileIgn !== p.ign)
+      ? '<div style="color:#6b7590;font-size:10px;">in game: ' +
+        ffEscapeHtml(p.fileIgn) + '</div>'
+      : (!p.fileIgn
+          ? '<div style="color:#6b7590;font-size:10px;">no name in the file</div>'
+          : "");
+    return `
+      <tr style="border-top:1px solid #2b3348;">
+        <td style="padding:5px 8px;color:#6b7590;white-space:nowrap;">${where}</td>
+        <td style="padding:5px 8px;">
+          <div style="font-size:13px;">${ffEscapeHtml(p.ign)}</div>${source}
+        </td>
+        <td style="padding:5px 8px;font-family:monospace;font-size:11px;color:#98a3bd;white-space:nowrap;">
+          ${p.uid ? ffEscapeHtml(p.uid) : '<span style="color:#6b7590;">no UID in the file</span>'}
+        </td>
+        <td style="padding:5px 8px;text-align:center;">${p.kills == null ? "—" : p.kills}</td>
+        <td style="padding:5px 8px;font-size:11px;white-space:nowrap;">${flag}</td>
+        <td style="padding:5px 8px;">
+          <input type="text" class="ff-booyah-ign" data-uid="${ffEscapeHtml(p.uid)}"
+            placeholder="${p.uid ? "write the right IGN" : "needs a UID to save"}"
+            ${p.uid ? "" : "disabled"}
+            value="${ffEscapeHtml(p.overridden ? p.ign : "")}"
+            style="width:190px;font-size:12px;padding:3px 6px;">
+        </td>
+      </tr>`;
+  }).join("");
+
+  document.getElementById("ff_booyahPlayers").innerHTML = `
+    <table style="border-collapse:collapse;font-size:12px;width:100%;">
+      <thead><tr style="text-align:left;color:#98a3bd;">
+        <th style="padding:4px 8px;">Cell</th>
+        <th style="padding:4px 8px;">Goes up as</th>
+        <th style="padding:4px 8px;">UID</th>
+        <th style="padding:4px 8px;text-align:center;">Kills</th>
+        <th style="padding:4px 8px;">Source</th>
+        <th style="padding:4px 8px;">Write a different IGN</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+
+  const unplaced = ffBooyahUnplaced(block);
+  const status = document.getElementById("ff_booyahStatus");
+  if(unplaced.length){
+    status.style.color = "#fbbf24";
+    status.innerHTML = "⚠ <strong>" + unplaced.length + " of " + block.players.length +
+      "</strong> will go up as the game spelled them. Type the right IGN beside any of them, " +
+      "or leave it and the in-game name is what the tab gets.";
+  } else {
+    status.style.color = "#4ade80";
+    status.textContent = "✓ All " + block.players.length +
+      " names are either registered or set by hand.";
+  }
+}
+
+document.addEventListener("change", (e) => {
+  if(!e.target.classList.contains("ff-booyah-ign")) return;
+  const uid = e.target.dataset.uid;
+  if(!uid) return;
+  const value = (e.target.value || "").trim();
+  if(value) ffBooyahIgnOverrides[uid] = value;
+  else delete ffBooyahIgnOverrides[uid];
+  if(ffState){
+    ffState.booyahIgnOverrides = Object.assign({}, ffBooyahIgnOverrides);
+    ffSendManualUpdate(ffState);
+  }
+  ffRenderBooyahCard();
+});
+
 document.getElementById("ff_resultsPushMatch").addEventListener("input", (e) => {
   e.target.dataset.touched = "1";
   ffUpdateResultsPushTarget();
@@ -8726,6 +8884,7 @@ document.getElementById("ff_resultsPushMatch").addEventListener("input", (e) => 
 
 document.getElementById("ff_resultsPushSource").addEventListener("change", (e) => {
   e.target.dataset.touched = "1";
+  ffRenderBooyahCard();
   // Picking a game moves the destination to that game's own columns --
   // pushing game 2 into match 5's columns is nearly always a slip, and
   // the operator can still override the number afterwards.
@@ -8798,46 +8957,20 @@ document.getElementById("ff_resultsPush").addEventListener("click", () => {
 
   /* The Booyah squad rides along on the same push.
 
-     Whoever finished 1st in THIS match, with their IGNs and each one's
-     kills, out of the same result the rows above come from -- so the
-     Booyah tab and the RESULTS grid cannot end up describing different
-     games. That tab is overwritten every time by design: it holds the
-     squad currently being shown as having won, not a record. Keeping the
-     per-game history is the RESULTS grid's job and it already does it.
+     Built by ffBooyahBlockFor -- the same call the card above Match
+     Review renders from, so what was previewed is exactly what is sent.
+     One payload rather than a second action, so the Booyah tab and the
+     RESULTS grid can never end up describing different games. */
+  const booyah = ffBooyahBlockFor(source);
+  ffLastBooyahUnmatched = ffBooyahUnplaced(booyah).map(p => p.fileIgn || p.ign);
 
-     Players go in the file's own order rather than sorted by kills --
-     that is the order the squad appears in everywhere else, and a
-     leaderboard is not what was asked for. */
-  const won = source.teams.find(t => Number(t.rank) === 1);
-  const wonNames = won ? ffTeamNamesForSheet(won) : null;
-  const booyah = won ? {
-    team: wonNames.team,
-    short: wonNames.short,
-    players: (won.players || []).map(p => ({
-      // p.name is the REGISTERED IGN -- the one entered before the event
-      // -- wherever the player resolved against the roster, and the name
-      // the game gave where they did not. The engine does that swap when
-      // the result file is read (apply_roster_overrides), matching on UID
-      // first and then on name similarity within the squad, so an account
-      // playing as "cute legend" writes TG.LEGEND here.
-      ign: p.name || p.fileName || "",
-      kills: p.kills != null ? p.kills : null,
-    })).filter(p => p.ign),
-  } : null;
-
-  /* Which of them the roster could NOT place.
-
-     Those keep whatever the game called them, which is the right
-     fallback but the wrong thing to discover on air. It happens when the
-     player isn't registered under that team, or is registered without
-     the UID the file carries -- and with no players in the roster at all
-     it is every one of them. */
-  ffLastBooyahUnmatched = won
-    ? (won.players || []).filter(p => p.matched === false)
-        .map(p => (p.fileName || p.name || "")).filter(n => n)
-    : [];
-
-  ffWs.send(JSON.stringify({ type: "freefire_results_push", match, rows, booyah }));
+  ffWs.send(JSON.stringify({ type: "freefire_results_push", match, rows,
+    booyah: booyah ? {
+      team: booyah.team, short: booyah.short,
+      // uid/matched/overridden are this page's bookkeeping -- the sheet
+      // is told a name and a number, nothing about where they came from.
+      players: booyah.players.map(p => ({ ign: p.ign, kills: p.kills })),
+    } : null }));
   el.textContent = "Sending " + rows.length + " teams from " + source.label +
     (booyah ? " (Booyah: " + booyah.team + ")" : " (no Booyah in that result)") +
     " to match " + match + " (columns " + ffResultsColumnPair(match) + ")\u2026";

@@ -469,6 +469,10 @@ def default_state():
         # file's name for a squad matched nothing. Roster name -> the
         # name the result file used.
         "qmeResultPicks": {},
+        # IGNs the operator typed over for the Booyah tab, keyed by
+        # UID -- the account, not the name, since the name being
+        # unrecognisable is the whole reason an override exists.
+        "booyahIgnOverrides": {},
         # MVP of the LATEST committed match. Empty string means "auto" --
         # highest kills, damage as the tiebreak, picked fresh from that
         # match's own players every time. Set to a uid to override the
