@@ -1767,6 +1767,10 @@ def parse_sidetable(img_bgr, columns=None, palette=None):
 FREEFIRE_ALIVE_GRID_ROWS = 12
 
 
+# Whether the zero-row-pitch warning has already been said this run.
+_grid_geometry_warned = False
+
+
 def build_alive_grid(regions, rows=FREEFIRE_ALIVE_GRID_ROWS,
                       players=SIDETABLE_PLAYERS_PER_TEAM):
     """Derives the full ROWS x PLAYERS alive-bar grid, plus one elim-count
@@ -1810,13 +1814,21 @@ def build_alive_grid(regions, rows=FREEFIRE_ALIVE_GRID_ROWS,
     # looks like bad OCR rather than bad geometry, and an operator can
     # lose a match chasing it.
     if abs(rlastp1["y"] - r1p1["y"]) < rows:
-        print("[alive grid] IGNORED: the last-row anchor is at y="
-              + str(rlastp1["y"]) + " and row 1 is at y=" + str(r1p1["y"])
-              + " -- that is the same row, so every row would read the "
-              + "same pixels. Redraw freefire_alive_rlastp1 on the BOTTOM "
-              + "row of the table:" + chr(10)
-              + "    python ocr\\freefire\\calibrate.py freefire_alive_rlastp1")
+        # Said ONCE, not four times a second. A warning that repeats at
+        # poll rate scrolls the real startup lines off the console and
+        # buries anything else the engine wants to say -- which makes it
+        # worse than silence, not better.
+        global _grid_geometry_warned
+        if not _grid_geometry_warned:
+            _grid_geometry_warned = True
+            print("[alive grid] IGNORED: the last-row anchor is at y="
+                  + str(rlastp1["y"]) + " and row 1 is at y=" + str(r1p1["y"])
+                  + " -- the same row, so every row would read the same "
+                  + "pixels. The grid is switched off until it is redrawn;"
+                  + chr(10) + "    the log/OCR path still runs. Fix with:"
+                  + chr(10) + "    python ocr\\freefire\\calibrate.py freefire_alive_rlastp1")
         return None
+    _grid_geometry_warned = False
     elim_dx = r1elim["x"] - r1p1["x"]
     elim_dy = r1elim["y"] - r1p1["y"]
 
@@ -5078,8 +5090,13 @@ async def handle_client(websocket, path=None):
                         body["booyah"] = booyah
                     try:
                         loop = asyncio.get_running_loop()
+                        # Timed, because "it took so long" is not
+                        # actionable and "it took 6.4s, 5.1 of it inside
+                        # Apps Script" is.
+                        _started = time.time()
                         raw = await loop.run_in_executor(
                             ocr_executor, _post_sheet_payload, url, body)
+                        _elapsed_ms = int((time.time() - _started) * 1000)
                         try:
                             answer = json.loads(raw)
                         except Exception:
@@ -5093,6 +5110,11 @@ async def handle_client(websocket, path=None):
                         answer.setdefault("ok", False)
                         answer["type"] = "freefire_results_push_result"
                         answer["match"] = match_number
+                        # How long the sheet took, start to finish, from
+                        # this side of the wire.
+                        answer["elapsedMs"] = _elapsed_ms
+                        print(f"[results push] match {match_number}: "
+                              f"{_elapsed_ms}ms")
                         await websocket.send(json.dumps(answer))
                     except Exception as e:
                         await websocket.send(json.dumps({

@@ -105,6 +105,11 @@ var RESULTS_MATCH_COLUMN_STRIDE = 3;     // PLACE, KILLS, WWCD -- so D/E/F, G/H/
 var RESULTS_START_ROW = 4;               // first row that holds a team
 var RESULTS_END_ROW = 15;                // last row that holds a team
 var RESULTS_MATCH_COUNT = 10;            // how many match column-groups exist
+// Where a RESULTS push stamps its "last received" marker. On the results
+// tab rather than the live-status one, so the push does not have to open
+// a second spreadsheet -- worth about a second on every push. Pick an
+// empty cell well clear of the match columns.
+var RESULTS_DEBUG_CELL = "B1";
 
 // What goes in the PLACE column. Set to "rank" because that is what the
 // sheet holds: match 1 has BFA on 1 and iQOO TOTAL GAMING on 10, which are
@@ -537,10 +542,24 @@ function doPost(e) {
   // Written on EVERY call, matched or not -- the one thing that proves
   // the URL is reachable and the script is running at all, independent
   // of whether any team name in this particular payload matched a row.
+  //
+  // Reuses the sheet the push already opened wherever it can.
+  // SpreadsheetApp.openById costs around a second, and opening the LIVE
+  // STATUS file purely to stamp a marker was adding that second to every
+  // RESULTS push -- a third of the total, paid for a debug convenience,
+  // while a caster waited. Measured: 2.9s for a call that writes nothing
+  // else at all.
   try {
-    var debugSheet = tabOf_(openBook_(ALIVE_SPREADSHEET_ID), SHEET_NAME);
+    var debugSheet = sheet;
+    if (!debugSheet || result.kind === "alive") {
+      debugSheet = tabOf_(openBook_(ALIVE_SPREADSHEET_ID), SHEET_NAME);
+    }
     if (debugSheet) {
-      debugSheet.getRange(DEBUG_CELL).setValue(
+      // On the results sheet the alive tab's cell reference is
+      // meaningless, so each has its own.
+      var cell = (debugSheet === sheet && result.kind === "results")
+        ? RESULTS_DEBUG_CELL : DEBUG_CELL;
+      debugSheet.getRange(cell).setValue(
         new Date().toLocaleString() + " -- " + (result.kind || "?") + " " +
         result.matched + "/" + result.total + " matched" +
         (result.error ? " -- " + result.error : "")

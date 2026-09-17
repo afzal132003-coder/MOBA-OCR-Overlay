@@ -8873,12 +8873,25 @@ function ffUpdateResultsPushTarget(){
     ffResultsColumnPair(match) + " on the RESULTS tab." + mismatch;
 }
 
+/* How long the sheet took. Shown on every push, good or bad, because
+   "it was slow" is only actionable once it is a number -- and because a
+   push that suddenly takes three times as long is worth noticing before
+   a caster is waiting on it. */
+function ffPushTiming(msg){
+  if(msg.elapsedMs == null) return "";
+  const s = (msg.elapsedMs / 1000).toFixed(1);
+  const slow = msg.elapsedMs > 8000;
+  return "<div style='margin-top:4px;font-size:11px;color:" +
+    (slow ? "#e8c76a" : "#6b7590") + ";'>Google Sheets took <strong>" + s +
+    "s</strong>" + (slow ? " — slower than usual." : "") + "</div>";
+}
+
 function ffShowResultsPushResult(msg){
   const el = document.getElementById("ff_resultsPushStatus");
   if(!el) return;
   if(!msg.ok){
     el.style.color = "#f5a4a4";
-    el.textContent = "⚠ Failed: " + (msg.error || "unknown error");
+    el.innerHTML = "⚠ Failed: " + ffEscapeHtml(msg.error || "unknown error") + ffPushTiming(msg);
     return;
   }
   /* A push that "worked" while dropping half the teams is the worst
@@ -8925,7 +8938,7 @@ function ffShowResultsPushResult(msg){
     const missedEntirely = ffLastBooyahSent && !msg.booyah;
     el.style.color = missedEntirely ? "#f5a4a4" : (booyahBad ? "#e8c76a" : "#4ade80");
     el.innerHTML = (booyahBad ? "⚠ " : "✓ ") + "Match " + msg.match + " written — all " +
-      msg.matched + " teams matched a row in column C." + booyahNote;
+      msg.matched + " teams matched a row in column C." + booyahNote + ffPushTiming(msg);
     return;
   }
   el.style.color = "#f5a4a4";
@@ -8937,7 +8950,7 @@ function ffShowResultsPushResult(msg){
     "<div style='margin-top:4px;color:#98a3bd;'>Their scores were written nowhere. " +
     "Either that tab is set up for a different set of teams, or these are spelled " +
     "differently there. A team is matched against the sheet's own column C: full name " +
-    "first, then short name, then an alias, then a partial match.</div>" + booyahNote;
+    "first, then short name, then an alias, then a partial match.</div>" + booyahNote + ffPushTiming(msg);
 }
 
 /* ---------- The live lobby: team name + its four players, with UIDs ----
