@@ -612,6 +612,9 @@ def default_state():
             # keeps showing that squad as it last was, so nothing
             # reaches air ahead of the tick.
             "lobbyPlayers": [],
+            # Per-row team-name reads, for the dashboard to show
+            # WHY a row is assigned the way it is.
+            "aliveRowReads": [],
             "pendingEliminations": [],
             "approvedEliminations": [],
             # Operator-set markers on a squad, keyed by UPPERCASED team
@@ -1447,6 +1450,12 @@ def _normalize_polarity(binary_img):
     return cv2.bitwise_not(binary_img) if binary_img.mean() < 127 else binary_img
 
 
+# One line, no dictionary. A team name is a proper noun and often not a
+# word at all ("4ENDS", "S8UL", "QOO OGXTE"), so Tesseract's language
+# model actively hurts here -- left on, it "corrects" S8UL to SUL.
+TESS_CONFIG_TEAM_NAME = "--psm 7 -c load_system_dawg=0 -c load_freq_dawg=0"
+
+
 def ocr_small_number(img_bgr, upscale=4):
     """Reads a small standalone number (an elim count).
 
@@ -1780,6 +1789,10 @@ def build_alive_grid(regions, rows=FREEFIRE_ALIVE_GRID_ROWS,
     r1elim = regions.get("freefire_alive_r1elim")
     if not (r1p1 and r1p2 and rlastp1 and r1elim):
         return None
+    # Optional. Drawn, every row gets a name box and the table can be
+    # read rather than assumed; left undrawn, `team` is None everywhere
+    # and nothing about the existing behaviour changes.
+    r1team = regions.get("freefire_alive_r1team")
 
     bar_gap_x = r1p2["x"] - r1p1["x"]
     row_gap_y = (rlastp1["y"] - r1p1["y"]) / max(1, rows - 1)
@@ -1816,7 +1829,14 @@ def build_alive_grid(regions, rows=FREEFIRE_ALIVE_GRID_ROWS,
         ]
         elim_box = {"x": r1p1["x"] + elim_dx, "y": row_y + elim_dy,
                     "w": r1elim["w"], "h": r1elim["h"]}
-        grid.append({"bars": bars, "elim": elim_box})
+        team_box = None
+        if r1team:
+            # Same vertical pitch as everything else in the row, so the
+            # name travels with the bars it belongs to.
+            team_box = {"x": r1team["x"],
+                        "y": row_y + (r1team["y"] - r1p1["y"]),
+                        "w": r1team["w"], "h": r1team["h"]}
+        grid.append({"bars": bars, "elim": elim_box, "team": team_box})
     return grid
 
 
@@ -1850,6 +1870,8 @@ def capture_alive_grid_crops(sct, grid):
     for row in grid:
         boxes.extend(row["bars"])
         boxes.append(row["elim"])
+        if row.get("team"):
+            boxes.append(row["team"])
     usable = [b for b in boxes if b and b.get("w", 0) > 0 and b.get("h", 0) > 0]
     if not usable:
         return []
@@ -1881,8 +1903,56 @@ def capture_alive_grid_crops(sct, grid):
         # underneath its reader on the next poll.
         return whole[y0:y1, x0:x1].copy()
 
-    return [([slice_box(b) for b in row["bars"]], slice_box(row["elim"]))
+    return [([slice_box(b) for b in row["bars"]], slice_box(row["elim"]),
+             slice_box(row["team"]) if row.get("team") else None)
             for row in grid]
+
+
+def ocr_team_name(img_bgr, upscale=3):
+    """Reads a team name off one row of the client's side table.
+
+    Not ocr_text(): that leaves Tesseract's layout analysis to work out
+    what it is looking at, which is right for a whole feed and wrong for
+    a single short word sitting on a translucent panel over moving
+    scenery. Same shape as ocr_small_number -- a few ways of turning the
+    crop into clean black-on-white, first one that reads something wins
+    -- because the same crop does not threshold the same way twice when
+    the background behind it is a firefight.
+
+    Returns the raw string. It is deliberately NOT matched to a roster
+    team here: what the pixels say and which squad that is are separate
+    questions, and keeping them separate is what lets the dashboard show
+    an operator the text that led to a wrong answer.
+    """
+    if img_bgr is None or getattr(img_bgr, "size", 0) == 0:
+        return ""
+    big = cv2.resize(img_bgr, None, fx=upscale, fy=upscale,
+                     interpolation=cv2.INTER_CUBIC)
+    gray = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
+
+    # The name is white text, same as the elim digits, so the same
+    # all-three-channels-bright test isolates it from an orange bar or a
+    # blue zone glow that is merely bright in one channel.
+    white_mask = cv2.inRange(big, (170, 170, 170), (255, 255, 255))
+    _, otsu = cv2.threshold(cv2.medianBlur(gray, 3), 0, 255,
+                            cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    adaptive = cv2.adaptiveThreshold(
+        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 5)
+
+    for variant in (_normalize_polarity(cv2.bitwise_not(white_mask)),
+                    _normalize_polarity(otsu),
+                    _normalize_polarity(adaptive)):
+        bordered = cv2.copyMakeBorder(variant, 12, 12, 12, 12,
+                                      cv2.BORDER_CONSTANT, value=255)
+        try:
+            text = pytesseract.image_to_string(
+                bordered, config=TESS_CONFIG_TEAM_NAME).strip()
+        except Exception:
+            continue
+        # Punctuation-only reads ("|", "-") are noise off a panel edge.
+        if len(re.sub(r"[^A-Za-z0-9]", "", text)) >= 2:
+            return " ".join(text.split())
+    return ""
 
 
 def classify_alive_grid_crops(crops, palette=None):
@@ -1894,7 +1964,9 @@ def classify_alive_grid_crops(crops, palette=None):
     poll -- with no team identity attached; see
     apply_alive_grid_identities for where that's joined on."""
     rows_out = []
-    for bar_crops, elim_crop in crops:
+    for entry in crops:
+        bar_crops, elim_crop = entry[0], entry[1]
+        team_crop = entry[2] if len(entry) > 2 else None
         bars = [
             # classify_alive_bar, NOT classify_bar: the average-colour
             # version flips a live squad to eliminated under the
@@ -1904,11 +1976,17 @@ def classify_alive_grid_crops(crops, palette=None):
         ]
         elims = (ocr_small_number(elim_crop)
                  if elim_crop is not None and elim_crop.size else None)
-        rows_out.append({
+        row = {
             "bars": bars,
             "aliveCount": sum(1 for b in bars if b == "alive"),
             "elims": elims,
-        })
+        }
+        # Only present when the operator drew the name box. Kept as raw
+        # text here; deciding WHICH team it is belongs with the roster,
+        # not with the pixels.
+        if team_crop is not None and getattr(team_crop, "size", 0):
+            row["teamText"] = ocr_team_name(team_crop)
+        rows_out.append(row)
     return rows_out
 
 
@@ -2404,6 +2482,8 @@ def reset_alive_for_new_match(reason=""):
     _last_alive_by_team.clear()
     _wipe_streak.clear()
     _last_known_kills.clear()
+    _reset_team_reads()
+    del _row_slot_order[:]
     _finish_ranks = {}
     del _elim_card_queue[:]
 
@@ -2896,6 +2976,157 @@ def apply_alive_grid_overrides(grid_rows, overrides):
     return out
 
 
+# How many consecutive polls must agree before a row is said to belong to
+# a different squad than it did. The table reorders for real, so this
+# cannot be so high that a genuine move takes seconds to follow -- but a
+# single bad frame reassigning a row would put the wrong squad's kills on
+# air, which is far worse than being a beat late. Four polls is one
+# second at the default interval.
+# ~2 seconds at the default 0.25s poll. The table reorders for real, so
+# this cannot be so long that a genuine move takes an age to follow -- but
+# a row changing hands on a bad frame would put one squad's kills under
+# another squad's name on air, which is far worse than being a beat late.
+FREEFIRE_TEAM_AGREE_FRAMES = 8
+
+# Below this, a read is treated as unrecognised rather than forced onto
+# the closest roster name. "S8UL" against a lobby with no S8UL should
+# come back as nothing, not as the least-bad guess.
+FREEFIRE_TEAM_READ_MIN_RATIO = 0.62
+
+# A read shorter than this is never allowed to win on containment
+# alone. Tesseract returns two or three stray characters often
+# enough that letting them match by being inside a longer name
+# would reassign rows at random.
+FREEFIRE_TEAM_READ_MIN_CHARS = 4
+
+# row index -> [candidate team, how many polls in a row have said so]
+_team_read_streak = {}
+# row index -> the team the reads have actually settled on
+_team_read_settled = {}
+
+
+def _reset_team_reads():
+    _team_read_streak.clear()
+    _team_read_settled.clear()
+
+
+def read_row_teams(grid_rows, roster_teams, row_teams):
+    """Which squad each row is showing, read off the screen.
+
+    The client reorders its side table as squads rise and fall, so a
+    row -> team assignment made once at the start of a match stops being
+    true the moment anything moves. This reads the name in each row and
+    says who is actually there.
+
+    Three things stop a misread going to air:
+
+      1. The name is matched through match_roster_team -- the same ladder
+         used on result files -- and anything below
+         FREEFIRE_TEAM_READ_MIN_RATIO is dropped rather than forced onto
+         the nearest roster name.
+      2. A row must read the same squad FREEFIRE_TEAM_AGREE_FRAMES polls
+         running before it is allowed to change. One bad frame cannot
+         move a squad's kills onto another row.
+      3. No squad may hold two rows at once. When a read would duplicate
+         one, the row whose streak is longer keeps it and the other is
+         left as it was -- because the usual cause is a half-finished
+         reorder, where the old row still shows the name for a frame.
+
+    Returns (assignments, reads): assignments is a row-indexed list of
+    team names to use, reads is per-row detail for the dashboard so a
+    wrong answer can be looked at rather than guessed at.
+    """
+    assignments = list(row_teams) + [""] * max(0, len(grid_rows) - len(row_teams))
+    reads = []
+
+    # First pass: what does each row say, and how sure are we.
+    proposals = {}
+    for i, row in enumerate(grid_rows):
+        text = (row.get("teamText") or "").strip()
+        detail = {"row": i, "text": text, "team": "", "frames": 0, "why": ""}
+        if not text:
+            detail["why"] = "no name box, or nothing read"
+            _team_read_streak.pop(i, None)
+            reads.append(detail)
+            continue
+        hit = match_roster_team(text, roster_teams,
+                                min_ratio=FREEFIRE_TEAM_READ_MIN_RATIO,
+                                min_containment=FREEFIRE_TEAM_READ_MIN_CHARS)
+        name = (hit or {}).get("name") or ""
+        if not name:
+            detail["why"] = "no roster team close enough to that"
+            _team_read_streak.pop(i, None)
+            reads.append(detail)
+            continue
+
+        prev = _team_read_streak.get(i)
+        streak = (prev[1] + 1) if (prev and prev[0] == name) else 1
+        _team_read_streak[i] = (name, streak)
+        detail["team"] = name
+        detail["frames"] = streak
+        if streak < FREEFIRE_TEAM_AGREE_FRAMES:
+            detail["why"] = f"seen {streak} of {FREEFIRE_TEAM_AGREE_FRAMES} polls"
+        else:
+            proposals[i] = (name, streak)
+        reads.append(detail)
+
+    # Second pass: one squad, one row. Longest streak wins a contest.
+    best = {}
+    for i, (name, streak) in proposals.items():
+        if name not in best or streak > best[name][1]:
+            best[name] = (i, streak)
+    winners = {i: name for name, (i, streak) in best.items()}
+
+    for i, (name, streak) in proposals.items():
+        if winners.get(i) != name:
+            reads[i]["why"] = f"another row reads {name} more consistently"
+            continue
+        # A squad that was on a different row must leave it, or it would
+        # briefly hold two.
+        for j, held in enumerate(assignments):
+            if j != i and held == name:
+                assignments[j] = ""
+        assignments[i] = name
+        _team_read_settled[i] = name
+        reads[i]["why"] = "settled"
+
+    return assignments, reads
+
+
+# The order squads were FIRST seen in this match, by roster key. Rows are
+# published in this order regardless of where the client has since moved
+# them on its own table.
+_row_slot_order = []
+
+
+def stable_row_order(rows):
+    """Keeps a squad in the slot it started the match in.
+
+    Reading the names means the engine now follows the client when it
+    reorders its side table -- which is the whole point, because it is
+    what keeps a squad's kills attached to that squad. It does NOT
+    follow that the GRAPHIC should reorder with it.
+
+    The client's ordering is its own: it moves squads around by rules
+    nobody outside the client knows, and mirroring that on air would have
+    twelve rows rearranging themselves mid-fight for reasons the viewer
+    cannot see. Broadcast order wants to be boring -- you look at the
+    same place to find the same team.
+
+    So identity follows the screen and POSITION does not. A squad joins
+    the list the first time it is seen and stays where it is; anything
+    new goes on the end. Cleared when a match resets.
+    """
+    order = {key: i for i, key in enumerate(_row_slot_order)}
+    for row in rows:
+        key = _ign_key(row.get("teamName"))
+        if key and key not in order:
+            order[key] = len(_row_slot_order)
+            _row_slot_order.append(key)
+    return sorted(rows, key=lambda r: order.get(_ign_key(r.get("teamName")),
+                                                len(order)))
+
+
 def apply_alive_grid_identities(grid_rows, row_teams):
     """Joins the position-only grid rows onto the operator's own row ->
     team assignment (liveOps.aliveRowTeams), producing rows in the same
@@ -2938,7 +3169,8 @@ def build_alive_grid_preview(crops, palette=None):
     capture crops: sending this every poll would be the same payload-bloat
     problem that keeps coming up elsewhere in this project."""
     rows_preview = []
-    for bar_crops, elim_crop in crops:
+    for entry in crops:
+        bar_crops, elim_crop = entry[0], entry[1]
         bars = []
         for c in bar_crops:
             status = classify_alive_bar(c)
@@ -2948,11 +3180,19 @@ def build_alive_grid_preview(crops, palette=None):
             })
         elims = (ocr_small_number(elim_crop)
                  if elim_crop is not None and elim_crop.size else None)
+        # The team-name crop, so the box can be seen to be landing on
+        # the name rather than on the logo beside it. Scale 3 rather than
+        # 4: this crop is much wider than an elim box and the column it
+        # sits in is narrow.
+        team_crop = entry[2] if len(entry) > 2 else None
+        has_team = team_crop is not None and getattr(team_crop, "size", 0)
         rows_preview.append({
             "aliveCount": sum(1 for b in bars if b["status"] == "alive"),
             "elims": elims,
             "bars": bars,
             "elimPreview": crop_to_data_url(elim_crop, scale=4) if elim_crop is not None and elim_crop.size else "",
+            "teamPreview": crop_to_data_url(team_crop, scale=3) if has_team else "",
+            "teamText": ocr_team_name(team_crop) if has_team else "",
         })
     return rows_preview
 
@@ -3380,6 +3620,11 @@ def parse_freefire_match_result(text):
 # ---------------------------------------------------------------------------
 
 TEAM_NAME_MIN_RATIO = 0.6
+# For reads too short for the normal passes. Deliberately strict: "S8"
+# against "S8UL" scores 0.67 and must NOT win, while "CTZ" misread as
+# "CT2" scores 0.67 too -- so the bar sits above both and short reads
+# lean on the exact pass plus the agree-frames instead.
+SHORT_NAME_MIN_RATIO = 0.8
 PLAYER_NAME_MIN_RATIO = 0.6
 
 # How many of a squad's ~4 player UIDs have to land on the SAME roster team
@@ -3414,14 +3659,29 @@ def squad_aliases():
     return ((server_state.get("aliases") or {}).get("squads") or {})
 
 
-def match_roster_team(file_team_name, roster_teams):
+def match_roster_team(file_team_name, roster_teams, min_ratio=None,
+                     min_containment=0):
     """Returns the roster team dict this result-file team name refers to,
     or None if nothing matches confidently enough.
 
     An operator-taught alias is checked first and short-circuits the rest:
     the whole point of teaching one is that the automatic matching got it
     wrong or gave up, so letting the fuzzy pass have another say would
-    defeat it."""
+    defeat it.
+
+    min_ratio raises the fuzzy bar for callers who would rather have no
+    answer than a plausible wrong one.
+
+    min_containment sets the shortest string allowed to win by any means
+    OTHER than an exact match. A result file's names are typed by a human
+    and worth trusting at any length, but a name read off the screen can
+    come back as two stray characters -- and at two characters both the
+    weak passes become nonsense: "AR" sits inside "TEAM ARISE", and
+    SequenceMatcher scores "S8" against "S8UL" at 0.67, comfortably over
+    any sane threshold. An EXACT hit is still honoured at any length,
+    because a short name that matches exactly is real evidence rather
+    than a coincidence. Both default to the existing behaviour."""
+    floor = TEAM_NAME_MIN_RATIO if min_ratio is None else min_ratio
     target = normalize_for_match(file_team_name)
     if not target:
         return None
@@ -3443,16 +3703,38 @@ def match_roster_team(file_team_name, roster_teams):
         if norm == target:
             return team
     # Containment before fuzzy -- see the block comment above for why.
-    for norm, team in candidates:
-        if target in norm or norm in target:
-            return team
+    if len(target) >= min_containment:
+        for norm, team in candidates:
+            if len(norm) < min_containment:
+                continue
+            if target in norm or norm in target:
+                return team
+
+    if len(target) < min_containment:
+        # Short. On the client's own side table the name IS short -- it
+        # shows TG, CTZ, TAG, NBE -- so refusing outright would refuse the
+        # normal case. Instead compare only against SHORT names, and
+        # demand a much higher similarity: at three characters one wrong
+        # letter is a third of the string, and anything loose here starts
+        # swapping squads.
+        best_team, best_ratio = None, 0.0
+        for team in roster_teams:
+            norm = normalize_for_match(team.get("shortName"))
+            if not norm:
+                continue
+            ratio = difflib.SequenceMatcher(None, target, norm).ratio()
+            if ratio > best_ratio:
+                best_team, best_ratio = team, ratio
+        return best_team if best_ratio >= SHORT_NAME_MIN_RATIO else None
 
     best_team, best_ratio = None, 0.0
     for norm, team in candidates:
+        if len(norm) < min_containment:
+            continue
         ratio = difflib.SequenceMatcher(None, target, norm).ratio()
         if ratio > best_ratio:
             best_team, best_ratio = team, ratio
-    return best_team if best_ratio >= TEAM_NAME_MIN_RATIO else None
+    return best_team if best_ratio >= floor else None
 
 
 def match_roster_team_by_uid(players, roster_teams):
@@ -5663,6 +5945,30 @@ async def ocr_loop():
                 grid_rows = apply_alive_grid_overrides(
                     grid_rows, server_state["liveOps"].get("aliveGridOverrides"))
                 row_teams = server_state["liveOps"].get("aliveRowTeams") or []
+
+                # The client reorders its side table as squads rise and
+                # fall, so an assignment made once at the start of a match
+                # stops being true the moment anything moves. When the
+                # name box is calibrated the rows are READ instead, and
+                # the assignment follows the screen.
+                #
+                # Calibrating that box IS the opt-in -- no box, no reads,
+                # nothing changes -- but it can still be switched off
+                # without undrawing it, for the case where it turns out
+                # to be reading badly mid-event.
+                if (any(r.get("teamText") is not None for r in grid_rows)
+                        and server_state.get("settings", {}).get(
+                            "aliveReadTeams", True)):
+                    roster_for_read = (server_state.get("roster") or {}).get("teams", []) or []
+                    row_teams, team_reads = read_row_teams(
+                        grid_rows, roster_for_read, row_teams)
+                    if row_teams != server_state["liveOps"].get("aliveRowTeams"):
+                        server_state["liveOps"]["aliveRowTeams"] = row_teams
+                        changed = True
+                    if team_reads != server_state["liveOps"].get("aliveRowReads"):
+                        server_state["liveOps"]["aliveRowReads"] = team_reads
+                        changed = True
+
                 grid_named_rows = apply_alive_grid_identities(grid_rows, row_teams)
                 if grid_named_rows:
                     _grid_rows_at = time.time()
@@ -5757,6 +6063,7 @@ async def ocr_loop():
                             continue
                         seen.add(key)
                         merged.append(r)
+                    merged = stable_row_order(merged)
                     if merged != server_state["liveOps"].get("sidetableRows"):
                         published = apply_live_points(assign_finish_ranks(apply_team_marks(gate_eliminations(sanitise_published_elims(merged)))))
                         server_state["liveOps"]["sidetableRows"] = published

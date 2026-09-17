@@ -1850,6 +1850,13 @@ Team Charlie
 
     <div class="card">
       <h2>Alive Table Row Assignment</h2>
+      <p class="hint"><strong>If the Row 1 TEAM NAME box is calibrated</strong> (Recalibrate, below) the rows
+        are <em>read</em> rather than assigned: the engine OCRs each row's name every poll and follows the
+        client when it reorders the table mid-match. A row only changes hands after four polls running agree,
+        no squad is ever allowed to hold two rows, and a name that matches nothing is dropped rather than
+        forced onto the nearest team &mdash; so a single bad frame cannot move a squad's kills. The Team
+        column below shows what was read and why. Untick "Read the team names off the screen" to go back to
+        assigning by hand without having to undraw the box.</p>
       <p class="hint">One row per on-screen row of the game's own live side table, top to bottom. Pick which
         roster team sits there — that's what turns the alive grid's colour-read bars and elim number into a named
         row instead of an anonymous position; set it once per match (the client's own side table doesn't reshuffle
@@ -1866,6 +1873,9 @@ Team Charlie
           <input type="checkbox" id="ff_alivePoints"> Show the PTS. column
         </label>
         <span class="hint" id="ff_alivePointsNote" style="align-self:center;"></span>
+        <label class="hint" style="align-self:center;margin-left:8px;">
+          <input type="checkbox" id="ff_aliveReadTeams" checked> Read the team names off the screen
+        </label>
       </div>
       <button class="secondary" id="ff_aliveGridPreviewBtn">Capture Preview</button>
         <label class="hint" style="margin:0 0 0 8px;align-self:center;">
@@ -1880,6 +1890,7 @@ Team Charlie
             <option value="freefire_alive_r1p2">Row 1, player 2 (sets the column spacing)</option>
             <option value="freefire_alive_rlastp1">LAST row, player 1 (sets the row spacing)</option>
             <option value="freefire_alive_r1elim">Row 1 elim number (the KILLS box)</option>
+            <option value="freefire_alive_r1team">Row 1 TEAM NAME (lets rows be read, not assumed)</option>
             <option value="freefire_alive_r1p3">Row 1, player 3 (pin column 3 — optional)</option>
             <option value="freefire_alive_r1p4">Row 1, player 4 (pin column 4 — optional)</option>
           </select>
@@ -6569,6 +6580,10 @@ function ffRenderAliveHereState(ff){
      GC ships both; CLT ships one. */
   const pkg = (ff.event && ff.event.assetFolder) || "CLT";
   const wrap = document.getElementById("ff_alivePointsWrap");
+  const readBox = document.getElementById("ff_aliveReadTeams");
+  if(readBox && readBox !== document.activeElement){
+    readBox.checked = !(ff.settings && ff.settings.aliveReadTeams === false);
+  }
   const box = document.getElementById("ff_alivePoints");
   const note = document.getElementById("ff_alivePointsNote");
   const hasPoints = FF_PACKAGES_WITH_POINTS.includes(pkg.toUpperCase());
@@ -6597,6 +6612,15 @@ const FF_PACKAGES_WITH_POINTS = ["GC"];
 document.getElementById("ff_alivePoints").addEventListener("change", (e) => {
   if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
   ffWs.send(JSON.stringify({ type: "alive_status_points", on: e.target.checked }));
+});
+
+document.getElementById("ff_aliveReadTeams").addEventListener("change", (e) => {
+  if(!ffState) return;
+  const settings = Object.assign({}, ffState.settings || {}, { aliveReadTeams: e.target.checked });
+  ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { settings } } }));
+  document.getElementById("ff_aliveGridStatus").textContent = e.target.checked
+    ? "Rows will follow the team names read off the screen."
+    : "Rows stay where you assign them; the name box is ignored.";
 });
 
 document.getElementById("ff_elimApproval").addEventListener("change", (e) => {
@@ -6654,6 +6678,39 @@ function ffSyncAliveRowMarks(ff){
   });
 }
 
+/* What the name box read for each row, and what became of it.
+
+   Written in place rather than by re-rendering: the operator may be
+   reaching for a dropdown in the same row, and rebuilding it under their
+   cursor loses the click -- the same reason the assignments are applied
+   in place. */
+function ffSyncAliveRowReads(ff){
+  const reads = (ff.liveOps && ff.liveOps.aliveRowReads) || [];
+  const on = !(ff.settings && ff.settings.aliveReadTeams === false);
+  document.querySelectorAll(".ff-alive-read").forEach(el => {
+    const r = reads[Number(el.dataset.row)];
+    if(!on || !r){ el.textContent = ""; return; }
+    if(!r.text){
+      el.style.color = "#6b7590";
+      el.textContent = r.why || "";
+      return;
+    }
+    // The raw text always shows. When the answer is wrong, that string
+    // is the only thing that explains why.
+    const raw = 'read "' + r.text + '"';
+    if(r.why === "settled"){
+      el.style.color = "#4ade80";
+      el.textContent = "✓ " + raw;
+    } else if(r.team){
+      el.style.color = "#e8c76a";
+      el.textContent = raw + " → " + r.team + " (" + r.why + ")";
+    } else {
+      el.style.color = "#fbbf24";
+      el.textContent = raw + " — " + r.why;
+    }
+  });
+}
+
 function ffSyncAliveRowSelects(rowTeams){
   const now = Date.now();
   document.querySelectorAll(".ff-alive-grid-row").forEach(sel => {
@@ -6701,6 +6758,7 @@ function ffRenderAliveGridRows(ff){
   ffLastAliveGridKey = key;
   if(!rebuild){
     ffSyncAliveRowSelects(rowTeams);
+    ffSyncAliveRowReads(ff);
     return;
   }
 
@@ -6776,7 +6834,9 @@ function ffRenderAliveGridRows(ff){
             ${markCell(i, "fire")}
             ${liveCell(i)}
             <td style="padding:4px 8px;border-left:1px solid #2b3348;">
+              <div class="ff-alive-team-auto" data-row="${i}" style="margin-bottom:3px;"></div>
               <select class="ff-alive-grid-row" data-row="${i}" style="min-width:160px;">${options.join("")}</select>
+              <div class="ff-alive-read" data-row="${i}" style="font-size:10px;margin-top:2px;"></div>
             </td>
           </tr>`;
       }).join("")}
@@ -6850,6 +6910,8 @@ function ffRenderAliveGridRows(ff){
   });
 
   ffWireEnterAdvance(container, ".ff-alive-grid-row");
+  ffSyncAliveRowSelects(rowTeams);
+  ffSyncAliveRowReads(ff);
   ffWireEnterAdvance(container, ".ff-alive-elim-override");
 }
 
@@ -7068,6 +7130,22 @@ function ffApplyAliveGridPreview(msg){
       cell.innerHTML = (b.preview ? `<img src="${b.preview}" style="height:28px;border:2px solid ${color};border-radius:3px;display:block;margin:0 auto 3px;">` : "") +
         `<span style="color:${color};font-weight:700;">${ffEscapeHtml(b.status)}</span>${badge}`;
     });
+    /* The team-name crop, shown where the name is chosen -- so a box
+       landing on the squad logo instead of the text is visible here
+       rather than inferred from a row that keeps reading nothing. */
+    const teamCell = document.querySelector(`.ff-alive-team-auto[data-row="${i}"]`);
+    if(teamCell){
+      if(r.teamPreview){
+        teamCell.innerHTML =
+          `<img src="${r.teamPreview}" style="max-width:100%;height:22px;object-fit:contain;` +
+          `border:1px solid #2b3348;border-radius:3px;display:block;background:#0a0d18;">` +
+          `<span style="font-size:10px;color:${r.teamText ? "#98a3bd" : "#fbbf24"};">` +
+          (r.teamText ? "reads “" + ffEscapeHtml(r.teamText) + "”"
+                      : "nothing readable in that box") + `</span>`;
+      } else {
+        teamCell.innerHTML = "";
+      }
+    }
     const elimCell = document.querySelector(`.ff-alive-elim-auto[data-row="${i}"]`);
     if(elimCell){
       // "held" = this frame didn't read, so the last good number is what's
