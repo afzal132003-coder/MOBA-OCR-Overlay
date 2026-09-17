@@ -5520,31 +5520,46 @@ async def ocr_loop():
                         k = _resolved_key(r["teamName"]) or _ign_key(r["teamName"])
                         by_key[k] = r
 
+                    # The grid first, because it is what is on the screen
+                    # right now, then anything previously published that
+                    # the grid has not resolved yet -- and never more rows
+                    # than there are teams in the lobby.
+                    #
+                    # A previously-published row used to be kept whenever
+                    # it still resolved to SOME roster team, whether or
+                    # not the grid had produced it. Change the roster
+                    # between groups and the last group's rows resolve
+                    # against the new one and never leave: eleven rows off
+                    # the grid plus three ghosts, a fourteen-row table for
+                    # a twelve-team lobby, with the graphic silently
+                    # showing the first twelve. Two squads that WERE
+                    # playing simply did not appear, and the ghosts
+                    # brought scores of their own (30, 57) into the points
+                    # column.
                     base = server_state["liveOps"].get("sidetableRows") or []
+                    lobby = _lobby_size(base)
                     merged, seen = [], set()
-                    for r in base:
-                        key = _resolved_key(r.get("teamName"))
-                        if key is None:
-                            # This log row can't be tied to any roster
-                            # team. Previously it was kept under its raw
-                            # name, which is how the same squad ended up
-                            # on air TWICE: once as the grid's row with
-                            # the real count, and once as this one
-                            # carrying the client's cumulative score
-                            # (32, 28, 17...). With the grid supplying
-                            # named rows there is nothing this can add --
-                            # it can't be matched, and its number isn't
-                            # this match's kills -- so it goes.
+
+                    for r in grid_named_rows:
+                        key = _resolved_key(r["teamName"]) or _ign_key(r["teamName"])
+                        if key in seen:
                             continue
-                        if key in by_key:
-                            if key not in seen:
-                                merged.append(by_key[key])
-                                seen.add(key)
-                        else:
-                            merged.append(r)
-                    for key, r in by_key.items():
-                        if key not in seen:
-                            merged.append(r)
+                        seen.add(key)
+                        merged.append(r)
+
+                    for r in base:
+                        if len(merged) >= lobby:
+                            break
+                        key = _resolved_key(r.get("teamName"))
+                        # A row that ties to no roster team at all has
+                        # nothing to add: it cannot be matched, and its
+                        # number is the client's cumulative score rather
+                        # than this match's kills. That is how one squad
+                        # was once on air twice.
+                        if key is None or key in seen:
+                            continue
+                        seen.add(key)
+                        merged.append(r)
                     if merged != server_state["liveOps"].get("sidetableRows"):
                         published = apply_live_points(assign_finish_ranks(apply_team_marks(gate_eliminations(sanitise_published_elims(merged)))))
                         server_state["liveOps"]["sidetableRows"] = published
