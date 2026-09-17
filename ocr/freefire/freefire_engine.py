@@ -3032,11 +3032,23 @@ def read_row_teams(grid_rows, roster_teams, row_teams):
          left as it was -- because the usual cause is a half-finished
          reorder, where the old row still shows the name for a frame.
 
-    Returns (assignments, reads): assignments is a row-indexed list of
-    team names to use, reads is per-row detail for the dashboard so a
-    wrong answer can be looked at rather than guessed at.
+    Returns (assignments, reads).
+
+    assignments is what each row should be treated as FOR THIS POLL. It
+    is deliberately NOT written back over the operator's own row->team
+    list: the client reorders its table continuously, so writing reads
+    into the same field the operator edits means their dropdown changes
+    under them every couple of seconds and any pick they make is erased
+    by the next settled read. The two are now separate -- the dropdown
+    stays theirs and is the fallback, the read decides the data -- which
+    is the only arrangement where both can be right at once.
+
+    reads is per-row detail for the dashboard, so a wrong answer can be
+    looked at rather than guessed at.
     """
-    assignments = list(row_teams) + [""] * max(0, len(grid_rows) - len(row_teams))
+    # Starts EMPTY, not from row_teams: this is what the screen says, and
+    # the caller layers it over the operator's list rather than into it.
+    assignments = [""] * len(grid_rows)
     reads = []
 
     # First pass: what does each row say, and how sure are we.
@@ -3081,8 +3093,7 @@ def read_row_teams(grid_rows, roster_teams, row_teams):
         if winners.get(i) != name:
             reads[i]["why"] = f"another row reads {name} more consistently"
             continue
-        # A squad that was on a different row must leave it, or it would
-        # briefly hold two.
+        # A squad cannot be on two rows in the same reading.
         for j, held in enumerate(assignments):
             if j != i and held == name:
                 assignments[j] = ""
@@ -5960,11 +5971,18 @@ async def ocr_loop():
                         and server_state.get("settings", {}).get(
                             "aliveReadTeams", True)):
                     roster_for_read = (server_state.get("roster") or {}).get("teams", []) or []
-                    row_teams, team_reads = read_row_teams(
+                    read_teams, team_reads = read_row_teams(
                         grid_rows, roster_for_read, row_teams)
-                    if row_teams != server_state["liveOps"].get("aliveRowTeams"):
-                        server_state["liveOps"]["aliveRowTeams"] = row_teams
-                        changed = True
+                    # The read wins where it is confident; the operator's
+                    # own assignment stands everywhere else. aliveRowTeams
+                    # is NEVER written here -- that field belongs to the
+                    # dropdown, and an engine that edits it is an engine
+                    # that erases whatever was just picked.
+                    row_teams = [
+                        (read_teams[i] if i < len(read_teams) and read_teams[i]
+                         else (row_teams[i] if i < len(row_teams) else ""))
+                        for i in range(len(grid_rows))
+                    ]
                     if team_reads != server_state["liveOps"].get("aliveRowReads"):
                         server_state["liveOps"]["aliveRowReads"] = team_reads
                         changed = True
