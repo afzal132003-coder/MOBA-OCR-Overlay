@@ -4074,11 +4074,41 @@ def compute_freefire_standings(matches, roster_teams=None):
     return standings
 
 
+# How long any one client gets to accept a message before the rest stop
+# waiting for it.
+#
+# A send that never completes used to wedge whoever called broadcast. That
+# is survivable in the poll loop -- the next poll tries again -- but
+# handle_client calls it BEFORE its read loop starts, so the engine's own
+# relay connection could sit there, fully connected and being written to,
+# having never once begun listening. State flowed out; nothing came back.
+# Every elimination tick, zone and fire mark sent over the relay was
+# accepted by the relay and delivered to an engine that was not reading.
+#
+# Measured while it was happening: 113ms round trip to the engine on
+# localhost, no reply whatsoever through the relay, with the relay itself
+# forwarding between two other clients in 23ms.
+SEND_TIMEOUT_SECONDS = 5
+
+
+async def _send_guarded(client, data):
+    """One client's problem stays one client's problem."""
+    try:
+        await asyncio.wait_for(client.send(data), SEND_TIMEOUT_SECONDS)
+    except Exception:
+        # Slow, wedged, or gone. Its own handler tidies it up when the
+        # connection actually closes; nothing here should wait for that.
+        pass
+
+
 async def broadcast(message):
     if not connected_clients:
         return
     data = json.dumps(message)
-    await asyncio.gather(*[c.send(data) for c in connected_clients], return_exceptions=True)
+    # A snapshot: a client connecting or disconnecting mid-fanout must not
+    # change the set being iterated.
+    await asyncio.gather(*[_send_guarded(c, data) for c in list(connected_clients)],
+                         return_exceptions=True)
 
 
 async def broadcast_to_page(page, message):
@@ -4283,7 +4313,12 @@ async def handle_client(websocket, path=None):
     # since previews are only sent when the crop changes.
     last_preview_sent.clear()
     await broadcast_presence()
-    await websocket.send(json.dumps({
+    # Guarded for the same reason, and more sharply: everything below this
+    # line is the read loop, so anything that blocks here leaves a client
+    # connected and mute. A first snapshot that cannot be delivered is no
+    # reason to never listen to that client again -- the next state change
+    # sends another one anyway.
+    await _send_guarded(websocket, json.dumps({
         "type": "state_sync", "data": server_state, "locked": list(locked_fields),
     }))
     try:
