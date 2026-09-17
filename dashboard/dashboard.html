@@ -1885,11 +1885,22 @@ Team Charlie
           </select>
         </div>
         <button class="secondary" id="ff_aliveCalibCopy">Copy Command</button>
+        <div class="team-form" style="max-width:200px;margin:0;">
+          <label>Team names shown as</label>
+          <select id="ff_aliveNameStyle">
+            <option value="full">Full team name</option>
+            <option value="short">Short name</option>
+          </select>
+        </div>
       </div>
       <p class="hint" style="margin-top:6px;">Paste into any terminal — cmd or PowerShell — with the match on
         screen. Recalibrating one box only redraws that box; the others keep their current values, so fixing a
         single misaligned crop doesn't mean redoing them all. Restart the engine afterwards to pick it up.</p>
       <p class="hint" id="ff_aliveCalibWhere" style="margin-top:2px;"></p>
+      <p class="hint" style="margin-top:2px;">"Team names shown as" only changes what the Team column reads on
+        this screen -- yours, not your partner's. The assignment itself is always the full roster name, so
+        switching to short names changes nothing about what goes on air, what the sheet push writes, or what is
+        already set. A team with no short name in the roster keeps its full one either way.</p>
       <p class="hint" style="margin-top:2px;">Players 3 and 4 are normally <em>derived</em> from the spacing
         between players 1 and 2, so they have no box of their own and usually need none. Pin one only if that
         column's crop actually sits off-centre while the others look right — once drawn, it's used exactly where
@@ -6217,6 +6228,26 @@ let ffLastLoadoutKey = "";
 const FF_ALIVE_GRID_ROWS = 12;
 let ffLastAliveGridKey = "";
 
+/* Which name the Alive Table Row Assignment's Team column reads.
+   Purely a label: the option's VALUE is always the full roster name,
+   because that is the string the engine stores in aliveRowTeams and
+   everything downstream -- the overlay, the elimination card, the sheet
+   push -- matches on. Showing the short name must not change what is
+   assigned, only what the operator reads while assigning it.
+
+   Kept in this browser rather than in engine state, because it is a
+   preference of the person looking at the screen. Two admins on two
+   machines can each have their own without one changing the other's. */
+let ffAliveNameStyle = "full";
+try { ffAliveNameStyle = localStorage.getItem("moba_alive_name_style") || "full"; } catch(e) {}
+
+function ffAliveTeamLabel(team){
+  if(!team) return "";
+  const full = team.name || "";
+  if(ffAliveNameStyle !== "short") return full;
+  return (team.shortName || "").trim() || full;
+}
+
 // One dropdown per on-screen row of the game's own live side table --
 // picking a team there is what turns the alive grid's colour-read bars
 // into a named row (see apply_alive_grid_identities in the engine). Not
@@ -6630,7 +6661,9 @@ function ffRenderAliveGridRows(ff){
   // update, rebuilt the table from it, and snapped the selection back
   // -- indistinguishable from "it didn't save", even though the engine
   // had saved it correctly. Values are applied in place below instead.
-  const key = JSON.stringify(roster.map(t => t.name));
+  // The style is in the key because it changes the option LABELS, and
+  // labels are only written when the select is rebuilt.
+  const key = JSON.stringify([ffAliveNameStyle, roster.map(t => [t.name, t.shortName || ""])]);
   const rebuild = key !== ffLastAliveGridKey;
   ffLastAliveGridKey = key;
   if(!rebuild){
@@ -6695,8 +6728,12 @@ function ffRenderAliveGridRows(ff){
       <tbody>
       ${Array.from({length: FF_ALIVE_GRID_ROWS}, (_, i) => {
         const current = rowTeams[i] || "";
+        // value = the full roster name, always. Only the text differs.
+        // title carries the full name so a short label that is ambiguous
+        // -- two squads abbreviated the same way -- can still be told
+        // apart on hover.
         const options = ['<option value="">— unassigned —</option>']
-          .concat(roster.map(t => `<option value="${ffEscapeHtml(t.name)}" ${t.name === current ? "selected" : ""}>${ffEscapeHtml(t.name)}</option>`));
+          .concat(roster.map(t => `<option value="${ffEscapeHtml(t.name)}" title="${ffEscapeHtml(t.name)}" ${t.name === current ? "selected" : ""}>${ffEscapeHtml(ffAliveTeamLabel(t))}</option>`));
         return `
           <tr style="border-top:1px solid #2b3348;">
             <td style="padding:4px 8px;color:#6b7590;">${i + 1}</td>
@@ -6724,8 +6761,10 @@ function ffRenderAliveGridRows(ff){
         type: "freefire_set_alive_row_team",
         row: Number(el.dataset.row), team: el.value,
       }));
+      const picked = roster.find(t => t.name === el.value);
       document.getElementById("ff_aliveGridStatus").textContent =
-        el.value ? `Row ${Number(el.dataset.row) + 1} → ${el.value}` : `Row ${Number(el.dataset.row) + 1} cleared`;
+        el.value ? `Row ${Number(el.dataset.row) + 1} → ${ffAliveTeamLabel(picked) || el.value}`
+                 : `Row ${Number(el.dataset.row) + 1} cleared`;
     });
   });
 
@@ -6891,6 +6930,26 @@ function ffRenderAliveCalibCmd(){
 
 document.getElementById("ff_aliveCalibPick").addEventListener("change", ffRenderAliveCalibCmd);
 ffRenderAliveCalibCmd();
+
+(() => {
+  const box = document.getElementById("ff_aliveNameStyle");
+  if(!box) return;
+  box.value = ffAliveNameStyle;
+  box.addEventListener("change", () => {
+    ffAliveNameStyle = box.value === "short" ? "short" : "full";
+    try { localStorage.setItem("moba_alive_name_style", ffAliveNameStyle); } catch(e) {}
+    // Relabel now rather than waiting for the next state_sync -- the
+    // renderer's key has the style in it, so this rebuilds the Team
+    // column and reapplies every current assignment from state.
+    if(ffState) ffRenderAliveGridRows(ffState);
+    const roster = ((ffState && ffState.roster && ffState.roster.teams) || []).filter(t => t.name);
+    const missing = ffAliveNameStyle === "short"
+      ? roster.filter(t => !(t.shortName || "").trim()).length : 0;
+    document.getElementById("ff_aliveGridStatus").textContent = missing
+      ? `Showing short names — ${missing} of ${roster.length} squads have none set, so those still read in full.`
+      : (ffAliveNameStyle === "short" ? "Showing short names." : "Showing full team names.");
+  });
+})();
 
 document.getElementById("ff_aliveCalibCopy").addEventListener("click", async () => {
   const cmd = ffAliveCalibCommand();
