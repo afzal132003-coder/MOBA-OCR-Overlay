@@ -2088,6 +2088,22 @@ def assign_finish_ranks(rows):
     # usually one; there can be several at once when the table first
     # resolves, or when the engine is started into a match already in
     # progress.
+    # Give back the place of anyone who is alive again, BEFORE counting.
+    #
+    # This used to happen at the bottom of the function, after positions
+    # had been handed out -- so a squad that flickered to "eliminated"
+    # for a poll and back took a place with it, and the next real
+    # elimination was counted as though one team had already finished.
+    # CLUTZA went out first of twelve and was given 11th: twelve, minus a
+    # position held by a squad that was alive and well. The stale entry
+    # was then dropped at the bottom, taking the evidence with it.
+    #
+    # A squad that is alive has not finished. Nothing else here is true
+    # until that is.
+    for row, name in named:
+        if name and not row.get("eliminated"):
+            _finish_ranks.pop(name, None)
+
     fresh = [(r, n) for r, n in named if n and r.get("eliminated") and n not in _finish_ranks]
 
     # Positions are handed out from the bottom of what is left, one each.

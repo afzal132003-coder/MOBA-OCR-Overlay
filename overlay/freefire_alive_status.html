@@ -673,6 +673,8 @@ function escapeHtml(s){
 let elimSeq = new Map();     // team key -> when it went out (higher = later)
 let elimCounter = 0;
 
+function forgetHeldStatus(){ lastKnownStatus.clear(); }
+
 function noteElimination(key, row){
   /* Where this squad finished, which is what decides its slot once it is
      out. finishRank is the engine's own answer -- 12 for the first
@@ -824,8 +826,32 @@ function rowKeyOf(row){ return (row.teamName || "").trim().toUpperCase(); }
    entirely rather than showing four grey bars -- claiming a squad is dead
    because nothing has been read for it would be a confident lie about the
    one thing this graphic exists to say. */
+/* The last real reading seen for each squad.
+
+   A row that drops out of one poll -- the grid missing it, two sources
+   disagreeing -- comes back through here as statusUnknown, and the
+   renderer hides the indicators for it. On air that is a squad's alive
+   pips blinking off and on for no reason anyone watching can see.
+
+   Nothing is invented: this is a reading that genuinely went out, held
+   until a newer one replaces it. Cleared when the table does. */
+const lastKnownStatus = new Map();
+
+function rememberStatus(rows){
+  rows.forEach(r => {
+    if(r && !r.statusUnknown && r.aliveCount != null){
+      lastKnownStatus.set(rowKeyOf(r), {
+        bars: (r.bars || []).slice(),
+        aliveCount: r.aliveCount,
+        eliminated: !!r.eliminated,
+      });
+    }
+  });
+}
+
 function fillFromRoster(rows, state){
   const slots = 12;
+  rememberStatus(rows);
 
   /* Counted by DISTINCT squad, not by how long the list is. A row that
      came back with no name at all, and two rows that read as the same
@@ -864,7 +890,14 @@ function fillFromRoster(rows, state){
     const key = name.toUpperCase();
     if(have.has(key)) return;
     have.add(key);
-    filled.push({
+    // Held over from the last time this squad was actually read, rather
+    // than drawn as a blank. A squad we have never seen still shows
+    // nothing -- there is genuinely nothing to show.
+    const held = lastKnownStatus.get(key);
+    filled.push(held ? {
+      teamName: name, eliminated: held.eliminated, aliveCount: held.aliveCount,
+      bars: held.bars.slice(), elims: null, statusHeld: true,
+    } : {
       teamName: name, eliminated: false, aliveCount: null, elims: null,
       statusUnknown: true,
     });
@@ -1235,6 +1268,9 @@ function apply(state){
   if(!nowEliminated.size && elimSeq.size){
     elimSeq = new Map();
     elimCounter = 0;
+    // Last game's readings go with it -- holding one over into a new
+    // match would show a squad as out before a shot was fired.
+    forgetHeldStatus();
   }
 
   // Anything no longer in the table (roster changed, new match) goes.
