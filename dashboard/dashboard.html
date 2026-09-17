@@ -8605,6 +8605,9 @@ let ffLastBooyahUnmatched = [];
    the rest of the event. */
 let ffBooyahIgnOverrides = {};
 
+/* Did the last push carry a Booyah block? See where it is set. */
+let ffLastBooyahSent = false;
+
 /* The Booyah block for a given match -- the ONE place it is built.
 
    The card below and the push both read this, so what is previewed is
@@ -8758,15 +8761,34 @@ function ffShowResultsPushResult(msg){
       "The roster has no player under that team with a matching UID or name, " +
       "so the registered IGN couldn't be substituted.</div>"
     : "";
+  /* The updated Apps Script answers with a `booyah` field on EVERY
+     path -- written, no tab, nobody won, failed. So if we sent a block
+     and the reply says nothing about it, the script that answered does
+     not have the Booyah half in it: almost always a deployment that was
+     re-published without the new code being pasted in first. Saying
+     nothing here is what let that go unnoticed for a whole match. */
   const booyahNote = msg.booyah
     ? "<div style='margin-top:4px;color:#98a3bd;'>Booyah tab: " +
       ffEscapeHtml(String(msg.booyah)) + "</div>" + unplaced
-    : "";
-  const booyahBad = /failed|no tab|nothing written/i.test(String(msg.booyah || ""));
+    : (ffLastBooyahSent
+        ? "<div style='margin-top:4px;color:#f5a4a4;'>⚠ <strong>The Booyah tab was " +
+          "not written.</strong> The squad was sent, but the script that answered said " +
+          "nothing about it — so the deployment behind that URL is still the older " +
+          "code. Open the sheet → Extensions → Apps Script, paste the current " +
+          "freefire_sheet_push.gs over what is there, <strong>save</strong>, then Deploy " +
+          "→ Manage deployments → edit → New version. Re-publishing without " +
+          "pasting first re-publishes the same old code.</div>"
+        : "");
+  // "We sent one and the reply never mentioned it" counts as bad too --
+  // otherwise the headline reads as a clean tick with a red paragraph
+  // underneath it, which is how this went unnoticed for a whole match.
+  const booyahBad = /failed|no tab|nothing written/i.test(String(msg.booyah || "")) ||
+                    (ffLastBooyahSent && !msg.booyah);
 
   const missing = (msg.unmatched || []).length;
   if(!missing){
-    el.style.color = booyahBad ? "#e8c76a" : "#4ade80";
+    const missedEntirely = ffLastBooyahSent && !msg.booyah;
+    el.style.color = missedEntirely ? "#f5a4a4" : (booyahBad ? "#e8c76a" : "#4ade80");
     el.innerHTML = (booyahBad ? "⚠ " : "✓ ") + "Match " + msg.match + " written — all " +
       msg.matched + " teams matched a row in column C." + booyahNote;
     return;
@@ -8963,6 +8985,10 @@ document.getElementById("ff_resultsPush").addEventListener("click", () => {
      RESULTS grid can never end up describing different games. */
   const booyah = ffBooyahBlockFor(source);
   ffLastBooyahUnmatched = ffBooyahUnplaced(booyah).map(p => p.fileIgn || p.ign);
+  // Whether a Booyah block went with this push. The reply is only
+  // meaningful against this: no answer about the Booyah tab is a
+  // PROBLEM if we sent one, and nothing at all if we didn't.
+  ffLastBooyahSent = !!booyah;
 
   ffWs.send(JSON.stringify({ type: "freefire_results_push", match, rows,
     booyah: booyah ? {
