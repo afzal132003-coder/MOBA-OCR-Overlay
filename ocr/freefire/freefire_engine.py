@@ -6226,7 +6226,10 @@ async def broadcast_state_sync():
     # that decides how current the graphic is.
     global _last_relay_sync_at
     now_mono = time.perf_counter()
-    relay_due = now_mono - _last_relay_sync_at >= FREEFIRE_RELAY_SYNC_GAP
+    relay_slim = bool(slim) and relay_websocket in cachers
+    gap = (FREEFIRE_RELAY_SYNC_GAP_SLIM if relay_slim
+           else FREEFIRE_RELAY_SYNC_GAP)
+    relay_due = now_mono - _last_relay_sync_at >= gap
     if relay_due:
         _last_relay_sync_at = now_mono
     sends = []
@@ -7468,7 +7471,21 @@ _poll_times = []
 FREEFIRE_MIN_SYNC_GAP = 0.20
 # And how often the one connection out to the cloud relay is written to.
 # Deliberately slower than the local clients -- see broadcast_state_sync.
+#
+# Two rates, chosen by what is actually about to be sent rather than by
+# what is hoped for. A full state is 269KB and has to go out sparingly; a
+# state with the roster left out is 45KB and can go four times a second
+# and still use a third of the bandwidth the slow rate did at full size.
+#
+# Picking by payload rather than by a flag matters during the changeover.
+# The slim path needs BOTH a relay that puts the roster back and an engine
+# that knows it may leave it out, and those arrive at different moments --
+# the relay redeploys on a push, the engine only when it is restarted.
+# Assuming the fast rate before the slim payload existed would put 269KB
+# four times a second onto the uplink, which is the saturation this whole
+# thing was about. This cannot get that wrong: full payload, slow rate.
 FREEFIRE_RELAY_SYNC_GAP = 0.50
+FREEFIRE_RELAY_SYNC_GAP_SLIM = 0.25
 _last_relay_sync_at = 0.0
 # And the state file is written at most this often.
 FREEFIRE_MIN_SAVE_GAP = 1.0

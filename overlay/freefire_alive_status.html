@@ -892,6 +892,39 @@ function rowKeyOf(row){ return (row.teamName || "").trim().toUpperCase(); }
    until a newer one replaces it. Cleared when the table does. */
 const lastKnownStatus = new Map();
 
+/* The five pip pictures, fetched once and kept.
+
+   The indicator is a CSS background-image swapped between Dead.png and
+   1..4_alive.png as a squad loses players. Swapped without the file being
+   in cache, the browser has to go and get it, and until it arrives the
+   pip draws NOTHING -- so the indicator blinks out and back at the exact
+   moment it changes, which is the only moment anyone is looking at it.
+
+   It is worst where it matters most. A squad going 4-3-2-1-dead touches
+   five different files, each one first used at the instant it is needed,
+   and an overlay served over the relay is fetching them across the
+   internet. Holding an Image object for each keeps them in cache, so
+   every later swap is a repaint rather than a request.
+
+   Keyed by folder because the two layouts keep this art in different
+   places (see pipBase), and re-running for a base already done costs
+   nothing. */
+const pipsPreloaded = new Set();
+const pipImages = [];
+function preloadPips(base){
+  ["", "Live Stats/"].forEach(sub => {
+    const key = base + sub;
+    if(pipsPreloaded.has(key)) return;
+    pipsPreloaded.add(key);
+    ["Dead.png", "1_alive.png", "2_alive.png", "3_alive.png", "4_alive.png"]
+      .forEach(name => {
+        const img = new Image();
+        img.src = key + name;
+        pipImages.push(img);   // held, or the browser may drop it again
+      });
+  });
+}
+
 function rememberStatus(rows){
   rows.forEach(r => {
     if(r && !r.statusUnknown && r.aliveCount != null){
@@ -1232,6 +1265,7 @@ function apply(state){
   const live = state.liveOps || {};
   const source = fillFromRoster((live.sidetableRows || []).slice(0, 12), state);
   const base = assetBase(state);
+  preloadPips(base);
   // ?preview=1 draws regardless of whether the graphic is on air. A
   // preview that only works once something is already live isn't a
   // preview -- it can't be used to check a graphic BEFORE showing it,
