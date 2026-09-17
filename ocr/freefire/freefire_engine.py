@@ -1493,6 +1493,44 @@ _ocr_memo_hits = 0
 _ocr_memo_misses = 0
 
 
+# How long ONE poll may spend actually running tesseract. Anything the
+# memo already knows is free and never counted; this bounds only the
+# genuinely-new reads.
+#
+# A poll that overruns its interval delays every tick, graphic and
+# dashboard click behind it -- and on a machine short of memory a
+# tesseract spawn is wildly variable, measured here between 158ms and
+# several seconds. Left unbounded, one stubborn row takes the whole show
+# with it, which is what a 25-second lag actually was.
+#
+# A row not reached keeps its last good value (hold_last_good_elims) and
+# goes to the FRONT of the queue next poll, so nothing is starved: it is
+# read a fraction of a second later, instead of everything being read
+# seconds late.
+FREEFIRE_OCR_BUDGET_MS = 140
+
+_OCR_SKIPPED = object()      # "not read this poll" -- not "read nothing"
+_ocr_deadline = None
+_ocr_skipped_count = 0
+_ocr_rotation = 0
+
+
+def _ocr_budget_begin(budget_ms=None):
+    # Read at CALL time, not bound as a default at definition time, so
+    # the budget can actually be changed -- by a test, or by an operator
+    # who wants to trade freshness for responsiveness on a slower
+    # machine. A default argument would freeze it at import.
+    global _ocr_deadline
+    if budget_ms is None:
+        budget_ms = FREEFIRE_OCR_BUDGET_MS
+    _ocr_deadline = time.perf_counter() + budget_ms / 1000.0
+
+
+def _ocr_budget_end():
+    global _ocr_deadline
+    _ocr_deadline = None
+
+
 def _ocr_memo_key(kind, variants):
     """Keyed on every variant, because the function's answer depends on
     all of them -- the second is only consulted when the first reads
@@ -1511,6 +1549,12 @@ def _ocr_memoised(kind, variants, read):
     if key in _OCR_MEMO:
         _ocr_memo_hits += 1
         return _OCR_MEMO[key]
+    if _ocr_deadline is not None and time.perf_counter() > _ocr_deadline:
+        # Out of budget. Deliberately NOT stored -- nothing was read, and
+        # remembering "skipped" would stop it ever being read.
+        global _ocr_skipped_count
+        _ocr_skipped_count += 1
+        return _OCR_SKIPPED
     _ocr_memo_misses += 1
     value = read()
     if len(_OCR_MEMO) >= _OCR_MEMO_MAX:
@@ -1532,7 +1576,7 @@ def _ocr_memoised(kind, variants, read):
 def ocr_memo_stats():
     total = _ocr_memo_hits + _ocr_memo_misses
     return {"hits": _ocr_memo_hits, "misses": _ocr_memo_misses,
-            "entries": len(_OCR_MEMO),
+            "entries": len(_OCR_MEMO), "deferred": _ocr_skipped_count,
             "hitRate": round(_ocr_memo_hits / total, 3) if total else 0.0}
 
 
@@ -2131,8 +2175,38 @@ def classify_alive_grid_crops(crops, palette=None):
     Returns rows in ON-SCREEN ORDER -- top to bottom, same order every
     poll -- with no team identity attached; see
     apply_alive_grid_identities for where that's joined on."""
+    # The bars are a colour comparison, not OCR -- 2ms for the whole
+    # table -- so they are never budgeted. Only the reading is.
+    global _ocr_rotation
+    order = list(range(len(crops)))
+    if order:
+        cut = _ocr_rotation % len(order)
+        order = order[cut:] + order[:cut]
+    read_elims, read_teams = {}, {}
+    _ocr_budget_begin()
+    try:
+        # Elim counts first, ALL of them, before any name is read. The
+        # numbers are what change during a fight and what the graphic and
+        # the sheet are waiting on; a team's name changes when the client
+        # reorders its table, which is rare and which the eight-poll
+        # agreement window already smooths over. Interleaving them meant
+        # a name could eat the budget a number needed.
+        for i in order:
+            elim_crop = crops[i][1]
+            if elim_crop is not None and getattr(elim_crop, "size", 0):
+                read_elims[i] = ocr_small_number(elim_crop)
+        for i in order:
+            team_crop = crops[i][2] if len(crops[i]) > 2 else None
+            if team_crop is not None and getattr(team_crop, "size", 0):
+                read_teams[i] = ocr_team_name(team_crop)
+    finally:
+        _ocr_budget_end()
+    deferred = sum(1 for v in list(read_elims.values()) + list(read_teams.values())
+                   if v is _OCR_SKIPPED)
+    _ocr_rotation += max(1, deferred)
+
     rows_out = []
-    for entry in crops:
+    for index, entry in enumerate(crops):
         bar_crops, elim_crop = entry[0], entry[1]
         team_crop = entry[2] if len(entry) > 2 else None
         bars = [
@@ -2142,8 +2216,11 @@ def classify_alive_grid_crops(crops, palette=None):
             classify_alive_bar(c)
             for c in bar_crops
         ]
-        elims = (ocr_small_number(elim_crop)
-                 if elim_crop is not None and elim_crop.size else None)
+        elims = read_elims.get(index)
+        if elims is _OCR_SKIPPED:
+            # None is exactly "no reading this frame", which
+            # hold_last_good_elims already carries forward.
+            elims = None
         row = {
             "bars": bars,
             "aliveCount": sum(1 for b in bars if b == "alive"),
@@ -2153,7 +2230,12 @@ def classify_alive_grid_crops(crops, palette=None):
         # text here; deciding WHICH team it is belongs with the roster,
         # not with the pixels.
         if team_crop is not None and getattr(team_crop, "size", 0):
-            row["teamText"] = ocr_team_name(team_crop)
+            text = read_teams.get(index)
+            # A deferred name leaves teamText ABSENT rather than blank:
+            # blank means "read it, saw nothing", which would reset that
+            # row's agreement streak for no reason.
+            if text is not _OCR_SKIPPED:
+                row["teamText"] = text
         rows_out.append(row)
     return rows_out
 
