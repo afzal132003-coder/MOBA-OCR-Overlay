@@ -229,7 +229,22 @@ async def main():
     # the wire, for no gain. Default stays 0.0.0.0 so a plain local run
     # still works; the deployed unit sets HOST=127.0.0.1.
     host = os.environ.get("HOST", "0.0.0.0")
-    async with websockets.serve(handler, host, PORT, max_size=16 * 1024 * 1024):
+    # Patience with a busy engine.
+    #
+    # The default is a ping every 20s and a 20s grace, and the OCR engine
+    # blows through that: it captures, OCRs and merges twelve rows four
+    # times a second, and when that bunches up it stops answering pings
+    # for long enough to be hung up on. Measured live: nine keepalive
+    # timeouts in ten minutes, the engine off the relay about one minute
+    # in six -- and every elimination tick pressed during those windows
+    # was silently dropped, because there was nothing on the other end.
+    #
+    # A minute's grace still catches a genuinely dead peer (the socket
+    # itself errors long before that when a machine really goes), while
+    # no longer punishing a working engine for being busy.
+    async with websockets.serve(handler, host, PORT,
+                                max_size=16 * 1024 * 1024,
+                                ping_interval=20, ping_timeout=60):
         print(f"Relay listening on {host}:{PORT}")
         await asyncio.Future()  # run forever
 
