@@ -6976,8 +6976,28 @@ function ffApplyAliveGridPreview(msg){
       // "held" = this frame didn't read, so the last good number is what's
       // on air. Worth showing: a number that stays held for a long time is
       // a stuck misread, and clearing the force field below re-reads it.
-      const badge = r.elimOverridden ? ' <span style="color:#a78bfa;">(forced)</span>'
-        : (r.elimsHeld ? ' <span style="color:#9aa4bf;">(held)</span>' : "");
+      /* A count that is arguing for a LOWER number is a misread until it
+         proves otherwise -- within a match these only ever go up, so
+         13 -> 3 is a dropped digit, not ten lost kills. Shown while it
+         argues, and shown again if it eventually wins, because the one
+         thing this cannot tell is a stubborn misread from the truth. */
+      let badge;
+      if(r.elimOverridden){
+        badge = ' <span style="color:#a78bfa;">(forced)</span>';
+      } else if(r.elimsDropped){
+        badge = ` <span style="color:#f5a4a4;font-weight:700;"
+          title="This went DOWN, which should not happen mid-match. Check this row's crop.">`
+          + `(fell ${r.elimsDropped[0]}→${r.elimsDropped[1]} — CHECK)</span>`;
+      } else if(r.elimsSuspect){
+        const [was, saw, seen, need] = r.elimsSuspect;
+        badge = ` <span style="color:#fbbf24;"
+          title="Reading ${saw} but ${was} is on air. Counts do not fall mid-match, so this is being ignored until it repeats.">`
+          + `(reads ${saw}, holding ${was} — ${seen}/${need})</span>`;
+      } else if(r.elimsHeld){
+        badge = ' <span style="color:#9aa4bf;">(held)</span>';
+      } else {
+        badge = "";
+      }
       elimCell.innerHTML = (r.elimPreview ? `<img src="${r.elimPreview}" style="height:28px;border:1px solid #2b3348;border-radius:3px;display:block;margin:0 auto 3px;">` : "") +
         `<span style="color:#ffc400;font-weight:700;">${r.elims == null ? "(unread)" : r.elims}</span>${badge}`;
     }

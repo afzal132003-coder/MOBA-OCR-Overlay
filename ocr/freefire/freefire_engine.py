@@ -2552,6 +2552,24 @@ FREEFIRE_ELIM_SETTLE_FRAMES = 4
 # counting starved a busy row.
 FREEFIRE_ELIM_WINDOW = 5
 
+# A count that goes DOWN is wrong, so it has to work much harder.
+#
+# Within a match a squad's eliminations only ever accumulate. 13 followed
+# by 3 is not a squad losing ten kills; it is a digit dropped off a
+# two-digit number, which is the single most common way this misreads --
+# and under the ordinary rule two agreeing frames were enough to publish
+# it, because garbage repeats often enough at two.
+#
+# So a drop is held to a higher bar: it must keep reading that way across
+# most of the window before it is believed. A real drop can still happen
+# -- a row reassigned to a different squad, a match reset -- and both of
+# those clear the remembered value anyway, so this rule never sees them.
+#
+# What it cannot do is tell a persistent misread from the truth, so a
+# drop that survives the higher bar is published AND flagged, and the
+# dashboard says so rather than quietly changing the number.
+FREEFIRE_ELIM_DROP_AGREE_FRAMES = 4
+
 # row index -> the last few genuine reads, newest last
 _alive_grid_elim_recent = {}
 # row index -> the bar pattern last seen, and polls left before this
@@ -2697,11 +2715,25 @@ def hold_last_good_elims(grid_rows, remember=True):
             recent = (recent + [reading])[-FREEFIRE_ELIM_WINDOW:]
             if remember:
                 _alive_grid_elim_recent[i] = recent
-            if reading != accepted and recent.count(reading) >= FREEFIRE_ELIM_AGREE_FRAMES:
+            # A lower number than what is on air has to clear a higher
+            # bar -- see FREEFIRE_ELIM_DROP_AGREE_FRAMES.
+            dropping = accepted is not None and reading < accepted
+            needed = (FREEFIRE_ELIM_DROP_AGREE_FRAMES if dropping
+                      else FREEFIRE_ELIM_AGREE_FRAMES)
+            if reading != accepted and recent.count(reading) >= needed:
+                if dropping:
+                    print(f"[elims] row {i + 1}: {accepted} -> {reading} "
+                          f"(a DROP, confirmed {recent.count(reading)}x) -- "
+                          f"worth checking that row's crop")
+                    row["elimsDropped"] = [accepted, reading]
                 accepted = reading
                 if remember:
                     _alive_grid_last_elims[i] = reading
                     _alive_grid_elim_recent[i] = [reading]
+            elif dropping:
+                # Still arguing for a lower number. Say so while it does.
+                row["elimsSuspect"] = [accepted, reading,
+                                       recent.count(reading), needed]
 
         row["elims"] = accepted          # None until something is believed
         # True when this frame didn't confirm what's being published --
