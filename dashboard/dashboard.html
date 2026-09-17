@@ -2183,6 +2183,11 @@ Team Charlie
         0), not the raw 1st/2nd/3rd placement number. Copy it and paste straight into your sheet's two columns.
         The row order is saved with the event, so it survives a page reload; each row shows what it currently
         resolves to, so a blank cell in the output below is never a mystery.</p>
+      <div class="row" style="gap:8px;align-items:center;margin-bottom:8px;">
+        <button class="secondary" id="ff_qmeFillFromResult" style="margin-top:0;">
+          Fill rows from the match result</button>
+        <span class="hint" id="ff_qmeFillStatus" style="font-size:11px;flex:1;min-width:0;"></span>
+      </div>
       <div id="ff_qmeSlots"></div>
       <div class="row" style="gap:12px;margin-top:12px;align-items:flex-start;">
         <div class="team-form" style="flex:1;">
@@ -8246,6 +8251,75 @@ function ffQmeSeedFromRoster(ff){
   ffQmeRender();
   if(toppedUp) ffQmeSaveRowOrder();
 }
+
+/* Fills the rows from the match result file itself.
+
+   The rows have to end up in the sheet's order, but WHICH squad belongs
+   in each row is a question the result file already answers -- it lists
+   every team that played. Reading them off it beats retyping twelve
+   dropdowns, and beats guessing from the roster order, which is not the
+   sheet's order.
+
+   Matched the same way everything else here is: exact on the normalised
+   name, then the file's own spelling, then a containment pass with a
+   length floor so "NEBULA ESP" finds "NEBULA ESPORTS" without "TG"
+   matching half the table.
+
+   Anything it cannot place is NAMED rather than dropped. A row left
+   quietly unassigned is a team whose score does not reach the sheet, and
+   the operator can only fix what they can see. */
+const QME_MIN_CONTAINMENT = 4;
+
+function ffQmeRosterMatchFor(fileName, roster){
+  const want = normalize_for_matchJs(fileName);
+  if(!want) return null;
+  let hit = roster.find(t => normalize_for_matchJs(t.name) === want);
+  if(hit) return hit.name;
+  hit = roster.find(t => normalize_for_matchJs(t.shortName) === want);
+  if(hit) return hit.name;
+  if(want.length >= QME_MIN_CONTAINMENT){
+    hit = roster.find(t => {
+      const n = normalize_for_matchJs(t.name);
+      return n.length >= QME_MIN_CONTAINMENT && (n.indexOf(want) >= 0 || want.indexOf(n) >= 0);
+    });
+    if(hit) return hit.name;
+  }
+  return null;
+}
+
+document.getElementById("ff_qmeFillFromResult").addEventListener("click", () => {
+  const el = document.getElementById("ff_qmeFillStatus");
+  const source = ffQmeSourceMatch();
+  if(!source){
+    el.style.color = "#fbbf24";
+    el.textContent = "No match to read from yet — fetch or commit one first.";
+    return;
+  }
+  const roster = ((ffState && ffState.roster && ffState.roster.teams) || []).filter(t => t.name);
+  const placed = [];
+  const unmatched = [];
+  source.teams.forEach(t => {
+    const fileName = t.teamName || t.fileTeamName || "";
+    const rosterName = ffQmeRosterMatchFor(fileName, roster);
+    if(rosterName && !placed.includes(rosterName)) placed.push(rosterName);
+    else if(!rosterName) unmatched.push(fileName);
+  });
+
+  for(let i = 0; i < FF_QME_SLOTS; i++) ffQmeTeams[i] = placed[i] || "";
+  ffQmeRender();
+  ffQmeSaveRowOrder();
+
+  if(!unmatched.length){
+    el.style.color = "#4ade80";
+    el.textContent = `Filled ${placed.length} row(s) from the result file — every team matched a roster squad.`;
+  } else {
+    el.style.color = "#f5a4a4";
+    el.innerHTML = `Filled ${placed.length} row(s). <strong>${unmatched.length} team(s) in the result file `
+      + `have no roster match:</strong> ${unmatched.map(ffEscapeHtml).join(", ")}`
+      + `<div style="color:#98a3bd;margin-top:3px;">Pick those rows from the dropdowns yourself, `
+      + `or add the name to the roster so it matches next time.</div>`;
+  }
+});
 
 document.addEventListener("click", (e) => {
   const up = e.target.closest(".ff-qme-up");
