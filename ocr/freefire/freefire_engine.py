@@ -1828,6 +1828,33 @@ def build_alive_grid(regions, rows=FREEFIRE_ALIVE_GRID_ROWS,
                   + chr(10) + "    the log/OCR path still runs. Fix with:"
                   + chr(10) + "    python ocr\\freefire\\calibrate.py freefire_alive_rlastp1")
         return None
+
+    # Same trap one box along: the elim and team anchors belong on ROW 1,
+    # beside r1p1. Drawn on any other row they carry that row's offset
+    # into every row, so row 1 reads some other row's number and the rest
+    # read off the bottom of the table entirely. Happened live with
+    # r1elim at y=925 against a row 1 at y=311 -- 614px, eleven rows down.
+    for key, box in (("freefire_alive_r1elim", r1elim),
+                     ("freefire_alive_r1team", r1team)):
+        if not box:
+            continue
+        drop = box["y"] - r1p1["y"]
+        if abs(drop) > row_gap_y:
+            rows_off = int(round(drop / row_gap_y)) if row_gap_y else 0
+            if not _grid_geometry_warned:
+                _grid_geometry_warned = True
+                print("[alive grid] IGNORED: " + key + " is at y="
+                      + str(box["y"]) + " but row 1 is at y=" + str(r1p1["y"])
+                      + " -- about " + str(rows_off) + " row(s) away, so it was "
+                      + "drawn on the wrong row. Every row would inherit that "
+                      + "offset." + chr(10) + "    Redraw it on ROW 1, beside the "
+                      + "first row's alive bars:" + chr(10)
+                      + "    python ocr\\freefire\\calibrate.py " + key)
+            return None
+
+    # Everything checks out. Cleared here, not before the checks, so a
+    # geometry that breaks again later is reported again rather than
+    # being swallowed by the earlier warning.
     _grid_geometry_warned = False
     elim_dx = r1elim["x"] - r1p1["x"]
     elim_dy = r1elim["y"] - r1p1["y"]
