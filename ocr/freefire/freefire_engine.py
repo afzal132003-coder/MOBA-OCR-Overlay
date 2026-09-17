@@ -361,7 +361,23 @@ relay_websocket = None
 # crop isn't re-encoded onto the wire every poll. Cleared whenever a client
 # connects, so a dashboard opened onto a still screen still gets one.
 last_preview_sent = {}
-ocr_executor = ThreadPoolExecutor(max_workers=2)
+# Everything the engine must not do on the event loop goes through here:
+# OCR, the alive-grid read, tailing the debugger log, the Google Sheets
+# carry fetch, the sheet push, loadout capture, and encoding crop
+# previews for the dashboard.
+#
+# Two workers could not carry that. The sheet calls alone block for up to
+# 10 and 15 seconds, so one slow response took half the pool and two took
+# all of it -- and every OCR call in the poll loop then queued behind
+# them. Measured live: a loop meant to run four times a second was
+# broadcasting once every 4.2 seconds, and a command sent to the engine
+# came back after 13.5 seconds or not at all. Elimination ticks were
+# landing whenever the pool happened to free up.
+#
+# Six is not about parallelism -- most of these are waiting on a socket
+# or a disk, not on a core. It is about a slow sheet not being able to
+# stop the graphic.
+ocr_executor = ThreadPoolExecutor(max_workers=6)
 
 
 def default_state():
