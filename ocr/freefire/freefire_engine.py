@@ -2325,6 +2325,7 @@ def reset_alive_for_new_match(reason=""):
     _alive_grid_bars_pending.clear()
     _last_alive_by_team.clear()
     _wipe_streak.clear()
+    _last_known_kills.clear()
     _finish_ranks = {}
     del _elim_card_queue[:]
 
@@ -3754,6 +3755,11 @@ _last_sheet_payload = None
 _sheet_push_inflight = False
 
 
+# team (normalised) -> the last kill count actually read for it this
+# match. See _sheet_elim_value.
+_last_known_kills = {}
+
+
 def _sheet_elim_value(row):
     """What the sheet should show as this row's kill count.
 
@@ -3774,15 +3780,34 @@ def _sheet_elim_value(row):
     on its own account, since a row can carry an impossible score without
     ever having been through the flagging path.
     """
+    key = normalize_for_match(row.get("teamName"))
     value = row.get("elims")
     if value is not None:
+        if key:
+            _last_known_kills[key] = value
         return value
     if row.get("elimsImplausible"):
         return None
     score = row.get("score")
     if score is not None and score > FREEFIRE_MAX_TEAM_ELIMS:
         return None
-    return score
+    if score is not None:
+        if key:
+            _last_known_kills[key] = score
+        return score
+
+    # Neither field has a number any more, which happens for the rest of
+    # the match once it ends: elims is withheld on purpose, and the grid
+    # path never fills score, so the fallback above has nothing to fall
+    # back to.
+    #
+    # The graphic remembers -- effectiveKills() in the overlay keeps the
+    # last count it saw, which is why the ELIMS column kept showing 15
+    # while the PTS column beside it counted zero kills and published
+    # placement points alone. Two numbers from one row disagreeing on the
+    # same screen. The engine remembers it too now, so the graphic, the
+    # points and the sheet are all reading the same figure.
+    return _last_known_kills.get(key)
 
 
 async def push_sidetable_to_sheet(rows):
