@@ -2060,6 +2060,11 @@ FREEFIRE_PLACEMENT_POINTS = {
 _grid_rows_at = 0.0
 GRID_AUTHORITY_SECONDS = 15
 
+# A Free Fire lobby. Used wherever the roster cannot say how many
+# squads are in -- which is a real state, not a theoretical one: the
+# roster is empty right up until someone fills it in.
+FREEFIRE_DEFAULT_LOBBY = 12
+
 # team -> the position it finished this match in, filled as squads die.
 _finish_ranks = {}
 
@@ -2082,7 +2087,7 @@ def _lobby_size(rows=None):
         return named
     if rows is None:
         rows = (server_state.get("liveOps") or {}).get("sidetableRows") or []
-    return len(rows) or 12
+    return len(rows) or FREEFIRE_DEFAULT_LOBBY
 
 
 def assign_finish_ranks(rows):
@@ -5537,7 +5542,27 @@ async def ocr_loop():
                     # brought scores of their own (30, 57) into the points
                     # column.
                     base = server_state["liveOps"].get("sidetableRows") or []
-                    lobby = _lobby_size(base)
+
+                    # The cap must NOT be read off the list it is capping.
+                    # _lobby_size() falls back to the row count when the
+                    # roster has no names in it -- and the roster is empty
+                    # more often than you would think -- so once a ghost
+                    # had got in, len(base) grew to fit it and the cap
+                    # agreed with the ghost from then on. Roster first,
+                    # then what the grid can actually see right now, then
+                    # a standard Free Fire lobby.
+                    roster_named = sum(
+                        1 for t in roster_teams if (t.get("name") or "").strip())
+                    if roster_named and roster_named >= len(grid_named_rows):
+                        lobby = roster_named
+                    else:
+                        # No roster, or one still being typed. Someone
+                        # filling it in mid-match must not have two names
+                        # evict ten squads the grid can plainly see, so
+                        # a roster smaller than the grid's reading is
+                        # treated as absent.
+                        lobby = max(len(grid_named_rows),
+                                    FREEFIRE_DEFAULT_LOBBY)
                     merged, seen = [], set()
 
                     for r in grid_named_rows:
