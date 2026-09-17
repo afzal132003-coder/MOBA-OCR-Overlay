@@ -205,7 +205,64 @@ function authorize() {
   look("RESULTS", RESULTS_SPREADSHEET_ID, RESULTS_SHEET_NAME, RESULTS_TEAM_COLUMN,
        RESULTS_START_ROW, RESULTS_END_ROW);
 
+  // The Booyah tab, and -- more usefully -- whether the code running
+  // here even knows about it. A deployment serving an older version
+  // reports BOOYAH as missing from the script itself, which is the
+  // answer to "I pasted it, why is nothing arriving".
+  if (typeof pushBooyah_ !== "function") {
+    lines.push("BOOYAH: this script has NO pushBooyah_ in it -- the editor is " +
+               "running an older copy of the file. Paste the current " +
+               "freefire_sheet_push.gs over it and save.");
+  } else if (!BOOYAH_SHEET_NAME) {
+    lines.push("BOOYAH: switched off (BOOYAH_SHEET_NAME is blank).");
+  } else {
+    try {
+      var bBook = openBook_(RESULTS_SPREADSHEET_ID);
+      var bTab = tabOf_(bBook, BOOYAH_SHEET_NAME);
+      lines.push(bTab
+        ? 'BOOYAH: "' + bBook.getName() + '" -> tab "' + bTab.getName() +
+          '" found. Team goes in ' + BOOYAH_TEAM_CELL + ', IGNs in ' +
+          BOOYAH_IGN_COLUMN + BOOYAH_PLAYER_START_ROW + ':' + BOOYAH_IGN_COLUMN +
+          (BOOYAH_PLAYER_START_ROW + BOOYAH_PLAYER_ROWS - 1) + ', kills in ' +
+          BOOYAH_KILLS_COLUMN + BOOYAH_PLAYER_START_ROW + ':' + BOOYAH_KILLS_COLUMN +
+          (BOOYAH_PLAYER_START_ROW + BOOYAH_PLAYER_ROWS - 1) + '.'
+        : 'BOOYAH: opened "' + bBook.getName() + '" but it has NO tab named "' +
+          BOOYAH_SHEET_NAME + '". Tabs in it: ' +
+          bBook.getSheets().map(function (t) { return t.getName(); }).join(", "));
+    } catch (err) {
+      lines.push("BOOYAH: FAILED -- " + err);
+    }
+  }
+
   var report = lines.join("\n");
+  Logger.log(report);
+  return report;
+}
+
+
+/* Run this from the editor to prove the Booyah half works, without
+   touching the RESULTS grid.
+
+   Writes one obviously-fake squad into the Booyah tab. If the tab fills
+   in, the code in THIS editor is fine and anything still missing after a
+   real push is the DEPLOYMENT serving an older version -- saving the
+   editor does not update a live /exec URL, only Deploy -> Manage
+   deployments -> edit -> New version does.
+
+   Read the Execution log underneath, then clear the tab or just push a
+   real match over it. */
+function testBooyah() {
+  var result = {};
+  pushBooyah_(openBook_(RESULTS_SPREADSHEET_ID), {
+    team: "TEST -- delete me",
+    players: [
+      { ign: "TEST.PLAYER.1", kills: 9 },
+      { ign: "TEST.PLAYER.2", kills: 4 },
+      { ign: "TEST.PLAYER.3", kills: 2 },
+      { ign: "TEST.PLAYER.4", kills: 0 }
+    ]
+  }, result);
+  var report = "testBooyah: " + (result.booyah || "(nothing reported)");
   Logger.log(report);
   return report;
 }
