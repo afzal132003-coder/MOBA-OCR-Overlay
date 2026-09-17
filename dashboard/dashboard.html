@@ -1699,6 +1699,7 @@
     Connects separately from the MOBA connection above, to <code>freefire_engine.py</code> (a different process
     from <code>ocr_engine.py</code>) — start that instead of the MOBA engine on a Free Fire day.
     Status: <span id="ffStatus" class="disconnected" style="font-weight:800;">DISCONNECTED</span>
+    <span id="ffConnMode" class="hint" style="margin-left:8px;font-size:11px;"></span>
   </div>
 
   <div class="ff-tabbar" style="display:flex;gap:8px;">
@@ -5272,8 +5273,62 @@ function ffSendManualUpdate(freefireData){
   }
 }
 
+/* Where the Free Fire engine actually is, decided rather than assumed.
+
+   The engine runs on one PC. A dashboard on THAT PC can talk to it
+   directly; one anywhere else has to go through the relay. Until now the
+   page only knew about the relay, so the operator sitting beside the
+   engine was sending every tick out to a VM and hoping it came back --
+   and when the engine's relay connection was not listening, the tick
+   vanished with nothing to show for it. The checkbox then reverted on
+   the next state update, which looks exactly like it unticking itself.
+
+   So: try the engine on this machine first, briefly. If it answers, use
+   it -- there is nothing the relay can add for a page sitting next to
+   the engine, and plenty it can take away. If nothing answers within a
+   moment, this is not the engine's PC and the relay is the only way,
+   which is the normal case for a second operator.
+
+   An explicit ?relay= still wins: someone who asked for the relay by
+   name gets the relay. */
+const FF_LOCAL_URL = "ws://localhost:8765?page=freefire_dashboard";
+const FF_LOCAL_PROBE_MS = 1500;
+let ffUsingLocal = false;
+
+function ffShowConnectionMode(){
+  const note = document.getElementById("ffConnMode");
+  if(!note) return;
+  note.textContent = ffUsingLocal ? "direct to the engine on this PC" : "via the relay";
+  note.style.color = ffUsingLocal ? "#4ade80" : "#98a3bd";
+}
+
+function ffProbeLocalThen(done){
+  if(_params.get("relay")){ done(FF_WS_URL, false); return; }
+  let settled = false, probe;
+  const finish = (url, local) => {
+    if(settled) return;
+    settled = true;
+    try { if(probe) probe.close(); } catch(e) {}
+    done(url, local);
+  };
+  try { probe = new WebSocket(FF_LOCAL_URL); }
+  catch(e){ finish(FF_WS_URL, false); return; }
+  probe.onopen  = () => finish(FF_LOCAL_URL, true);
+  probe.onerror = () => finish(FF_WS_URL, false);
+  probe.onclose = () => finish(FF_WS_URL, false);
+  setTimeout(() => finish(FF_WS_URL, false), FF_LOCAL_PROBE_MS);
+}
+
 function ffConnect(){
-  ffWs = new WebSocket(FF_WS_URL);
+  ffProbeLocalThen((url, local) => {
+    ffUsingLocal = local;
+    ffShowConnectionMode();
+    ffOpen(url);
+  });
+}
+
+function ffOpen(url){
+  ffWs = new WebSocket(url);
   ffWs.onopen = () => {
     document.getElementById("ffStatus").textContent = "CONNECTED";
     document.getElementById("ffStatus").className = "connected";
