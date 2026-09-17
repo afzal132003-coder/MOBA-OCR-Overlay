@@ -5964,6 +5964,11 @@ async def handle_live_signals(signals, gs_names):
     return changed
 
 
+# Rolling poll times, and how often to say something about them.
+_poll_times = []
+_POLL_REPORT_EVERY = 120        # ~30s at the default 0.25s interval
+
+
 async def ocr_loop():
     """Only captures the two Free Fire live-ops regions -- there's no
     numeric HUD pipeline here at all, unlike ocr_engine.py's REGION_ORDER
@@ -5985,6 +5990,7 @@ async def ocr_loop():
     with mss_grabber() as sct:
         frame_counter = 0
         while True:
+            poll_started = time.perf_counter()
             regions = config.get("regions", {})
 
             killfeed_region = regions.get(FREEFIRE_KILLFEED_REGION_KEY)
@@ -6386,8 +6392,28 @@ async def ocr_loop():
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
 
+            # A poll that overruns its own interval is the single thing
+            # that makes everything downstream feel broken -- ticks land
+            # late, the dashboard lags, the graphic trails the game -- and
+            # from the outside it is indistinguishable from a network
+            # problem. It was 6.3 SECONDS against a 250ms budget and
+            # nothing said so. Now it does, once every thirty seconds, and
+            # loudly when it is genuinely over budget.
+            poll_ms = (time.perf_counter() - poll_started) * 1000
+            _poll_times.append(poll_ms)
+            if len(_poll_times) > 120:
+                del _poll_times[:-120]
             frame_counter += 1
-            await asyncio.sleep(interval)
+            if frame_counter % _POLL_REPORT_EVERY == 0 and _poll_times:
+                ordered = sorted(_poll_times)
+                median = ordered[len(ordered) // 2]
+                memo = ocr_memo_stats()
+                state = "OK" if median <= interval * 1000 else "OVER BUDGET"
+                print(f"[alive] poll {median:.0f}ms median, {ordered[-1]:.0f}ms worst "
+                      f"(budget {interval * 1000:.0f}ms) -- {state}; "
+                      f"OCR memo {memo['hitRate'] * 100:.0f}% hits, "
+                      f"{memo['entries']} cached")
+            await asyncio.sleep(max(0.0, interval - poll_ms / 1000))
 
 
 async def relay_client_loop():
