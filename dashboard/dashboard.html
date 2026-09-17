@@ -8810,13 +8810,29 @@ function ffBooyahUnplaced(block){
 let ffMatchFiles = [];
 let ffAskedForMatchFiles = false;
 
+let ffMatchFilesTimer = null;
+
 function ffRequestMatchFiles(){
   if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return false;
   ffWs.send(JSON.stringify({ type: "freefire_list_match_files" }));
+  /* An engine that predates this message simply ignores it, and the
+     dashboard sat on "Reading the game folder..." for ever -- which
+     looks identical to a slow folder and tells the operator nothing.
+     Six files parse in well under a second, so silence past this is the
+     engine, not the disk. */
+  clearTimeout(ffMatchFilesTimer);
+  ffMatchFilesTimer = setTimeout(() => {
+    const el = document.getElementById("ff_resultsPushTarget");
+    if(!el || ffMatchFiles.length) return;
+    el.style.color = "#fbbf24";
+    el.innerHTML = "⚠ The engine didn't answer. This needs the engine " +
+      "restarted — it's running a build from before this existed.";
+  }, 6000);
   return true;
 }
 
 function ffShowMatchFiles(msg){
+  clearTimeout(ffMatchFilesTimer);
   ffMatchFiles = (msg.files || []).filter(f => f.teams && f.teams.length);
   const el = document.getElementById("ff_resultsPushTarget");
   if(msg.error && el){
