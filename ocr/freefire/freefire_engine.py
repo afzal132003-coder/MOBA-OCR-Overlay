@@ -1812,17 +1812,68 @@ def build_alive_grid(regions, rows=FREEFIRE_ALIVE_GRID_ROWS,
 
 
 def capture_alive_grid_crops(sct, grid):
-    """The sync half: crop every box. Cheap (a memory copy per box, same
-    as the killfeed/sidetable crops elsewhere in the polling loop), so
-    this runs directly on the main loop's own mss instance -- mss isn't
-    meant to be shared across threads, so grabbing has to happen here,
-    not in the executor."""
-    crops = []
+    """ONE screen grab of the whole grid, then slice the boxes out of it.
+
+    This used to call crop_to_bgr() per box, and crop_to_bgr() calls
+    sct.grab() -- a real screen capture, not a memory copy. Twelve rows
+    of four bars plus an elim box is SIXTY captures a poll, four polls a
+    second, synchronous on the asyncio event loop.
+
+    Measured against the live calibration (9x27 bars, 41x47 elim boxes):
+    7.2ms per grab, 367ms median for one grid, 657ms at worst. At four
+    polls a second that is 147% of every second -- the loop could not
+    finish a poll before the next was due, so it ran permanently behind.
+
+    That is the tick taking one to two seconds to reach air. A tick
+    arriving from the relay cannot be read off the socket while the loop
+    is inside this function, and with polls already overrunning their own
+    0.25s interval the wait compounded rather than averaging out. It is
+    also why a card occasionally never appeared: the card is raised on
+    the TRANSITION from alive to wiped, and with readings that far apart
+    a squad could cross it entirely between two polls, leaving nothing to
+    notice.
+
+    One grab of the enclosing box costs 8.5ms and yields the same pixels
+    -- the boxes are all within a few hundred pixels of each other, being
+    the game's own side table. Slicing is then free.
+    """
+    boxes = []
     for row in grid:
-        bar_crops = [crop_to_bgr(sct, box) for box in row["bars"]]
-        elim_crop = crop_to_bgr(sct, row["elim"])
-        crops.append((bar_crops, elim_crop))
-    return crops
+        boxes.extend(row["bars"])
+        boxes.append(row["elim"])
+    usable = [b for b in boxes if b and b.get("w", 0) > 0 and b.get("h", 0) > 0]
+    if not usable:
+        return []
+
+    left = min(b["x"] for b in usable)
+    top = min(b["y"] for b in usable)
+    right = max(b["x"] + b["w"] for b in usable)
+    bottom = max(b["y"] + b["h"] for b in usable)
+
+    shot = sct.grab({"left": left, "top": top,
+                     "width": right - left, "height": bottom - top})
+    whole = cv2.cvtColor(np.array(shot), cv2.COLOR_BGRA2BGR)
+    height, width = whole.shape[:2]
+
+    def slice_box(box):
+        if not box or box.get("w", 0) <= 0 or box.get("h", 0) <= 0:
+            return crop_to_bgr(sct, box) if box else None
+        x0, y0 = box["x"] - left, box["y"] - top
+        x1, y1 = x0 + box["w"], y0 + box["h"]
+        if x0 < 0 or y0 < 0 or x1 > width or y1 > height:
+            # Can't happen for a grid built by build_alive_grid, whose
+            # boxes define this very bounding box. Falls back to the old
+            # per-box grab rather than returning something short, so a
+            # caller passing a hand-made grid is never worse off.
+            return crop_to_bgr(sct, box)
+        # A copy, not a view. These outlive the frame -- they go to the
+        # executor for classification and to the dashboard preview -- and
+        # a view would both pin the whole frame in memory and change
+        # underneath its reader on the next poll.
+        return whole[y0:y1, x0:x1].copy()
+
+    return [([slice_box(b) for b in row["bars"]], slice_box(row["elim"]))
+            for row in grid]
 
 
 def classify_alive_grid_crops(crops, palette=None):
