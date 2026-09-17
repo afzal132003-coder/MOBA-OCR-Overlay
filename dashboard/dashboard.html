@@ -430,8 +430,17 @@
 <details class="card" id="overlayLinksCard" style="margin-bottom:20px;">
   <summary style="cursor:pointer;font-weight:800;color:#7d6bff;font-size:14px;">Overlay Browser Source Links (all games)</summary>
   <p class="hint">Paste one of these straight into an OBS Browser Source's URL field — works from any PC, not just
-    the one running the OCR engine, same as this dashboard's own hosted link. Includes the relay/token this
-    dashboard itself connected with, so it'll show DISCONNECTED if you opened this page without those in the URL.</p>
+    the one running the OCR engine, same as this dashboard's own hosted link.</p>
+  <div class="row" style="gap:8px;align-items:center;margin:8px 0;">
+    <label class="hint" style="margin:0;">Viewer token</label>
+    <input type="password" id="overlayViewerToken" placeholder="paste the VIEWER token"
+      style="flex:1;min-width:220px;font-family:monospace;font-size:11px;">
+    <button class="secondary" id="overlayViewerTokenSave" style="margin-top:0;">Save</button>
+  </div>
+  <p class="hint" id="overlayViewerTokenNote" style="font-size:10px;margin-top:0;"></p>
+  <p class="hint" style="font-size:10px;">These links are read-only on purpose. They used to carry whatever token
+    THIS dashboard connected with — the admin one, which can change everything on air — and that then lived in an
+    OBS config on every production PC and in whatever chat it was sent through. The viewer token can only watch.</p>
   <div id="overlayLinksTable" style="overflow-x:auto;"></div>
 </details>
 
@@ -10942,6 +10951,29 @@ const OVERLAY_LINKS = [
   {game:"Valorant", name:"Player Stats (Live)", file:"overlay/valorant_playerstats.html"},
 ];
 
+/* The viewer token, remembered in this browser only. Deliberately not
+   derived from the dashboard's own token: they are different
+   credentials with different powers, and conflating them is what put an
+   admin key in these links in the first place. */
+function overlayViewerToken(){
+  try { return localStorage.getItem("moba_viewer_token") || ""; }
+  catch(e) { return ""; }
+}
+
+function renderOverlayViewerTokenNote(){
+  const note = document.getElementById("overlayViewerTokenNote");
+  if(!note) return;
+  const vt = overlayViewerToken();
+  if(vt){
+    note.textContent = `Saved (${vt.length} characters). Links below carry it.`;
+    note.style.color = "#4ade80";
+  } else {
+    note.textContent = "Not set — the links below have no token, so they will show DISCONNECTED until you add one. "
+      + "Paste the VIEWER token (not the admin one).";
+    note.style.color = "#fbbf24";
+  }
+}
+
 function buildOverlayLinksTable(){
   const container = document.getElementById("overlayLinksTable");
   const table = document.createElement("table");
@@ -10959,7 +10991,13 @@ function buildOverlayLinksTable(){
   OVERLAY_LINKS.forEach(item => {
     let link = `${OVERLAY_BASE_URL}/${item.file}`;
     if(_relay){
-      link += `?relay=${encodeURIComponent(_relay)}&token=${encodeURIComponent(_token)}`;
+      link += `?relay=${encodeURIComponent(_relay)}`;
+      // The VIEWER token, never this dashboard's own. An overlay only
+      // ever reads; handing it a credential that can write puts an
+      // admin key into an OBS config on every production PC, and into
+      // whatever chat the link gets pasted into on the way there.
+      const vt = overlayViewerToken();
+      if(vt) link += `&token=${encodeURIComponent(vt)}`;
     }
     const tr = document.createElement("tr");
     tr.style.borderTop = "1px solid #2b3348";
@@ -10983,6 +11021,16 @@ function buildOverlayLinksTable(){
     });
   });
 }
+
+document.getElementById("overlayViewerTokenSave").addEventListener("click", () => {
+  const box = document.getElementById("overlayViewerToken");
+  try { localStorage.setItem("moba_viewer_token", (box.value || "").trim()); } catch(e) {}
+  box.value = "";
+  renderOverlayViewerTokenNote();
+  buildOverlayLinksTable();
+});
+
+renderOverlayViewerTokenNote();
 buildOverlayLinksTable();
 
 /* ---------- Dota 2 (its own WebSocket -- see DOTA2_WS_URL above -- own
