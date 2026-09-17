@@ -782,11 +782,51 @@ function orderRows(rows, byPoints){
   }).map(x => x.r);
 }
 
+/* The roster team a row belongs to.
+
+   Was an exact, case-folded name comparison, which is one character away
+   from failing at any moment -- and did: the roster said DESI GAMERS and
+   the client's own table says DESI GAMER, so that row got no logo and
+   fell back to printing its full name where every other row showed a
+   short one. One letter.
+
+   Now the same ladder the engine uses on every other name in this
+   project (match_roster_team in freefire_engine.py): exact on the full
+   name, then exact on the short one, then containment either way, then
+   closest match -- with a floor, so a miss stays a miss rather than
+   being handed the least-bad team. */
+function normaliseTeamKey(value){
+  return (value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 function logoFor(teamName, roster){
-  const want = (teamName || "").trim().toUpperCase();
-  const team = ((roster && roster.teams) || []).find(
-    t => (t.name || "").trim().toUpperCase() === want);
-  return team || null;
+  const want = normaliseTeamKey(teamName);
+  if(!want) return null;
+  const teams = ((roster && roster.teams) || []).filter(t => t && t.name);
+
+  for(const t of teams) if(normaliseTeamKey(t.name) === want) return t;
+  for(const t of teams) if(normaliseTeamKey(t.shortName) === want) return t;
+
+  // Containment, but only where both sides are long enough to mean
+  // something -- "AE" inside "TEAM APEX" is not evidence.
+  for(const t of teams){
+    const full = normaliseTeamKey(t.name);
+    if(full.length < 4 || want.length < 4) continue;
+    if(full.indexOf(want) >= 0 || want.indexOf(full) >= 0) return t;
+  }
+
+  // Closest by shared prefix/suffix length, which is all a plural or a
+  // dropped word costs. Deliberately strict.
+  let best = null, bestScore = 0;
+  for(const t of teams){
+    const full = normaliseTeamKey(t.name);
+    if(!full) continue;
+    let i = 0;
+    while(i < full.length && i < want.length && full[i] === want[i]) i++;
+    const score = (2 * i) / (full.length + want.length);
+    if(score > bestScore){ best = t; bestScore = score; }
+  }
+  return bestScore >= 0.8 ? best : null;
 }
 
 /* ---- persistent rows -------------------------------------------------
