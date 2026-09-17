@@ -67,6 +67,35 @@ connected_pages = {}
 # of sitting blank until something changes.
 last_state_sync = None
 
+# The last roster seen on a state_sync, kept so the engine does not have
+# to send it again every time the table moves.
+#
+# The engine holds ONE connection here and it is the only link in the
+# chain that crosses the sender's own internet upload. The state it
+# pushes is ~269KB, of which ~224KB is the roster: twelve teams each
+# carrying a base64 logo of around 9KB, unchanged from the first poll of
+# a match to the last. The rows that actually changed are ~4.5KB. Several
+# times a second that is over 1MB/s of upload, which an ordinary
+# connection at a venue cannot carry -- and what it looks like from the
+# desk is the graphic trailing the game by seconds while a dashboard on
+# the same LAN is instant, and a browser source taking an age to come
+# back after a refresh because its opening snapshot is queued behind a
+# backlog that never clears.
+#
+# So the engine may leave the roster out, and this puts it back before
+# anything else here sees the message. That keeps the saving on the link
+# that is actually short of room, while everything downstream -- the
+# fan-out, and the cached snapshot a late joiner is served -- still gets
+# a complete state. No page has to know anything about it.
+#
+# Re-injecting HERE rather than teaching the pages to cache it is
+# deliberate. The note further down about only caching full snapshots is
+# the same lesson from the Valorant side: a trimmed payload that reaches
+# the cache is served to the next page that reconnects, and a page
+# rendering a state with no roster shows blank logos and full team names
+# where short ones belong. That reached air once already.
+last_roster = None
+
 
 def role_for_token(token):
     return TOKEN_ROLES.get(token)
@@ -118,7 +147,7 @@ async def broadcast_presence():
 
 
 async def handler(websocket):
-    global last_state_sync
+    global last_state_sync, last_roster
 
     query = parse_qs(urlparse(websocket.request.path).query)
     token = (query.get("token") or [""])[0]
@@ -163,6 +192,20 @@ async def handler(websocket):
             # original/default behavior) unless the sender explicitly
             # narrowed it.
             target_pages = msg.get("_target_pages")
+
+            # Put the roster back before this message is cached or sent
+            # on. See last_roster above for why the engine is allowed to
+            # leave it out in the first place.
+            if msg.get("type") == "state_sync":
+                data = msg.get("data")
+                if isinstance(data, dict):
+                    if data.get("roster") is not None:
+                        last_roster = data["roster"]
+                    elif last_roster is not None:
+                        data["roster"] = last_roster
+                        # Re-serialised, because `raw` is what actually
+                        # gets cached and forwarded below.
+                        raw = json.dumps(msg)
 
             if msg.get("type") == "state_sync" and target_pages is None:
                 # Only cache FULL, untargeted state_sync messages as "the

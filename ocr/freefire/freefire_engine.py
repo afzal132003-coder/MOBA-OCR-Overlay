@@ -8001,7 +8001,13 @@ async def relay_client_loop():
         print("Relay is enabled in freefire_config.json but 'url'/'token' aren't both set -- skipping relay connection.")
         return
     separator = "&" if "?" in url else "?"
-    connect_url = f"{url}{separator}token={token}"
+    # rostercache=1: this link may be sent a state with the roster left
+    # out when it has not changed. Safe because the relay keeps the last
+    # one and puts it back before it caches or forwards anything -- see
+    # last_roster in ocr/relay/server.py. It is the only link here that
+    # crosses an ordinary internet upload, and the roster is 83% of what
+    # was being pushed across it several times a second.
+    connect_url = f"{url}{separator}token={token}&rostercache=1"
     global relay_websocket
     while True:
         try:
