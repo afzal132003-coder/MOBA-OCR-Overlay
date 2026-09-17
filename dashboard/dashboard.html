@@ -8216,10 +8216,62 @@ let ffQmeTeams = Array.from({length: FF_QME_SLOTS}, () => "");
 // slots as new teams get named -- see ffQmeSeedFromRoster.
 let ffQmeLoadedFromServer = false;
 
+/* Rows the operator has bound to a result team by hand.
+
+   Keyed by the ROSTER team's normalised name, not by row index, so the
+   binding follows the squad when the arrows move rows around. Value is
+   the name the RESULT FILE used.
+
+   Persisted, because a team's name in the client is usually the same
+   every game -- so a binding made once tends to keep working -- but
+   re-checked against the current result on every render, so one made for
+   game 2 simply does not apply in game 3 if that name is not in game 3's
+   file. A row resolved this way is always LABELLED as hand-bound; a
+   silent binding that quietly went stale would be worse than no binding
+   at all. */
+let ffQmeResultPicks = {};
+
 function ffQmeSaveRowOrder(){
   if(!ffState) return;
   ffState.qmeRowOrder = ffQmeTeams.slice();
+  ffState.qmeResultPicks = Object.assign({}, ffQmeResultPicks);
   ffSendManualUpdate(ffState);
+}
+
+/* A row's result, and how it was found.
+
+   Automatic first -- the row's roster name against the names the result
+   file used. Only when that finds nothing does a hand binding apply, so
+   a stale pick can never beat a real match. */
+function ffQmeResolveRow(name, byName){
+  const key = normalize_for_matchJs(name);
+  if(!key) return { team: null, picked: "" };
+  if(byName[key]) return { team: byName[key], picked: "" };
+  const pick = ffQmeResultPicks[key] || "";
+  const pickKey = normalize_for_matchJs(pick);
+  if(pickKey && byName[pickKey]) return { team: byName[pickKey], picked: pick };
+  return { team: null, picked: "" };
+}
+
+/* Result-file teams no OTHER row has taken.
+
+   Offering an already-used team would let two rows export the same
+   score, which is worse than the blank row it would be replacing. */
+function ffQmeUnclaimedResultTeams(source, byName, exceptKey){
+  const claimed = new Set();
+  ffQmeTeams.forEach(n => {
+    if(normalize_for_matchJs(n) === exceptKey) return;
+    const r = ffQmeResolveRow(n, byName);
+    if(r.team) claimed.add(r.team);
+  });
+  return (source ? source.teams : []).filter(t => !claimed.has(t));
+}
+
+function ffQmeResultLabel(t){
+  const name = t.teamName || t.fileTeamName || "(unnamed)";
+  return "#" + (t.rank != null ? t.rank : "?") + " " + name +
+         " — " + (t.rankScore != null ? t.rankScore : "?") + " pts · " +
+         (t.killScore != null ? t.killScore : "?") + " kills";
 }
 
 // name -> {rank, killScore} for the row currently backing each slot in the
@@ -8249,7 +8301,7 @@ function normalize_for_matchJs(value){
 
 function ffQmeRender(){
   const roster = ((ffState && ffState.roster && ffState.roster.teams) || []).filter(t => t.name);
-  const { byName } = ffQmeMatchIndex();
+  const { source, byName } = ffQmeMatchIndex();
 
   document.getElementById("ff_qmeSlots").innerHTML = ffQmeTeams.map((name, i) => {
     const key = normalize_for_matchJs(name);
@@ -8263,11 +8315,33 @@ function ffQmeRender(){
       .concat(stale ? [`<option value="${ffEscapeHtml(name)}" selected>⚠ "${ffEscapeHtml(name)}" (not in current roster)</option>`] : [])
       .concat(roster.map(t => `<option value="${ffEscapeHtml(t.name)}" ${t.name === name ? "selected" : ""}>${ffEscapeHtml(t.name)}</option>`));
 
-    const match = key ? byName[key] : null;
+    const { team: match, picked } = ffQmeResolveRow(name, byName);
+
+    /* When nothing in the result file answers to this team's name, the
+       row used to just say so and stop. The names are right there in the
+       file -- the operator can see which squad it is even when the
+       matcher cannot -- so offer them, and let the row be bound by hand.
+       Only teams no other row has taken are listed. */
+    let picker = "";
+    if(name && (!match || picked)){
+      const free = ffQmeUnclaimedResultTeams(source, byName, key);
+      const opts = ['<option value="">— pick from the result file —</option>']
+        .concat(free.map(t => {
+          const value = t.teamName || t.fileTeamName || "";
+          return `<option value="${ffEscapeHtml(value)}" ${
+            normalize_for_matchJs(value) === normalize_for_matchJs(picked) ? "selected" : ""
+          }>${ffEscapeHtml(ffQmeResultLabel(t))}</option>`;
+        }));
+      picker = free.length || picked
+        ? `<select class="ff-qme-pick" data-i="${i}" style="width:100%;margin-top:3px;font-size:11px;">${opts.join("")}</select>`
+        : `<div style="color:#6b7590;font-size:11px;margin-top:3px;">every team in the file is already on another row</div>`;
+    }
+
     const status = !name
       ? '<span style="color:#6b7590;">—</span>'
       : match
-        ? `<span style="color:#4ade80;">✓ #${match.rank != null ? match.rank : "?"} → ${match.rankScore != null ? match.rankScore : "?"} pts · ${match.killScore != null ? match.killScore : "?"} kills</span>`
+        ? `<span style="color:#4ade80;">✓ #${match.rank != null ? match.rank : "?"} → ${match.rankScore != null ? match.rankScore : "?"} pts · ${match.killScore != null ? match.killScore : "?"} kills</span>` +
+          (picked ? `<div style="color:#e8c76a;font-size:10px;">bound by hand to "${ffEscapeHtml(picked)}"</div>` : "")
         : '<span style="color:#fbbf24;">⚠ no result for this team yet</span>';
 
     return `
@@ -8278,7 +8352,7 @@ function ffQmeRender(){
         </div>
         <div class="ff-qme-num">Row ${i + 1}</div>
         <select class="ff-qme-team" data-i="${i}" style="flex:1;">${options.join("")}</select>
-        <div style="min-width:190px;font-size:12px;">${status}</div>
+        <div style="min-width:230px;font-size:12px;">${status}${picker}</div>
       </div>`;
   }).join("");
   ffQmeUpdateExport();
@@ -8296,6 +8370,9 @@ function ffQmeSeedFromRoster(ff){
     ffQmeLoadedFromServer = true;
     const saved = ff.qmeRowOrder || [];
     if(saved.length) ffQmeTeams = Array.from({length: FF_QME_SLOTS}, (_, i) => saved[i] || "");
+    if(ff.qmeResultPicks && typeof ff.qmeResultPicks === "object"){
+      ffQmeResultPicks = Object.assign({}, ff.qmeResultPicks);
+    }
   }
   const used = new Set(ffQmeTeams.filter(Boolean).map(normalize_for_matchJs));
   let toppedUp = false;
@@ -8399,6 +8476,26 @@ document.addEventListener("change", (e) => {
   ffQmeSaveRowOrder();
 });
 
+document.addEventListener("change", (e) => {
+  if(!e.target.classList.contains("ff-qme-pick")) return;
+  const name = ffQmeTeams[Number(e.target.dataset.i)] || "";
+  const key = normalize_for_matchJs(name);
+  if(!key) return;
+  // Blank clears it, rather than storing an empty binding that would
+  // have to be special-cased everywhere it is read.
+  if(e.target.value) ffQmeResultPicks[key] = e.target.value;
+  else delete ffQmeResultPicks[key];
+  ffQmeRender();
+  ffQmeSaveRowOrder();
+  const el = document.getElementById("ff_qmeFillStatus");
+  if(el){
+    el.style.color = e.target.value ? "#e8c76a" : "#98a3bd";
+    el.textContent = e.target.value
+      ? `${name} is now reading the result file's "${e.target.value}".`
+      : `${name} is back to matching on its own name.`;
+  }
+});
+
 // Which match to read from: the one currently under review wins, since
 // that's the freshest thing on screen and the whole point of this card is
 // catching a correction before commit; once committed, ffPendingMatch is
@@ -8439,7 +8536,10 @@ function ffQmeUpdateExport(){
   ffUpdateResultsPushTarget();
 
   const lines = ffQmeTeams.map(name => {
-    const t = name ? byName[normalize_for_matchJs(name)] : null;
+    // Same resolution the rows above show, hand bindings included --
+    // otherwise a row could read as matched on screen and still export
+    // a blank line.
+    const t = ffQmeResolveRow(name, byName).team;
     // A blank line for a row that didn't match, rather than skipping it
     // outright -- skipping would shift every row below it out of
     // alignment with the sheet, which is worse than one empty cell. The
@@ -8474,6 +8574,11 @@ const FF_RESULTS_MATCH_MAX = 10;
    re-fetching the result file. `game` is the number that game IS in the
    series, which is also the column pair it belongs in, so picking a source
    sets the destination for free. */
+/* IGNs on the last Booyah push that the roster could not place. Held
+   here rather than sent, because the sheet cannot know: it is told a
+   name, not where the name came from. */
+let ffLastBooyahUnmatched = [];
+
 function ffResultsSources(){
   const out = [];
   const matches = (ffState && ffState.matches) || [];
@@ -8582,9 +8687,16 @@ function ffShowResultsPushResult(msg){
   /* What happened to the Booyah tab, said out loud either way. It is
      written by the same call, so silence would be indistinguishable
      between "wrote it" and "the tab is missing and nobody noticed". */
+  const unplaced = ffLastBooyahUnmatched.length
+    ? "<div style='margin-top:4px;color:#e8c76a;'>" + ffLastBooyahUnmatched.length +
+      " of those IGNs went up as the game spelled them — <strong>" +
+      ffLastBooyahUnmatched.map(ffEscapeHtml).join(", ") + "</strong>. " +
+      "The roster has no player under that team with a matching UID or name, " +
+      "so the registered IGN couldn't be substituted.</div>"
+    : "";
   const booyahNote = msg.booyah
     ? "<div style='margin-top:4px;color:#98a3bd;'>Booyah tab: " +
-      ffEscapeHtml(String(msg.booyah)) + "</div>"
+      ffEscapeHtml(String(msg.booyah)) + "</div>" + unplaced
     : "";
   const booyahBad = /failed|no tab|nothing written/i.test(String(msg.booyah || ""));
 
@@ -8702,13 +8814,28 @@ document.getElementById("ff_resultsPush").addEventListener("click", () => {
     team: wonNames.team,
     short: wonNames.short,
     players: (won.players || []).map(p => ({
-      // p.name is already the roster's IGN where the player matched and
-      // the file's where they didn't -- resolved when the result was
-      // read, exactly as the team name is.
+      // p.name is the REGISTERED IGN -- the one entered before the event
+      // -- wherever the player resolved against the roster, and the name
+      // the game gave where they did not. The engine does that swap when
+      // the result file is read (apply_roster_overrides), matching on UID
+      // first and then on name similarity within the squad, so an account
+      // playing as "cute legend" writes TG.LEGEND here.
       ign: p.name || p.fileName || "",
       kills: p.kills != null ? p.kills : null,
     })).filter(p => p.ign),
   } : null;
+
+  /* Which of them the roster could NOT place.
+
+     Those keep whatever the game called them, which is the right
+     fallback but the wrong thing to discover on air. It happens when the
+     player isn't registered under that team, or is registered without
+     the UID the file carries -- and with no players in the roster at all
+     it is every one of them. */
+  ffLastBooyahUnmatched = won
+    ? (won.players || []).filter(p => p.matched === false)
+        .map(p => (p.fileName || p.name || "")).filter(n => n)
+    : [];
 
   ffWs.send(JSON.stringify({ type: "freefire_results_push", match, rows, booyah }));
   el.textContent = "Sending " + rows.length + " teams from " + source.label +

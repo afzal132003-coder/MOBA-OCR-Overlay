@@ -465,6 +465,10 @@ def default_state():
         # silently resetting mid-event -- see ffQmeRender/ffQmeSeedFromRoster
         # in dashboard.html.
         "qmeRowOrder": [],
+        # Rows the operator bound to a result team by hand, when the
+        # file's name for a squad matched nothing. Roster name -> the
+        # name the result file used.
+        "qmeResultPicks": {},
         # MVP of the LATEST committed match. Empty string means "auto" --
         # highest kills, damage as the tiebreak, picked fresh from that
         # match's own players every time. Set to a uid to override the
