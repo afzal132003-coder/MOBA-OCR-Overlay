@@ -3290,6 +3290,11 @@ def classify_alive_grid_crops(crops, palette=None):
             # row's agreement streak for no reason.
             if text is not _OCR_SKIPPED:
                 row["teamText"] = text
+                # Whether the templates placed this tag on their own. A
+                # template read is either right or absent, which is what
+                # lets a row change hands sooner -- see
+                # FREEFIRE_TEAM_AGREE_CONFIDENT.
+                row["teamConfident"] = read_tag_by_template(team_crop) is not None
             # Held for read_row_teams, which is where a reading is known
             # to have SETTLED and so where the crop is known to be worth
             # keeping. The crop itself must not go into `row` -- these
@@ -4281,6 +4286,13 @@ def hold_last_good_elims(grid_rows, remember=True):
             _alive_grid_last_bars[i] = bars
             _alive_grid_settle[i] = settling
 
+        # Belt and braces: rows reach here from the grid, from the log
+        # parser and from the dashboard preview, and only one of those
+        # converted the sentinel. "Not read this frame" and "read nothing"
+        # mean the same thing to everything below, so normalise once here
+        # rather than trusting three producers to remember.
+        if reading is _OCR_SKIPPED:
+            reading = None
         if reading is not None and reading > FREEFIRE_MAX_TEAM_ELIMS:
             reading = None          # nonsense, treat as unread
         if settling > 0:
@@ -4391,6 +4403,27 @@ def apply_alive_grid_overrides(grid_rows, overrides):
 # another squad's name on air, which is far worse than being a beat late.
 FREEFIRE_TEAM_AGREE_FRAMES = 8
 
+# The same, for a row whose tag the glyph templates placed themselves.
+#
+# The client sorts its side table by kills, so a squad's whole box -- the
+# name, the number and the four alive pips together -- slides up or down
+# whenever the order changes, which during a fight is constantly. Until
+# the engine follows that move, the row it is still calling by the old
+# name is publishing the NEW squad's bars and kills. Eight polls of
+# agreement is nearly a second of exactly that.
+#
+# Eight was the right number when every name came from tesseract, because
+# a bad frame there produces a WRONG name, and a wrong name arriving on
+# one frame moves a squad's kills under another squad on air. A template
+# read cannot do that: the tag has to match a stored picture at 0.80 with
+# a clear margin over the runner-up, so a crop caught mid-slide, half
+# drawn or under an explosion matches nothing and comes back empty. The
+# failure mode is silence, and silence does not reassign anything.
+#
+# So a row whose reading the templates are sure of moves in three polls,
+# and anything read by OCR still has to clear the full eight.
+FREEFIRE_TEAM_AGREE_CONFIDENT = 3
+
 # How many agreeing polls before a row's crop is kept as a template. Lower
 # than the agreement window above on purpose -- see where it is used.
 FREEFIRE_TEAM_LEARN_FRAMES = 3
@@ -4491,6 +4524,8 @@ def read_row_teams(grid_rows, roster_teams, row_teams):
         _team_read_streak[i] = (name, streak)
         detail["team"] = name
         detail["frames"] = streak
+        needed = (FREEFIRE_TEAM_AGREE_CONFIDENT if row.get("teamConfident")
+                  else FREEFIRE_TEAM_AGREE_FRAMES)
         # Keep the crop once the same reading has come back a few polls
         # running. Deliberately a SHORTER streak than the one that puts a
         # name on air: going to air with the wrong squad is a broadcast
@@ -4506,8 +4541,8 @@ def read_row_teams(grid_rows, roster_teams, row_teams):
         # was still paying for OCR on nearly half the table.
         if streak >= FREEFIRE_TEAM_LEARN_FRAMES:
             learn_tag_template(_last_team_crops.get(i), text)
-        if streak < FREEFIRE_TEAM_AGREE_FRAMES:
-            detail["why"] = f"seen {streak} of {FREEFIRE_TEAM_AGREE_FRAMES} polls"
+        if streak < needed:
+            detail["why"] = f"seen {streak} of {needed} polls"
         else:
             proposals[i] = (name, streak)
         reads.append(detail)
@@ -4668,6 +4703,17 @@ def build_alive_grid_preview(crops, palette=None):
         # poll path, so the cost of doing that is nobody's problem.
         elims = (ocr_small_number(elim_crop, force=True)
                  if elim_crop is not None and elim_crop.size else None)
+        # _OCR_SKIPPED is a sentinel OBJECT, not a number, and it can come
+        # back even here. force=True skips the rationing, but the budget
+        # deadline it does not skip is a module global shared with the
+        # poll loop -- so a preview asked for while a poll is inside its
+        # budget window can be told "not this frame" by a deadline that
+        # has nothing to do with it. The poll path converts that to None
+        # before building its rows; this path did not, and handed the
+        # object to hold_last_good_elims, which compared it to an int and
+        # took the client's connection down with a TypeError.
+        if elims is _OCR_SKIPPED:
+            elims = None
         # The team-name crop, so the box can be seen to be landing on
         # the name rather than on the logo beside it. Scale 3 rather than
         # 4: this crop is much wider than an elim box and the column it
