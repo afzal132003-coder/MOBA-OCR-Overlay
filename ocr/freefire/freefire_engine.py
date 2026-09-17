@@ -615,6 +615,10 @@ def default_state():
             # Per-row team-name reads, for the dashboard to show
             # WHY a row is assigned the way it is.
             "aliveRowReads": [],
+            # Rows the operator has pinned: {"3": true}. A pinned
+            # row keeps whatever the dropdown says and the screen
+            # reading is ignored for it.
+            "aliveRowForced": {},
             "pendingEliminations": [],
             "approvedEliminations": [],
             # Operator-set markers on a squad, keyed by UPPERCASED team
@@ -5371,6 +5375,24 @@ async def handle_client(websocket, path=None):
                     rows[row] = (payload.get("team") or "").strip()
                     save_state()
                     await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "freefire_set_alive_row_force":
+                # Pin ONE row to whatever its dropdown says, so the screen
+                # reading cannot move it. For the row whose name box will
+                # not read -- the alternative being to turn reading off
+                # for all twelve because one of them is unreadable.
+                try:
+                    row = int(payload.get("row", -1))
+                except (TypeError, ValueError):
+                    row = -1
+                if 0 <= row < FREEFIRE_ALIVE_GRID_ROWS:
+                    forced = server_state["liveOps"].setdefault("aliveRowForced", {})
+                    if payload.get("on"):
+                        forced[str(row)] = True
+                    else:
+                        forced.pop(str(row), None)
+                    save_state()
+                    await broadcast({"type": "state_sync", "data": server_state,
+                                     "locked": list(locked_fields)})
             elif payload.get("type") == "freefire_set_alive_bar_override":
                 # Forces one bar's status regardless of what the colour
                 # read says -- an operator watching the real game
@@ -5994,11 +6016,22 @@ async def ocr_loop():
                         grid_rows, roster_for_read, row_teams)
                     # The read wins where it is confident; the operator's
                     # own assignment stands everywhere else.
+                    # A pinned row is the operator overruling the
+                    # screen for that one row -- the reading is still
+                    # taken and still shown, so they can see what they
+                    # are overruling, but it decides nothing.
+                    forced = server_state["liveOps"].get("aliveRowForced") or {}
                     row_teams = [
-                        (read_teams[i] if i < len(read_teams) and read_teams[i]
-                         else (row_teams[i] if i < len(row_teams) else ""))
+                        ((row_teams[i] if i < len(row_teams) else "")
+                         if forced.get(str(i))
+                         else (read_teams[i] if i < len(read_teams) and read_teams[i]
+                               else (row_teams[i] if i < len(row_teams) else "")))
                         for i in range(len(grid_rows))
                     ]
+                    for i, detail in enumerate(team_reads):
+                        if forced.get(str(i)):
+                            detail["why"] = "pinned -- this row is yours"
+                            detail["forced"] = True
                     # And it is written back, so the dropdown SHOWS what
                     # the row actually is.
                     #

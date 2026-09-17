@@ -6684,6 +6684,18 @@ function ffSyncAliveRowMarks(ff){
    reaching for a dropdown in the same row, and rebuilding it under their
    cursor loses the click -- the same reason the assignments are applied
    in place. */
+/* The per-row pins. Applied in place for the same reason the dropdown
+   values are: rebuilding a control someone is reaching for loses the
+   click. */
+function ffSyncAliveRowForce(ff){
+  const forced = (ff.liveOps && ff.liveOps.aliveRowForced) || {};
+  document.querySelectorAll(".ff-alive-force").forEach(el => {
+    if(el === document.activeElement) return;
+    const want = !!forced[String(el.dataset.row)];
+    if(el.checked !== want) el.checked = want;
+  });
+}
+
 function ffSyncAliveRowReads(ff){
   const reads = (ff.liveOps && ff.liveOps.aliveRowReads) || [];
   const on = !(ff.settings && ff.settings.aliveReadTeams === false);
@@ -6698,6 +6710,11 @@ function ffSyncAliveRowReads(ff){
     // The raw text always shows. When the answer is wrong, that string
     // is the only thing that explains why.
     const raw = 'read "' + r.text + '"';
+    if(r.forced){
+      el.style.color = "#a78bfa";
+      el.textContent = raw + " — ignored, row is pinned";
+      return;
+    }
     if(r.why === "settled"){
       el.style.color = "#4ade80";
       el.textContent = "✓ " + raw;
@@ -6759,6 +6776,7 @@ function ffRenderAliveGridRows(ff){
   if(!rebuild){
     ffSyncAliveRowSelects(rowTeams);
     ffSyncAliveRowReads(ff);
+    ffSyncAliveRowForce(ff);
     return;
   }
 
@@ -6835,7 +6853,13 @@ function ffRenderAliveGridRows(ff){
             ${liveCell(i)}
             <td style="padding:4px 8px;border-left:1px solid #2b3348;">
               <div class="ff-alive-team-auto" data-row="${i}" style="margin-bottom:3px;"></div>
-              <select class="ff-alive-grid-row" data-row="${i}" style="min-width:160px;">${options.join("")}</select>
+              <div class="row" style="gap:5px;align-items:center;margin:0;">
+                <select class="ff-alive-grid-row" data-row="${i}" style="min-width:160px;">${options.join("")}</select>
+                <label class="hint" style="font-size:10px;white-space:nowrap;margin:0;"
+                  title="Pin this row to what you picked. The screen reading is still taken and still shown, but it can't move this row.">
+                  <input type="checkbox" class="ff-alive-force" data-row="${i}"> force
+                </label>
+              </div>
               <div class="ff-alive-read" data-row="${i}" style="font-size:10px;margin-top:2px;"></div>
             </td>
           </tr>`;
@@ -6858,6 +6882,18 @@ function ffRenderAliveGridRows(ff){
       document.getElementById("ff_aliveGridStatus").textContent =
         el.value ? `Row ${Number(el.dataset.row) + 1} → ${ffAliveTeamLabel(picked) || el.value}`
                  : `Row ${Number(el.dataset.row) + 1} cleared`;
+    });
+  });
+
+  container.querySelectorAll(".ff-alive-force").forEach(el => {
+    el.addEventListener("change", () => {
+      if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+      const row = Number(el.dataset.row);
+      ffWs.send(JSON.stringify({
+        type: "freefire_set_alive_row_force", row, on: el.checked }));
+      document.getElementById("ff_aliveGridStatus").textContent = el.checked
+        ? `Row ${row + 1} pinned — the screen reading won't move it.`
+        : `Row ${row + 1} unpinned — it follows the screen again.`;
     });
   });
 
@@ -6912,6 +6948,7 @@ function ffRenderAliveGridRows(ff){
   ffWireEnterAdvance(container, ".ff-alive-grid-row");
   ffSyncAliveRowSelects(rowTeams);
   ffSyncAliveRowReads(ff);
+  ffSyncAliveRowForce(ff);
   ffWireEnterAdvance(container, ".ff-alive-elim-override");
 }
 
