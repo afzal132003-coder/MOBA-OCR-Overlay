@@ -2968,11 +2968,17 @@ def apply_alive_grid_overrides(grid_rows, overrides):
         elims = row["elims"]
         if str(i) in elim_overrides:
             elims = elim_overrides[str(i)]
-        out.append({
-            "bars": bars,
-            "aliveCount": sum(1 for b in bars if b == "alive"),
-            "elims": elims,
-        })
+        # Built FROM the row, not from scratch. Rebuilding it as a bare
+        # three-key dict silently dropped teamText -- the name this row
+        # read -- so the identity pass downstream saw nothing to work
+        # with and never ran at all. Anything added to a row upstream now
+        # survives this function by default, which is the behaviour that
+        # does not need remembering.
+        merged = dict(row)
+        merged["bars"] = bars
+        merged["aliveCount"] = sum(1 for b in bars if b == "alive")
+        merged["elims"] = elims
+        out.append(merged)
     return out
 
 
