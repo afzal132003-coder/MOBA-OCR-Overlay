@@ -2162,11 +2162,18 @@ def assign_finish_ranks(rows):
     # holds. The live table had DESI GAMER and TEAM APEX both on 10th with
     # 11th unused, which is two squads claiming one finish.
     taken = set(_finish_ranks.values())
-    # Counted down from the lobby by how many have already finished,
-    # rather than up from how many rows currently read alive. Those two
-    # agree only while every row is being read cleanly, and the moment
-    # they disagree it is the position that is wrong.
-    top = _lobby_size(rows) - len(_finish_ranks)
+    # One place behind everyone still playing -- the same rule the tick
+    # uses, so a squad gets the same answer whether the operator released
+    # it or it went through on its own. The squads going out in THIS pass
+    # already read eliminated, so they are added back on: three at once
+    # take the three places above the survivors, in order.
+    fresh_keys = {n for _, n in fresh}
+    finished_before = sum(
+        1 for r in rows
+        if r.get("eliminated")
+        and (r.get("teamName") or "").strip().upper() not in fresh_keys
+    )
+    top = max(1, _lobby_size(rows) - finished_before)
     for row, name in fresh:
         while top in taken and top > 1:
             top -= 1
@@ -2234,6 +2241,44 @@ def drain_elim_card_queue():
     return True
 
 
+def finish_position_for(key, rows):
+    """Where a squad finishes: one place behind everyone still playing.
+
+    Two teams left standing when a third goes out means that third
+    finished 3rd. Counted off the table itself, every time, rather than
+    from a running tally -- because a tally drifts and this cannot. The
+    tally version put a squad 1st while two teams were still alive, from
+    a stale entry left by a squad that had flickered to "eliminated" and
+    back.
+
+    The squad going out is excluded by NAME rather than assumed dead or
+    alive: a wipe held for the operator's tick still reads alive, one
+    that already went through reads eliminated, and the answer has to be
+    the same either way. Whether it was held is a fact about the operator
+    and has nothing to do with where the squad finished.
+
+    Never higher than the lobby -- if the grid loses a row for a poll
+    that is a reason to be careful, not to invent a 13th place.
+    """
+    rows = rows or (server_state.get("liveOps") or {}).get("sidetableRows") or []
+    # Counted by who has ALREADY finished, not by who is left.
+    #
+    # The two agree whenever the table is complete, and disagree exactly
+    # when it is not: a row the grid loses for a poll is neither alive
+    # nor eliminated, so counting the living quietly loses a place and
+    # every position after it is one out. Counting the finished against
+    # the lobby size -- which comes from the roster and does not flicker
+    # -- a missing row changes nothing at all.
+    finished = sum(
+        1 for r in rows
+        if r.get("eliminated")
+        and (r.get("teamName") or "").strip().upper() != key
+    )
+    lobby = _lobby_size(rows)
+    return max(1, min(lobby - finished, lobby))
+
+
+
 def claim_finish_rank(key, rows):
     """Fixes where a squad finished, at the moment it is decided.
 
@@ -2249,14 +2294,8 @@ def claim_finish_rank(key, rows):
     never collide with one dealt automatically."""
     if key in _finish_ranks:
         return _finish_ranks[key]
-    # The same count the automatic path uses, for the same reason: what
-    # is left of the lobby once everyone who has already finished is
-    # taken out of it. Counting the rows that read alive instead made the
-    # answer depend on things that have nothing to do with the result --
-    # whether this wipe was held for the tick or had already gone
-    # through, and whether the grid read every row that poll.
     taken = set(_finish_ranks.values())
-    pos = max(1, _lobby_size(rows) - len(_finish_ranks))
+    pos = max(1, finish_position_for(key, rows))
     while pos in taken and pos > 1:
         pos -= 1
     _finish_ranks[key] = pos
