@@ -6273,7 +6273,16 @@ async def broadcast_to_page(page, message):
     if not targets:
         return
     data = json.dumps({**message, "_target_pages": [page]})
-    await asyncio.gather(*[c.send(data) for c in targets], return_exceptions=True)
+    # _send_guarded, not a bare send -- for exactly the reason written
+    # above SEND_TIMEOUT_SECONDS, which this function never applied.
+    # A bare send waits for the socket to drain, and the socket this
+    # always includes is the relay: one connection, over the sender's own
+    # upload, already carrying the state. When that backs up, the await
+    # here does not return, and the whole poll loop is stopped behind a
+    # preview image nobody is necessarily looking at. Measured on a live
+    # match: the engine went 21 SECONDS without publishing anything.
+    await asyncio.gather(*[_send_guarded(c, data) for c in targets],
+                         return_exceptions=True)
 
 
 def dashboard_connected():
@@ -7489,6 +7498,11 @@ FREEFIRE_RELAY_SYNC_GAP_SLIM = 0.25
 _last_relay_sync_at = 0.0
 # And the state file is written at most this often.
 FREEFIRE_MIN_SAVE_GAP = 1.0
+# How often the dashboard's crop previews are encoded and sent. These are
+# JPEGs going onto the same link as the state, and nothing downstream
+# needs them at poll rate.
+FREEFIRE_PREVIEW_GAP = 0.5
+_last_preview_at = 0.0
 _state_dirty = False
 _last_sync_at = 0.0
 _last_save_at = 0.0
@@ -7506,7 +7520,7 @@ async def ocr_loop():
     # Assigned below, so without this they would be locals and the first
     # read would raise UnboundLocalError -- exactly the failure the line
     # above already guards against for _grid_rows_at.
-    global _state_dirty, _last_sync_at, _last_save_at
+    global _state_dirty, _last_sync_at, _last_save_at, _last_preview_at
     # 0.25s (4/sec), not the 1.0s this used to default to. Measured
     # against the real calibrated setup with OCR out of the loop (see the
     # comment above the OCR gating below): finding the log, tailing it,
@@ -7889,7 +7903,18 @@ async def ocr_loop():
             # a poll into the relay connection, and every dashboard request
             # -- fetch match, commit, capture lobby -- waited its turn
             # behind that queue.
-            if frame_counter % 2 == 0 and dashboard_connected():
+            # Timed, not counted in polls. This was "every other frame",
+            # which was every 500ms while a poll was 250ms -- and became
+            # every 240ms the moment the loop was made twice as quick,
+            # silently doubling the image traffic onto the one link least
+            # able to carry it. A cadence for something measured in
+            # bandwidth belongs in seconds, so that changing how often the
+            # engine READS cannot change how often it SENDS pictures.
+            now_mono = time.perf_counter()
+            previews_due = (now_mono - _last_preview_at
+                            >= FREEFIRE_PREVIEW_GAP)
+            if previews_due and dashboard_connected():
+                _last_preview_at = now_mono
                 for region_key, crop, raw_text in (
                     (FREEFIRE_KILLFEED_REGION_KEY, killfeed_crop, killfeed_raw_text),
                     (FREEFIRE_SIDETABLE_REGION_KEY, sidetable_crop, sidetable_raw_text),
