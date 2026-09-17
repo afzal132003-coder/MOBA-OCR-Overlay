@@ -25,6 +25,7 @@ that's the first thing to check.
 import asyncio
 import base64
 import difflib
+import hashlib
 import json
 import re
 import time
@@ -1460,6 +1461,81 @@ def _normalize_polarity(binary_img):
 TESS_CONFIG_TEAM_NAME = "--psm 7 -c load_system_dawg=0 -c load_freq_dawg=0"
 
 
+# ---------------------------------------------------------------------------
+# OCR memo.
+#
+# pytesseract shells out to tesseract.exe, and on this machine one call
+# costs 158ms whatever the image -- that is process spawn, not reading.
+# The alive grid asks for twelve elim numbers and twelve team names every
+# poll, each trying up to three preprocessings until one reads, so a poll
+# was measured at 6.3 SECONDS against a 250ms budget. The loop could
+# manage 0.2 polls a second where it wanted four.
+#
+# Almost all of that was re-reading pixels it had already read. Measured
+# on the live table: ten of twelve binarised crops are byte-identical
+# across three consecutive polls -- the number and the name simply are not
+# changing, and the panel they sit on is opaque enough that the moving
+# scenery behind does not reach them once thresholded.
+#
+# So: hash what tesseract would actually be handed, and if that exact
+# image has been read before, reuse the answer. This is memoisation of a
+# pure function, not a heuristic -- identical pixels cannot produce
+# different text -- so it can never be wrong, only stale in the sense
+# that nothing changed.
+#
+# FAILURES are cached too, and that matters more than the successes: a
+# crop that reads nothing costs all three variants, 475ms, every poll,
+# forever, and never starts working. That single case was most of the
+# budget on a table with one unreadable row.
+_OCR_MEMO = {}
+_OCR_MEMO_MAX = 512
+_ocr_memo_hits = 0
+_ocr_memo_misses = 0
+
+
+def _ocr_memo_key(kind, variants):
+    """Keyed on every variant, because the function's answer depends on
+    all of them -- the second is only consulted when the first reads
+    nothing."""
+    digest = hashlib.blake2b(digest_size=16)
+    digest.update(kind.encode())
+    for v in variants:
+        digest.update(np.ascontiguousarray(v).tobytes())
+    return digest.digest()
+
+
+def _ocr_memoised(kind, variants, read):
+    """`read` is called only when this exact set of images is new."""
+    global _ocr_memo_hits, _ocr_memo_misses
+    key = _ocr_memo_key(kind, variants)
+    if key in _OCR_MEMO:
+        _ocr_memo_hits += 1
+        return _OCR_MEMO[key]
+    _ocr_memo_misses += 1
+    value = read()
+    if len(_OCR_MEMO) >= _OCR_MEMO_MAX:
+        # Plain FIFO rather than a true LRU: the working set is the
+        # twelve rows on screen, so anything this evicts is long gone.
+        #
+        # Guarded because this runs on the OCR thread pool -- several
+        # workers can be in here at once, and iterating a dict another
+        # thread is writing raises. Losing an eviction is harmless; the
+        # next call does it.
+        try:
+            _OCR_MEMO.pop(next(iter(_OCR_MEMO)), None)
+        except RuntimeError:
+            pass
+    _OCR_MEMO[key] = value
+    return value
+
+
+def ocr_memo_stats():
+    total = _ocr_memo_hits + _ocr_memo_misses
+    return {"hits": _ocr_memo_hits, "misses": _ocr_memo_misses,
+            "entries": len(_OCR_MEMO),
+            "hitRate": round(_ocr_memo_hits / total, 3) if total else 0.0}
+
+
 def ocr_small_number(img_bgr, upscale=4):
     """Reads a small standalone number (an elim count).
 
@@ -1507,14 +1583,41 @@ def ocr_small_number(img_bgr, upscale=4):
         _normalize_polarity(otsu),
         _normalize_polarity(adaptive),
     ]
+    # Last resort, for a digit sitting under the blue zone glow.
+    #
+    # All three above threshold on BRIGHTNESS, and on a glowing row the
+    # brightest pixels in the crop are the glow, not the number -- so
+    # they threshold the effect and read nothing. Measured on a live
+    # table: on those rows the bright pixels average saturation 102-134,
+    # while the digit itself is neutral white at saturation 1-30.
+    #
+    # So pick by COLOUR first: discard everything saturated, then take
+    # the brightest of what is left. Relative rather than a fixed cutoff,
+    # because the panel dims and brightens with whatever is behind it.
+    #
+    # Appended rather than inserted, so every crop that reads today still
+    # reads by exactly the same route -- this can only add answers where
+    # there were none.
+    neutral = (cv2.cvtColor(big, cv2.COLOR_BGR2HSV)[:, :, 1] <= 40)
+    if neutral.sum() >= 20:
+        value = cv2.cvtColor(big, cv2.COLOR_BGR2HSV)[:, :, 2]
+        mask = ((value >= np.percentile(value[neutral], 94)) & neutral)
+        mask = cv2.morphologyEx(mask.astype(np.uint8) * 255, cv2.MORPH_CLOSE,
+                                np.ones((3, 3), np.uint8))
+        candidates.append(_normalize_polarity(cv2.bitwise_not(mask)))
 
-    for variant in candidates:
-        bordered = cv2.copyMakeBorder(variant, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
-        text = pytesseract.image_to_string(bordered, config=TESS_CONFIG_DIGITS).strip()
-        match = re.search(r"\d{1,3}", text)
-        if match:
-            return int(match.group())
-    return None
+    def read():
+        for variant in candidates:
+            bordered = cv2.copyMakeBorder(variant, 10, 10, 10, 10,
+                                          cv2.BORDER_CONSTANT, value=255)
+            text = pytesseract.image_to_string(
+                bordered, config=TESS_CONFIG_DIGITS).strip()
+            match = re.search(r"\d{1,3}", text)
+            if match:
+                return int(match.group())
+        return None
+
+    return _ocr_memoised("num", candidates, read)
 
 
 def find_bar_columns(alive_strip, expected=SIDETABLE_PLAYERS_PER_TEAM):
@@ -1999,20 +2102,25 @@ def ocr_team_name(img_bgr, upscale=3):
     adaptive = cv2.adaptiveThreshold(
         gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 5)
 
-    for variant in (_normalize_polarity(cv2.bitwise_not(white_mask)),
-                    _normalize_polarity(otsu),
-                    _normalize_polarity(adaptive)):
-        bordered = cv2.copyMakeBorder(variant, 12, 12, 12, 12,
-                                      cv2.BORDER_CONSTANT, value=255)
-        try:
-            text = pytesseract.image_to_string(
-                bordered, config=TESS_CONFIG_TEAM_NAME).strip()
-        except Exception:
-            continue
-        # Punctuation-only reads ("|", "-") are noise off a panel edge.
-        if len(re.sub(r"[^A-Za-z0-9]", "", text)) >= 2:
-            return " ".join(text.split())
-    return ""
+    candidates = [_normalize_polarity(cv2.bitwise_not(white_mask)),
+                  _normalize_polarity(otsu),
+                  _normalize_polarity(adaptive)]
+
+    def read():
+        for variant in candidates:
+            bordered = cv2.copyMakeBorder(variant, 12, 12, 12, 12,
+                                          cv2.BORDER_CONSTANT, value=255)
+            try:
+                text = pytesseract.image_to_string(
+                    bordered, config=TESS_CONFIG_TEAM_NAME).strip()
+            except Exception:
+                continue
+            # Punctuation-only reads ("|", "-") are noise off a panel edge.
+            if len(re.sub(r"[^A-Za-z0-9]", "", text)) >= 2:
+                return " ".join(text.split())
+        return ""
+
+    return _ocr_memoised("team", candidates, read)
 
 
 def classify_alive_grid_crops(crops, palette=None):
