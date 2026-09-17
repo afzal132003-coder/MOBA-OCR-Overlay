@@ -5453,7 +5453,25 @@ async def relay_client_loop():
     global relay_websocket
     while True:
         try:
-            async with websockets.connect(connect_url) as relay_ws:
+            # Patience with ITSELF.
+            #
+            # The default is a ping every 20s and 20s to answer, and this
+            # engine cannot always keep that: it captures, OCRs and merges
+            # twelve rows four times a second, and when that bunches up it
+            # stops servicing its own socket for long enough to decide the
+            # relay is dead -- and hangs up on a relay that was answering
+            # perfectly. Measured: nine such drops in ten minutes, off the
+            # relay about one minute in six, with every elimination tick
+            # pressed in those windows going nowhere.
+            #
+            # The close frame named the culprit: the relay logged
+            # "RECEIVED 1011 keepalive ping timeout", so it was this side
+            # giving up. Two minutes' grace is far longer than any stall
+            # seen, while a genuinely dead relay still errors the socket
+            # immediately -- which is the case that actually matters.
+            async with websockets.connect(connect_url,
+                                          ping_interval=20,
+                                          ping_timeout=120) as relay_ws:
                 print(f"Connected to cloud relay at {url}")
                 # Recorded so broadcast_to_page() can always include it --
                 # it is the only client whose page= tag says nothing about
