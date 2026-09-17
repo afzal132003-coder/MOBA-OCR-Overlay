@@ -2177,11 +2177,19 @@ def assign_finish_ranks(rows):
 # Fallback when the setting is missing -- see settings.elimCardSeconds.
 FREEFIRE_ELIM_CARD_SECONDS = 4
 
-# How long a card keeps once another squad is waiting behind it. Cards
-# strictly in turn at four seconds each meant a tick could show nothing
-# for most of a ten-count, which reads as the button not working. Short,
-# but not so short that a card appears and vanishes.
-FREEFIRE_ELIM_CARD_RUSH_MS = 1200
+# How long a card keeps once another squad is waiting behind it.
+#
+# A tick is an operator pressing a button and expecting the graphic to
+# move. Strict four-second turns meant a tick could show nothing for most
+# of a ten-count, which reads as the button not working; 1.2s was still
+# long enough to feel like waiting. At 0.4s the card in front is already
+# on its way out before the operator has looked up, and the new one lands
+# inside a second including the round trip.
+#
+# A card with nobody behind it is untouched and still gets its full hold.
+# This only ever applies when the operator is ticking faster than the
+# graphic can play, which is exactly when they want it to hurry.
+FREEFIRE_ELIM_CARD_RUSH_MS = 400
 
 # Squads waiting for a card, in the order they went out.
 _elim_card_queue = []

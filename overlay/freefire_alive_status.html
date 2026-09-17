@@ -990,9 +990,13 @@ const pendingElimCards = [];
 /* Someone is waiting, so the card on screen gives up the rest of its
    hold and starts leaving. Four seconds each, strictly in turn, is what
    made the tick feel broken -- press, and nothing happens for most of a
-   ten-count. It still gets this long on air, because a card that appears
-   and vanishes reads as a fault rather than as an elimination. */
-const ELIM_CARD_RUSH_MS = 1200;
+   ten-count. 1.2s still felt like waiting, so it is 0.4s: the card in
+   front is on its way out before the operator has looked up.
+
+   A card with nobody behind it is untouched and keeps its full hold.
+   This only bites when the operator is ticking faster than the graphic
+   can play, which is precisely when they want it to hurry. */
+const ELIM_CARD_RUSH_MS = 400;
 let elimCardShownAt = 0;
 let elimCardExitAt = 0;
 
