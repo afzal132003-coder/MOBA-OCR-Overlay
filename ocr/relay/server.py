@@ -133,6 +133,17 @@ async def handler(websocket):
     print(f"[connect] role={role} total_connected={len(connected)}")
     await broadcast_presence()
     try:
+        # Tell a client what it actually is.
+        #
+        # A viewer that sends anything has it silently dropped, by
+        # design -- but "silently" meant an admin dashboard opened with
+        # the VIEWER token showed live data, said CONNECTED, and threw
+        # every tick away without a word. Indistinguishable from the
+        # whole system being broken, and it cost a live session.
+        #
+        # Additive: anything that does not know this message ignores it.
+        await websocket.send(json.dumps({"type": "whoami", "role": role}))
+
         if last_state_sync is not None:
             await websocket.send(last_state_sync)
 

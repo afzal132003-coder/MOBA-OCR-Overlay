@@ -458,6 +458,12 @@
 <span id="status" class="disconnected">DISCONNECTED</span>
 <span id="connectionMode" class="hint" style="margin-left:8px;"></span>
 <p class="hint">Connects to the local OCR server at ws://localhost:8765. Start ocr_engine.py first.</p>
+<div id="readOnlyWarning" style="display:none;position:fixed;top:0;left:0;right:0;z-index:10000;
+  background:#b3261e;color:#fff;font-weight:800;font-size:14px;padding:11px 18px;text-align:center;
+  box-shadow:0 2px 14px rgba(0,0,0,.5);">
+  READ-ONLY &mdash; you are connected with the <u>viewer</u> token, so nothing you do here is saved.
+  Click <strong>change</strong> beside the relay status and paste the <strong>admin</strong> token.
+</div>
 <div id="sendWarning" style="display:none;position:fixed;top:12px;left:50%;transform:translateX(-50%);
   z-index:9999;background:#c0453f;color:#fff;font-weight:700;font-size:13px;padding:10px 18px;
   border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.4);"></div>
@@ -5263,6 +5269,15 @@ function ffConnect(){
   ffWs.onerror = () => ffWs.close();
   ffWs.onmessage = (evt) => {
     const msg = JSON.parse(evt.data);
+    if(msg.type === "whoami"){
+      /* The relay drops anything a viewer sends, without a word. That is
+         right for an overlay and disastrous for a dashboard: it showed
+         live data, said CONNECTED, and threw every tick away. Say it out
+         loud instead. */
+      const box = document.getElementById("readOnlyWarning");
+      if(box) box.style.display = (msg.role && msg.role !== "admin") ? "block" : "none";
+      return;
+    }
     if(msg.type === "state_sync"){
       ffState = msg.data;
       if(!ffHydrated){
