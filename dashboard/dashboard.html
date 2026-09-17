@@ -2832,8 +2832,8 @@ const WS_URL = _relay
 // (a totally different shape -- no team1/team2/prematch/etc.) getting
 // mixed into this page's main `currentState`.
 const FF_WS_URL = _relay
-  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_dashboard"
-  : "ws://localhost:8765?page=freefire_dashboard";
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_dashboard&rostercache=1"
+  : "ws://localhost:8765?page=freefire_dashboard&rostercache=1";
 // Valorant tab's own connection -- same reasoning as FF_WS_URL above,
 // talks to whichever engine is actually listening (valorant_engine.py on
 // a Valorant day), namespaced state kept completely separate from both
@@ -5351,7 +5351,7 @@ function ffSendManualUpdate(freefireData){
 
    An explicit ?relay= still wins: someone who asked for the relay by
    name gets the relay. */
-const FF_LOCAL_URL = "ws://localhost:8765?page=freefire_dashboard";
+const FF_LOCAL_URL = "ws://localhost:8765?page=freefire_dashboard&rostercache=1";
 const FF_LOCAL_PROBE_MS = 1500;
 let ffUsingLocal = false;
 
