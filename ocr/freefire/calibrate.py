@@ -96,6 +96,23 @@ CATEGORIES = {
         "freefire_alive_r1p3",
         "freefire_alive_r1p4",
     ],
+    # The client's own elimination banner -- "#7  ARISE  ELIMINATED"
+    # across the top-left when a squad is wiped. Three boxes because the
+    # three things it carries are wanted separately: whether a banner is
+    # up at all (the word ELIMINATED, which never changes and so can be
+    # matched as a picture, every poll, for almost nothing), which squad
+    # (the name), and where they finished (the rank).
+    #
+    # Worth reading even though the side table says who is alive, because
+    # the banner says it FIRST, says it unambiguously, and brings the
+    # finishing place with it. The alive bars have to be inferred through
+    # whatever is happening on screen, and an explosion over a row makes
+    # a dead bar and a live one measure the same.
+    "ff-elim-banner": [
+        "freefire_elim_banner",
+        "freefire_elim_banner_team",
+        "freefire_elim_banner_rank",
+    ],
     "ff-loadout": [
         "freefire_loadout",
         "freefire_loadout_ign",
@@ -111,7 +128,7 @@ CATEGORIES = {
 
 REGION_ORDER = (
     CATEGORIES["ff-live"] + CATEGORIES["ff-alive-grid"]
-    + CATEGORIES["ff-alive-columns"]
+    + CATEGORIES["ff-alive-columns"] + CATEGORIES["ff-elim-banner"]
     + CATEGORIES["ff-loadout"] + CATEGORIES["ff-lobby"]
 )
 
@@ -119,6 +136,7 @@ CATEGORY_BLURB = {
     "ff-live": "LIVE IN-GAME boxes -- have a match actually running, with the killfeed and 12-team side table on screen.",
     "ff-alive-columns": "ALIVE GRID optional column pins -- only for a column whose crop sits off-centre; normally derived, so normally skipped.",
     "ff-alive-grid": "ALIVE GRID anchors -- have a match running with the 12-team side table visible, same screen as ff-live. Draw TIGHT boxes, exactly matching one indicator/number each time -- these boxes are used to work out the position of every row. The TEAM NAME box is what lets a row be recognised when the client reorders the table mid-match; skip it and rows stay wherever they were assigned by hand.",
+    "ff-elim-banner": "ELIMINATION BANNER -- the \"#7  ARISE  ELIMINATED\" strip the client throws up top-left when a squad is wiped. It is only up for a few seconds, so run this with --wait, watch the game, and press ENTER the moment a banner appears; the picture is frozen at that point and you draw on it at your leisure. The boxes are in fixed positions, so any one banner calibrates them for good.",
     "ff-loadout": "LOADOUT boxes -- have a player's loadout card on screen (the one Num5 captures).",
     "ff-lobby": "PRE-MATCH LOBBY boxes (2 squad cards) -- have the lobby team list on screen, scrolled to the top.",
 }
@@ -135,6 +153,9 @@ LABELS = {
     "freefire_alive_rlastp1": "ALIVE GRID: LAST ROW (bottom-most team, row 12), PLAYER 1 (leftmost) alive indicator - same tight box as the very first one, but on the LAST row, not the second",
     "freefire_alive_r1elim": "ALIVE GRID: ROW 1's ELIMINATION COUNT number - tight box around just that number",
     "freefire_alive_r1team": "ALIVE GRID: ROW 1's TEAM NAME text - tight box around just the name, excluding the squad logo to its left and the alive bars to its right. Draw it WIDE enough for the LONGEST team name in the lobby, not just row 1's - every row reuses this same width",
+    "freefire_elim_banner": "ELIM BANNER: a TIGHT box around the word ELIMINATED itself (the red word on the black bar) - nothing else, no logo, no team name. This one word is identical on every banner, which is what lets the engine spot a banner at all; the coloured bar above it is a different colour for every squad and cannot be used for that",
+    "freefire_elim_banner_team": "ELIM BANNER: just the TEAM NAME text on the coloured bar (\"ARISE\") - tight box around the text, excluding the squad logo to its left. Wide enough for the LONGEST name in the lobby",
+    "freefire_elim_banner_rank": "ELIM BANNER: just the FINISHING PLACE number, without the # (the \"7\" of \"#7\") - tight box around the digits. This is the place that squad finished, which is what the sheet push wants",
     "freefire_alive_r1p3": "ALIVE GRID (optional): ROW 1, PLAYER 3 alive indicator - only needed if column 3's crop sits off-centre; otherwise it is derived from players 1 and 2",
     "freefire_alive_r1p4": "ALIVE GRID (optional): ROW 1, PLAYER 4 alive indicator - only needed if column 4's crop sits off-centre; otherwise it is derived from players 1 and 2",
     "freefire_loadout": "LOADOUT CARD, WHOLE (the full player HUD card) - kept as the overall visual record; the per-slot boxes below are what actually get identified",
@@ -168,6 +189,14 @@ def main():
     # and it's much easier to retry with a different number than to stop
     # and hand-edit JSON.
     requested = sys.argv[1:]
+    # --wait grabs the screen when you say so, instead of the instant the
+    # command starts. Needed for anything that is only on screen for a
+    # moment: the elimination banner is up for a few seconds, which is
+    # not long enough to alt-tab to a console and type a command, but is
+    # ample to press a key you are already holding.
+    wait_for_key = "--wait" in requested
+    if wait_for_key:
+        requested.remove("--wait")
     monitor_index = cfg.get("monitor", 1)
     if "--monitor" in requested:
         at = requested.index("--monitor")
@@ -217,6 +246,17 @@ def main():
             print("Re-run with a valid one, e.g.:  calibrate.py ff-live --monitor 1")
             return
         monitor = sct.monitors[monitor_index]
+        if wait_for_key:
+            print("")
+            print("  Waiting. Go to the game, and the MOMENT the thing you")
+            print("  want to calibrate is on screen, press ENTER here.")
+            print("  (The screen is grabbed when you do, and everything after")
+            print("   that is drawn on the frozen picture, so it does not")
+            print("   matter if it has gone by then.)")
+            try:
+                input("  ENTER to grab: ")
+            except EOFError:
+                print("  No console to wait on -- grabbing now.")
         shot = sct.grab(monitor)
         frame = np.array(shot)
         frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
@@ -243,6 +283,23 @@ def main():
                 "h": int(h),
             }
             print(f"Saved {key}: {regions[key]}")
+            if key == "freefire_elim_banner":
+                # Keep the PICTURE, not just the box. This region is the
+                # word ELIMINATED, and the engine spots a banner by
+                # matching that picture -- which it cannot do until it
+                # has one. Learning it at runtime means waiting for a
+                # banner and reading it with OCR, and OCR is poor at this
+                # particular crop: the word is red on black, and the
+                # readers here are built for white text (a real attempt
+                # returned "OS"). Right now, though, a banner is
+                # definitely on screen -- it is what was just drawn
+                # around -- so the picture is simply taken.
+                ref = frame[y:y + h, x:x + w]
+                ref_path = CONFIG_PATH.parent / "freefire_banner_flag.png"
+                cv2.imwrite(str(ref_path), ref)
+                print(f"  ...and kept the picture of it: {ref_path}")
+                print("     (delete that file and recalibrate if the "
+                      "client's banner ever changes)")
         else:
             print(f"Skipped {key} (kept previous value if any)")
 

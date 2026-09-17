@@ -1,7 +1,7 @@
 {
   "monitor": 2,
   "tesseract_path": "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
-  "poll_interval_seconds": 0.25,
+  "poll_interval_seconds": 0.12,
   "server_host": "localhost",
   "server_port": 8765,
   "relay": {
@@ -83,16 +83,16 @@
       "h": 319
     },
     "freefire_alive_r1p1": {
-      "x": -60,
-      "y": 303,
+      "x": -59,
+      "y": 310,
       "w": 9,
-      "h": 27
+      "h": 30
     },
     "freefire_alive_r1p2": {
-      "x": -46,
-      "y": 303,
-      "w": 8,
-      "h": 27
+      "x": -47,
+      "y": 310,
+      "w": 10,
+      "h": 29
     },
     "freefire_alive_r2p1": {
       "x": -59,
@@ -101,16 +101,16 @@
       "h": 28
     },
     "freefire_alive_r1elim": {
-      "x": -131,
-      "y": 306,
-      "w": 51,
-      "h": 37
+      "x": -132,
+      "y": 304,
+      "w": 52,
+      "h": 41
     },
     "freefire_alive_rlastp1": {
-      "x": -60,
-      "y": 923,
-      "w": 9,
-      "h": 27
+      "x": -59,
+      "y": 930,
+      "w": 10,
+      "h": 28
     },
     "freefire_alive_r1p3": {
       "x": -34,
@@ -125,10 +125,28 @@
       "h": 26
     },
     "freefire_alive_r1team": {
-      "x": -228,
-      "y": 311,
-      "w": 97,
+      "x": -232,
+      "y": 309,
+      "w": 93,
+      "h": 29
+    },
+    "freefire_elim_banner": {
+      "x": -933,
+      "y": 78,
+      "w": 125,
       "h": 28
+    },
+    "freefire_elim_banner_team": {
+      "x": -995,
+      "y": 31,
+      "w": 247,
+      "h": 45
+    },
+    "freefire_elim_banner_rank": {
+      "x": -1155,
+      "y": 40,
+      "w": 71,
+      "h": 56
     }
   },
   "sidetable_colors": {

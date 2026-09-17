@@ -1542,6 +1542,37 @@ def _ocr_budget_end():
     _ocr_deadline = None
 
 
+# Enough for one team-name read to START when the elim pass has already
+# spent the budget. Only ever lent for a SINGLE read and taken back
+# straight after -- see the name pass in classify_alive_grid_crops. Lent
+# for the whole pass instead it would buy four reads at the measured
+# per-read cost, and a poll that overruns by four reads rather than one
+# is the behaviour the budget exists to prevent.
+FREEFIRE_OCR_NAME_FLOOR_MS = 45
+
+
+def _ocr_budget_lend(ms):
+    """Guarantees `ms` of budget for the next read, and returns the
+    deadline it replaced so the caller can put it back. Never pulls in a
+    deadline that is already further out.
+
+    Paired with _ocr_budget_restore rather than left in place, so what
+    is lent is one read's worth of time and not an open extension: the
+    budget may then be overrun by at most that one read, which is the
+    same bound FREEFIRE_OCR_CALL_TIMEOUT already puts on every read."""
+    global _ocr_deadline
+    previous = _ocr_deadline
+    if _ocr_deadline is not None:
+        _ocr_deadline = max(_ocr_deadline,
+                            time.perf_counter() + ms / 1000.0)
+    return previous
+
+
+def _ocr_budget_restore(previous):
+    global _ocr_deadline
+    _ocr_deadline = previous
+
+
 def _ocr_memo_key(kind, variants):
     """Keyed on every variant, because the function's answer depends on
     all of them -- the second is only consulted when the first reads
@@ -1591,7 +1622,907 @@ def ocr_memo_stats():
             "hitRate": round(_ocr_memo_hits / total, 3) if total else 0.0}
 
 
-def ocr_small_number(img_bgr, upscale=4):
+# ---------------------------------------------------------------------
+# Reading the side table by matching the client's own font, rather than
+# by OCR.
+#
+# Tesseract is a general text engine, and it is priced like one: measured
+# on this desk's live table, cold, 207ms for one elim digit and 123ms for
+# one team tag -- 3.97 SECONDS for a full twelve-row read against a 140ms
+# budget. That is the single fact behind the rotation, the deferrals and
+# the rows that sat on "waiting its turn to be read" while a fight went
+# on without them. No budget can be tuned into affording it.
+#
+# None of that generality is needed here. The tags come from a roster of
+# twelve known before the match starts, the elim box holds 0-99 in one
+# fixed bitmap font, and both are drawn by the client identically every
+# frame. Matching a crop against stored pictures of the same glyphs costs
+# 3ms for the whole table -- about 1300x less -- which is cheap enough
+# that every row is read on every poll and the budget stops being
+# something the reader has to live within at all.
+#
+# The library BUILDS ITSELF from the OCR path: when a row has read the
+# same squad for FREEFIRE_TEAM_AGREE_FRAMES polls running, the crop that
+# did it is known-good by construction, and is kept as that team's
+# template. So there is no calibration step for an operator to forget, a
+# fresh install behaves exactly as it did before while it learns, and a
+# change of font, resolution or client build re-learns instead of
+# quietly reading rubbish.
+
+# Ink is resized into these before matching, so crops of slightly
+# different size still compare. Tags get a wide box (several glyphs), a
+# digit a narrow one.
+FREEFIRE_TAG_SHAPE = (64, 24)
+FREEFIRE_DIGIT_SHAPE = (24, 32)
+
+# A match must be this like the template, AND this much more like it than
+# the runner-up. The margin is what the OCR path could never provide:
+# tesseract read "S8UL" as "SBUL" on every one of 58 consecutive polls,
+# perfectly confidently. Two numbers that disagree are a signal; one
+# answer with nothing to compare it to is not.
+#
+# The ABSOLUTE score is what guards the case the margin cannot: a tag
+# that is not in the library at all. The margin only ever compares known
+# templates against each other, so a crop of a tag never seen before is
+# scored against the wrong answers alone, and the nearest of those can
+# win by a wide margin while being wrong. Measured on this desk's own
+# twelve tags, leaving each one out in turn: PVS against a library
+# without PVS matched RES at 0.612 with a margin of 0.192 -- through a
+# 0.12 margin gate, confidently wrong. It happened for real here, while
+# the library was still filling up.
+#
+# The two populations do not overlap. A true match scores 1.000; the
+# worst near-miss across all twelve leave-one-out trials scored 0.612.
+# The gate sits between them with room on both sides, which is what makes
+# "I do not know this one" a possible answer -- and an unknown tag then
+# falls through to OCR, which is how it gets learned.
+FREEFIRE_GLYPH_MIN_SCORE = 0.80
+FREEFIRE_GLYPH_MIN_MARGIN = 0.12
+
+# Below this spread between darkest and brightest, the crop holds no text
+# -- a row mid-reorder, or one the client has not drawn yet. Otsu will
+# always split something, so without this it would manufacture glyphs out
+# of panel noise and match them to whatever is nearest.
+FREEFIRE_GLYPH_MIN_RANGE = 22
+
+# An eliminated squad's row is drawn dimmed: panel 72 and text 127 where
+# a live row has 102 and 222. Anything keyed to "bright is text" finds
+# NOTHING on one -- the engine's own white mask starts at 170, above that
+# row's brightest pixel. Per-row Otsu handles it without needing to be
+# told which kind of row it has, and this threshold is only used to
+# report the row as eliminated and to keep dimmed crops out of the
+# template library.
+FREEFIRE_ROW_DIM_MAX = 160
+
+# Grid row index -> the team-name crop read on the latest poll. Bridges
+# classify_alive_grid_crops (which has the pixels but no idea whether
+# they were read correctly) and read_row_teams (which knows a reading has
+# settled but no longer has the crop).
+_last_team_crops = {}
+
+_tag_templates = {}        # tag text as read -> float32 vector
+_digit_templates = {}      # "0".."9" -> float32 vector
+_glyph_store_dirty = False
+_glyph_store_saved_at = 0.0
+
+
+def _glyph_path():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "freefire_glyphs.npz")
+
+
+def _glyph_mask(img_bgr):
+    """Crop -> ink white on black, or None when the crop holds no text.
+
+    Otsu PER CROP rather than one threshold for the table, because the
+    rows are not all drawn at the same brightness: see
+    FREEFIRE_ROW_DIM_MAX. Otsu re-derives the cut from this crop's own
+    histogram and lands on ~160 for a live row and ~92 for a dimmed one.
+    """
+    if img_bgr is None or getattr(img_bgr, "size", 0) == 0:
+        return None
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    if int(gray.max()) - int(gray.min()) < FREEFIRE_GLYPH_MIN_RANGE:
+        return None
+    mask = cv2.threshold(gray, 0, 255,
+                         cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+    # The text is the minority of the box. If Otsu has put most of the
+    # crop on the bright side it has split something other than text off
+    # its background -- a glow, a flash -- and the ink is the other half.
+    if (mask > 0).mean() > 0.5:
+        mask = cv2.bitwise_not(mask)
+    return mask
+
+
+def _glyph_clean(mask):
+    """Drops everything in the crop that is not shaped like a letter.
+
+    This is not tidying, it is the difference between reading the row and
+    not. An explosion over the table leaves long thin diagonals of bright
+    pixels lying across the box, and the next step crops to the bounding
+    box of whatever ink it finds: one streak reaching a corner stretches
+    that box across the whole crop, so the tag itself is squashed into
+    the corner of the resized image and matches nothing. Measured on this
+    desk's own recording, that alone took the tag match from a clean read
+    to a miss on seven rows out of twelve -- the rows with an explosion
+    over them, which are exactly the rows a fight is happening on.
+
+    A streak is long, thin and sparse: its bounding box is large and
+    mostly empty. A letter is compact and solid, and stands nearly as
+    tall as the row. Density separates the two cleanly where neither
+    height nor width alone does.
+    """
+    if mask is None:
+        return None
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(
+        mask, connectivity=8)
+    if count <= 1:
+        return None
+    height = mask.shape[0]
+    keep = np.zeros_like(mask)
+    found = False
+    for i in range(1, count):
+        x, y, w, h, area = (stats[i, cv2.CC_STAT_LEFT],
+                            stats[i, cv2.CC_STAT_TOP],
+                            stats[i, cv2.CC_STAT_WIDTH],
+                            stats[i, cv2.CC_STAT_HEIGHT],
+                            stats[i, cv2.CC_STAT_AREA])
+        if h < height * 0.35 or h > height * 1.05:
+            continue
+        if w < 2 or w > mask.shape[1] * 0.6:
+            continue
+        if area < 8 or area < w * h * 0.15:
+            continue
+        keep[labels == i] = 255
+        found = True
+    return keep if found else None
+
+
+def _glyph_vector(mask, shape, clean=True):
+    """Ink, cropped to its own bounds and resized -- so matching compares
+    the glyphs and not how much blank box happened to surround them."""
+    if mask is None:
+        return None
+    if clean:
+        mask = _glyph_clean(mask)
+        if mask is None:
+            return None
+    cols = np.where(mask.max(axis=0) > 0)[0]
+    rows = np.where(mask.max(axis=1) > 0)[0]
+    if not len(cols) or not len(rows):
+        return None
+    ink = mask[rows[0]:rows[-1] + 1, cols[0]:cols[-1] + 1]
+    if ink.shape[0] < 3 or ink.shape[1] < 2:
+        return None
+    return cv2.resize(ink, shape, interpolation=cv2.INTER_AREA).astype(
+        np.float32)
+
+
+def _glyph_similarity(a, b):
+    """Normalised cross-correlation: 1.0 identical, 0.0 unrelated. Mean-
+    subtracted so it judges shape rather than how much ink there is."""
+    a = a - a.mean()
+    b = b - b.mean()
+    scale = float(np.sqrt((a * a).sum() * (b * b).sum()))
+    return float((a * b).sum() / scale) if scale else 0.0
+
+
+def _glyph_best(vector, templates):
+    """(name, score, margin over the runner-up). A single template has no
+    runner-up, so its margin is the score itself.
+
+    Each name holds a LIST of appearances, and the best of them speaks
+    for it. The client draws the same tag more than one way -- a live row
+    bright, a wiped squad's row dimmed -- and while the binary shape is
+    meant to survive that, "meant to" is not a thing to bet a live read
+    on. Holding both costs one more correlation against a 64x24 array and
+    removes the guess.
+    """
+    if vector is None or not templates:
+        return None, 0.0, 0.0
+    ranked = sorted(
+        ((max(_glyph_similarity(vector, ref) for ref in refs), name)
+         for name, refs in list(templates.items()) if refs),
+        reverse=True)
+    if not ranked:
+        return None, 0.0, 0.0
+    top = ranked[0]
+    margin = top[0] - ranked[1][0] if len(ranked) > 1 else top[0]
+    return top[1], top[0], margin
+
+
+# How many different appearances of one glyph are worth keeping. Bright
+# and dimmed are the two that exist today; the cap is there so a slow
+# drift in the artwork cannot grow the library without bound.
+FREEFIRE_GLYPH_MAX_VARIANTS = 3
+
+
+def _glyph_remember(store, name, vector):
+    """Files `vector` under `name`, unless that picture is already there.
+
+    Returns True when something was actually added, so the caller knows
+    whether to mark the library dirty and say so on the console.
+    """
+    global _glyph_barren
+    refs = store.setdefault(name, [])
+    if any(_glyph_similarity(vector, ref) >= 0.92 for ref in refs):
+        return False
+    if len(refs) >= FREEFIRE_GLYPH_MAX_VARIANTS:
+        return False
+    first = not refs
+    refs.append(vector)
+    # Only a glyph that could not be read AT ALL before counts as
+    # learning still being productive. A second picture of something
+    # already known is a refinement, and treating it as a discovery kept
+    # resetting the count: with twenty-two glyphs and three variants
+    # apiece there is always another refinement to be had, so the engine
+    # never stopped paying for an OCR call every poll. Refinements still
+    # get picked up, at the slow rate, which is what they are worth.
+    if first:
+        _glyph_barren = 0
+    return True
+
+
+def _glyph_accept(name, score, margin):
+    return (name and score >= FREEFIRE_GLYPH_MIN_SCORE
+            and margin >= FREEFIRE_GLYPH_MIN_MARGIN)
+
+
+def row_is_dimmed(img_bgr):
+    """True when the client has drawn this row dimmed, which it does for
+    a squad that has been wiped. Cheaper than classifying four bars, and
+    it is the client's own statement rather than an inference from
+    colour, so it is what the elimination card should key on."""
+    if img_bgr is None or getattr(img_bgr, "size", 0) == 0:
+        return False
+    return int(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY).max()) < \
+        FREEFIRE_ROW_DIM_MAX
+
+
+# An explosion or muzzle flash lying across a row, as a fraction of the
+# pixels in a box that is normally free of colour. The tag and the elim
+# number are white on a dark panel, so on a clean row this measures
+# exactly 0.0; a dimmed row reaches 1-2%, and a row with fire across it
+# 6-13%. The gap is wide enough that the threshold hardly matters.
+FREEFIRE_ROW_FIRE_RATIO = 0.04
+
+
+def row_is_obscured(*crops):
+    """True when fire is lying across this row, making its bars a guess.
+
+    The alive bars cannot be read through an explosion, and no choice of
+    colour thresholds fixes that: a live bar is H20 S255 V255 and a dead
+    one H20 S121 V78, but fire lifts a DEAD bar to H21 S203-234 V255 --
+    onto the live reference, by the same hue. Seen on air as a squad with
+    one player left showing three.
+
+    Measured on the tag and elim boxes rather than on the bars: those are
+    white-on-dark by design, so any warm saturated pixel in them is
+    something that does not belong, while an orange bar is orange whether
+    or not anything is on fire. On this table a clean row measures 0.0%,
+    a dimmed one 1-2% and a row with fire across it 6-13%.
+
+    REPORTED, NOT ACTED ON. Holding the bars whenever this is true was
+    tried and was worse than doing nothing: the flag misses the odd poll,
+    a wrong reading gets accepted during one of those, and the hold then
+    freezes THAT for as long as the fire lasts -- five seconds of a live
+    squad on air as wiped, which is what the hold existed to prevent.
+    Deciding when a bar cannot be read needs a signal this is not: fire-
+    lit dead bars measure H21 S203 V215+-88, and genuinely alive bars on
+    other rows of the same table measure H20 S204 V204+-88. They are the
+    same numbers. Neither colour nor uniformity separates them, so the
+    honest thing is to publish the reading and flag the row.
+    """
+    for crop in crops:
+        if crop is None or getattr(crop, "size", 0) == 0:
+            continue
+        hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+        warm = ((hsv[:, :, 0] < 35) & (hsv[:, :, 1] > 90)
+                & (hsv[:, :, 2] > 90)).mean()
+        if warm > FREEFIRE_ROW_FIRE_RATIO:
+            return True
+    return False
+
+
+def _digit_runs(mask):
+    """Column runs in the elim box that are shaped like a digit of this
+    font.
+
+    The shape test is the point. An explosion across the box leaves one
+    very wide bright run and a scatter of sparks; both are thrown out
+    here, on geometry, before anything tries to read them. The OCR path
+    had no equivalent -- it saw the streak, failed, and returned nothing
+    for the row, which is how a live elim count went blank mid-fight.
+    """
+    if mask is None:
+        return []
+    height = mask.shape[0]
+    columns = (mask > 0).sum(axis=0)
+    runs, start = [], None
+    for x, on in enumerate(columns):
+        if on and start is None:
+            start = x
+        elif not on and start is not None:
+            runs.append((start, x - 1))
+            start = None
+    if start is not None:
+        runs.append((start, len(columns) - 1))
+
+    kept = []
+    for x0, x1 in runs:
+        width = x1 - x0 + 1
+        rows_on = np.where(mask[:, x0:x1 + 1].max(axis=1) > 0)[0]
+        tall = (rows_on[-1] - rows_on[0] + 1) if len(rows_on) else 0
+        if 3 <= width <= height and tall >= height * 0.40:
+            kept.append((x0, x1))
+    return kept
+
+
+def read_tag_by_template(img_bgr):
+    """The team tag, matched against the twelve learned templates.
+
+    Returns None when it cannot answer -- no library yet, no ink, or a
+    match too close to call -- and the caller falls back to OCR.
+    """
+    if not _tag_templates:
+        return None
+    vector = _glyph_vector(_glyph_mask(img_bgr), FREEFIRE_TAG_SHAPE)
+    name, score, margin = _glyph_best(vector, _tag_templates)
+    return name if _glyph_accept(name, score, margin) else None
+
+
+def read_number_by_template(img_bgr):
+    """The elim count, one template match per digit.
+
+    Returns None rather than a partial answer when any digit is
+    unreadable: "1" where the box says "12" is a worse thing to put on
+    air than last poll's value held for one more frame.
+    """
+    if not _digit_templates:
+        return None
+    return _read_number_by_template(img_bgr)
+
+
+def _read_number_by_template(img_bgr):
+    mask = _glyph_mask(img_bgr)
+    if mask is None:
+        # An empty box is a real reading: the client leaves it blank for
+        # a row it is still drawing. Reported as unread, not as zero.
+        return None
+    # Falls back to the raw mask rather than giving up: the filter is
+    # tuned for letters, and a lone "1" is thin enough to be near its
+    # limits. `or` would not do here -- a numpy array has no truth value.
+    cleaned = _glyph_clean(mask)
+    if cleaned is not None:
+        mask = cleaned
+    runs = _digit_runs(mask)
+    if not runs or len(runs) > 2:
+        return None
+    digits = ""
+    for x0, x1 in runs:
+        # clean=False: the mask has already been through the shape filter
+        # and then split into single glyphs. Running it again on one
+        # digit's slice would throw that digit away -- the filter rejects
+        # a component wider than 60% of its image, and a slice cut to a
+        # digit's own edges is 100% of it.
+        vector = _glyph_vector(mask[:, x0:x1 + 1], FREEFIRE_DIGIT_SHAPE,
+                               clean=False)
+        name, score, margin = _glyph_best(vector, _digit_templates)
+        if not _glyph_accept(name, score, margin):
+            return None
+        digits += name
+    try:
+        return int(digits)
+    except ValueError:
+        return None
+
+
+def learn_tag_template(img_bgr, tag_text):
+    """Keeps this crop under the TEXT that was read off it.
+
+    Keyed by the tag itself ("S8UL"), not by the squad it resolved to,
+    for two reasons. ocr_team_name's caller expects the raw reading --
+    what the pixels say and which squad that is are separate questions,
+    and the dashboard shows the first so an operator can see what led to
+    a wrong answer. And a tag belongs to the client's rendering rather
+    than to this roster, so a library keyed this way survives a roster
+    swap between groups instead of going stale with it.
+
+    Called only for a row that has read the same squad for
+    FREEFIRE_TEAM_AGREE_FRAMES consecutive polls, so the label is as
+    sound as the engine's own settled reading -- the same evidence it
+    already trusts enough to put that name on air.
+
+    Dimmed crops are refused: a wiped squad's row is drawn differently,
+    and a template taken from one would not match that squad while it is
+    still alive next match.
+    """
+    global _glyph_store_dirty
+    tag_text = (tag_text or "").strip()
+    if not tag_text:
+        return
+    vector = _glyph_vector(_glyph_mask(img_bgr), FREEFIRE_TAG_SHAPE)
+    if vector is None:
+        return
+    # The same glyphs under a second spelling -- tesseract reading "S8UL"
+    # one poll and "SBUL" the next -- would put two near-identical
+    # templates in the library under different names, to compete with
+    # each other: every match against either would come back with a
+    # margin near zero and be rejected. One picture, one name.
+    existing, score, _ = _glyph_best(vector, _tag_templates)
+    if existing and existing != tag_text and score >= 0.92:
+        return
+    dim = row_is_dimmed(img_bgr)
+    if not _glyph_remember(_tag_templates, tag_text, vector):
+        return
+    _glyph_store_dirty = True
+    print(f"[glyphs] learned the tag {tag_text!r}"
+          f"{' (dimmed)' if dim else ''} "
+          f"({len(_tag_templates)} known)")
+
+
+def learn_digit_templates(img_bgr, value):
+    """Keeps each digit of a freshly OCR'd elim count as a template.
+
+    Only when the box splits into exactly as many glyphs as the number
+    has digits, so a misread cannot be filed under the wrong shape, and
+    only when the new shape does not confidently contradict a digit
+    already known -- a conflict means one of the two readings is wrong
+    and neither is worth keeping.
+    """
+    global _glyph_store_dirty
+    if value is None or value < 0 or value > 99:
+        return
+    text = str(value)
+    mask = _glyph_mask(img_bgr)
+    if mask is None:
+        return
+    cleaned = _glyph_clean(mask)
+    if cleaned is not None:
+        mask = cleaned
+    runs = _digit_runs(mask)
+    if len(runs) != len(text):
+        return
+    for (x0, x1), digit in zip(runs, text):
+        vector = _glyph_vector(mask[:, x0:x1 + 1], FREEFIRE_DIGIT_SHAPE,
+                               clean=False)          # already segmented
+        if vector is None:
+            continue
+        other, score, _ = _glyph_best(vector, _digit_templates)
+        if other and other != digit and score >= 0.92:
+            continue                      # says it is already some other digit
+        if not _glyph_remember(_digit_templates, digit, vector):
+            continue
+        _glyph_store_dirty = True
+        print(f"[glyphs] learned the digit {digit}"
+              f"{' (dimmed)' if row_is_dimmed(img_bgr) else ''} "
+              f"({len(_digit_templates)} of 10 known)")
+
+
+def seed_glyph_templates(crops, roster_teams=None):
+    """Learns the whole table in one go, from one capture.
+
+    The opportunistic path -- keep a crop whenever a row's reading agrees
+    with itself a few polls running -- fills the library on its own, but
+    only as fast as the match lets it: it learns a squad's tag when that
+    squad happens to sit still, and a digit when some squad happens to
+    reach that number. Late in a match, with half the table eliminated
+    and the client reordering what is left, that can leave the library
+    half full for a long time, and every unmatched row goes on costing an
+    OCR call.
+
+    This is the direct route, for when the table is worth capturing: read
+    every row with OCR, once, and keep all of it. One call per row and
+    roughly a second in total -- far too slow for the poll loop, which is
+    the entire reason the templates exist, and completely fine as a
+    deliberate one-off.
+
+    Best run on a full table at the start of a match, where every squad
+    is alive, every tag is drawn bright and nothing is on fire. Returns
+    what it learned so a caller can report it.
+    """
+    before = (len(_tag_templates), len(_digit_templates))
+    for entry in crops:
+        elim_crop = entry[1] if len(entry) > 1 else None
+        team_crop = entry[2] if len(entry) > 2 else None
+        if team_crop is not None and getattr(team_crop, "size", 0):
+            # Straight to OCR, past the template check and past the
+            # rationing: the point here is to spend the calls.
+            text = ocr_team_name(team_crop, force=True)
+            if text and roster_teams:
+                # Only a tag that resembles a squad in this lobby. A
+                # seeding pass reads whatever is on screen, and a stray
+                # reading kept now would be matched confidently for the
+                # rest of the night.
+                if not match_roster_team(
+                        text, roster_teams,
+                        min_ratio=FREEFIRE_TEAM_READ_MIN_RATIO,
+                        min_containment=FREEFIRE_TEAM_READ_MIN_CHARS):
+                    text = ""
+            if text:
+                learn_tag_template(team_crop, text)
+        if elim_crop is not None and getattr(elim_crop, "size", 0):
+            value = ocr_small_number(elim_crop, force=True)
+            if value is not None:
+                learn_digit_templates(elim_crop, value)
+    save_glyph_templates(force=True)
+    gained = (len(_tag_templates) - before[0],
+              len(_digit_templates) - before[1])
+    print(f"[glyphs] seeded from one capture: +{gained[0]} tag(s), "
+          f"+{gained[1]} digit(s) -- now {len(_tag_templates)} tag(s), "
+          f"{len(_digit_templates)} digit(s)")
+    return glyph_stats()
+
+
+# ---------------------------------------------------------------------
+# The client's own elimination banner.
+#
+# When a squad is wiped the client throws a strip across the top-left --
+# "#7  ARISE  ELIMINATED" -- and that strip is a better source for the
+# fact than the side table is. It says so FIRST, at the instant of the
+# wipe rather than whenever the bars are next read and agreed; it says so
+# UNAMBIGUOUSLY, as text on a solid panel rather than four small colour
+# patches that an explosion makes unreadable (a fire-lit dead bar and a
+# live one measure the same, H21 S203 V215 against H20 S204 V204); and it
+# carries the FINISHING PLACE, which otherwise has to be inferred from
+# the order squads drop out.
+#
+# Reading it costs an OCR call, and that is fine here in a way it is not
+# for the table: a banner happens eleven times in a match, not four times
+# a second. The expensive thing is noticing one is up, because that has
+# to be asked on every poll -- hence the cheap structural test below.
+#
+# Entirely optional. With freefire_elim_banner uncalibrated this never
+# runs and nothing about the existing behaviour changes.
+
+# Presence is decided by matching the word ELIMINATED, which is the one
+# part of the banner that is identical every time -- the name bar takes
+# the squad's own colour and the place changes by definition.
+#
+# It is NOT decided by how the strip looks. That was tried: a banner is a
+# drawn panel, so "mostly flat rows" seemed to separate it from the
+# textured game behind it. Measured against the actual game view, sky
+# scores 0.87 flat and open terrain 0.72, against a banner threshold of
+# 0.55 -- the test fires on an empty sky. For something whose job is to
+# declare a squad eliminated, a cheap test that is wrong in the sky is
+# very much worse than no test.
+FREEFIRE_BANNER_MATCH_MIN = 0.72
+
+_banner_up = False
+_banner_last_team = ""
+# Squads the client's own banner has declared out, and where it said they
+# finished. Both are cleared with the rest of a match's state when a
+# fresh lobby is detected -- see assign_finish_ranks.
+_banner_wiped = set()
+_banner_finishes = {}
+
+
+_banner_flag_ref = None
+
+
+def _banner_appearance(bgr, shape=(96, 24)):
+    """The box as a picture, normalised for size and for brightness.
+
+    Matched whole rather than through the glyph pipeline that reads the
+    table. That pipeline trims to letter-shaped ink, which is right for a
+    squad tag sitting alone on a panel and wrong here: ELIMINATED is a
+    row of small letters, and the shape filter threw all of them away as
+    too short, leaving nothing to compare. This keeps the whole box,
+    which is fair because the box is in a fixed place and the word in it
+    never moves.
+    """
+    if bgr is None or getattr(bgr, "size", 0) == 0:
+        return None
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    small = cv2.resize(gray, shape, interpolation=cv2.INTER_AREA)
+    # Mean-subtracted, so the match judges the shape of the word rather
+    # than how bright the banner happens to be as it animates in.
+    small -= small.mean()
+    norm = float(np.sqrt((small * small).sum()))
+    return small / norm if norm else None
+
+
+def load_banner_flag_reference():
+    """The picture of ELIMINATED, kept by calibrate.py at the moment the
+    box was drawn -- which is the one moment a banner is certainly on
+    screen. Absent, banner reading simply stays off."""
+    global _banner_flag_ref
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "freefire_banner_flag.png")
+    if not os.path.exists(path):
+        _banner_flag_ref = None
+        return False
+    image = cv2.imread(path)
+    _banner_flag_ref = _banner_appearance(image)
+    if _banner_flag_ref is None:
+        print("[banner] the saved ELIMINATED picture could not be read; "
+              "recalibrate ff-elim-banner")
+        return False
+    print("[banner] elimination banners will be spotted by matching the "
+          "saved ELIMINATED picture")
+    return True
+
+
+def elim_banner_present(flag_bgr):
+    """Is the word ELIMINATED on screen?
+
+    One correlation against a 96x24 array -- a fraction of a millisecond,
+    so it can be asked on every poll.
+
+    Not decided by how the strip LOOKS. That was tried: a banner is a
+    drawn panel, so "mostly flat rows" seemed to separate it from the
+    textured game behind it. Measured against the real game view, sky
+    scores 0.87 flat and open terrain 0.72, against a threshold of 0.55 --
+    the test fires on an empty sky. For something whose job is to declare
+    a squad eliminated, a cheap test that is wrong in the sky is very
+    much worse than no test.
+    """
+    if _banner_flag_ref is None:
+        return False
+    now = _banner_appearance(flag_bgr)
+    if now is None:
+        return False
+    return float((now * _banner_flag_ref).sum()) >= FREEFIRE_BANNER_MATCH_MIN
+
+
+def read_elim_banner(sct, regions, roster_teams=None):
+    """(team, finishing place) the moment a squad's banner goes up, once.
+
+    Returns None on every poll where there is no banner, where one is
+    still up that has already been reported, or where the strip is up but
+    the name cannot be read yet -- the banner animates in, so the first
+    poll or two of it is a wipe of colour with no text.
+
+    The edge is what is reported, not the state: a banner sits on screen
+    for several seconds, and a squad must not be eliminated several times.
+    """
+    global _banner_up, _banner_last_team
+    flag_box = regions.get("freefire_elim_banner")
+    name_box = regions.get("freefire_elim_banner_team")
+    if not flag_box or not name_box:
+        return None                        # not calibrated; feature is off
+
+    present = elim_banner_present(crop_to_bgr(sct, flag_box))
+    if not present:
+        _banner_up = False
+        _banner_last_team = ""
+        return None
+    if _banner_up and _banner_last_team:
+        return None                        # same banner, already reported
+
+    _banner_up = True
+    # force=True: this is the rare event the OCR budget exists to protect
+    # -- eleven times a match, not four times a second -- and it must not
+    # be deferred to a poll by which the banner has gone.
+    text = ocr_team_name(crop_to_bgr(sct, name_box), force=True)
+    if not text:
+        return None                        # still animating in; try next poll
+    if roster_teams:
+        hit = match_roster_team(text, roster_teams,
+                                min_ratio=FREEFIRE_TEAM_READ_MIN_RATIO,
+                                min_containment=FREEFIRE_TEAM_READ_MIN_CHARS)
+        if not hit:
+            return None                    # not a squad in this lobby
+        text = hit.get("name") or text
+
+    rank = None
+    rank_box = regions.get("freefire_elim_banner_rank")
+    if rank_box:
+        rank = ocr_small_number(crop_to_bgr(sct, rank_box), force=True)
+        if rank is not None and not 1 <= rank <= FREEFIRE_DEFAULT_LOBBY:
+            rank = None                    # a place outside the lobby is a misread
+
+    _banner_last_team = text
+    key = _ign_key(text)
+    if key:
+        _banner_wiped.add(key)
+        if rank is not None:
+            _banner_finishes[key] = rank
+    print(f"[banner] {text} eliminated"
+          + (f" at #{rank}" if rank else " (place unreadable)"))
+    return text, rank
+
+
+def save_glyph_templates(force=False):
+    """Writes the library beside the config, at most every 30 seconds.
+
+    Throttled because this is called from the poll path: the library
+    settles within the first minute of a match and then never changes,
+    so the write is rare, but a match that keeps learning must not turn
+    into a file write every quarter second.
+    """
+    global _glyph_store_dirty, _glyph_store_saved_at
+    if not _glyph_store_dirty:
+        return
+    now = time.time()
+    if not force and now - _glyph_store_saved_at < 30:
+        return
+    try:
+        arrays = {}
+        for kind, store in (("tag", _tag_templates),
+                            ("digit", _digit_templates)):
+            for name, refs in list(store.items()):
+                for n, ref in enumerate(refs):
+                    # npz keys are flat, so the variant index rides in the
+                    # key and is split back out on load.
+                    arrays[f"{kind}::{name}::{n}"] = ref
+        np.savez_compressed(_glyph_path(), **arrays)
+        _glyph_store_saved_at = now
+        _glyph_store_dirty = False
+    except Exception as exc:
+        # Never worth failing a poll over. The library is a cache of
+        # something the OCR path can always produce again.
+        print(f"[glyphs] could not save the template library: {exc}")
+
+
+def load_glyph_templates():
+    path = _glyph_path()
+    if not os.path.exists(path):
+        return
+    try:
+        with np.load(path) as data:
+            for key in data.files:
+                kind, _, rest = key.partition("::")
+                name = rest.rpartition("::")[0] or rest
+                store = (_tag_templates if kind == "tag"
+                         else _digit_templates if kind == "digit" else None)
+                if store is None:
+                    continue
+                store.setdefault(name, []).append(
+                    data[key].astype(np.float32))
+        print(f"[glyphs] loaded {len(_tag_templates)} tag(s) and "
+              f"{len(_digit_templates)} digit(s) -- the table reads by "
+              f"template, not OCR")
+    except Exception as exc:
+        _tag_templates.clear()
+        _digit_templates.clear()
+        print(f"[glyphs] ignoring the template library ({exc}); "
+              f"relearning from OCR")
+
+
+# Once the library can read the table, an OCR call is no longer how a row
+# gets read -- it is only how an unseen glyph gets LEARNED. Left
+# unrestricted it goes on costing a 207ms call on every crop the
+# templates cannot place, and those are not rare: an explosion over a row
+# hides its number, and tesseract cannot read that crop either, so the
+# call buys nothing and the poll overruns anyway. Measured here, that was
+# the whole difference between an 8ms poll and a 500ms one.
+#
+# So it is rationed: one call per poll, and only every few polls once the
+# library is ready. A genuinely new glyph -- a digit not seen yet, a
+# substitute team -- is still picked up within a second or two, which is
+# far inside the agreement window that has to pass before a reading goes
+# to air anyway.
+FREEFIRE_GLYPH_LEARN_EVERY = 6
+
+# An OCR call is rationed by whether it is still TEACHING anything, not
+# by how much of the table the templates can already read.
+#
+# Two earlier rules failed here, both instructively. Counting templates
+# switched rationing on as soon as one tag and two digits were known,
+# which starved the very OCR reads a row needs to settle -- and a row only
+# donates its tag once it has settled. One tag was learned, the other
+# eleven never were, and the poll time looked wonderful throughout.
+#
+# Measuring the match rate instead fixed that and left a permanent tax:
+# coverage settled at 85%, between the "still building" and "done"
+# thresholds, so the engine paid one 200-400ms call every poll forever.
+# It could never reach "done", because a row or two is always genuinely
+# unreadable -- an explosion across it, a row caught mid-reorder -- and no
+# amount of OCR will ever place those. Coverage cannot distinguish "I have
+# not learned this yet" from "this cannot be read by anything".
+#
+# Yield can. While the library is filling, calls produce new templates and
+# are worth making; once it is complete they produce nothing, however many
+# rows still fail, and the rate drops to a trickle that costs nothing and
+# still picks up a substitute team or a digit no squad had reached. A new
+# template resets the count, so learning restarts by itself.
+FREEFIRE_GLYPH_LEARN_EVERY = 6
+FREEFIRE_GLYPH_BARREN_CALLS = 24
+
+_glyph_poll = 0
+_glyph_learn_spent = 0
+_glyph_barren = 0          # OCR calls since the last new template
+
+
+def begin_glyph_poll():
+    """Called once per poll, before any crop is read."""
+    global _glyph_poll, _glyph_learn_spent
+    _glyph_poll += 1
+    _glyph_learn_spent = 0
+
+
+def _glyph_learnable(mask):
+    """True when a crop holds clean, well-formed glyphs that simply are
+    not in the library yet -- as against one nothing could read.
+
+    This distinction is the whole difference between a number that is
+    briefly a poll late and one that is wrong for a minute. A squad
+    reaching a kill count no squad has reached yet produces a perfectly
+    legible crop that matches nothing, and the OCR call that would learn
+    it is the only way it ever becomes readable; refuse that call and
+    hold_last_good_elims keeps publishing the previous number for as long
+    as the digit keeps appearing. It happened live: the library had no 6
+    and no 7, so a squad on 7 kills stayed on air at 2 for 42 seconds.
+    A crop smeared by an explosion looks quite different -- the ink does
+    not resolve into glyph-shaped pieces -- and there is nothing to learn
+    from it, so those stay rationed.
+    """
+    if mask is None:
+        return False
+    cleaned = _glyph_clean(mask)
+    if cleaned is None:
+        return False
+    rows_on = np.where(cleaned.max(axis=1) > 0)[0]
+    if not len(rows_on):
+        return False
+    tall = rows_on[-1] - rows_on[0] + 1
+    return tall >= mask.shape[0] * 0.35
+
+
+def _glyph_may_learn(kind, learnable=False):
+    """True when this crop may spend an OCR call.
+
+    Never more than one a poll unless the crop is one the library could
+    actually learn from, and never more than two even then: one call is
+    already over the whole budget, and everything else on the table reads
+    from templates in well under a millisecond.
+
+    A learnable crop gets the second call, but it does NOT go past the
+    barren check. Letting it do so was tried and put the permanent tax
+    straight back: a row under fire still resolves into glyph-shaped ink,
+    so it looks learnable on every poll, and it spent two OCR calls a poll
+    for the rest of the match while teaching the library nothing. The
+    barren count is the only thing that actually knows whether the calls
+    are working -- at 120 calls without a new glyph, they are not, however
+    learnable each crop looks in isolation.
+    """
+    global _glyph_learn_spent, _glyph_barren
+    cap = 2 if learnable else 1
+    if _glyph_learn_spent >= cap:
+        return False
+    if _glyph_barren >= FREEFIRE_GLYPH_BARREN_CALLS:
+        # The longer the calls go on teaching nothing, the less often
+        # they are worth making. One call costs more than the whole poll
+        # budget, so at a fixed one-in-six a complete library still spent
+        # a 450ms poll every second and a half, for ever, to relearn what
+        # it already knew. Stretching the interval as the drought goes on
+        # keeps the cost of watching for something new proportional to
+        # how likely something new is -- and the moment one does turn up,
+        # the count resets and this tightens straight back.
+        every = FREEFIRE_GLYPH_LEARN_EVERY
+        if len(_digit_templates) >= 10:
+            # Every digit is known, so a call can only ever turn up a new
+            # TAG -- a substitute squad between matches, not something
+            # that appears mid-round. Worth watching for, not worth a
+            # 450ms poll every second and a half.
+            every *= 5
+        if _glyph_poll % every:
+            return False
+    _glyph_learn_spent += 1
+    _glyph_barren += 1
+    return True
+
+
+def glyph_stats():
+    return {"tags": sorted(_tag_templates),
+            "digits": sorted(_digit_templates),
+            "ready": bool(_tag_templates) and len(_digit_templates) >= 2}
+
+
+def forget_glyph_templates():
+    """Drops the library so it is rebuilt from OCR. For when the overlay
+    art, the resolution or the client's font has changed and the stored
+    pictures no longer describe what is on screen."""
+    global _glyph_store_dirty
+    _tag_templates.clear()
+    _digit_templates.clear()
+    _glyph_store_dirty = True
+    save_glyph_templates(force=True)
+    print("[glyphs] template library cleared; relearning from OCR")
+
+
+def ocr_small_number(img_bgr, upscale=4, force=False):
     """Reads a small standalone number (an elim count).
 
     Needed because the general sparse-text pass used for the rest of the
@@ -1624,6 +2555,24 @@ def ocr_small_number(img_bgr, upscale=4):
     colour rather than assuming it."""
     if img_bgr is None or img_bgr.size == 0:
         return None
+
+    # Templates first, and deliberately BEFORE the budget is consulted.
+    # A match costs a fraction of a millisecond, so there is nothing to
+    # ration: once the library knows the digits, every row is read on
+    # every poll and no row is ever deferred again.
+    if not force:
+        quick = read_number_by_template(img_bgr)
+        if quick is not None:
+            return quick
+    if not force and not _glyph_may_learn(
+            "digit", _glyph_learnable(_glyph_mask(img_bgr))):
+        # Not "no number here" -- "not read this poll", which is what
+        # hold_last_good_elims already carries forward. Saying nothing is
+        # right: a crop the templates cannot place is one tesseract could
+        # not place either, and guessing at it would put a wrong number
+        # under a team's name.
+        return _OCR_SKIPPED
+
     big = cv2.resize(img_bgr, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
 
@@ -1677,7 +2626,12 @@ def ocr_small_number(img_bgr, upscale=4):
                 return int(match.group())
         return None
 
-    return _ocr_memoised("num", candidates, read)
+    value = _ocr_memoised("num", candidates, read)
+    # What OCR just worked out, the templates get to keep -- so this crop
+    # is the last time this digit costs 207ms.
+    if value is not _OCR_SKIPPED and value is not None:
+        learn_digit_templates(img_bgr, value)
+    return value
 
 
 def find_bar_columns(alive_strip, expected=SIDETABLE_PLAYERS_PER_TEAM):
@@ -1875,7 +2829,12 @@ def parse_sidetable(img_bgr, columns=None, palette=None):
         y0, y1 = max(0, int(centre_y - half)), min(height, int(centre_y + half))
 
         elims_patch = img_bgr[y0:y1, elims_x0:elims_x1]
-        elims = ocr_small_number(elims_patch)
+        # force=True: this is the log/OCR fallback, used when the alive
+        # grid is not calibrated, and it is the only reader on this path.
+        # The templates' per-poll allowance belongs to the grid path and
+        # is reset there; inheriting it here would throttle this loop to
+        # one row per poll and leave the rest of the table unread.
+        elims = ocr_small_number(elims_patch, force=True)
 
         bars = []
         for (sx0, sx1) in bar_spans:
@@ -2131,7 +3090,7 @@ def capture_alive_grid_crops(sct, grid):
             for row in grid]
 
 
-def ocr_team_name(img_bgr, upscale=3):
+def ocr_team_name(img_bgr, upscale=3, force=False):
     """Reads a team name off one row of the client's side table.
 
     Not ocr_text(): that leaves Tesseract's layout analysis to work out
@@ -2149,6 +3108,23 @@ def ocr_team_name(img_bgr, upscale=3):
     """
     if img_bgr is None or getattr(img_bgr, "size", 0) == 0:
         return ""
+
+    # See ocr_small_number: matched against the learned tags first, off
+    # the budget entirely, and only an unknown or ambiguous crop costs a
+    # tesseract call.
+    if not force:
+        quick = read_tag_by_template(img_bgr)
+        if quick is not None:
+            return quick
+    if not force and not _glyph_may_learn(
+            "tag", _glyph_learnable(_glyph_mask(img_bgr))):
+        # Deferred, NOT blank. Blank means "looked, saw nothing legible"
+        # and resets the row's agreement streak; a row under an explosion
+        # would then never settle again. Deferred leaves the streak alone,
+        # which is the truth here -- the row is waiting for a learning
+        # slot, not failing to be read.
+        return _OCR_SKIPPED
+
     big = cv2.resize(img_bgr, None, fx=upscale, fy=upscale,
                      interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
@@ -2196,6 +3172,7 @@ def classify_alive_grid_crops(crops, palette=None):
     # The bars are a colour comparison, not OCR -- 2ms for the whole
     # table -- so they are never budgeted. Only the reading is.
     global _ocr_rotation
+    begin_glyph_poll()
     order = list(range(len(crops)))
     if order:
         cut = _ocr_rotation % len(order)
@@ -2213,15 +3190,57 @@ def classify_alive_grid_crops(crops, palette=None):
             elim_crop = crops[i][1]
             if elim_crop is not None and getattr(elim_crop, "size", 0):
                 read_elims[i] = ocr_small_number(elim_crop)
+        # ONE name is guaranteed a chance, however little is left.
+        #
+        # The priority above is right, but read literally it starves the
+        # names as a CATEGORY rather than slowing them down: all twelve
+        # elims are attempted before the first name is, so any poll whose
+        # budget runs out inside the elim pass reads no name at all -- and
+        # on a table that is actually changing, that is every poll. No
+        # rotation can rescue it, because the order of the ROWS is not
+        # what is starving them; the order of the two PASSES is. The
+        # eight-poll agreement window cannot smooth over a read that never
+        # happens, so rows sat on "waiting its turn to be read" forever
+        # while every elim stayed current.
+        #
+        # The floor is applied once, to the first name actually attempted.
+        # The rest of the pass is on the ordinary budget, so a poll with
+        # room to spare still reads as many names as it can afford.
+        first_name = True
         for i in order:
             team_crop = crops[i][2] if len(crops[i]) > 2 else None
-            if team_crop is not None and getattr(team_crop, "size", 0):
+            if team_crop is None or not getattr(team_crop, "size", 0):
+                continue
+            if first_name:
+                # The loan is for this read only; everything after it is
+                # on the ordinary budget, so a poll with room to spare
+                # still reads as many names as it can genuinely afford.
+                first_name = False
+                lent = _ocr_budget_lend(FREEFIRE_OCR_NAME_FLOOR_MS)
+                try:
+                    read_teams[i] = ocr_team_name(team_crop)
+                finally:
+                    _ocr_budget_restore(lent)
+            else:
                 read_teams[i] = ocr_team_name(team_crop)
     finally:
         _ocr_budget_end()
     deferred = sum(1 for v in list(read_elims.values()) + list(read_teams.values())
                    if v is _OCR_SKIPPED)
-    _ocr_rotation += max(1, deferred)
+
+    # Advance the cursor so a row that went unread LEADS the next poll.
+    #
+    # `% len(order)` is what makes the modulo matter: stepping by the
+    # raw count of deferrals looks like it must eventually walk the
+    # table, and does not. With twelve rows, a poll that reads every
+    # elim and no name defers exactly twelve -- one whole turn of the
+    # cursor, landing it back where it started. The same rows are then
+    # read and the same rows deferred on the next poll, and the next,
+    # with nothing to show that anything is stuck: it is a fixed point,
+    # not slow progress. Reducing the step modulo the row count first
+    # turns that dead case into a single-row step, which always moves.
+    step = deferred % len(order) if order else 0
+    _ocr_rotation += max(1, step)
 
     rows_out = []
     for index, entry in enumerate(crops):
@@ -2235,6 +3254,13 @@ def classify_alive_grid_crops(crops, palette=None):
             for c in bar_crops
         ]
         elims = read_elims.get(index)
+        # Whether the templates could read this box on their own. Costs
+        # one more correlation against a 24x32 array; it decides how hard
+        # a lower number has to work to get on air -- see
+        # FREEFIRE_ELIM_DROP_AGREE_CONFIDENT.
+        row_confident = (elim_crop is not None
+                         and getattr(elim_crop, "size", 0)
+                         and read_number_by_template(elim_crop) is not None)
         if elims is _OCR_SKIPPED:
             # None is exactly "no reading this frame", which
             # hold_last_good_elims already carries forward.
@@ -2243,7 +3269,17 @@ def classify_alive_grid_crops(crops, palette=None):
             "bars": bars,
             "aliveCount": sum(1 for b in bars if b == "alive"),
             "elims": elims,
+            "elimsConfident": bool(row_confident),
         }
+        # The client draws a wiped squad's whole row dimmed. That is its
+        # own statement that the squad is out, arrived at without
+        # classifying a single bar, so it is both quicker and harder to
+        # argue with than inferring it from four bar colours -- which is
+        # what the elimination card wants to fire on.
+        row["dimmed"] = row_is_dimmed(team_crop if team_crop is not None
+                                      else elim_crop)
+        # Fire across the row: the bars cannot be trusted this poll.
+        row["obscured"] = row_is_obscured(team_crop, elim_crop)
         # Only present when the operator drew the name box. Kept as raw
         # text here; deciding WHICH team it is belongs with the roster,
         # not with the pixels.
@@ -2254,6 +3290,12 @@ def classify_alive_grid_crops(crops, palette=None):
             # row's agreement streak for no reason.
             if text is not _OCR_SKIPPED:
                 row["teamText"] = text
+            # Held for read_row_teams, which is where a reading is known
+            # to have SETTLED and so where the crop is known to be worth
+            # keeping. The crop itself must not go into `row` -- these
+            # rows are serialised into the state file, and a numpy array
+            # is not JSON.
+            _last_team_crops[index] = team_crop
         rows_out.append(row)
     return rows_out
 
@@ -2496,6 +3538,34 @@ def _lobby_size(rows=None):
     return len(rows) or FREEFIRE_DEFAULT_LOBBY
 
 
+def apply_banner_wipes(rows):
+    """A squad the client has put a banner up for is out, this poll.
+
+    The side table gets there eventually -- four bars go dark and the
+    agreement rule confirms them a poll or two later -- but "eventually"
+    is the whole problem the banner solves. This is the same fact,
+    arriving at the instant the client states it, and arriving through
+    the ordinary eliminated flag so the card, the re-sort and the sheet
+    push all behave exactly as they always have.
+
+    It only ever turns a row OFF. A squad the banner has not mentioned is
+    left entirely to the bars, so this can add a wipe early but can never
+    hold one back or resurrect one.
+    """
+    if not _banner_wiped:
+        return rows
+    for row in rows:
+        key = _ign_key(row.get("teamName"))
+        if not key or key not in _banner_wiped or row.get("eliminated"):
+            continue
+        bars = row.get("bars") or []
+        row["bars"] = ["eliminated"] * len(bars)
+        row["barDetail"] = [{"status": "eliminated"} for _ in bars]
+        row["aliveCount"] = 0
+        row["eliminated"] = True
+    return rows
+
+
 def assign_finish_ranks(rows):
     """Works out where each wiped squad finished, as it happens.
 
@@ -2525,6 +3595,8 @@ def assign_finish_ranks(rows):
         # approving it. The gate quietly stopped working for exactly the
         # teams that had used it most.
         _finish_ranks = {}
+        _banner_wiped.clear()
+        _banner_finishes.clear()
         ops = server_state.get("liveOps") or {}
         del _elim_card_queue[:]      # last match's cards are not owed
         if ops.get("approvedEliminations"):
@@ -2600,8 +3672,23 @@ def assign_finish_ranks(rows):
     # extras simply get none -- which shows as a blank corner rather than
     # as a squad finishing minus sixth.
     lobby = _lobby_size(rows)
+
+    # A place the client's own banner stated is not inferred, it is read
+    # -- so it is taken as given and never dealt to anyone else. The
+    # counting rule below is a good reconstruction of what the client
+    # did, but it is still a reconstruction: it assumes every wipe was
+    # seen, in order, which a squad going out during a resync or while
+    # the table was unreadable breaks. "#7" on screen does not assume
+    # anything.
+    for _, name in fresh:
+        stated = _banner_finishes.get(_ign_key(name))
+        if stated is not None and stated not in taken:
+            _finish_ranks[name] = stated
+            taken.add(stated)
+
     free = [p for p in range(lobby, 0, -1) if p not in taken]
-    for (row, name), place in zip(fresh, free):
+    for (row, name), place in zip(
+            [(r, n) for r, n in fresh if n not in _finish_ranks], free):
         _finish_ranks[name] = place
         taken.add(place)
 
@@ -2611,7 +3698,8 @@ def assign_finish_ranks(rows):
     # picking a name out of a hat and putting it on air.
     if len(fresh) == 1:
         row, name = fresh[0]
-        announce_elimination(row, _finish_ranks[name])
+        if name in _finish_ranks:
+            announce_elimination(row, _finish_ranks[name])
 
     for row, name in named:
         if not name:
@@ -3040,6 +4128,40 @@ FREEFIRE_ELIM_WINDOW = 5
 # dashboard says so rather than quietly changing the number.
 FREEFIRE_ELIM_DROP_AGREE_FRAMES = 4
 
+# The same bar, for a reading that came from the glyph templates rather
+# than from OCR.
+#
+# The rule above was written when every number came from tesseract, whose
+# characteristic failure is a WRONG number -- a dropped digit turning 13
+# into 3. Guarding against that needs most of the window to agree.
+#
+# A template read cannot fail that way. Each digit has to match a stored
+# picture of that digit at 0.80 or better AND beat the runner-up by a
+# clear margin, and a crop that is obscured, mid-animation or half drawn
+# simply fails to match anything, so the read comes back as NOTHING. The
+# failure mode is silence, not a plausible wrong answer -- which is
+# exactly the thing four-of-five was built to catch.
+#
+# Holding both to the same bar had a cost that was seen on air: a single
+# high misread latches, the true lower value reads correctly from then
+# on, and every one of those correct reads is a "drop" that has to win
+# four of five. One unread frame breaks the run, so the graphic keeps a
+# number the crop plainly disagrees with, and the dashboard sits there
+# saying "25 (held)" next to a crop that says 25.
+#
+# The lower bar applies only to a drop that keeps the SAME NUMBER OF
+# DIGITS -- 27 to 25, not 21 to 3. That is the distinction that matters,
+# because losing a digit is precisely how both readers fail: tesseract
+# by misreading one, and the templates by finding only one clean glyph
+# when the other is occluded, which _digit_runs cannot tell from a
+# genuine single-digit number. 27 to 25 has no such explanation; the
+# only way to read a confident 25 is for the box to say 25.
+#
+# So a same-width drop from a confident read is believed quickly, and a
+# drop that loses a digit still has to win most of the window however it
+# was read.
+FREEFIRE_ELIM_DROP_AGREE_CONFIDENT = 2
+
 # row index -> the last few genuine reads, newest last
 _alive_grid_elim_recent = {}
 # row index -> the bar pattern last seen, and polls left before this
@@ -3058,6 +4180,7 @@ FREEFIRE_BARS_AGREE_FRAMES = 2
 
 _alive_grid_accepted_bars = {}    # row index -> the bar pattern on air
 _alive_grid_bars_pending = {}     # row index -> (candidate pattern, polls seen)
+
 
 
 def hold_stable_bars(grid_rows, remember=True):
@@ -3188,8 +4311,14 @@ def hold_last_good_elims(grid_rows, remember=True):
             # A lower number than what is on air has to clear a higher
             # bar -- see FREEFIRE_ELIM_DROP_AGREE_FRAMES.
             dropping = accepted is not None and reading < accepted
-            needed = (FREEFIRE_ELIM_DROP_AGREE_FRAMES if dropping
-                      else FREEFIRE_ELIM_AGREE_FRAMES)
+            same_width = (accepted is not None
+                          and len(str(reading)) == len(str(accepted)))
+            if not dropping:
+                needed = FREEFIRE_ELIM_AGREE_FRAMES
+            elif row.get("elimsConfident") and same_width:
+                needed = FREEFIRE_ELIM_DROP_AGREE_CONFIDENT
+            else:
+                needed = FREEFIRE_ELIM_DROP_AGREE_FRAMES
             if reading != accepted and recent.count(reading) >= needed:
                 if dropping:
                     print(f"[elims] row {i + 1}: {accepted} -> {reading} "
@@ -3261,6 +4390,10 @@ def apply_alive_grid_overrides(grid_rows, overrides):
 # a row changing hands on a bad frame would put one squad's kills under
 # another squad's name on air, which is far worse than being a beat late.
 FREEFIRE_TEAM_AGREE_FRAMES = 8
+
+# How many agreeing polls before a row's crop is kept as a template. Lower
+# than the agreement window above on purpose -- see where it is used.
+FREEFIRE_TEAM_LEARN_FRAMES = 3
 
 # Below this, a read is treated as unrecognised rather than forced onto
 # the closest roster name. "S8UL" against a lobby with no S8UL should
@@ -3358,6 +4491,21 @@ def read_row_teams(grid_rows, roster_teams, row_teams):
         _team_read_streak[i] = (name, streak)
         detail["team"] = name
         detail["frames"] = streak
+        # Keep the crop once the same reading has come back a few polls
+        # running. Deliberately a SHORTER streak than the one that puts a
+        # name on air: going to air with the wrong squad is a broadcast
+        # mistake, while a wrong template is a cache entry that produces
+        # readings this same ladder then has to accept -- and it must
+        # clear match_roster_team first, so the text already resembles a
+        # squad that is really in this lobby.
+        #
+        # It was originally gated on "settled" at eight polls, which was
+        # too slow to be useful: while the client reorders its table the
+        # rows rarely hold still that long, so after ninety polls of a
+        # live match the library had seven tags of twelve and the engine
+        # was still paying for OCR on nearly half the table.
+        if streak >= FREEFIRE_TEAM_LEARN_FRAMES:
+            learn_tag_template(_last_team_crops.get(i), text)
         if streak < FREEFIRE_TEAM_AGREE_FRAMES:
             detail["why"] = f"seen {streak} of {FREEFIRE_TEAM_AGREE_FRAMES} polls"
         else:
@@ -3383,6 +4531,36 @@ def read_row_teams(grid_rows, roster_teams, row_teams):
         _team_read_settled[i] = name
         reads[i]["why"] = "settled"
 
+    # A row the budget did not reach this poll keeps the squad it last
+    # SETTLED on, rather than falling back to the operator's dropdown.
+    #
+    # The dropdown is a pick made once, usually before the match; the
+    # client reorders its table all game, so by the middle of a round it
+    # is describing an arrangement that no longer exists. Handing a row
+    # that identity for the one poll its name was not read puts another
+    # squad's kills under it -- seen on air as iQOO showing REVENANT's
+    # number, with the dashboard beside it correctly saying the row reads
+    # "RNTX" and the dropdown beside THAT still saying TG.
+    #
+    # What this row settled on last is the engine's own most recent
+    # reading of it, which is a better answer than a pick from twenty
+    # minutes ago. The dropdown is still the fallback after this, for a
+    # row that has never settled at all.
+    taken = {t for t in assignments if t}
+    for i in range(len(grid_rows)):
+        if assignments[i]:
+            continue
+        remembered = _team_read_settled.get(i)
+        # Never at the cost of the one-squad-one-row rule: a remembered
+        # identity that another row is currently reading for real loses.
+        if not remembered or remembered in taken:
+            continue
+        assignments[i] = remembered
+        taken.add(remembered)
+        reads[i]["team"] = remembered
+        reads[i]["why"] = (reads[i].get("why") or "") +             " -- holding the last settled reading"
+
+    save_glyph_templates()
     return assignments, reads
 
 
@@ -3484,7 +4662,11 @@ def build_alive_grid_preview(crops, palette=None):
                 "status": status,
                 "preview": crop_to_data_url(c, scale=6) if c is not None and c.size else "",
             })
-        elims = (ocr_small_number(elim_crop)
+        # force=True throughout this function: it is the operator's
+        # on-demand preview, asked for precisely when something looks
+        # wrong, so every box must be read and shown. It is not on the
+        # poll path, so the cost of doing that is nobody's problem.
+        elims = (ocr_small_number(elim_crop, force=True)
                  if elim_crop is not None and elim_crop.size else None)
         # The team-name crop, so the box can be seen to be landing on
         # the name rather than on the logo beside it. Scale 3 rather than
@@ -3498,7 +4680,7 @@ def build_alive_grid_preview(crops, palette=None):
             "bars": bars,
             "elimPreview": crop_to_data_url(elim_crop, scale=4) if elim_crop is not None and elim_crop.size else "",
             "teamPreview": crop_to_data_url(team_crop, scale=3) if has_team else "",
-            "teamText": ocr_team_name(team_crop) if has_team else "",
+            "teamText": ocr_team_name(team_crop, force=True) if has_team else "",
         })
     return rows_preview
 
@@ -4903,6 +6085,112 @@ async def _send_guarded(client, data):
         pass
 
 
+# Fingerprint of the roster as it was last put on the wire, so a roster
+# that has not changed is not sent again.
+_last_broadcast_roster_fp = None
+
+
+# Clients that have said they keep the last roster they were sent, by
+# connecting with rostercache=1. Only those are sent a state without one.
+_roster_cache_clients = set()
+
+
+def state_for_broadcast():
+    """server_state, minus the roster when the roster has not changed.
+
+    The poll loop broadcasts whenever the table moves, which during a
+    fight is three times a second, and it was sending the WHOLE state
+    every time: 269 KB, of which 224 KB is the roster -- twelve teams
+    each carrying a base64 logo of about 9 KB. The rows that actually
+    changed are 4.5 KB of it.
+
+    Measured on a live match that is 800 KB/s sustained, or 6.4 Mbit/s of
+    upload, forever. A machine talking to a dashboard on localhost does
+    not notice. The same state going out through the cloud relay to the
+    graphics does: the uplink cannot carry it, the connection backs up,
+    and the overlay ends up showing a table from some seconds ago while
+    the dashboard beside it looks instant. That is exactly the shape of
+    "the dashboard is quick but the output is slow".
+
+    Every client is sent a complete state the moment it connects (see
+    handle_client), so nothing is ever missing -- a client that has been
+    told the roster once can keep it until told otherwise. The pages hold
+    the last one they were given and put it back; see the note beside
+    _lastRoster in the overlays.
+
+    ONLY sent to a client that asked for it, by connecting with
+    rostercache=1. That is not caution for its own sake: the pages are
+    served from more than one place -- from disk here, and from the
+    relay's own deployed copy -- so editing the files in this repository
+    does not change what an OBS source loading them over the relay is
+    actually running. Sending a slim state to a page that has not been
+    updated strips the logos and leaves it showing full team names where
+    short ones belong, which is exactly what happened on air. A page that
+    can cope says so; everything else keeps getting the whole thing.
+    """
+    global _last_broadcast_roster_fp
+    roster = server_state.get("roster")
+    if roster is None:
+        return server_state
+    digest = hashlib.blake2b(
+        json.dumps(roster, sort_keys=True, default=str).encode(),
+        digest_size=16).digest()
+    if digest == _last_broadcast_roster_fp:
+        slim = dict(server_state)
+        slim.pop("roster", None)
+        return slim
+    _last_broadcast_roster_fp = digest
+    return server_state
+
+
+async def broadcast_state_sync():
+    """A state_sync to everyone, slim to whoever can take it.
+
+    Built at most twice, whatever the number of clients: the full state
+    and, if anyone has opted in and the roster has not changed, the slim
+    one.
+    """
+    if not connected_clients:
+        return
+    full = json.dumps({"type": "state_sync", "data": server_state,
+                       "locked": list(locked_fields)})
+    slim = None
+    cachers = _roster_cache_clients & connected_clients
+    if cachers:
+        trimmed = state_for_broadcast()
+        if "roster" not in trimmed:
+            slim = json.dumps({"type": "state_sync", "data": trimmed,
+                               "locked": list(locked_fields)})
+    # The connection out to the cloud relay is rationed separately from
+    # the ones on this machine.
+    #
+    # It is one socket standing in for every dashboard and overlay on the
+    # far side, and it is the only link here that crosses the internet.
+    # A local client can be handed 269KB five times a second without
+    # anyone noticing; the same thing on an ordinary upload is 1.1MB/s
+    # sustained, which does not fit. What that looks like from the desk
+    # is exactly what was reported: the graphic showing a table from some
+    # seconds ago while the dashboard beside it is instant, and a browser
+    # source taking an age to come back after a refresh -- its opening
+    # state queued behind a backlog that never clears.
+    #
+    # Half the rate is not half the freshness: at this gap the far side
+    # still sees every change within a fraction of a second, which is
+    # well inside what anyone can see, and the link stops being the thing
+    # that decides how current the graphic is.
+    global _last_relay_sync_at
+    now_mono = time.perf_counter()
+    relay_due = now_mono - _last_relay_sync_at >= FREEFIRE_RELAY_SYNC_GAP
+    if relay_due:
+        _last_relay_sync_at = now_mono
+    sends = []
+    for c in list(connected_clients):
+        if c is relay_websocket and not relay_due:
+            continue
+        sends.append(_send_guarded(c, slim if (slim and c in cachers) else full))
+    await asyncio.gather(*sends, return_exceptions=True)
+
+
 async def broadcast(message):
     if not connected_clients:
         return
@@ -5111,6 +6399,11 @@ async def handle_client(websocket, path=None):
     except Exception:
         page = "unknown"
     connected_pages[websocket] = page
+    try:
+        if (query.get("rostercache") or ["0"])[0] == "1":
+            _roster_cache_clients.add(websocket)
+    except Exception:
+        pass
     # A dashboard opening onto a frozen screen would otherwise sit blank,
     # since previews are only sent when the crop changes.
     last_preview_sent.clear()
@@ -6026,6 +7319,7 @@ async def handle_client(websocket, path=None):
     finally:
         connected_clients.discard(websocket)
         connected_pages.pop(websocket, None)
+        _roster_cache_clients.discard(websocket)
         await broadcast_presence()
 
 
@@ -6121,6 +7415,20 @@ async def handle_live_signals(signals, gs_names):
 
 # Rolling poll times, and how often to say something about them.
 _poll_times = []
+
+# A change is pushed at most this often. Five times a second is already
+# faster than anything a viewer can see, and it bounds what the uplink to
+# the relay has to carry however fast the loop underneath is running.
+FREEFIRE_MIN_SYNC_GAP = 0.20
+# And how often the one connection out to the cloud relay is written to.
+# Deliberately slower than the local clients -- see broadcast_state_sync.
+FREEFIRE_RELAY_SYNC_GAP = 0.50
+_last_relay_sync_at = 0.0
+# And the state file is written at most this often.
+FREEFIRE_MIN_SAVE_GAP = 1.0
+_state_dirty = False
+_last_sync_at = 0.0
+_last_save_at = 0.0
 _POLL_REPORT_EVERY = 120        # ~30s at the default 0.25s interval
 
 
@@ -6132,6 +7440,10 @@ async def ocr_loop():
     # decides whether to yield the table -- both in this function, so
     # without this the read raises UnboundLocalError and the engine dies.
     global _grid_rows_at
+    # Assigned below, so without this they would be locals and the first
+    # read would raise UnboundLocalError -- exactly the failure the line
+    # above already guards against for _grid_rows_at.
+    global _state_dirty, _last_sync_at, _last_save_at
     # 0.25s (4/sec), not the 1.0s this used to default to. Measured
     # against the real calibrated setup with OCR out of the loop (see the
     # comment above the OCR gating below): finding the log, tailing it,
@@ -6160,6 +7472,24 @@ async def ocr_loop():
 
             alive_grid = build_alive_grid(regions)
             alive_grid_crops = capture_alive_grid_crops(sct, alive_grid) if alive_grid else None
+
+            # The client's own elimination banner, read every poll. The
+            # test for one being up is a handful of microseconds on a
+            # strip of pixels; only an actual banner costs an OCR call,
+            # and there are eleven of those in a match. Nothing happens
+            # here at all until freefire_elim_banner is calibrated.
+            #
+            # Read BEFORE the table below, so a wipe the banner has just
+            # announced is already known when this poll's rows are built,
+            # rather than arriving a poll late.
+            try:
+                read_elim_banner(
+                    sct, regions,
+                    ((server_state.get("roster") or {}).get("teams")) or [])
+            except Exception as exc:
+                # A banner that cannot be read is worth a line, never a
+                # dropped poll -- the side table still carries the wipe.
+                print(f"[banner] skipped this poll ({exc})")
 
             changed = False
             log_sidetable_rows = None
@@ -6225,7 +7555,7 @@ async def ocr_loop():
                         log_sidetable_rows = linked["rows"]
                         if (not grid_is_live
                                 and linked["rows"] != server_state["liveOps"].get("sidetableRows")):
-                            published = apply_live_points(assign_finish_ranks(apply_team_marks(gate_eliminations(sanitise_published_elims(linked["rows"])))))
+                            published = apply_live_points(assign_finish_ranks(apply_team_marks(gate_eliminations(apply_banner_wipes(sanitise_published_elims(linked["rows"]))))))
                             server_state["liveOps"]["sidetableRows"] = published
                             server_state["liveOps"]["sidetableSource"] = "log"
                             changed = True
@@ -6307,7 +7637,7 @@ async def ocr_loop():
                 )
                 ff_live = server_state["liveOps"]
                 if parsed["rows"] != ff_live.get("sidetableRows"):
-                    published = apply_live_points(assign_finish_ranks(apply_team_marks(gate_eliminations(sanitise_published_elims(parsed["rows"])))))
+                    published = apply_live_points(assign_finish_ranks(apply_team_marks(gate_eliminations(apply_banner_wipes(sanitise_published_elims(parsed["rows"]))))))
                     ff_live["sidetableRows"] = published
                     ff_live["sidetableUsedPalette"] = parsed["usedPalette"]
                     ff_live["sidetableSource"] = "ocr"
@@ -6485,7 +7815,7 @@ async def ocr_loop():
                         merged.append(r)
                     merged = stable_row_order(merged)
                     if merged != server_state["liveOps"].get("sidetableRows"):
-                        published = apply_live_points(assign_finish_ranks(apply_team_marks(gate_eliminations(sanitise_published_elims(merged)))))
+                        published = apply_live_points(assign_finish_ranks(apply_team_marks(gate_eliminations(apply_banner_wipes(sanitise_published_elims(merged))))))
                         server_state["liveOps"]["sidetableRows"] = published
                         server_state["liveOps"]["sidetableSource"] = "grid"
                         changed = True
@@ -6543,9 +7873,34 @@ async def ocr_loop():
             asyncio.create_task(
                 push_sidetable_to_sheet(server_state["liveOps"].get("sidetableRows") or []))
 
+            # Reading and PUBLISHING are deliberately decoupled.
+            #
+            # The agreement rules that decide what goes on air are counted
+            # in POLLS -- two for the bars, two to four for a number -- so
+            # the only way to make the graphic react sooner is to poll
+            # sooner. But every publish is a full state to every client,
+            # and polling twice as often would simply double that: the
+            # thing that was already too much for the uplink to the relay.
+            #
+            # So the loop polls fast and pushes at a bounded rate. A change
+            # is remembered rather than sent, and the next push carries
+            # whatever the latest state is. Nothing is lost -- a state that
+            # is superseded before it is sent was never worth sending --
+            # and the gates resolve in half the wall-clock time they did.
             if changed:
-                save_state()
-                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+                _state_dirty = True
+            now_mono = time.perf_counter()
+            if _state_dirty and now_mono - _last_sync_at >= FREEFIRE_MIN_SYNC_GAP:
+                _last_sync_at = now_mono
+                _state_dirty = False
+                await broadcast_state_sync()
+                # The state file is a crash-recovery artifact, not
+                # something anything reads live, and it is 290KB. Written
+                # on every change it was the single biggest disk cost in
+                # the loop; once a second carries the same information.
+                if now_mono - _last_save_at >= FREEFIRE_MIN_SAVE_GAP:
+                    _last_save_at = now_mono
+                    save_state()
 
             # A poll that overruns its own interval is the single thing
             # that makes everything downstream feel broken -- ticks land
@@ -6641,6 +7996,12 @@ async def relay_client_loop():
 async def main():
     global main_loop
     main_loop = asyncio.get_running_loop()
+    # Before anything reads a table: with a library already on disk the
+    # first poll of the night is matched rather than OCR'd, so the engine
+    # does not spend the opening minute of a match relearning what it
+    # knew last night.
+    load_glyph_templates()
+    load_banner_flag_reference()
     try:
         keyboard.add_hotkey(NUM5_HOTKEY, on_num5_pressed)
         print(f"Loadout capture armed on '{NUM5_HOTKEY}' (only fires while loadoutCapture.active is true)")

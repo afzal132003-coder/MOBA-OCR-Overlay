@@ -32,3 +32,16 @@ RELAY-SECRETS.txt
 # Last known address of the relay, so a DNS outage at startup is not
 # fatal. Describes one machine's network, not the project.
 ocr/.dns_cache.json
+
+# The glyph template library: pictures of this desk's own screen, learned
+# from OCR and rebuilt by itself whenever it is missing. Machine- and
+# resolution-specific, so committing one operator's copy would hand every
+# other setup a library that matches nothing on their screen.
+ocr/freefire/freefire_glyphs.npz
+
+# The picture of the client's ELIMINATED banner, kept by calibrate.py at
+# the moment the box was drawn. Like the glyph library above it, this is
+# a photograph of one desk's screen at one resolution over one backdrop,
+# so committing it would hand every other setup a reference that matches
+# nothing they see.
+ocr/freefire/freefire_banner_flag.png
