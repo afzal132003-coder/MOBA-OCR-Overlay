@@ -150,7 +150,7 @@ LABELS = {
     "freefire_sidetable": "12-TEAM SIDE TABLE (alive status / kills per team) - raw text only for now, draw around the whole table",
     "freefire_alive_r1p1": "ALIVE GRID: ROW 1 (topmost team), PLAYER 1 (leftmost) alive indicator - tight box around just that one bar/icon",
     "freefire_alive_r1p2": "ALIVE GRID: ROW 1, PLAYER 2 (next one to the right) alive indicator - same tight box, one slot over",
-    "freefire_alive_rlastp1": "ALIVE GRID: LAST ROW (bottom-most team, row 12), PLAYER 1 (leftmost) alive indicator - same tight box as the very first one, but on the LAST row, not the second",
+    "freefire_alive_rlastp1": "ALIVE GRID: the BOTTOM-MOST row's PLAYER 1 alive indicator - same tight box as the very first one, but on the last row of the table. COUNT THE ROWS and pass --row N: a lobby with 11 teams has no row 12, and an anchor on row 11 read as row 12 throws every row below the first out of place",
     "freefire_alive_r1elim": "ALIVE GRID: ROW 1's ELIMINATION COUNT number - tight box around just that number",
     "freefire_alive_r1team": "ALIVE GRID: ROW 1's TEAM NAME text - tight box around just the name, excluding the squad logo to its left and the alive bars to its right. Draw it WIDE enough for the LONGEST team name in the lobby, not just row 1's - every row reuses this same width",
     "freefire_elim_banner": "ELIM BANNER: a TIGHT box around the word ELIMINATED itself (the red word on the black bar) - nothing else, no logo, no team name. This one word is identical on every banner, which is what lets the engine spot a banner at all; the coloured bar above it is a different colour for every squad and cannot be used for that",
@@ -197,6 +197,26 @@ def main():
     wait_for_key = "--wait" in requested
     if wait_for_key:
         requested.remove("--wait")
+    # --row N says which row the LAST-ROW alive anchor is being drawn on.
+    #
+    # The table has twelve slots but a lobby does not always have twelve
+    # teams. With eleven on screen there is no row 12 to draw on, and an
+    # anchor put on row 11 while the engine assumes row 12 gives a row
+    # pitch short by a tenth -- which is small at row 2 and two whole rows
+    # out by the bottom of the table. Count the rows on screen and say
+    # which one you used.
+    last_row = None
+    if "--row" in requested:
+        at = requested.index("--row")
+        try:
+            last_row = int(requested[at + 1])
+        except (IndexError, ValueError):
+            print("--row needs a number, e.g. --row 10")
+            return
+        if not 2 <= last_row <= 12:
+            print(f"--row {last_row} is not a row on this table (2-12).")
+            return
+        del requested[at:at + 2]
     monitor_index = cfg.get("monitor", 1)
     if "--monitor" in requested:
         at = requested.index("--monitor")
@@ -283,6 +303,13 @@ def main():
                 "h": int(h),
             }
             print(f"Saved {key}: {regions[key]}")
+            if key == "freefire_alive_rlastp1":
+                row = last_row if last_row is not None else 12
+                regions["freefire_alive_rlast_row"] = row
+                print(f"  ...drawn on ROW {row} of the table.")
+                if last_row is None:
+                    print("     (assumed 12 -- if this lobby had fewer teams,")
+                    print("      re-run with --row N and say which row it was)")
             if key == "freefire_elim_banner":
                 # Keep the PICTURE, not just the box. This region is the
                 # word ELIMINATED, and the engine spots a banner by

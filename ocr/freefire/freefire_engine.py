@@ -3009,7 +3009,31 @@ def build_alive_grid(regions, rows=FREEFIRE_ALIVE_GRID_ROWS,
     r1team = regions.get("freefire_alive_r1team")
 
     bar_gap_x = r1p2["x"] - r1p1["x"]
-    row_gap_y = (rlastp1["y"] - r1p1["y"]) / max(1, rows - 1)
+
+    # How many rows apart the two vertical anchors actually are.
+    #
+    # This used to be assumed: the last-row anchor was taken to be row 12
+    # because the table has twelve slots. A lobby does not always have
+    # twelve teams. With eleven on screen there is no row 12 to draw on,
+    # so the anchor goes on row 11 -- or on whatever the bottom row is
+    # that day -- and dividing that span by 11 gaps gives a pitch short by
+    # a tenth. Seen live: 46.09px derived where the panels are 56.5px
+    # apart, so row 2 landed 10px high, row 6 fifty, and by row 12 the
+    # boxes were reading two rows away from where they should be. Every
+    # bar came back empty and the operator was told to recalibrate
+    # something that was drawn correctly.
+    #
+    # So it is stated, not guessed: calibrate.py writes the row the anchor
+    # was actually drawn on. Absent -- every config written before this --
+    # it falls back to the old assumption, which is right for a full
+    # twelve-team lobby and is what those configs were calibrated against.
+    anchor_row = regions.get("freefire_alive_rlast_row") or rows
+    try:
+        anchor_row = int(anchor_row)
+    except (TypeError, ValueError):
+        anchor_row = rows
+    anchor_row = max(2, min(rows, anchor_row))
+    row_gap_y = (rlastp1["y"] - r1p1["y"]) / max(1, anchor_row - 1)
 
     # A zero row pitch means the LAST-ROW anchor was drawn on the first
     # row -- an easy mistake, since all four anchors are drawn in one
