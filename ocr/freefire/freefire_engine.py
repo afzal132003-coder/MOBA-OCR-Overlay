@@ -26,6 +26,7 @@ import asyncio
 import base64
 import difflib
 import hashlib
+import io
 import json
 import re
 import time
@@ -657,6 +658,89 @@ def default_state():
             "kills": 0,
         },
     }
+
+
+def roster_from_debugger_log(log_path):
+    """The lobby as the client itself knows it: every squad, its name, and
+    every player's IGN and UID.
+
+    Three lines the engine already tails, joined on the client's player id:
+
+        OnTeamScoreInited -> TeamName: APEX ESP  TeamID: 8
+        [UIModelSpectator] AddPlayer id<pid>,name<ign>,gsTeam<8>
+        Player Join, <uid>, <pid>, <ign>, ...
+
+    TeamID and gsTeam are the same numbering -- checked against a live log
+    where both ran 1..11 over eleven squads.
+
+    Better than either of the other two ways of filling a roster. A result
+    file only exists once a game has been PLAYED; this is complete the
+    moment the lobby loads. And the lobby capture reads the screen, which
+    means it can misread exactly the names that matter here -- a real
+    lobby had players called "RAJYT<heart>", "@Ti(combining)kuxzza" and
+    "<seven>E(space)SPIDY". These lines carry them byte for byte.
+
+    Two things about the scoping, both of which cost accuracy when got
+    wrong:
+
+      * Teams and squad membership come from the LATEST match in the file,
+        because a log spans a whole session and the squads change between
+        games.
+      * UIDs are gathered from the WHOLE file. A player's join line is
+        written when they connect, which for most of them is before the
+        match this is reading started -- scoping those the same way
+        returned 22 UIDs out of 41. Widening just that pass returned 41.
+
+    Falls back to matching a UID by IGN where the player id does not
+    resolve: ids are reused between matches, names are not.
+    """
+    join = DEBUGGER_JOIN_REGEX
+    spec = DEBUGGER_SPECTATOR_ADD_REGEX
+    tinit = DEBUGGER_TEAM_INIT_REGEX
+    try:
+        lines = io.open(log_path, encoding="utf-8", errors="replace").readlines()
+    except OSError:
+        return []
+
+    # Where the most recent match begins: the last RUN of team-init lines.
+    # They arrive in a burst of one per squad, so a big gap between two of
+    # them is a match boundary.
+    inits = [i for i, l in enumerate(lines) if tinit.search(l)]
+    if not inits:
+        return []
+    start = inits[0]
+    for a, b in zip(inits, inits[1:]):
+        if b - a > 50:
+            start = b
+
+    uid_by_pid, uid_by_ign = {}, {}
+    for line in lines:
+        m = join.search(line)
+        if m:
+            uid_by_pid[m.group("pid")] = m.group("uid")
+            uid_by_ign[(m.group("ign") or "").strip()] = m.group("uid")
+
+    teams, members = {}, {}
+    for line in lines[start:]:
+        m = tinit.search(line)
+        if m:
+            teams[m.group("tid")] = (m.group("name") or "").strip()
+        m = spec.search(line)
+        if m:
+            members[m.group("pid")] = ((m.group("ign") or "").strip(),
+                                       m.group("gs_team"))
+
+    squads = {}
+    for pid, (ign, gs) in members.items():
+        squads.setdefault(gs, []).append({
+            "ign": ign,
+            "uid": uid_by_pid.get(pid) or uid_by_ign.get(ign) or "",
+        })
+    out = []
+    for gs in sorted(squads, key=lambda k: int(k) if k.isdigit() else 0):
+        out.append({"gsTeam": gs, "name": teams.get(gs, ""),
+                    "players": squads[gs]})
+    return out
 
 
 def roster_from_matches(matches):
@@ -7195,6 +7279,78 @@ async def handle_client(websocket, path=None):
                 await websocket.send(json.dumps({
                     "type": "freefire_icon_library_reloaded",
                     "libraries": report, "renamed": renamed,
+                }))
+            elif payload.get("type") == "freefire_fill_roster_from_live":
+                # The roster as the client knows it RIGHT NOW: squad
+                # names, IGNs and UIDs, straight out of the debugger log.
+                #
+                # No squad-to-team assignment step, unlike the lobby
+                # capture below. That one reads the screen, which cannot
+                # tell you which roster team a squad IS -- so the operator
+                # has to say. The log carries the client's own team name
+                # on the same id as its players, so there is nothing to
+                # map and nothing to get wrong.
+                #
+                # Merged on the same terms as the lobby fill: a player
+                # already present by UID is left exactly as they are. A
+                # roster holds things the log cannot know -- short names,
+                # logos, the IGN an operator wants on air rather than the
+                # one being played under -- and losing those to a
+                # convenience would make this worse than typing it out.
+                folder = (server_state.get("settings", {}).get("debuggerFolder")
+                          or server_state.get("settings", {}).get("matchResultFolder", ""))
+                log = None
+                if folder:
+                    log = (find_latest_debugger_log(Path(folder) / "Debugger")
+                           or find_latest_debugger_log(folder))
+                squads = roster_from_debugger_log(log) if log else []
+
+                roster = server_state.setdefault("roster", {}).setdefault("teams", [])
+                by_name = {(t.get("name") or "").strip().upper(): t for t in roster}
+                added = skipped = no_uid = 0
+                teams_made = 0
+                for squad in squads:
+                    name = (squad.get("name") or "").strip()
+                    if not name:
+                        continue
+                    team = by_name.get(name.upper())
+                    if team is None:
+                        # A squad the roster has never heard of. Created
+                        # rather than dropped -- the client's own name for
+                        # it is as good a starting point as an operator
+                        # typing the same thing, and the short name and
+                        # logo are added afterwards either way.
+                        team = {"name": name, "displayName": "", "shortName": "",
+                                "logo": "", "groupPhoto": "", "players": []}
+                        roster.append(team)
+                        by_name[name.upper()] = team
+                        teams_made += 1
+                    existing = team.setdefault("players", [])
+                    known = {str(q.get("uid") or "").strip()
+                             for q in existing if str(q.get("uid") or "").strip()}
+                    for p in squad.get("players") or []:
+                        uid = str(p.get("uid") or "").strip()
+                        if not uid:
+                            no_uid += 1
+                            continue
+                        if uid in known:
+                            skipped += 1
+                            continue
+                        existing.append({"ign": p.get("ign") or "", "uid": uid,
+                                         "displayIgn": "", "photo": ""})
+                        known.add(uid)
+                        added += 1
+                if added or teams_made:
+                    save_state()
+                    await broadcast({"type": "state_sync", "data": server_state,
+                                     "locked": list(locked_fields)})
+                await websocket.send(json.dumps({
+                    "type": "freefire_fill_roster_result",
+                    "added": added, "alreadyThere": skipped, "noUid": no_uid,
+                    "unplaced": [], "lobbySeen": sum(len(q.get("players") or [])
+                                                     for q in squads),
+                    "teamsCreated": teams_made, "fromLive": True,
+                    "logFile": os.path.basename(str(log)) if log else "",
                 }))
             elif payload.get("type") == "freefire_fill_roster_from_lobby":
                 # Take the squads the log has seen join and write their

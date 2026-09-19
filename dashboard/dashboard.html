@@ -1818,6 +1818,7 @@ Team Charlie
         currently on screen, so scroll and capture again for the next two. UIDs aren't shown in the lobby's default view — flip
         the game's own UID toggle and capture again to pair them on.</p>
       <div class="row" style="gap:8px;">
+        <button class="secondary" id="ff_rosterFromLive">Fill From Live Game</button>
         <button class="secondary" id="ff_rosterFromResult">Fill From Latest Result File</button>
         <button class="secondary" id="ff_lobbyCapture">Capture Lobby (2 on screen)</button>
         <button class="secondary" id="ff_lobbyCaptureUid">Capture Lobby — UID pass</button>
@@ -5871,6 +5872,13 @@ document.getElementById("ff_lobbyCaptureUid").addEventListener("click", () => {
 
 /* Fills the boxes from the most recent match-result file -- exact strings
  * including UIDs, so this is the preferred path once any game has run. */
+document.getElementById("ff_rosterFromLive").addEventListener("click", () => {
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffWs.send(JSON.stringify({ type: "freefire_fill_roster_from_live" }));
+  document.getElementById("ff_lobbyStatus").textContent =
+    "Reading the squads out of the running game…";
+});
+
 document.getElementById("ff_rosterFromResult").addEventListener("click", () => {
   if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
   ffRosterFromResultPending = true;
@@ -9260,9 +9268,13 @@ function ffShowLobbyFillResult(msg){
   if(msg.added) bits.push(msg.added + " player(s) added to the roster");
   if(msg.alreadyThere) bits.push(msg.alreadyThere + " already there");
   if(msg.noUid) bits.push(msg.noUid + " skipped with no UID");
+  if(msg.teamsCreated) bits.push(msg.teamsCreated + " new team(s) created");
   el.style.color = msg.added ? "#4ade80" : "#e8c76a";
+  const source = msg.fromLive
+    ? " Read from the running game" + (msg.logFile ? " (" + msg.logFile + ")" : "") + "."
+    : "";
   el.innerHTML = (msg.added ? "✓ " : "⚠ ") +
-    (bits.length ? bits.join(", ") + "." : "Nothing to add.") +
+    (bits.length ? bits.join(", ") + "." : "Nothing to add.") + source +
     ((msg.unplaced && msg.unplaced.length)
       ? "<div style='margin-top:4px;color:#fbbf24;'>" + msg.unplaced.length +
         " squad(s) had no team chosen, so their players went nowhere. Pick a team " +
