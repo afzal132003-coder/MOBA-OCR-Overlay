@@ -7907,6 +7907,11 @@ _poll_times = []
 # faster than anything a viewer can see, and it bounds what the uplink to
 # the relay has to carry however fast the loop underneath is running.
 FREEFIRE_MIN_SYNC_GAP = 0.20
+# The floor for a sync that carries a changed side table. Short, because
+# this is the one the graphic is waiting on; still a floor, because a
+# fight changes the table several times a second and each push is a whole
+# state.
+FREEFIRE_TABLE_SYNC_GAP = 0.04
 # And how often the one connection out to the cloud relay is written to.
 # Deliberately slower than the local clients -- see broadcast_state_sync.
 #
@@ -7932,6 +7937,15 @@ FREEFIRE_MIN_SAVE_GAP = 1.0
 # needs them at poll rate.
 FREEFIRE_PREVIEW_GAP = 0.5
 _last_preview_at = 0.0
+
+# How often the loop comes round. This is the log's clock: a tail of a
+# file that has grown by a few hundred bytes, measured at 0.37ms.
+FREEFIRE_LOG_TAIL_SECONDS = 0.03
+# And how often the SCREEN is captured and read, which is the expensive
+# half at 60-86ms. Unchanged in effect from the old poll interval -- what
+# changes is that the log no longer waits for it.
+FREEFIRE_SCREEN_GAP = 0.12
+_last_screen_at = 0.0
 _state_dirty = False
 _last_sync_at = 0.0
 _last_save_at = 0.0
@@ -7950,6 +7964,7 @@ async def ocr_loop():
     # read would raise UnboundLocalError -- exactly the failure the line
     # above already guards against for _grid_rows_at.
     global _state_dirty, _last_sync_at, _last_save_at, _last_preview_at
+    global _last_screen_at
     # 0.25s (4/sec), not the 1.0s this used to default to. Measured
     # against the real calibrated setup with OCR out of the loop (see the
     # comment above the OCR gating below): finding the log, tailing it,
@@ -7957,7 +7972,10 @@ async def ocr_loop():
     # cost ~4ms -- under 2% of even a 0.25s budget. The 1.0s figure dated
     # back to when OCR ran every tick and needed the room; nothing left
     # in the normal case needs it anymore.
+    # The loop's own rate. Fast, because what it does every time round is
+    # tail a file that has grown by a few hundred bytes.
     interval = config.get("poll_interval_seconds", 0.25)
+    interval = min(interval, FREEFIRE_LOG_TAIL_SECONDS)
     loop = asyncio.get_running_loop()
 
     with mss_grabber() as sct:
@@ -7965,6 +7983,22 @@ async def ocr_loop():
         while True:
             poll_started = time.perf_counter()
             regions = config.get("regions", {})
+
+            # The screen is read on its own, slower clock.
+            #
+            # Tailing the log costs 0.37ms; capturing the table and
+            # reading it costs 60-86ms. Both were on the same 120ms
+            # timer, so the cheap half inherited the expensive half's
+            # cadence -- a death the client had already written down sat
+            # unread for up to a poll, for no reason but the company it
+            # was keeping. The loop now spins at the log's speed and the
+            # screen work is gated to its own interval, so a death is
+            # seen within FREEFIRE_LOG_TAIL_SECONDS of being written
+            # rather than within the time it takes to OCR a table.
+            now_mono = time.perf_counter()
+            do_screen = (now_mono - _last_screen_at) >= FREEFIRE_SCREEN_GAP
+            if do_screen:
+                _last_screen_at = now_mono
 
             killfeed_region = regions.get(FREEFIRE_KILLFEED_REGION_KEY)
             killfeed_crop = None
@@ -7977,7 +8011,8 @@ async def ocr_loop():
                 sidetable_crop = crop_to_bgr(sct, sidetable_region)
 
             alive_grid = build_alive_grid(regions)
-            alive_grid_crops = capture_alive_grid_crops(sct, alive_grid) if alive_grid else None
+            alive_grid_crops = (capture_alive_grid_crops(sct, alive_grid)
+                                if (alive_grid and do_screen) else None)
 
             # The client's own elimination banner, read every poll. The
             # test for one being up is a handful of microseconds on a
@@ -8004,6 +8039,10 @@ async def ocr_loop():
             # it either way. Without this, a setup with no debugger path
             # raises NameError on its first poll and the engine dies.
             log_owns = False
+            # Set wherever the table itself is republished, so a death can
+            # jump the ordinary publish queue -- see
+            # FREEFIRE_TABLE_SYNC_GAP.
+            table_changed = False
             log_sidetable_rows = None
             killfeed_raw_text = None
             sidetable_raw_text = None
@@ -8102,6 +8141,7 @@ async def ocr_loop():
                                 and linked["rows"] != server_state["liveOps"].get("sidetableRows")):
                             published = apply_live_points(assign_finish_ranks(apply_team_marks(gate_eliminations(apply_banner_wipes(sanitise_published_elims(linked["rows"]))))))
                             server_state["liveOps"]["sidetableRows"] = published
+                            table_changed = True
                             server_state["liveOps"]["sidetableSource"] = "log"
                             changed = True
 
@@ -8389,6 +8429,7 @@ async def ocr_loop():
                     if merged is not None and merged != server_state["liveOps"].get("sidetableRows"):
                         published = apply_live_points(assign_finish_ranks(apply_team_marks(gate_eliminations(apply_banner_wipes(sanitise_published_elims(merged))))))
                         server_state["liveOps"]["sidetableRows"] = published
+                        table_changed = True
                         server_state["liveOps"]["sidetableSource"] = "grid"
                         changed = True
 
@@ -8473,7 +8514,16 @@ async def ocr_loop():
             if changed:
                 _state_dirty = True
             now_mono = time.perf_counter()
-            if _state_dirty and now_mono - _last_sync_at >= FREEFIRE_MIN_SYNC_GAP:
+            # A table that has actually changed goes out at once.
+            #
+            # The ordinary floor is there to stop a busy state pushing
+            # 269KB five times a second at nobody's benefit. It should not
+            # also be what decides how long a squad stays alive on air
+            # after it has died. The log now notices a death within 30ms;
+            # waiting another 200 to say so would give most of that back.
+            gap = (FREEFIRE_TABLE_SYNC_GAP if table_changed
+                   else FREEFIRE_MIN_SYNC_GAP)
+            if _state_dirty and now_mono - _last_sync_at >= gap:
                 _last_sync_at = now_mono
                 _state_dirty = False
                 await broadcast_state_sync()
