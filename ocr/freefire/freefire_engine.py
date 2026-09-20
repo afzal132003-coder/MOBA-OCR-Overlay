@@ -1866,7 +1866,7 @@ def _glyph_clean(mask):
         return None
     height = mask.shape[0]
     keep = np.zeros_like(mask)
-    found = False
+    kept_boxes = []
     for i in range(1, count):
         x, y, w, h, area = (stats[i, cv2.CC_STAT_LEFT],
                             stats[i, cv2.CC_STAT_TOP],
@@ -1878,6 +1878,38 @@ def _glyph_clean(mask):
         if w < 2 or w > mask.shape[1] * 0.6:
             continue
         if area < 8 or area < w * h * 0.15:
+            continue
+        kept_boxes.append((i, h, y + h))
+    if not kept_boxes:
+        return None
+
+    # A word's letters share a cap height and a baseline. Anything that
+    # does not is not one of them.
+    #
+    # The shape filter above passes anything roughly letter-sized, and a
+    # speck of an effect sitting just above or below the text clears that
+    # easily. It then stretches the ink's bounding box, and the next step
+    # crops to exactly that box -- so the tag is resized from a taller
+    # frame than the template was built from and matches nothing.
+    #
+    # Measured on a live table with effects across it: every tag that
+    # read had ink 17px tall, and every tag that FAILED had ink 20-21px
+    # tall. Same letters, three pixels of something else. Five rows of
+    # eleven were lost that way, all of them rows a fight was happening
+    # on.
+    #
+    # So the letters vote. The median height is what a letter is on this
+    # row, and a component that disagrees by more than a quarter is
+    # dropped, as is one whose baseline sits well away from the rest.
+    heights = sorted(h for _, h, _ in kept_boxes)
+    typical = heights[len(heights) // 2]
+    bases = sorted(b for _, _, b in kept_boxes)
+    base = bases[len(bases) // 2]
+    found = False
+    for i, h, bottom in kept_boxes:
+        if abs(h - typical) > max(2, typical * 0.25):
+            continue
+        if abs(bottom - base) > max(3, typical * 0.35):
             continue
         keep[labels == i] = 255
         found = True
@@ -1970,8 +2002,11 @@ def _glyph_remember(store, name, vector):
 
 
 def _glyph_accept(name, score, margin):
-    return (name and score >= FREEFIRE_GLYPH_MIN_SCORE
-            and margin >= FREEFIRE_GLYPH_MIN_MARGIN)
+    # bool(), not the bare `and` chain: that returned "" or None for an
+    # empty name, which is falsy but not False, and anything counting or
+    # summing these gets a TypeError rather than a zero.
+    return bool(name and score >= FREEFIRE_GLYPH_MIN_SCORE
+                and margin >= FREEFIRE_GLYPH_MIN_MARGIN)
 
 
 def row_is_dimmed(img_bgr):
