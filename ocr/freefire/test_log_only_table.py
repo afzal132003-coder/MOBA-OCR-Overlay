@@ -15,11 +15,20 @@ Three separate things have to hold for every team, and they fail
 independently:
 
   * a NAME, which comes from OnTeamScoreInited and needs no join at all
-  * a KILL COUNT, from the client's running score -- the number that
-    cannot be misread, unlike a digit OCR'd off a moving table
+  * a KILL COUNT, from the client's kill narration -- the number that
+    cannot be misread, unlike a digit OCR'd off a moving table. It must
+    come from gsKills and NOT from the running TeamScore, which folds in
+    a team's placement bonus the moment that team is eliminated
   * ALIVE BARS, which are the one part that DOES need the roster, because
     the client numbers teams one way for names and another way for
     players and connects the two nowhere (see link_live_teams)
+
+and a fourth thing that is not about filling the table at all:
+
+  * a squad with nobody standing must be published as ELIMINATED. The
+    client does not reliably print a wipe line for every squad -- on a
+    live match four teams the game itself was dimming had all four
+    players down and no wipe line, and went on air as alive.
 
 Only the third can fail from a bad roster, and it is the one that matters
 most on air, so it is checked per row rather than in aggregate.
@@ -108,21 +117,42 @@ def main():
         named = sum(1 for r in rows if r.get("teamName"))
         kills = sum(1 for r in rows if r.get("elims") is not None)
         bars = sum(1 for r in rows if r.get("bars"))
-        # The final slice ends after the whistle, where elims are withheld
-        # on purpose -- the result file separates kills from placement
-        # points and takes over. See link_live_teams.
-        want_kills = not E._live_match.get("ended")
+        # Kills are published after the whistle too now: the guard that
+        # withheld them existed only because the running score was
+        # inflated, and a kill count has no placement in it to inflate.
+        #
+        # Pinned to gsKills by value, not just checked for presence --
+        # "some number is there" is exactly what the inflated score
+        # satisfied while being wrong on every dead row.
+        gs_kills = E._live_match.get("gsKills") or {}
+        scores = E._live_match.get("teamScores") or {}
+        wrong_source = [r for r in rows
+                        if r.get("gsTeam") is not None
+                        and r.get("elims") != gs_kills.get(r["gsTeam"], 0)]
+        # A squad with nobody standing is out, wipe line or no wipe line.
+        alive_but_empty = [r for r in rows
+                           if r.get("aliveCount") == 0 and not r.get("eliminated")]
         bad = (not rows or len(rows) != expected or expected < 2
                or named != len(rows) or bars != len(rows)
-               or (want_kills and kills != len(rows)))
+               or kills != len(rows) or wrong_source or alive_but_empty)
         failures += bool(bad)
         print("%-6s %-6d %-7s %-7s %s   %s"
               % ("%d/%d" % (n, SLICES), len(rows),
                  "%d/%d" % (named, len(rows)),
-                 "%d/%d" % (kills, len(rows)) + ("" if want_kills else " (ended)"),
+                 "%d/%d" % (kills, len(rows)),
                  "%d/%d" % (bars, len(rows)),
                  "FAIL" if bad else "ok"))
         if bad:
+            for r in wrong_source:
+                print("      %r elims=%s but gsKills=%s (score=%s) -- the "
+                      "kill count is not coming from the kill narration"
+                      % (r.get("teamName"), r.get("elims"),
+                         gs_kills.get(r["gsTeam"], 0),
+                         scores.get(r.get("teamId"))))
+            for r in alive_but_empty:
+                print("      %r has nobody standing but is published as "
+                      "alive -- it will show on air as still in the game"
+                      % r.get("teamName"))
             for r in rows:
                 if not r.get("bars"):
                     print("      no alive bars for %r -- its squad did not "

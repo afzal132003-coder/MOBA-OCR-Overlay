@@ -386,6 +386,14 @@ def default_state():
     return {
         "settings": {
             "matchResultFolder": "", "safezoneFolder": "",
+            # Who is up comes from the client's own narration rather than
+            # from reading the bars off the screen. Off, everything works
+            # exactly as it did -- the grid reads the bars and publishes
+            # them.
+            "aliveFromLog": True,
+            # Which source owns the side table: "auto", "log" or "grid".
+            # See where it is read for what each one means.
+            "aliveTableSource": "auto",
             # Off by default: see push_sidetable_to_sheet.
             "liveSheetPush": False,
             # Where the client writes its debugger-*.log files. Same folder
@@ -539,13 +547,6 @@ def default_state():
                     "mvpVisible": False,
                     "gameSummaryVisible": False,
                     "damageReportVisible": False},
-        # Who is up comes from the client's own narration rather than
-        # from reading the bars off the screen. Off, everything works
-        # exactly as it did -- the grid reads the bars and publishes them.
-        "aliveFromLog": True,
-        # Which source owns the side table: "auto", "log" or "grid".
-        # See where it is read for what each one means.
-        "aliveTableSource": "auto",
         # Pre-match roster, uploaded once per event as a CSV (team, ign,
         # uid per row). Each player's "loadout" is manual-entry text
         # fields (active/passive x3/pet/equipment); "loadoutScreenshot" is
@@ -5972,18 +5973,39 @@ def link_live_teams(live, roster):
 
         rows.append({
             "teamName": (roster_team or {}).get("name") or name,
-            # The client's running score is the kill count DURING the match
-            # and gains placement points at the end -- verified, the final
-            # value equals the result file's TotalScore 12/12. Publishing it
-            # as "elims" after the whistle would silently inflate every
-            # team, so it is withheld once the match has ended and the
-            # result file (which separates the two) takes over.
-            "elims": None if ended else live.get("teamScores", {}).get(tid, 0),
+            # Kills come from the client's own kill narration, NOT from
+            # its running TeamScore.
+            #
+            # TeamScore was believed to be the kill count during the match
+            # and to gain placement points only at the whistle. It gains
+            # them the moment a team is ELIMINATED, one team at a time, so
+            # every dead row was inflated by its own placement bonus while
+            # the match was still running -- and by a different amount
+            # each, which is why it looked like random OCR-style noise
+            # rather than a systematic offset. Checked against the game's
+            # own ELIMS column mid-match: gsKills matched every settled
+            # team exactly (4, 10, 7, 11) and TeamScore matched none of
+            # them (10, 18, 12, 15).
+            #
+            # No longer withheld after the whistle either: that guard
+            # existed only because of the inflation, and a kill count has
+            # none to withhold.
+            "elims": (live.get("gsKills", {}).get(gs_team, 0)
+                      if gs_team is not None else None),
+            # The running score is still published as the SCORE, which is
+            # what it honestly is: kills plus placement.
             "score": live.get("teamScores", {}).get(tid, 0),
             "bars": bars,
             "barDetail": [{"status": b} for b in bars],
             "aliveCount": alive_count,
-            "eliminated": gs_team in wiped if gs_team is not None else None,
+            # A squad with nobody left standing is out, whether or not
+            # the client got round to printing its wipe line. The wipe
+            # signal is not reliably emitted for every squad -- measured
+            # on a live match, four teams the game itself was showing as
+            # dimmed had all four players down and no wipe line, so they
+            # went on air as alive. Counting the players is the operator's
+            # own rule for this, and it is the one the game visibly uses.
+            "eliminated": (alive_count == 0) if gs_team is not None else None,
             "placement": (len(live.get("teamNames", {})) - wiped.index(gs_team))
                          if (gs_team is not None and gs_team in wiped) else None,
             "nameRead": True,
