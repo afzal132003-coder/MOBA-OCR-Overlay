@@ -8335,6 +8335,24 @@ async def ocr_loop():
                     # mid-click; to hold a row against the screen for
                     # longer than that, untick "Read the team names off
                     # the screen" and the reads stop writing entirely.
+                    # A dropdown pointing at a team the roster no longer
+                    # has is stale by definition, and it does not stay
+                    # harmlessly in a dropdown: the alive overlay pads its
+                    # twelve slots from the roster AND from these
+                    # assignments, so a name left here from a previous
+                    # event is drawn as a real row. Seen on air as "ARISE
+                    # ESPORTS" sitting in a table of eleven teams that
+                    # ARISE were not in -- published by nothing, invented
+                    # by the padding.
+                    #
+                    # Cleared rather than kept, because the operator's
+                    # pick is about THIS lobby: a team that is not
+                    # registered cannot be the answer for any row in it.
+                    known = {_ign_key(t.get("name"))
+                             for t in ((server_state.get("roster") or {})
+                                       .get("teams") or [])}
+                    row_teams = [t if (not t or _ign_key(t) in known) else ""
+                                 for t in row_teams]
                     if row_teams != server_state["liveOps"].get("aliveRowTeams"):
                         server_state["liveOps"]["aliveRowTeams"] = row_teams
                         changed = True
