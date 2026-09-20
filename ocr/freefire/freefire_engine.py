@@ -543,6 +543,9 @@ def default_state():
         # from reading the bars off the screen. Off, everything works
         # exactly as it did -- the grid reads the bars and publishes them.
         "aliveFromLog": True,
+        # Which source owns the side table: "auto", "log" or "grid".
+        # See where it is read for what each one means.
+        "aliveTableSource": "auto",
         # Pre-match roster, uploaded once per event as a CSV (team, ign,
         # uid per row). Each player's "loadout" is manual-entry text
         # fields (active/passive x3/pet/equipment); "loadoutScreenshot" is
@@ -5975,8 +5978,8 @@ def link_live_teams(live, roster):
             # as "elims" after the whistle would silently inflate every
             # team, so it is withheld once the match has ended and the
             # result file (which separates the two) takes over.
-            "elims": None if ended else live.get("teamScores", {}).get(tid),
-            "score": live.get("teamScores", {}).get(tid),
+            "elims": None if ended else live.get("teamScores", {}).get(tid, 0),
+            "score": live.get("teamScores", {}).get(tid, 0),
             "bars": bars,
             "barDetail": [{"status": b} for b in bars],
             "aliveCount": alive_count,
@@ -8077,6 +8080,18 @@ async def ocr_loop():
             # it either way. Without this, a setup with no debugger path
             # raises NameError on its first poll and the engine dies.
             log_owns = False
+            # Which source the operator has nailed the table to, read once
+            # per poll because three separate blocks below have to agree
+            # about it. "log" has to be applied HERE and not only where
+            # the two sources are compared, because that comparison sits
+            # inside the debugger block -- which does not run when no
+            # match is being narrated. Left to default there, a forced
+            # log-only table would quietly fall back to the screen at
+            # exactly the moment the operator was relying on it not to.
+            forced_table = (server_state.get("settings", {})
+                            .get("aliveTableSource") or "auto")
+            if forced_table == "log":
+                log_owns = True
             # Set wherever the table itself is republished, so a death can
             # jump the ordinary publish queue -- see
             # FREEFIRE_TABLE_SYNC_GAP.
@@ -8146,6 +8161,24 @@ async def ocr_loop():
                     joined = sum(1 for r in linked["rows"] if r.get("bars"))
                     log_owns = (joined >= FREEFIRE_LOG_TABLE_MIN
                                 and joined >= len(linked["rows"]) * 0.6)
+
+                    # An operator can settle the argument outright.
+                    #
+                    # "log" means the table comes from the client's own
+                    # narration and nothing else, however little of it
+                    # joins. A short table then means the roster does not
+                    # describe this lobby -- which is worth seeing plainly
+                    # rather than having the screen quietly paper over,
+                    # because the screen's version of a team it cannot
+                    # name is a tag like "CXU" standing in for a squad.
+                    #
+                    # "grid" is the old behaviour: the screen owns it.
+                    # "auto" lets the log take the table when it can
+                    # account for it, which is the default.
+                    if forced_table == "log":
+                        log_owns = True
+                    elif forced_table == "grid":
+                        log_owns = False
 
                     # The log takes the table when it can actually account
                     # for it.
@@ -8220,7 +8253,7 @@ async def ocr_loop():
             if killfeed_crop is not None and not debugger_folder:
                 ocr_tasks.append(loop.run_in_executor(ocr_executor, ocr_text, killfeed_crop))
                 text_region_names.append("killfeed")
-            if sidetable_crop is not None and not log_sidetable_rows:
+            if sidetable_crop is not None and not log_sidetable_rows and not log_owns:
                 ocr_tasks.append(loop.run_in_executor(ocr_executor, ocr_text, sidetable_crop))
                 text_region_names.append("sidetable")
 
@@ -8253,7 +8286,11 @@ async def ocr_loop():
             # for this path is no longer expected to be done -- the log
             # table needs neither -- so this now only matters as a safety
             # net before a roster exists to link squads against.
-            if sidetable_crop is not None and not log_sidetable_rows:
+            # `not log_owns` covers the forced case: with no match being
+            # narrated there are no log rows to stand in the way, and this
+            # safety net would otherwise publish an OCR table under a
+            # setting that says the screen is not to be read.
+            if sidetable_crop is not None and not log_sidetable_rows and not log_owns:
                 parsed = await loop.run_in_executor(
                     ocr_executor, parse_sidetable, sidetable_crop,
                     config.get("sidetable_columns"), config.get("sidetable_colors"),

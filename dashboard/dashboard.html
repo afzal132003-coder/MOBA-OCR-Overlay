@@ -1967,6 +1967,18 @@ Team Charlie
 
             <div class="row" style="gap:8px;align-items:center;margin-top:10px;
                  border-top:1px solid #2b3348;padding-top:9px;">
+              <label style="font-size:11px;white-space:nowrap;">Alive table read from
+                <select id="ff_aliveTableSource" style="margin-left:6px;font-size:11px;padding:3px 6px;">
+                  <option value="auto">Auto</option>
+                  <option value="log">Debugger log only</option>
+                  <option value="grid">Screen (OCR) only</option>
+                </select>
+              </label>
+            </div>
+            <p class="hint" id="ff_aliveTableSourceHint" style="margin:4px 0 0;font-size:10px;"></p>
+
+            <div class="row" style="gap:8px;align-items:center;margin-top:10px;
+                 border-top:1px solid #2b3348;padding-top:9px;">
               <button class="secondary" id="ff_aliveReset"
                 style="margin-top:0;font-size:11px;padding:4px 10px;">Reset for next game</button>
               <span class="hint" style="font-size:10px;flex:1;min-width:0;">Clean slate between games —
@@ -6576,6 +6588,16 @@ function ffRenderPendingEliminations(ff){
   const on = (ff.settings || {}).eliminationApproval !== false;
   if(document.activeElement !== toggle) toggle.checked = on;
 
+  // Shows what is ACTUALLY feeding the table, not only what was asked
+  // for: on "auto" the two can differ, and that difference is the whole
+  // question an operator is asking when they look here.
+  const pick = document.getElementById("ff_aliveTableSource");
+  if(pick){
+    const want = (ff.settings || {}).aliveTableSource || "auto";
+    if(document.activeElement !== pick && pick.value !== want) pick.value = want;
+    ffRenderAliveSourceHint(want, ff);
+  }
+
   const pending = ((ff.liveOps || {}).pendingEliminations) || [];
   const key = JSON.stringify([on, pending]);
   if(key === ffLastElimPendingKey) return;
@@ -6690,6 +6712,45 @@ document.getElementById("ff_aliveReadTeams").addEventListener("change", (e) => {
   document.getElementById("ff_aliveGridStatus").textContent = e.target.checked
     ? "Rows will follow the team names read off the screen."
     : "Rows stay where you assign them; the name box is ignored.";
+});
+
+function ffRenderAliveSourceHint(want, ff){
+  const el = document.getElementById("ff_aliveTableSourceHint");
+  if(!el) return;
+  const ops = (ff && ff.liveOps) || {};
+  const rows = ops.sidetableRows || [];
+  const joined = rows.filter(r => (r && r.aliveFrom) === "log").length;
+  const tally = rows.length ? (joined + " of " + rows.length + " rows joined to a squad in the log. ") : "";
+  const actual = ops.sidetableSource || "?";
+  if(want === "log"){
+    // The cutoff is the one setting that can empty this table outright.
+    // It skips every log line stamped before it, so one left over from a
+    // previous session means the log says nothing -- and with the screen
+    // switched off there is nothing behind it. Worth saying here rather
+    // than leaving an operator staring at a blank table wondering which
+    // of the two settings did it.
+    const cut = ((ff && ff.settings) || {}).debuggerStartAt || "";
+    if(cut && !rows.length){
+      el.innerHTML = "<b style='color:#ffb454;'>Nothing to show — the log is being read from "
+        + cut + " onwards, and nothing since then has been read.</b> "
+        + "Clear that cutoff above if this is an older match or a replay, or switch back to Auto.";
+    } else {
+      el.textContent = tally + "OCR is off for this table: names, kills and alive counts all come "
+        + "from the client's own printout." + (cut ? " Reading the log from " + cut + " onwards." : "");
+    }
+  } else if(want === "grid"){
+    el.textContent = tally + "Reading team names and counts off the screen only. The log is ignored.";
+  } else {
+    el.textContent = tally + "The log takes the table once it can account for most of it, otherwise the screen "
+      + "holds it. Right now: " + actual + ".";
+  }
+}
+
+document.getElementById("ff_aliveTableSource").addEventListener("change", (e) => {
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN && ffState)) return;
+  const settings = Object.assign({}, ffState.settings || {}, { aliveTableSource: e.target.value });
+  ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { settings } } }));
+  ffRenderAliveSourceHint(e.target.value, ffState);
 });
 
 document.getElementById("ff_elimApproval").addEventListener("change", (e) => {
