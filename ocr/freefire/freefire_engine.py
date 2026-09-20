@@ -4066,6 +4066,26 @@ def reset_alive_for_new_match(reason=""):
     _finish_ranks = {}
     del _elim_card_queue[:]
 
+    # The log's view of the game, not just the screen's.
+    #
+    # This cleared every counter the GRID kept and none of the ones the
+    # LOG keeps, which was invisible while the grid owned the table --
+    # the next poll read the screen afresh and the reset looked complete.
+    # Now that the log owns it, the same button cleared the screen's
+    # memory and left the log holding the finished game's kills, deaths
+    # and wipes, which it republished a poll later. The button did
+    # nothing you could see.
+    #
+    # The reader's own file offset is deliberately NOT moved, so nothing
+    # is re-read: the log simply starts describing the game from here,
+    # which is what a new game means. A reset pressed mid-match therefore
+    # leaves the log with no teams until the next match_start, and the
+    # grid holds the table until then -- which is the right way round,
+    # because at that moment the screen is the only thing that knows
+    # anything.
+    _live_match.clear()
+    _live_match.update(blank_live_match())
+
     ops = server_state.setdefault("liveOps", {})
     ops["approvedEliminations"] = []
     ops["pendingEliminations"] = []
