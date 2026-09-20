@@ -1140,6 +1140,43 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
             live.clear()
             live.update(blank_live_match())
             signal({"type": "match_start"})
+
+    def roll_over_if_a_game_was_played():
+        """Starts a fresh match when the next one announces itself, even
+        though the last one never said it was over.
+
+        matchend is not reliably written. On a real session's log: 18
+        match starts and ONE matchend -- a replay begins and simply never
+        reports finishing. Rolling over only on `ended` therefore never
+        fired, and one game's deaths were still being counted nine games
+        later. Seen on air with every squad alive on screen and half the
+        table greyed out on the graphic.
+
+        The obvious fix -- reset on the team-name lines -- was tried and
+        rejected for a real reason, recorded above: the client writes its
+        Player Join lines BEFORE OnTeamScoreInited, so a reset there threw
+        away the very roster the new match had just announced, and
+        placement came out right for 20 of 77 eliminations.
+
+        So the roster is kept and only the per-match counting is cleared.
+        gsIgns is who is in which squad, which the new match has just
+        finished telling us; gsDown, gsKills, teamScores and the wipe list
+        are all about a game that is over.
+
+        Only fires when something was actually counted, so the burst of
+        eleven team-name lines that opens a match rolls over on the first
+        of them and leaves the other ten alone.
+        """
+        if live["ended"]:
+            return
+        if not (live["gsDown"] or live["gsKills"] or live["teamScores"]
+                or live["wiped"]):
+            return
+        squads = dict(live["gsIgns"])
+        live.clear()
+        live.update(blank_live_match())
+        live["gsIgns"] = squads
+        signal({"type": "match_start"})
     try:
         size = log_path.stat().st_size
         # A smaller file than last time means the client rolled over to a
@@ -1183,6 +1220,7 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
         init = DEBUGGER_TEAM_INIT_REGEX.search(line)
         if init:
             roll_over_if_finished()
+            roll_over_if_a_game_was_played()
             live["teamNames"][int(init.group("tid"))] = init.group("name").strip()
             continue
 
