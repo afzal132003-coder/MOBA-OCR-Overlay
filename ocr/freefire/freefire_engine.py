@@ -539,6 +539,10 @@ def default_state():
                     "mvpVisible": False,
                     "gameSummaryVisible": False,
                     "damageReportVisible": False},
+        # Who is up comes from the client's own narration rather than
+        # from reading the bars off the screen. Off, everything works
+        # exactly as it did -- the grid reads the bars and publishes them.
+        "aliveFromLog": True,
         # Pre-match roster, uploaded once per event as a CSV (team, ign,
         # uid per row). Each player's "loadout" is manual-entry text
         # fields (active/passive x3/pet/equipment); "loadoutScreenshot" is
@@ -614,6 +618,10 @@ def default_state():
             # keeps showing that squad as it last was, so nothing
             # reaches air ahead of the tick.
             "lobbyPlayers": [],
+            # Squads the log knows about that could not be tied to a row
+            # on the table. Shown to the operator rather than guessed at
+            # -- see apply_log_alive.
+            "aliveJoin": [],
             # Per-row team-name reads, for the dashboard to show
             # WHY a row is assigned the way it is.
             "aliveRowReads": [],
@@ -5639,6 +5647,91 @@ def resolve_team_from_igns(igns, roster):
     return (roster_teams[max(votes, key=votes.get)] or {}).get("name") or ""
 
 
+def apply_log_alive(rows, live, roster):
+    """Who is up, from the client's own narration instead of the screen.
+
+    The two sources are good at different halves. The GRID reads the team
+    name off the row, so it knows who a row is whatever the roster says.
+    The LOG knows exactly who is down -- it is told, at the instant it
+    happens, by the client that did it -- and is blind to nothing: no poll
+    interval, no agreement window, and no trouble with an explosion lying
+    across the row. A fire-lit dead bar and a live one measure the same
+    (H21 S203 V215 against H20 S204 V204); a death in the log is a line.
+
+    So the name comes from the grid and the count comes from the log.
+
+    What still has to be worked out is which squad is which row, because
+    nothing in the log connects the two. gsTeam carries the players,
+    TeamID carries the names, and they agreed for 0 of 12 teams on a
+    measured match. The meeting point is who is IN the squad: a gsTeam is
+    resolved through the roster by its players' IGNs, and matched against
+    the name the grid already read off that row.
+
+    Every disagreement is handed to the operator rather than guessed:
+
+      * a squad whose players resolve to no roster team at all
+      * a squad that resolves to a team the grid cannot see on the table
+      * two squads resolving to the same team
+
+    A row in dispute keeps the bars the GRID read for it -- which is the
+    behaviour today, so a dispute costs nothing that is not already being
+    paid -- and is listed in liveOps.aliveJoin for the dashboard to show.
+    Nothing here can put one squad's deaths under another squad's name
+    without saying so.
+
+    Returns (rows, notes). Rows are modified in place.
+    """
+    notes = []
+    gs_igns = live.get("gsIgns") or {}
+    gs_down = live.get("gsDown") or {}
+    wiped = set(live.get("wiped") or [])
+    if not gs_igns:
+        return rows, notes
+
+    on_table = {}
+    for row in rows:
+        key = _ign_key(row.get("teamName"))
+        if key:
+            on_table[key] = row
+
+    claimed = {}
+    for gs, squad in gs_igns.items():
+        igns = list(squad.values())
+        name = resolve_team_from_igns(igns, roster)
+        key = _ign_key(name)
+        if not key:
+            notes.append({"gsTeam": gs, "igns": igns,
+                          "why": "no roster team matches these players"})
+            continue
+        if key not in on_table:
+            notes.append({"gsTeam": gs, "igns": igns, "resolved": name,
+                          "why": "the table does not show " + name})
+            continue
+        if key in claimed:
+            notes.append({"gsTeam": gs, "igns": igns, "resolved": name,
+                          "why": "squad " + str(claimed[key]) + " already "
+                                 "resolved to " + name})
+            continue
+        claimed[key] = gs
+
+    for key, gs in claimed.items():
+        row = on_table[key]
+        squad = gs_igns.get(gs) or {}
+        down = gs_down.get(gs) or set()
+        # Sized by the squad the client actually fielded, not by four: a
+        # three-player squad showing a fourth empty slot reads as someone
+        # who has died.
+        size = len(squad) or len(row.get("bars") or []) or 4
+        dead = size if gs in wiped else min(len(down), size)
+        bars = ["eliminated"] * dead + ["alive"] * (size - dead)
+        row["bars"] = bars
+        row["barDetail"] = [{"status": b} for b in bars]
+        row["aliveCount"] = size - dead
+        row["eliminated"] = (size - dead) == 0
+        row["aliveFrom"] = "log"
+    return rows, notes
+
+
 def link_live_teams(live, roster):
     """Joins the client's two team numbering spaces through the roster.
 
@@ -8002,6 +8095,19 @@ async def ocr_loop():
                         changed = True
 
                 grid_named_rows = apply_alive_grid_identities(grid_rows, row_teams)
+                # The name stays the grid's; the count becomes the log's,
+                # for every row where the two agree on who the row is.
+                # See apply_log_alive -- anything in dispute keeps the
+                # grid's own reading and is reported instead.
+                if server_state.get("settings", {}).get("aliveFromLog", True):
+                    grid_named_rows, join_notes = apply_log_alive(
+                        grid_named_rows, _live_match, server_state.get("roster", {}))
+                    if join_notes != (server_state["liveOps"].get("aliveJoin") or []):
+                        server_state["liveOps"]["aliveJoin"] = join_notes
+                        changed = True
+                elif server_state["liveOps"].get("aliveJoin"):
+                    server_state["liveOps"]["aliveJoin"] = []
+                    changed = True
                 if grid_named_rows:
                     _grid_rows_at = time.time()
                     # Join the grid's rows onto whatever the log/OCR path

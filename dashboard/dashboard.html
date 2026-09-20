@@ -1977,6 +1977,12 @@ Team Charlie
         </div>
       </div>
       <div class="hint" id="ff_aliveGridStatus" style="margin-top:8px;"></div>
+      <!-- Squads the client's own narration knows about that could not be
+           tied to a row on the table. Nothing is guessed: a row in dispute
+           keeps the bars the grid read for it, and the reason is shown
+           here so an operator can fix the roster instead of wondering why
+           one team's alive count never moves. -->
+      <div id="ff_aliveJoin" style="margin-top:6px;"></div>
     </div>
 
     <div class="card">
@@ -5437,6 +5443,7 @@ function ffOpen(url){
       ffRenderLoadoutCapture(ffState);
       ffRenderIconLibraries(ffState);
       ffRenderAliveGridRows(ffState);
+      ffRenderAliveJoin();
       ffRenderLobby();
       // Once per connection: the dropdown should be usable the moment
       // the tab is opened, not after someone finds the button.
@@ -9304,6 +9311,34 @@ function ffShowLobbyFillResult(msg){
 
 /* The card above Match Review: what is about to be written, and a way
    to fix a name before it is. */
+/* Who the log could not place on the table.
+
+   The alive counts come from the client's narration and the names from
+   the screen, and the two are tied together by which players are in a
+   squad. Where that tie cannot be made -- a roster missing a team, a team
+   listed twice, a squad the table is not showing -- the row keeps the
+   grid's own reading and the squad is listed here. It is a roster
+   problem every time, and naming it is the difference between a two
+   minute fix and an evening of wondering. */
+function ffRenderAliveJoin(){
+  const el = document.getElementById("ff_aliveJoin");
+  if(!el) return;
+  const notes = ((ffState && ffState.liveOps && ffState.liveOps.aliveJoin) || []);
+  if(!notes.length){ el.innerHTML = ""; return; }
+  el.innerHTML =
+    "<div style='background:#2a1f0a;border:1px solid #6b4f12;border-radius:6px;" +
+    "padding:8px 10px;color:#fbbf24;font-size:12px;'>" +
+    "<b>" + notes.length + " squad(s) could not be matched to a row.</b> " +
+    "Those rows are still using the bars read off the screen." +
+    notes.map(n =>
+      "<div style='margin-top:5px;color:#e8c76a;'>&bull; squad " + n.gsTeam +
+      " (" + (n.igns || []).slice(0, 4).join(", ") + ")<br>" +
+      "<span style='color:#fbbf24;'>" + n.why + "</span></div>"
+    ).join("") +
+    "<div style='margin-top:6px;color:#9aa4bf;'>Usually the roster: a team " +
+    "missing, listed twice, or a player under the wrong one.</div></div>";
+}
+
 function ffRenderBooyahCard(){
   const card = document.getElementById("ff_booyahCard");
   if(!card) return;
