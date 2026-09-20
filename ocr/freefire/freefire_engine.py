@@ -3701,6 +3701,12 @@ FREEFIRE_PLACEMENT_POINTS = {
 _grid_rows_at = 0.0
 GRID_AUTHORITY_SECONDS = 15
 
+# How many rows the log must be able to account for before it is allowed
+# the table. Below this it is describing a different lobby than the one on
+# screen -- a roster from last week, a match not started -- and the grid,
+# which reads what is actually there, is the better answer.
+FREEFIRE_LOG_TABLE_MIN = 6
+
 # A Free Fire lobby. Used wherever the roster cannot say how many
 # squads are in -- which is a real state, not a theoretical one: the
 # roster is empty right up until someone fills it in.
@@ -8030,7 +8036,40 @@ async def ocr_loop():
                     # The 12-team side table, straight from the client's own
                     # narration rather than read back off the screen.
                     linked = link_live_teams(_live_match, server_state.get("roster", {}))
-                    grid_is_live = (time.time() - _grid_rows_at) < GRID_AUTHORITY_SECONDS
+                    # How much of the table the log can account for on its
+                    # own. A row it has joined carries bars; one where the
+                    # name matched but the players did not comes back
+                    # without them, and cannot be trusted for alive state.
+                    joined = sum(1 for r in linked["rows"] if r.get("bars"))
+                    log_owns = (joined >= FREEFIRE_LOG_TABLE_MIN
+                                and joined >= len(linked["rows"]) * 0.6)
+
+                    # The log takes the table when it can actually account
+                    # for it.
+                    #
+                    # The grid used to hold it whenever it was reading, and
+                    # the reason was real: the log reader skips its own
+                    # history when the engine starts mid-match, so it
+                    # believed the lobby was fresh -- everyone alive,
+                    # nobody with kills -- and that picture went out on any
+                    # poll the grid missed. Squads died and came back.
+                    #
+                    # That is fixed at the source now. The catch-up pass
+                    # reads the whole file and BUILDS the state from it,
+                    # emitting nothing; replaying a finished match that way
+                    # gives the right answer at every point in it, checked
+                    # against the client's own account of who died when.
+                    #
+                    # So the better source wins. The log's names are what
+                    # the client printed, not what survived being read off
+                    # a moving table through an explosion; its kills are a
+                    # number the client wrote, so a 7 cannot arrive as a 2;
+                    # and it knows a death the poll it happens rather than
+                    # once the bars agree. The grid keeps the table
+                    # whenever the log cannot account for it -- no match
+                    # running, or a roster too far from this lobby to join.
+                    grid_is_live = ((time.time() - _grid_rows_at) < GRID_AUTHORITY_SECONDS
+                                    and not log_owns)
                     if linked["rows"]:
                         log_sidetable_rows = linked["rows"]
                         if (not grid_is_live
