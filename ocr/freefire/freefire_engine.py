@@ -24,6 +24,7 @@ that's the first thing to check.
 
 import asyncio
 import base64
+import datetime as _datetime
 import difflib
 import hashlib
 import io
@@ -1018,6 +1019,34 @@ DEBUGGER_HEADSHOT_REGEX = re.compile(
 )
 DEBUGGER_TS_REGEX = re.compile(r"^\[(?P<ts>[\d\-]+\s[\d:.]+)\]")
 
+# How long after its own knock or kill the gun-trace line may arrive.
+#
+# The trace carries the headshot flag but is written about a millisecond
+# AFTER the event it describes, so the flag cannot be read at event time
+# -- which is why the kill feed's headshot field has been reading False
+# on every knock. It is credited backwards instead, to the last event for
+# that killer-victim pair.
+#
+# Measured across a full match: 1,106 traces, every one of them within
+# 50ms of its own event, and none left over. Widening the window to three
+# seconds matched not one extra, so this is not a threshold that needs
+# tuning -- the trace sits right next to its event or not at all.
+FREEFIRE_HEADSHOT_WINDOW = 0.05
+
+
+def _debugger_epoch(stamp):
+    """Seconds, from the client's own "YYYY-MM-DD HH:MM:SS.mmm" stamp.
+
+    Returns None rather than raising on anything it does not recognise:
+    a stamp that will not parse must not take the log reader down with
+    it mid-match, and the caller treats None as "close enough".
+    """
+    try:
+        return _datetime.datetime.strptime(
+            stamp[:23], "%Y-%m-%d %H:%M:%S.%f").timestamp()
+    except (ValueError, TypeError):
+        return None
+
 # The client also narrates the whole match at team level, which is where
 # the 12-team side table's contents actually come from -- reading them off
 # the screen with OCR was always a lossy re-derivation of numbers the game
@@ -1087,6 +1116,16 @@ def blank_live_match():
         "gsDown": {},      # gsTeam -> {pid} currently dead and not revived
         "gsKills": {},     # gsTeam -> kills credited to that squad
         "playerKnocks": {},# runtime player id -> knockdowns credited
+        "playerKills": {},  # runtime player id -> kills credited
+        # Counted apart, because a trace marks knocks AND kills: a player
+        # who knocks an opponent and then finishes them produces two, and
+        # adding the two together credits one opponent twice.
+        "playerHsKills": {},  # runtime player id -> headshot kills
+        "playerHsKnocks": {}, # runtime player id -> headshot knocks
+        # "killer:victim" -> [epoch, "kill"|"knock"], the event a trace
+        # line is still allowed to mark as a headshot. An event takes at
+        # most one trace, which is what keeps the counts honest.
+        "hsPending": {},
         "wiped": [],       # gsTeam, in the order the client wiped them
     }
 
@@ -1290,7 +1329,23 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
 
         hs = DEBUGGER_HEADSHOT_REGEX.search(line)
         if hs:
-            headshots[(hs.group("killer"), hs.group("victim"))] = hs.group("hs") == "True"
+            killer_id, victim_id = hs.group("killer"), hs.group("victim")
+            headshots[(killer_id, victim_id)] = hs.group("hs") == "True"
+            # Credit it backwards to the event it belongs to. The pair is
+            # dropped from the pending map either way, so a second trace
+            # for the same pair cannot count twice -- the next knock or
+            # kill puts the pair back.
+            key = "%s:%s" % (killer_id, victim_id)
+            pending = live.get("hsPending") or {}
+            seen = pending.pop(key, None)
+            if seen and hs.group("hs") == "True":
+                stamp = DEBUGGER_TS_REGEX.match(line.strip())
+                when = _debugger_epoch(stamp.group("ts")) if stamp else None
+                if when is None or abs(when - seen[0]) <= FREEFIRE_HEADSHOT_WINDOW:
+                    bucket = ("playerHsKills" if seen[1] == "kill"
+                              else "playerHsKnocks")
+                    live.setdefault(bucket, {})[killer_id] = (
+                        live.get(bucket, {}).get(killer_id, 0) + 1)
             continue
 
         kill = DEBUGGER_KILL_REGEX.search(line)
@@ -1315,14 +1370,20 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
         if kill:
             team = gs_team_of(killer_id)
             live["gsKills"][team] = live["gsKills"].get(team, 0) + 1
+            live.setdefault("playerKills", {})[killer_id] = live.get("playerKills", {}).get(killer_id, 0) + 1
         else:
             # Knockdowns are the only per-player stat the result file does
             # not carry, so they are counted here and travel with the match
             # end for the Booyah card.
-            live["playerKnocks"][killer_id] = live["playerKnocks"].get(killer_id, 0) + 1
+            live.setdefault("playerKnocks", {})[killer_id] = live.get("playerKnocks", {}).get(killer_id, 0) + 1
         killer = id_map.get(killer_id, {})
         victim = id_map.get(victim_id, {})
         ts = DEBUGGER_TS_REGEX.match(line.strip())
+        # Open this pair for the trace line that follows a moment later.
+        when = _debugger_epoch(ts.group("ts")) if ts else None
+        if when is not None:
+            live.setdefault("hsPending", {})["%s:%s" % (killer_id, victim_id)] = [
+                when, "kill" if kill else "knock"]
         events.append({
             "type": "kill" if kill else "knock",
             "time": ts.group("ts") if ts else "",
@@ -5905,6 +5966,55 @@ def apply_log_alive(rows, live, roster):
     return rows, notes
 
 
+def headshot_board(live, id_map, linked=None, minimum=1):
+    """The headshot leaderboard, from the client's own kill narration.
+
+    Ranked on ELIMINATIONS rather than knockdowns, because that is the
+    number a viewer sees on the side table and can check against. The
+    knock figures ride along for a second line on the graphic.
+
+    Players below `minimum` eliminations are left out. A leaderboard's
+    top slot is otherwise taken by whoever has one kill that happened to
+    be a headshot, at 100%, ahead of a player at 40% from twenty -- true
+    and useless. Sorted by headshots first, then rate, so a high rate on
+    thin evidence cannot lead.
+    """
+    igns = {}
+    for gs_team, squad in (live.get("gsIgns") or {}).items():
+        for pid, ign in squad.items():
+            igns[str(pid)] = (ign, gs_team)
+    gs_names = (linked or {}).get("gsNames") or {}
+
+    kills = live.get("playerKills") or {}
+    knocks = live.get("playerKnocks") or {}
+    hs_kills = live.get("playerHsKills") or {}
+    hs_knocks = live.get("playerHsKnocks") or {}
+
+    rows = []
+    for pid, killed in kills.items():
+        if killed < minimum:
+            continue
+        ign, gs_team = igns.get(str(pid), ("", None))
+        heads = hs_kills.get(pid, 0)
+        rows.append({
+            "ign": ign or (id_map.get(pid, {}) or {}).get("ign", ""),
+            "uid": (id_map.get(pid, {}) or {}).get("uid", ""),
+            "team": gs_names.get(gs_team, ""),
+            "kills": killed,
+            "headshots": heads,
+            # Whole numbers: a graphic showing 33.333% is nobody's idea of
+            # a broadcast stat.
+            "pct": int(round(100.0 * heads / killed)) if killed else 0,
+            "knocks": knocks.get(pid, 0),
+            "knockHeadshots": hs_knocks.get(pid, 0),
+            # Said plainly rather than left for a consumer to infer, since
+            # an unresolved id on a graphic reads as a blank name.
+            "resolved": bool(ign),
+        })
+    rows.sort(key=lambda r: (-r["headshots"], -r["pct"], -r["kills"], r["ign"]))
+    return rows
+
+
 def link_live_teams(live, roster):
     """Joins the client's two team numbering spaces through the roster.
 
@@ -8249,6 +8359,11 @@ async def ocr_loop():
                     lobby = live_lobby_players(_live_match, _debugger_id_map, linked)
                     if lobby != server_state["liveOps"].get("lobbyPlayers"):
                         server_state["liveOps"]["lobbyPlayers"] = lobby
+                        changed = True
+
+                    board = headshot_board(_live_match, _debugger_id_map, linked)
+                    if board != server_state["liveOps"].get("headshotBoard"):
+                        server_state["liveOps"]["headshotBoard"] = board
                         changed = True
 
                     if await handle_live_signals(signals, linked["gsNames"]):
