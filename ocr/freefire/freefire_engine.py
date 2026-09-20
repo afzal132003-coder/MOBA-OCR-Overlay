@@ -1033,6 +1033,32 @@ DEBUGGER_TS_REGEX = re.compile(r"^\[(?P<ts>[\d\-]+\s[\d:.]+)\]")
 # tuning -- the trace sits right next to its event or not at all.
 FREEFIRE_HEADSHOT_WINDOW = 0.05
 
+# The safe zone, which the client narrates in full.
+#
+#   [InitByMessage] Update m_ZoneStatus : stageID = 1,
+#   OuterCenter = (128.93, 0.00, -135.17), InnerCenter = (184.91, 0.00,
+#   -359.61), InnerRadius = 250, TimeSpanType = ZONE_TYPE_PRE_SHRINK
+#
+# OuterCenter is where the circle is now, InnerCenter and InnerRadius are
+# where it is going. TimeSpanType is the phase: STABLE while it waits,
+# PRE_SHRINK once the next circle is drawn and the countdown is running,
+# SHRINK while it is actually closing.
+#
+# The line repeats unchanged several times per stage, so only a change is
+# worth publishing -- see read_debugger_events.
+DEBUGGER_ZONE_REGEX = re.compile(
+    r"Update m_ZoneStatus\s*:\s*stageID\s*=\s*(?P<stage>\d+)\s*,\s*"
+    r"OuterCenter\s*=\s*\((?P<ox>-?[\d.]+),\s*(?P<oy>-?[\d.]+),\s*(?P<oz>-?[\d.]+)\)\s*,\s*"
+    r"InnerCenter\s*=\s*\((?P<ix>-?[\d.]+),\s*(?P<iy>-?[\d.]+),\s*(?P<iz>-?[\d.]+)\)\s*,\s*"
+    r"InnerRadius\s*=\s*(?P<radius>[\d.]+)\s*,\s*"
+    r"TimeSpanType\s*=\s*ZONE_TYPE_(?P<phase>\w+)")
+
+# The plane's run across the map, written once as the match loads.
+DEBUGGER_AIRLINE_START_REGEX = re.compile(
+    r"airline start\((?P<x>-?[\d.]+),\s*(?P<y>-?[\d.]+),\s*(?P<z>-?[\d.]+)\)")
+DEBUGGER_AIRLINE_END_REGEX = re.compile(
+    r"airline end\((?P<x>-?[\d.]+),\s*(?P<y>-?[\d.]+),\s*(?P<z>-?[\d.]+)\)")
+
 
 def _debugger_epoch(stamp):
     """Seconds, from the client's own "YYYY-MM-DD HH:MM:SS.mmm" stamp.
@@ -1126,6 +1152,13 @@ def blank_live_match():
         # line is still allowed to mark as a headshot. An event takes at
         # most one trace, which is what keeps the counts honest.
         "hsPending": {},
+        # The safe zone as it stands, and every stage it has been through.
+        # The history is what a post-game circle analysis is built from;
+        # it is bounded by the number of stages a match has, which is
+        # single figures, so it does not need trimming.
+        "zone": None,
+        "zoneHistory": [],
+        "airline": None,   # {"start": [x,y,z], "end": [x,y,z]}
         "wiped": [],       # gsTeam, in the order the client wiped them
     }
 
@@ -1180,8 +1213,14 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
         of 77 eliminations. Rolling over on whichever line arrives first
         instead: 77/77."""
         if live["ended"]:
+            # Carried for the same reason as in the rollover below: the
+            # plane's run for the match now starting is written before
+            # whichever line triggers this, so clearing it here would
+            # throw away the new match's flight path, not the old one's.
+            airline = live.get("airline")
             live.clear()
             live.update(blank_live_match())
+            live["airline"] = airline
             signal({"type": "match_start"})
 
     def roll_over_if_a_game_was_played():
@@ -1216,9 +1255,16 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
                 or live["wiped"]):
             return
         squads = dict(live["gsIgns"])
+        # The plane's run is written about six seconds BEFORE the first
+        # team-name line of the same match, so it is already in hand when
+        # this fires and belongs to the match now starting, not the one
+        # being cleared. Without carrying it across, the flight path was
+        # captured and then immediately thrown away on every match.
+        airline = live.get("airline")
         live.clear()
         live.update(blank_live_match())
         live["gsIgns"] = squads
+        live["airline"] = airline
         signal({"type": "match_start"})
     try:
         size = log_path.stat().st_size
@@ -1325,6 +1371,43 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
                     by_uid[str(uid)] = count
             signal({"type": "match_end", "matchId": end.group("match_id"),
                     "knocks": by_uid})
+            continue
+
+        zone = DEBUGGER_ZONE_REGEX.search(line)
+        if zone:
+            stage = int(zone.group("stage"))
+            radius = float(zone.group("radius"))
+            state = {
+                "stage": stage,
+                "phase": zone.group("phase"),
+                "center": [float(zone.group("ix")), float(zone.group("iz"))],
+                "radius": radius,
+                "from": [float(zone.group("ox")), float(zone.group("oz"))],
+            }
+            # The client repeats the same line several times per stage, so
+            # only a real change is recorded. Without this the history
+            # would be dozens of identical entries per circle and the
+            # publish path would wake on every one of them.
+            #
+            # y is dropped throughout: it is 0.00 on every line measured,
+            # and a circle on a map is drawn in two dimensions anyway.
+            if state != live.get("zone"):
+                live["zone"] = state
+                stamp = DEBUGGER_TS_REGEX.match(line.strip())
+                live.setdefault("zoneHistory", []).append(
+                    dict(state, time=stamp.group("ts") if stamp else ""))
+            continue
+
+        air = DEBUGGER_AIRLINE_START_REGEX.search(line)
+        if air:
+            live.setdefault("airline", None)
+            live["airline"] = dict(live.get("airline") or {},
+                                   start=[float(air.group("x")), float(air.group("z"))])
+            continue
+        air = DEBUGGER_AIRLINE_END_REGEX.search(line)
+        if air:
+            live["airline"] = dict(live.get("airline") or {},
+                                   end=[float(air.group("x")), float(air.group("z"))])
             continue
 
         hs = DEBUGGER_HEADSHOT_REGEX.search(line)
@@ -8364,6 +8447,19 @@ async def ocr_loop():
                     board = headshot_board(_live_match, _debugger_id_map, linked)
                     if board != server_state["liveOps"].get("headshotBoard"):
                         server_state["liveOps"]["headshotBoard"] = board
+                        changed = True
+
+                    # The circle, and the plane's run across the map. Both
+                    # are published whole rather than as deltas: a graphic
+                    # coming on air mid-match needs the current state, not
+                    # the change that produced it.
+                    zone = {
+                        "now": _live_match.get("zone"),
+                        "history": _live_match.get("zoneHistory") or [],
+                        "airline": _live_match.get("airline"),
+                    }
+                    if zone != server_state["liveOps"].get("zone"):
+                        server_state["liveOps"]["zone"] = zone
                         changed = True
 
                     if await handle_live_signals(signals, linked["gsNames"]):
