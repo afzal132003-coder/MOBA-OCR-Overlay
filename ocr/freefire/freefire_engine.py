@@ -1053,6 +1053,34 @@ DEBUGGER_ZONE_REGEX = re.compile(
     r"InnerRadius\s*=\s*(?P<radius>[\d.]+)\s*,\s*"
     r"TimeSpanType\s*=\s*ZONE_TYPE_(?P<phase>\w+)")
 
+# What every player is carrying, which the client syncs for the WHOLE
+# lobby and not merely whoever is being spectated -- measured, all 44
+# players appear.
+#
+#   SpectatorItemCountSync : ->83886089   ->EITEM_TYPE_BUILDING   ->2
+#
+# The count is an absolute total, not a delta, but a pickup writes TWO
+# lines at the same millisecond: the amount picked up, then the new total
+# ("->30" then "->60" on an ammo pickup). A drop does the same in
+# reverse, and two events landing in one millisecond produce three or
+# more. Taking the LAST value for a player and item is therefore the
+# rule, and it is self-correcting: the client re-sends the absolute total
+# on every change, so a misread cannot accumulate.
+DEBUGGER_ITEM_SYNC_REGEX = re.compile(
+    r"SpectatorItemCountSync\s*:\s*->(?P<pid>\d+)\s*"
+    r"->EITEM_TYPE_(?P<item>\w+)\s*->(?P<count>\d+)")
+
+# Which of the twenty item types are worth a graphic, and how they group.
+# Ammunition is deliberately left out: "utility remaining" is about what
+# a squad can do in the next fight, and every squad has ammunition.
+FREEFIRE_UTILITY_GROUPS = {
+    "gloo": ("BUILDING",),
+    "medkits": ("MEDKIT", "SUPER_MEDKIT"),
+    "inhalers": ("INHALER",),
+    "grenades": ("GRENADE", "GRENADE_DEICEWALL", "GRENADE_FROZEN",
+                 "GRENADE_MULTIEXPLOSIVE"),
+}
+
 # The plane's run across the map, written once as the match loads.
 DEBUGGER_AIRLINE_START_REGEX = re.compile(
     r"airline start\((?P<x>-?[\d.]+),\s*(?P<y>-?[\d.]+),\s*(?P<z>-?[\d.]+)\)")
@@ -1159,6 +1187,7 @@ def blank_live_match():
         "zone": None,
         "zoneHistory": [],
         "airline": None,   # {"start": [x,y,z], "end": [x,y,z]}
+        "itemCounts": {},  # runtime player id -> {EITEM_TYPE -> count}
         "wiped": [],       # gsTeam, in the order the client wiped them
     }
 
@@ -1371,6 +1400,12 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
                     by_uid[str(uid)] = count
             signal({"type": "match_end", "matchId": end.group("match_id"),
                     "knocks": by_uid})
+            continue
+
+        item = DEBUGGER_ITEM_SYNC_REGEX.search(line)
+        if item:
+            live.setdefault("itemCounts", {}).setdefault(
+                item.group("pid"), {})[item.group("item")] = int(item.group("count"))
             continue
 
         zone = DEBUGGER_ZONE_REGEX.search(line)
@@ -6098,6 +6133,41 @@ def headshot_board(live, id_map, linked=None, minimum=1):
     return rows
 
 
+def utility_board(live, linked=None):
+    """What each surviving squad still has to fight with.
+
+    Counts only players who are still up. A dead player's counts go to
+    zero in the client anyway, but leaning on that would make the figure
+    depend on the client having got round to syncing the corpse -- and a
+    squad's utility is about who can still use it.
+
+    Ammunition is left out on purpose: every squad has ammunition, so it
+    separates nobody. Gloo walls are the number that decides a final
+    circle, and they are listed first for that reason.
+    """
+    gs_names = (linked or {}).get("gsNames") or {}
+    counts = live.get("itemCounts") or {}
+    wiped = live.get("wiped") or []
+
+    rows = []
+    for gs_team, squad in sorted((live.get("gsIgns") or {}).items()):
+        if gs_team in wiped:
+            continue
+        down = (live.get("gsDown") or {}).get(gs_team) or set()
+        alive = [str(pid) for pid in squad if pid not in down]
+        if not alive:
+            continue
+        row = {"team": gs_names.get(gs_team, ""), "gsTeam": gs_team,
+               "alive": len(alive)}
+        for name, kinds in FREEFIRE_UTILITY_GROUPS.items():
+            row[name] = sum(counts.get(pid, {}).get(k, 0)
+                            for pid in alive for k in kinds)
+        rows.append(row)
+    # Gloo first, because that is the one a commentator reaches for.
+    rows.sort(key=lambda r: (-r["gloo"], -r["medkits"], r["team"]))
+    return rows
+
+
 def link_live_teams(live, roster):
     """Joins the client's two team numbering spaces through the roster.
 
@@ -8460,6 +8530,11 @@ async def ocr_loop():
                     }
                     if zone != server_state["liveOps"].get("zone"):
                         server_state["liveOps"]["zone"] = zone
+                        changed = True
+
+                    utility = utility_board(_live_match, linked)
+                    if utility != server_state["liveOps"].get("utility"):
+                        server_state["liveOps"]["utility"] = utility
                         changed = True
 
                     if await handle_live_signals(signals, linked["gsNames"]):
