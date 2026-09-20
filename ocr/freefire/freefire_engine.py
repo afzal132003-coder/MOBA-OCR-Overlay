@@ -4639,6 +4639,43 @@ def _reset_team_reads():
     _team_read_settled.clear()
 
 
+def remember_team_tag(team_name, tag):
+    """Keeps the tag this team is actually showing on the client's table.
+
+    Written to `tagRead`, never to `shortName`. Those are two different
+    things and conflating them would lose one of them:
+
+      shortName is the operator's. It is what goes on the graphic, it is
+      chosen to look right, and it may deliberately differ from what the
+      client prints -- a squad registered as "TSSP" that everyone calls
+      "TSG" wants TSG on air.
+
+      tagRead is the engine's. It is what the grid can actually SEE on
+      that row, and it exists so a reading can be matched back to a team
+      at all. match_roster_team refuses short strings that are not exact
+      -- "AR" sits inside "TEAM ARISE" -- so a tag no one has typed in
+      resolves to nothing, which is the "no roster team close enough to
+      that" an operator sees while the row reads perfectly well.
+
+    So the engine fills in what it sees and never touches what was typed.
+    An operator can rename a short name freely without breaking the
+    matching, and correcting a short name cannot un-teach the tag.
+    """
+    tag = (tag or "").strip()
+    name = (team_name or "").strip()
+    if not tag or not name:
+        return False
+    for team in ((server_state.get("roster") or {}).get("teams") or []):
+        if (team.get("name") or "").strip() != name:
+            continue
+        if (team.get("tagRead") or "").strip() == tag:
+            return False
+        team["tagRead"] = tag
+        print(f"[roster] {name} shows as {tag!r} on the client's table")
+        return True
+    return False
+
+
 def read_row_teams(grid_rows, roster_teams, row_teams):
     """Which squad each row is showing, read off the screen.
 
@@ -4754,6 +4791,7 @@ def read_row_teams(grid_rows, roster_teams, row_teams):
         assignments[i] = name
         _team_read_settled[i] = name
         reads[i]["why"] = "settled"
+        remember_team_tag(name, reads[i].get("text"))
 
     # A row the budget did not reach this poll keeps the squad it last
     # SETTLED on, rather than falling back to the operator's dropdown.
@@ -5417,7 +5455,8 @@ def match_roster_team(file_team_name, roster_teams, min_ratio=None,
 
     candidates = []
     for team in roster_teams:
-        for candidate_name in (team.get("name"), team.get("shortName")):
+        for candidate_name in (team.get("name"), team.get("shortName"),
+                               team.get("tagRead")):
             norm = normalize_for_match(candidate_name)
             if norm:
                 candidates.append((norm, team))
@@ -5443,6 +5482,8 @@ def match_roster_team(file_team_name, roster_teams, min_ratio=None,
         best_team, best_ratio = None, 0.0
         for team in roster_teams:
             norm = normalize_for_match(team.get("shortName"))
+            if not norm:
+                norm = normalize_for_match(team.get("tagRead"))
             if not norm:
                 continue
             ratio = difflib.SequenceMatcher(None, target, norm).ratio()
