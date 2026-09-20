@@ -1800,6 +1800,22 @@ FREEFIRE_GLYPH_MIN_RANGE = 22
 # template library.
 FREEFIRE_ROW_DIM_MAX = 160
 
+# Below this, the row is not a row: the client has drawn nothing there.
+#
+# A lobby of eleven leaves the twelfth slot blank, and a blank slot reads
+# exactly like a wiped squad -- no tag, no number, four dark bars, alive
+# count nought. If an operator's dropdown still has a team against that
+# row from a previous event, that team is published as eliminated,
+# handed a finishing place and given an elimination card, for a match it
+# is not playing. Seen on air: "ARISE ESPORTS finished #11 -- card
+# fired", twice, in a match ARISE were not in.
+#
+# The two are easy to tell apart once looked at. Measured on a live
+# eleven-team table: every real row's name box peaked at 252-255, a
+# dimmed (wiped) row at 127, and the empty twelfth at 0. Nothing is drawn
+# there at all.
+FREEFIRE_ROW_ABSENT_MAX = 60
+
 # Grid row index -> the team-name crop read on the latest poll. Bridges
 # classify_alive_grid_crops (which has the pixels but no idea whether
 # they were read correctly) and read_row_teams (which knows a reading has
@@ -3443,6 +3459,13 @@ def classify_alive_grid_crops(crops, palette=None):
         # what the elimination card wants to fire on.
         row["dimmed"] = row_is_dimmed(team_crop if team_crop is not None
                                       else elim_crop)
+        # Nothing drawn in this slot -- see FREEFIRE_ROW_ABSENT_MAX. Only
+        # decidable from the name box; without one calibrated this stays
+        # False and the old behaviour is unchanged.
+        row["absent"] = bool(
+            team_crop is not None and getattr(team_crop, "size", 0)
+            and int(cv2.cvtColor(team_crop, cv2.COLOR_BGR2GRAY).max())
+            < FREEFIRE_ROW_ABSENT_MAX)
         # Fire across the row: the bars cannot be trusted this poll.
         row["obscured"] = row_is_obscured(team_crop, elim_crop)
         # Only present when the operator drew the name box. Kept as raw
@@ -4883,6 +4906,12 @@ def apply_alive_grid_identities(grid_rows, row_teams):
     # so the one more likely to be the live reading.
     used = set()
     for i, row in enumerate(grid_rows):
+        # A slot the client has not drawn is not a squad, whatever the
+        # operator's dropdown still says about it. Skipped before the
+        # name is even looked at, because the name is exactly the thing
+        # that would otherwise make a phantom squad look real.
+        if row.get("absent"):
+            continue
         team = (row_teams[i] if i < len(row_teams) else "") or ""
         if not team:
             continue
