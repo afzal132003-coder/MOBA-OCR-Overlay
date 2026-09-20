@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Free Fire — Match Insights</title>
+<!--
+  The three feeds the engine reads out of the client's debugger log and
+  publishes but nothing displayed until now:
+
+    liveOps.headshotBoard   who is hitting heads, ranked on eliminations
+    liveOps.zone            the circle: stage, centre, radius, phase,
+                            the whole progression, and the plane's run
+    liveOps.utility         gloo walls, medkits, inhalers and grenades
+                            per squad still standing
+
+  This is an OPERATOR page, not a broadcast graphic. It is deliberately
+  plain -- readable on a second monitor at a glance, no animation, no
+  branding -- so that it can be trusted as a view of what the engine
+  actually holds. A graphic built for air is a separate page: it would
+  carry the event's styling and show one thing at a time.
+
+  It takes the same relay/token handling as every other overlay here, so
+  it works served from the relay, opened from disk, or against a local
+  engine, with no arguments in the usual case.
+-->
+<style>
+  :root{
+    --bg:#0e1118; --card:#171c2a; --line:#2c3448; --grid:#222a3c;
+    --txt:#e8eef8; --dim:#8c98b0; --acc:#ffb454; --cy:#78c8ff;
+    --grn:#82e6a0; --vio:#b4a0ff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--txt);
+    font:14px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif;
+    padding:18px; display:flex; flex-direction:column; gap:14px;
+  }
+  header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  h1{font-size:19px;margin:0;letter-spacing:.06em;color:var(--acc)}
+  .sub{color:var(--dim);font-size:12px}
+  #conn{margin-left:auto;font-size:12px;padding:3px 10px;border-radius:99px;
+        border:1px solid var(--line);color:var(--dim)}
+  #conn.on{color:var(--grn);border-color:#2b5c3e}
+  #conn.off{color:#ff8b8b;border-color:#5c2b2b}
+  .wrap{display:grid;grid-template-columns:1fr 1fr;gap:14px;flex:1;min-height:0}
+  .col{display:flex;flex-direction:column;gap:14px;min-height:0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;
+        padding:14px 16px;min-height:0;display:flex;flex-direction:column}
+  .card h2{font-size:14px;margin:0 0 2px;letter-spacing:.08em;text-transform:uppercase}
+  .card .src{color:var(--dim);font-size:11px;margin-bottom:10px;font-family:Consolas,monospace}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;color:var(--dim);font-weight:400;font-size:11px;
+     letter-spacing:.08em;padding-bottom:6px;font-family:Consolas,monospace}
+  td{padding:4px 0;border-top:1px solid var(--grid);white-space:nowrap;
+     overflow:hidden;text-overflow:ellipsis}
+  td.n{text-align:right;font-family:Consolas,monospace;width:1%;padding-left:12px}
+  .hs{color:var(--acc)} .pct{color:var(--cy)} .gloo{color:var(--acc)}
+  .team{color:var(--dim)}
+  .scroll{overflow:auto;min-height:0}
+  canvas{width:100%;height:auto;display:block;background:#101521;
+         border:1px solid var(--grid);border-radius:6px}
+  .stages{margin-top:10px;font-size:12px;font-family:Consolas,monospace;color:var(--dim)}
+  .stages b{color:var(--acc);font-weight:400}
+  .empty{color:var(--dim);font-size:12px;padding:10px 0}
+  .phase{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;
+         border:1px solid var(--line);color:var(--cy);margin-left:8px;
+         font-family:Consolas,monospace}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>MATCH INSIGHTS</h1>
+  <span class="sub">live from the client debugger log</span>
+  <span id="conn" class="off">connecting</span>
+</header>
+
+<div class="wrap">
+  <div class="col">
+    <div class="card" style="flex:1">
+      <h2>Headshot leaderboard</h2>
+      <div class="src">liveOps.headshotBoard<span id="hsCount"></span></div>
+      <div class="scroll"><table id="hsTable"></table></div>
+    </div>
+    <div class="card" style="flex:1">
+      <h2>Utility remaining</h2>
+      <div class="src">liveOps.utility<span id="utilNote"></span></div>
+      <div class="scroll"><table id="utilTable"></table></div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card" style="flex:1">
+      <h2>Circle analysis<span id="phase" class="phase" hidden></span></h2>
+      <div class="src">liveOps.zone</div>
+      <canvas id="map" width="560" height="560"></canvas>
+      <div class="stages" id="stages"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const _params = new URLSearchParams(location.search);
+if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
+if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
+/* Same rule as the other overlays: served over https from a real host,
+   connect back to that host, so a browser source needs no ?relay=. A page
+   opened from disk or off localhost keeps the local-engine default. */
+const _sameOrigin = (location.protocol === "https:"
+  && location.hostname && !/^(localhost|127\.|\[?::1)/.test(location.hostname))
+  ? "wss://" + location.host : "";
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || _sameOrigin;
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_match_insights&rostercache=1"
+  : "ws://localhost:8765?page=freefire_match_insights&rostercache=1";
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g,
+  (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+
+function setConn(on, label){
+  const el = $("conn");
+  el.textContent = label;
+  el.className = on ? "on" : "off";
+}
+
+/* ---- headshot leaderboard --------------------------------------------
+   Shows the top of the board only. The engine already ranks it and
+   already drops players with no eliminations, so there is nothing to
+   decide here -- printing its order unchanged is the point, since this
+   page exists to show what the engine holds. */
+function renderHeadshots(board){
+  const t = $("hsTable");
+  $("hsCount").textContent = board.length ? "  ·  " + board.length + " with a kill" : "";
+  if(!board.length){
+    t.innerHTML = "<tr><td class='empty'>no eliminations yet</td></tr>";
+    return;
+  }
+  let h = "<tr><th>PLAYER</th><th>TEAM</th><th class='n'>K</th>"
+        + "<th class='n'>HS</th><th class='n'>HS%</th><th class='n'>KNOCKS</th></tr>";
+  for(const r of board.slice(0, 12)){
+    h += "<tr><td>" + esc(r.ign || ("id " + r.uid)) + "</td>"
+       + "<td class='team'>" + esc(r.team) + "</td>"
+       + "<td class='n'>" + r.kills + "</td>"
+       + "<td class='n hs'>" + r.headshots + "</td>"
+       + "<td class='n pct'>" + r.pct + "%</td>"
+       + "<td class='n team'>" + r.knocks + " (" + r.knockHeadshots + ")</td></tr>";
+  }
+  t.innerHTML = h;
+}
+
+/* ---- utility ----------------------------------------------------------
+   Only squads still standing appear, which is the engine's doing. Worth
+   saying out loud when the list gets short, because "one row" reads as a
+   broken feed and is usually a finished match. */
+function renderUtility(rows){
+  const t = $("utilTable");
+  $("utilNote").textContent = rows.length === 1
+    ? "  ·  one squad left" : (rows.length ? "  ·  " + rows.length + " squads up" : "");
+  if(!rows.length){
+    t.innerHTML = "<tr><td class='empty'>no squad is up — waiting for a match</td></tr>";
+    return;
+  }
+  let h = "<tr><th>SQUAD</th><th class='n'>UP</th><th class='n'>GLOO</th>"
+        + "<th class='n'>MED</th><th class='n'>INH</th><th class='n'>NADE</th></tr>";
+  for(const r of rows){
+    h += "<tr><td>" + esc(r.team || ("squad " + r.gsTeam)) + "</td>"
+       + "<td class='n team'>" + r.alive + "</td>"
+       + "<td class='n gloo'>" + r.gloo + "</td>"
+       + "<td class='n'>" + r.medkits + "</td>"
+       + "<td class='n'>" + r.inhalers + "</td>"
+       + "<td class='n'>" + r.grenades + "</td></tr>";
+  }
+  t.innerHTML = h;
+}
+
+/* ---- circle -----------------------------------------------------------
+   One circle per stage, drawn from the centre and radius the client gave,
+   plus the plane's run. The view is fitted to whatever it has rather than
+   to a fixed map size, because the log carries no map extent -- so the
+   picture is the circles' own geometry, correct relative to each other,
+   and NOT positioned against a map image. */
+function renderZone(zone){
+  const cv = $("map"), g = cv.getContext("2d");
+  const W = cv.width, H = cv.height;
+  g.clearRect(0, 0, W, H);
+
+  const hist = (zone && zone.history || []).filter(z => z.radius > 0);
+  const air = zone && zone.airline;
+  const now = zone && zone.now;
+  const ph = $("phase");
+  if(now){ ph.hidden = false; ph.textContent = "stage " + now.stage + " · " + now.phase; }
+  else { ph.hidden = true; }
+
+  if(!hist.length && !(air && air.start)){
+    g.fillStyle = "#8c98b0"; g.font = "13px Segoe UI";
+    g.fillText("no circle yet — waiting for a match", 18, 30);
+    $("stages").innerHTML = "";
+    return;
+  }
+
+  // One entry per stage: the client repeats a stage across its phases.
+  const byStage = new Map();
+  for(const z of hist) byStage.set(z.stage, z);
+  const stages = [...byStage.values()].sort((a, b) => a.stage - b.stage);
+
+  const pts = stages.map(z => z.center).concat(
+    air && air.start ? [air.start, air.end] : []);
+  let lo = Infinity, hi = -Infinity;
+  for(const p of pts){ lo = Math.min(lo, p[0], p[1]); hi = Math.max(hi, p[0], p[1]); }
+  // The first circle's radius has to fit too, or it draws off the canvas.
+  const r0 = stages.length ? stages[0].radius : 0;
+  lo -= r0 * 0.6; hi += r0 * 0.6;
+  const sc = (Math.min(W, H) - 40) / (hi - lo);
+  const PX = (p) => [20 + (p[0] - lo) * sc, H - 20 - (p[1] - lo) * sc];
+
+  if(air && air.start && air.end){
+    const a = PX(air.start), b = PX(air.end);
+    g.strokeStyle = "#5c6f9c"; g.lineWidth = 2; g.setLineDash([7, 5]);
+    g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke();
+    g.setLineDash([]);
+    g.fillStyle = "#7d90bc"; g.font = "11px Consolas";
+    g.fillText("flight path", a[0] + 6, a[1] - 6);
+  }
+  stages.forEach((z, i) => {
+    const c = PX(z.center), r = z.radius * sc;
+    const live = now && z.stage === now.stage;
+    g.strokeStyle = live ? "#ffb454" : "rgba(120,200,255," + (0.35 + 0.5 * i / stages.length) + ")";
+    g.lineWidth = live ? 3 : 2;
+    g.beginPath(); g.arc(c[0], c[1], r, 0, Math.PI * 2); g.stroke();
+    g.fillStyle = live ? "#ffb454" : "#78c8ff";
+    g.font = "12px Consolas";
+    g.fillText(String(z.stage), c[0] - 4, c[1] + 4);
+  });
+
+  $("stages").innerHTML = stages.map(z =>
+    "stage <b>" + z.stage + "</b> · r <b>" + z.radius + "</b> · ("
+    + Math.round(z.center[0]) + ", " + Math.round(z.center[1]) + ")").join("<br>");
+}
+
+let _lastRoster = null, ws;
+function connect(){
+  setConn(false, "connecting");
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => setConn(true, "connected");
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type !== "state_sync" || !msg.data) return;
+    /* Same roster-carry as the other overlays: the engine leaves it out
+       of a sync when it has not changed, and nothing here would work off
+       a half state. */
+    if(msg.data.roster) _lastRoster = msg.data.roster;
+    else if(_lastRoster) msg.data.roster = _lastRoster;
+    const live = msg.data.liveOps || {};
+    renderHeadshots(live.headshotBoard || []);
+    renderUtility(live.utility || []);
+    renderZone(live.zone);
+  };
+  ws.onclose = () => { setConn(false, "reconnecting"); setTimeout(connect, 2000); };
+  ws.onerror = () => ws.close();
+}
+connect();
+</script>
+</body>
+</html>
