@@ -7978,6 +7978,12 @@ async def ocr_loop():
                 print(f"[banner] skipped this poll ({exc})")
 
             changed = False
+            # Defaulted here, not where it is worked out: that happens
+            # inside the debugger block, which does not run at all when no
+            # log folder is configured -- and the grid block below reads
+            # it either way. Without this, a setup with no debugger path
+            # raises NameError on its first poll and the engine dies.
+            log_owns = False
             log_sidetable_rows = None
             killfeed_raw_text = None
             sidetable_raw_text = None
@@ -8346,7 +8352,21 @@ async def ocr_loop():
                         seen.add(key)
                         merged.append(r)
                     merged = stable_row_order(merged)
-                    if merged != server_state["liveOps"].get("sidetableRows"):
+                    # Not over the log's answer.
+                    #
+                    # The decision about which source owns the table is
+                    # made further up, but it was only being applied
+                    # THERE -- this block runs later in the same poll and
+                    # republished regardless, so the log's rows were
+                    # written and then immediately overwritten by the
+                    # grid's. From the outside that looked exactly like
+                    # the log never winning: sidetableSource said "grid"
+                    # on every poll, and a team's kills came from a digit
+                    # read off the screen while the client's own number
+                    # sat unused.
+                    if log_owns:
+                        merged = None
+                    if merged is not None and merged != server_state["liveOps"].get("sidetableRows"):
                         published = apply_live_points(assign_finish_ranks(apply_team_marks(gate_eliminations(apply_banner_wipes(sanitise_published_elims(merged))))))
                         server_state["liveOps"]["sidetableRows"] = published
                         server_state["liveOps"]["sidetableSource"] = "grid"
