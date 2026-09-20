@@ -1818,7 +1818,7 @@ Team Charlie
         currently on screen, so scroll and capture again for the next two. UIDs aren't shown in the lobby's default view — flip
         the game's own UID toggle and capture again to pair them on.</p>
       <div class="row" style="gap:8px;">
-        <button class="secondary" id="ff_rosterFromLive">Fill From Live Game</button>
+        <button class="secondary" id="ff_rosterFromLive">Read Lobby From Live Game</button>
         <button class="secondary" id="ff_rosterFromResult">Fill From Latest Result File</button>
         <button class="secondary" id="ff_lobbyCapture">Capture Lobby (2 on screen)</button>
         <button class="secondary" id="ff_lobbyCaptureUid">Capture Lobby — UID pass</button>
@@ -5497,6 +5497,25 @@ function ffOpen(url){
       ffShowResultsPushResult(msg);
     } else if(msg.type === "freefire_match_files"){
       ffShowMatchFiles(msg);
+    } else if(msg.type === "freefire_live_lobby_result"){
+      const el = document.getElementById("ff_lobbyStatus");
+      if(el){
+        /* Deliberately does NOT say the squads have been assigned. The
+           log gives the squads and it gives the names, but not which is
+           which -- so this loads both and the operator pairs them with
+           the dropdowns below, same as after a screen capture. */
+        el.style.color = msg.players ? "#4ade80" : "#e8c76a";
+        el.innerHTML = (msg.players ? "✓ " : "⚠ ") +
+          `Read ${msg.squads} squad(s), ${msg.players} player(s), ` +
+          `${msg.withUid} with UID, from the running game` +
+          (msg.logFile ? ` (${msg.logFile})` : "") + ". " +
+          (msg.teamsCreated ? `${msg.teamsCreated} new team(s) created. ` : "") +
+          "<div style='margin-top:4px;color:#fbbf24;'>Now pick each squad's " +
+          "team in the dropdowns below and press <b>Fill Roster From Lobby</b>. " +
+          "The game does not say which squad is which team, so that pairing " +
+          "is yours.</div>";
+      }
+      ffRenderLobby();
     } else if(msg.type === "freefire_fill_roster_result"){
       ffShowLobbyFillResult(msg);
     } else if(msg.type === "freefire_icon_library_reloaded"){

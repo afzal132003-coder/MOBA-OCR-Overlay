@@ -670,8 +670,18 @@ def roster_from_debugger_log(log_path):
         [UIModelSpectator] AddPlayer id<pid>,name<ign>,gsTeam<8>
         Player Join, <uid>, <pid>, <ign>, ...
 
-    TeamID and gsTeam are the same numbering -- checked against a live log
-    where both ran 1..11 over eleven squads.
+    It does NOT say which NAME belongs to which squad, and must not be
+    read as if it does. TeamID (which carries the names) and gsTeam (which
+    carries the players) are separate numbering spaces: blank_live_match
+    records them agreeing for 0 of 12 teams on a measured match, and
+    link_live_teams exists solely to join them through the roster. Seeing
+    both run 1..11 over eleven squads is not evidence they correspond --
+    checked against the players' own clan tags, pairing them by number put
+    8 of 10 squads under the wrong name.
+
+    So squads come back with their players and NO name, and the names come
+    back as a separate list. Which is which is the one thing the log
+    cannot settle, and it is left to the operator, who can see both.
 
     Better than either of the other two ways of filling a roster. A result
     file only exists once a game has been PLAYED; this is complete the
@@ -738,9 +748,13 @@ def roster_from_debugger_log(log_path):
         })
     out = []
     for gs in sorted(squads, key=lambda k: int(k) if k.isdigit() else 0):
-        out.append({"gsTeam": gs, "name": teams.get(gs, ""),
-                    "players": squads[gs]})
-    return out
+        out.append({"gsTeam": gs, "players": squads[gs]})
+    return {"squads": out,
+            # Every name the client printed this match, in TeamID order.
+            # A real list of the teams present -- just not attached to the
+            # squads above.
+            "names": [teams[k] for k in sorted(
+                teams, key=lambda k: int(k) if k.isdigit() else 0) if teams[k]]}
 
 
 def roster_from_matches(matches):
@@ -7305,75 +7319,62 @@ async def handle_client(websocket, path=None):
                     "libraries": report, "renamed": renamed,
                 }))
             elif payload.get("type") == "freefire_fill_roster_from_live":
-                # The roster as the client knows it RIGHT NOW: squad
-                # names, IGNs and UIDs, straight out of the debugger log.
+                # The lobby as the client knows it right now: every squad
+                # with its players' IGNs and UIDs, and the list of team
+                # names the client printed.
                 #
-                # No squad-to-team assignment step, unlike the lobby
-                # capture below. That one reads the screen, which cannot
-                # tell you which roster team a squad IS -- so the operator
-                # has to say. The log carries the client's own team name
-                # on the same id as its players, so there is nothing to
-                # map and nothing to get wrong.
+                # It does NOT pair them up, because the log cannot. The
+                # names arrive on TeamID and the players on gsTeam, and
+                # those are separate numbering spaces -- they agreed for 0
+                # of 12 teams on a measured match, which is the whole
+                # reason link_live_teams goes through the roster. Pairing
+                # them by number looked right (both run 1..N) and put 8 of
+                # 10 squads under the wrong name.
                 #
-                # Merged on the same terms as the lobby fill: a player
-                # already present by UID is left exactly as they are. A
-                # roster holds things the log cannot know -- short names,
-                # logos, the IGN an operator wants on air rather than the
-                # one being played under -- and losing those to a
-                # convenience would make this worse than typing it out.
+                # So this does the half the log CAN do, exactly: creates
+                # any team whose name is new, and loads the squads into
+                # the same lobbyPlayers the screen capture fills. The
+                # operator then assigns squads to teams with the dropdowns
+                # that are already there, and presses the lobby fill --
+                # one pass over what is on screen, with nothing read off
+                # the screen and nothing guessed.
                 folder = (server_state.get("settings", {}).get("debuggerFolder")
                           or server_state.get("settings", {}).get("matchResultFolder", ""))
                 log = None
                 if folder:
                     log = (find_latest_debugger_log(Path(folder) / "Debugger")
                            or find_latest_debugger_log(folder))
-                squads = roster_from_debugger_log(log) if log else []
+                found = roster_from_debugger_log(log) if log else {}
+                squads = found.get("squads") or []
+                names = found.get("names") or []
 
                 roster = server_state.setdefault("roster", {}).setdefault("teams", [])
                 by_name = {(t.get("name") or "").strip().upper(): t for t in roster}
-                added = skipped = no_uid = 0
                 teams_made = 0
-                for squad in squads:
-                    name = (squad.get("name") or "").strip()
-                    if not name:
+                for name in names:
+                    if name.strip().upper() in by_name:
                         continue
-                    team = by_name.get(name.upper())
-                    if team is None:
-                        # A squad the roster has never heard of. Created
-                        # rather than dropped -- the client's own name for
-                        # it is as good a starting point as an operator
-                        # typing the same thing, and the short name and
-                        # logo are added afterwards either way.
-                        team = {"name": name, "displayName": "", "shortName": "",
-                                "logo": "", "groupPhoto": "", "players": []}
-                        roster.append(team)
-                        by_name[name.upper()] = team
-                        teams_made += 1
-                    existing = team.setdefault("players", [])
-                    known = {str(q.get("uid") or "").strip()
-                             for q in existing if str(q.get("uid") or "").strip()}
+                    team = {"name": name.strip(), "displayName": "", "shortName": "",
+                            "logo": "", "groupPhoto": "", "players": []}
+                    roster.append(team)
+                    by_name[name.strip().upper()] = team
+                    teams_made += 1
+
+                lobby = []
+                for squad in squads:
                     for p in squad.get("players") or []:
-                        uid = str(p.get("uid") or "").strip()
-                        if not uid:
-                            no_uid += 1
-                            continue
-                        if uid in known:
-                            skipped += 1
-                            continue
-                        existing.append({"ign": p.get("ign") or "", "uid": uid,
-                                         "displayIgn": "", "photo": ""})
-                        known.add(uid)
-                        added += 1
-                if added or teams_made:
-                    save_state()
-                    await broadcast({"type": "state_sync", "data": server_state,
-                                     "locked": list(locked_fields)})
+                        lobby.append({"pid": "", "uid": p.get("uid") or "",
+                                      "ign": p.get("ign") or "",
+                                      "gsTeam": squad.get("gsTeam"), "team": ""})
+                server_state["liveOps"]["lobbyPlayers"] = lobby
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state,
+                                 "locked": list(locked_fields)})
                 await websocket.send(json.dumps({
-                    "type": "freefire_fill_roster_result",
-                    "added": added, "alreadyThere": skipped, "noUid": no_uid,
-                    "unplaced": [], "lobbySeen": sum(len(q.get("players") or [])
-                                                     for q in squads),
-                    "teamsCreated": teams_made, "fromLive": True,
+                    "type": "freefire_live_lobby_result",
+                    "squads": len(squads), "players": len(lobby),
+                    "withUid": sum(1 for p in lobby if p["uid"]),
+                    "teamsCreated": teams_made, "names": names,
                     "logFile": os.path.basename(str(log)) if log else "",
                 }))
             elif payload.get("type") == "freefire_fill_roster_from_lobby":
