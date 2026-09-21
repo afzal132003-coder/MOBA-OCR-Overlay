@@ -2276,6 +2276,10 @@ Team Charlie
             <label>Into match column</label>
             <input type="number" id="ff_resultsPushMatch" min="1" max="10" step="1" value="1">
           </div>
+          <div class="team-form" style="max-width:170px;">
+            <label>Tab name</label>
+            <input type="text" id="ff_resultsTab" placeholder="RESULTS">
+          </div>
           <button id="ff_resultsPush">Push to RESULTS sheet</button>
         </div>
         <div class="hint" id="ff_resultsPushTarget" style="margin-top:6px;"></div>
@@ -6282,6 +6286,7 @@ function ffRenderEvent(ff){
   if(dl && dl.innerHTML !== want && packs.length) dl.innerHTML = want;
   setIfFree("ff_afterGameLabel", ev.afterGameLabel || "");
   setIfFree("ff_debuggerStartAt", (ff.settings && ff.settings.debuggerStartAt) || "");
+  setIfFree("ff_resultsTab", (ff.settings && ff.settings.resultsTab) || "");
   setIfFree("ff_sheetWebhookUrl", (ff.settings && ff.settings.sheetWebhookUrl) || "");
   const lsp = document.getElementById("ff_liveSheetPush");
   if(lsp && document.activeElement !== lsp){
@@ -6764,6 +6769,16 @@ document.getElementById("ff_aliveTableSource").addEventListener("change", (e) =>
   const settings = Object.assign({}, ffState.settings || {}, { aliveTableSource: e.target.value });
   ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { settings } } }));
   ffRenderAliveSourceHint(e.target.value, ffState);
+});
+
+/* Saved as it is typed rather than behind a button: this sits next to
+   Push, and a tab name you have to remember to save separately is one
+   that will be wrong on the first push of the night. */
+document.getElementById("ff_resultsTab").addEventListener("change", (e) => {
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN && ffState)) return;
+  const settings = Object.assign({}, ffState.settings || {},
+                                 { resultsTab: e.target.value.trim() });
+  ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { settings } } }));
 });
 
 document.getElementById("ff_elimApproval").addEventListener("change", (e) => {
@@ -9618,7 +9633,9 @@ document.getElementById("ff_resultsPush").addEventListener("click", () => {
   // PROBLEM if we sent one, and nothing at all if we didn't.
   ffLastBooyahSent = !!booyah;
 
-  ffLastPushPayload = { type: "freefire_results_push", match, rows,
+  const tabEl = document.getElementById("ff_resultsTab");
+  const tab = tabEl ? tabEl.value.trim() : "";
+  ffLastPushPayload = { type: "freefire_results_push", match, rows, tab,
     booyah: booyah ? {
       team: booyah.team, short: booyah.short,
       // uid/matched/overridden are this page's bookkeeping -- the sheet

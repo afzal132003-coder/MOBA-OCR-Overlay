@@ -395,6 +395,9 @@ def default_state():
             # Which source owns the side table: "auto", "log" or "grid".
             # See where it is read for what each one means.
             "aliveTableSource": "auto",
+        # Which tab on the results spreadsheet the per-match grid goes
+        # into. Empty means the Apps Script's own default.
+        "resultsTab": "",
             # Off by default: see push_sidetable_to_sheet.
             "liveSheetPush": False,
             # Where the client writes its debugger-*.log files. Same folder
@@ -7580,7 +7583,15 @@ async def handle_client(websocket, path=None):
                     # the Booyah tab and the RESULTS grid can never end up
                     # showing two different games. Built in the dashboard
                     # alongside the rows, for the reason given above.
+                    # Which tab to write into. Sent every time rather
+                    # than only when it differs, so the script never has
+                    # to guess what an older engine meant by silence.
+                    tab = (payload.get("tab")
+                           or server_state.get("settings", {}).get("resultsTab")
+                           or "").strip()
                     body = {"kind": "results", "match": match_number, "rows": rows}
+                    if tab:
+                        body["tab"] = tab
                     # Only ever true when the operator has been shown what
                     # is already in those columns and said to replace it.
                     if payload.get("overwrite"):

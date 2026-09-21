@@ -98,7 +98,8 @@ var DATA_END_ROW = 16;             // last row that holds a team
 var DEBUG_CELL = "AP5";            // an empty cell on the live-status tab -- last-received marker
 
 // ---- RESULTS tab: one column group per match -----------------------------
-var RESULTS_SHEET_NAME = "RESULTS";      // the tab holding the per-match grid
+var RESULTS_SHEET_NAME = "RESULTS";      // default tab holding the per-match grid;
+                                         // the dashboard can override it per push
 var RESULTS_TEAM_COLUMN = "C";           // column holding each row's team name
 var RESULTS_FIRST_MATCH_COLUMN = "D";    // match 1's PLACE column
 var RESULTS_MATCH_COLUMN_STRIDE = 3;     // PLACE, KILLS, WWCD -- so D/E/F, G/H/I, J/K/L ...
@@ -399,8 +400,26 @@ function pushAlive_(body, result) {
 
 
 function pushResults_(body, result) {
-  var sheet = tabOf_(openBook_(RESULTS_SPREADSHEET_ID), RESULTS_SHEET_NAME);
-  if (!sheet) { result.error = 'No tab named "' + RESULTS_SHEET_NAME + '" in the results sheet.'; return sheet; }
+  // The tab can be named per push, so a sheet whose grid lives on
+  // "RESULTS 2" or "Day 2" needs no edit and no redeploy of this script.
+  // Falls back to the constant when nothing is sent, so an engine that
+  // predates this still works unchanged.
+  var tabName = String(body.tab || RESULTS_SHEET_NAME).trim() || RESULTS_SHEET_NAME;
+  result.tab = tabName;
+  var book = openBook_(RESULTS_SPREADSHEET_ID);
+  var sheet = tabOf_(book, tabName);
+  if (!sheet) {
+    // Naming what IS there turns "no tab named X" from a dead end into
+    // an answer: nearly always a trailing space or different casing.
+    var names = [];
+    try {
+      var all = book.getSheets();
+      for (var i = 0; i < all.length; i++) names.push('"' + all[i].getName() + '"');
+    } catch (err) { /* naming them is a help, not a requirement */ }
+    result.error = 'No tab named "' + tabName + '" in the results sheet.'
+      + (names.length ? " Tabs found: " + names.join(", ") + "." : "");
+    return sheet;
+  }
 
   var match = Number(body.match);
   if (!(match >= 1 && match <= RESULTS_MATCH_COUNT)) {
