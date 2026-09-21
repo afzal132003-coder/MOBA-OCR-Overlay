@@ -398,6 +398,12 @@ def default_state():
         # Which tab on the results spreadsheet the per-match grid goes
         # into. Empty means the Apps Script's own default.
         "resultsTab": "",
+        # Pushed team name -> the row on the sheet it belongs to, taught
+        # by the operator when no amount of matching bridges the two.
+        # "ASIN" against "ASSASSIN'S ARMY" share almost no letters, so
+        # nothing automatic will ever join them. Kept so it is taught once
+        # rather than every match.
+        "resultsNameMap": {},
             # Off by default: see push_sidetable_to_sheet.
             "liveSheetPush": False,
             # Where the client writes its debugger-*.log files. Same folder
@@ -7629,6 +7635,17 @@ async def handle_client(websocket, path=None):
                     body = {"kind": "results", "match": match_number, "rows": rows}
                     if tab:
                         body["tab"] = tab
+                    # Anything taught before, plus anything this push is
+                    # teaching now. Merged rather than replaced so one
+                    # correction never drops the others.
+                    name_map = dict(server_state.get("settings", {})
+                                    .get("resultsNameMap") or {})
+                    name_map.update(payload.get("nameMap") or {})
+                    if name_map:
+                        body["nameMap"] = name_map
+                    if payload.get("nameMap"):
+                        server_state.setdefault("settings", {})["resultsNameMap"] = name_map
+                        save_state()
                     # Only ever true when the operator has been shown what
                     # is already in those columns and said to replace it.
                     if payload.get("overwrite"):

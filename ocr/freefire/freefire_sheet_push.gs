@@ -479,10 +479,20 @@ function pushResults_(body, result) {
     block.push(blank);
   }
 
+  // An operator's own pairing of a pushed name to a row on the sheet,
+  // for the case no amount of matching can bridge: "ASIN" in the client
+  // against "ASSASSIN'S ARMY" on the sheet share almost no letters. Sent
+  // with the push and applied before the automatic passes, because the
+  // whole point of stating one is that the automatic ones were wrong.
+  var nameMap = body.nameMap || {};
+
   var unmatched = [];
+  var claimed = {};
   rows.forEach(function (row) {
-    var i = findRow_(teamNames, row.team, row.short);
+    var forced = nameMap[row.team];
+    var i = forced ? findRow_(teamNames, forced, "") : findRow_(teamNames, row.team, row.short);
     if (i < 0) { unmatched.push(row.team); return; }
+    claimed[i] = true;
     var placement = (RESULTS_PLACEMENT_VALUE === "rank") ? row.rank : row.placement;
     var cells = [
       (placement === null || placement === undefined) ? null : placement,
@@ -494,6 +504,20 @@ function pushResults_(body, result) {
     block[i] = cells;
     result.matched++;
   });
+
+  // The rows on the sheet that nothing claimed. Sent back so the operator
+  // can be shown what is actually available to pair an unmatched team
+  // with, instead of being told a name failed and left to go and read the
+  // sheet themselves.
+  if (unmatched.length) {
+    var free = [];
+    for (var fi = 0; fi < teamNames.length; fi++) {
+      if (claimed[fi]) continue;
+      var label = String(teamNames[fi][0] || "").trim();
+      if (label) free.push(label);
+    }
+    result.freeRows = free;
+  }
 
   // null leaves a cell alone, so a team the push didn't cover keeps
   // whatever is already there rather than being wiped by this write.
@@ -578,7 +602,7 @@ function pushBooyah_(book, booyah, result) {
 // different things, and without this there is no way to tell them apart
 // from outside. Diagnosed the hard way: a tab name was sent and ignored,
 // and the reply named a constant from a version nobody thought was live.
-var SCRIPT_VERSION = "2026-09-21.1-tab-name";
+var SCRIPT_VERSION = "2026-09-21.2-name-pairing";
 
 function doPost(e) {
   var result = { ok: false, matched: 0, total: 0, scriptVersion: SCRIPT_VERSION };
