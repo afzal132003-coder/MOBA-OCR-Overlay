@@ -4038,6 +4038,18 @@ def _lobby_size(rows=None):
 
     Falls back to the rows, then to twelve, which is a Free Fire lobby.
     """
+    # The client's own count for THIS match comes first, because the
+    # roster is an event-level list and a match is not obliged to use all
+    # of it. A roster of twelve with eleven teams actually playing dealt
+    # 12th place to the first squad out of an eleven-team lobby -- every
+    # position one too generous, all match.
+    #
+    # OnTeamScoreInited is written once per team as the match loads, so
+    # this is exactly who started, and it is reset with the match.
+    playing = len(_live_match.get("teamNames") or {})
+    if playing:
+        return playing
+
     teams = ((server_state.get("roster") or {}).get("teams") or [])
     named = sum(1 for t in teams if (t.get("name") or "").strip())
     if named:

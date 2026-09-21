@@ -1005,12 +1005,15 @@ function fillFromRoster(rows, state){
     // nothing -- there is genuinely nothing to show.
     const held = lastKnownStatus.get(key);
     if(lobbyKnown){
-      filled.push({
-        teamName: name, eliminated: true, aliveCount: 0,
-        bars: ["dead", "dead", "dead", "dead"],
-        elims: (held && held.elims != null) ? held.elims : null,
-        notInLobby: true,
-      });
+      /* Not in this lobby at all, so it is not in this match and has no
+         business on the table. Drawing it as "out" was better than
+         drawing it as alive, but it still took a row and still read as a
+         squad that had played and died -- and worse, it made the table
+         look twelve teams long when eleven started, which is the number
+         finishing positions are counted from.
+
+         An event roster is a list for the whole event. A match uses some
+         of it. */
       return;
     }
     filled.push(held ? {
