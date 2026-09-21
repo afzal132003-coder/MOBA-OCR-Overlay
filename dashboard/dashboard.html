@@ -9386,8 +9386,34 @@ function ffWireLobbyNameChoices(msg){
       decisions[p.logName] = { action: sel.value.slice(0, cut),
                                team: sel.value.slice(cut + 1) };
     });
-    ffWs.send(JSON.stringify({ type: "freefire_lobby_name_decisions", decisions }));
     const el = document.getElementById("ff_lobbyStatus");
+    /* Two different names cannot be the same team. Caught here rather
+       than in the engine so the operator sees WHICH two and can fix it
+       before anything is written -- three teams of one lobby went onto
+       ONE roster team this way, all of them ending in the word ESPORTS. */
+    const claimed = {};
+    let clash = "";
+    Object.keys(decisions).forEach((logName) => {
+      const d = decisions[logName];
+      if(d.action !== "use" && d.action !== "rename") return;
+      if(claimed[d.team]) clash = claimed[d.team] + " and " + logName +
+        " are both set to " + d.team;
+      claimed[d.team] = logName;
+    });
+    if(clash){
+      if(el){ el.style.color = "#f5a4a4";
+              el.textContent = "NOT applied — " + clash +
+                ". Two teams cannot be one."; }
+      return;
+    }
+    /* Nothing chosen is not the same as nothing to do: the picker now
+       starts unanswered on purpose, so this would silently do nothing. */
+    if(!Object.keys(decisions).length){
+      if(el){ el.style.color = "#e8c76a";
+              el.textContent = "Nothing applied — say which team each one is first."; }
+      return;
+    }
+    ffWs.send(JSON.stringify({ type: "freefire_lobby_name_decisions", decisions }));
     if(el){ el.style.color = "#98a3bd"; el.textContent = "Applying…"; }
   });
 }

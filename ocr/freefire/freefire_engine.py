@@ -5830,6 +5830,27 @@ PLAYER_NAME_MIN_RATIO = 0.6
 FREEFIRE_TEAM_UID_MIN_VOTES = 2
 
 
+# Words that say nothing about WHICH team this is. Almost every roster
+# has several teams carrying one, so a match resting on one of them is a
+# match on nothing: "EW Esports", "DLG ESPORTS" and "TOKYO ESPORTS" all
+# scored high against "RM ESPORTS" and were taken for it.
+FREEFIRE_GENERIC_TEAM_WORDS = {
+    "ESPORTS", "ESPORT", "ESP", "GAMING", "GAMERS", "TEAM", "CLAN",
+    "SQUAD", "OFFICIAL", "OFC", "FF", "FREEFIRE",
+}
+
+
+def distinctive_team_part(name):
+    """The part of a team name that identifies it, generic words dropped.
+
+    "DLG ESPORTS" -> "DLG". A name that is nothing BUT generic words
+    keeps all of them, since something has to be compared.
+    """
+    words = re.findall(r"[A-Za-z0-9]+", (name or "").upper())
+    kept = [w for w in words if w not in FREEFIRE_GENERIC_TEAM_WORDS]
+    return "".join(kept or words)
+
+
 def normalize_for_match(value):
     return re.sub(r"[^a-z0-9]", "", (value or "").lower())
 
@@ -5958,11 +5979,24 @@ def match_roster_team(file_team_name, roster_teams, min_ratio=None,
                 best_team, best_ratio = team, ratio
         return best_team if best_ratio >= SHORT_NAME_MIN_RATIO else None
 
+    # Compared on the DISTINCTIVE part as well as the whole. Two names
+    # that differ only in a generic word are not the same team, and the
+    # whole-string ratio cannot see that: "EWESPORTS" against "RMESPORTS"
+    # is 8 characters of 9 and scores 0.89, comfortably over any sane
+    # threshold. On the distinctive parts it is "EW" against "RM", which
+    # is 0.
+    bare_target = distinctive_team_part(file_team_name)
     best_team, best_ratio = None, 0.0
     for norm, team in candidates:
         if len(norm) < min_containment:
             continue
         ratio = difflib.SequenceMatcher(None, target, norm).ratio()
+        bare = distinctive_team_part(norm)
+        if bare and bare_target:
+            # The weaker of the two views wins, so a strong whole-string
+            # score cannot carry a pair whose identifying parts disagree.
+            ratio = min(ratio, difflib.SequenceMatcher(
+                None, bare_target, bare).ratio())
         if ratio > best_ratio:
             best_team, best_ratio = team, ratio
     return best_team if best_ratio >= floor else None
