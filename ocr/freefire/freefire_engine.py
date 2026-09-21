@@ -399,6 +399,10 @@ def default_state():
         # Which tab on the results spreadsheet the per-match grid goes
         # into. Empty means the Apps Script's own default.
         "resultsTab": "",
+        # Team name -> the short tag to show on the alive table, typed by
+        # the operator beside it. Keyed on the name rather than a roster
+        # slot so it works for a team the roster does not hold.
+        "shortNames": {},
         # Pushed team name -> the row on the sheet it belongs to, taught
         # by the operator when no amount of matching bridges the two.
         # "ASIN" against "ASSASSIN'S ARMY" share almost no letters, so
@@ -7026,14 +7030,27 @@ def link_live_teams(live, roster):
                 bars += ["alive"] * (size - len(bars))
             alive_count = sum(1 for b in bars if b == "alive")
 
-        # The short tag the table shows. The roster's own wins; failing
-        # that one is made from the name, because the client publishes
-        # none and a twelve-row table has no space for "MENTALIST ESP".
-        short = ((roster_team or {}).get("shortName") or "").strip()
+        # The short tag the table shows, in order of who knows best:
+        #
+        #   1. an override typed beside the alive table, which is the
+        #      operator saying it outright while watching it go out
+        #   2. the roster's own short name
+        #   3. one made from the team name, because the client publishes
+        #      none and a twelve-row table has no room for
+        #      "MENTALIST ESP"
+        #
+        # The override is keyed on the name the CLIENT writes, not on a
+        # roster entry, so it works for a team the roster has never heard
+        # of -- which is the case it exists for.
+        display_name = (roster_team or {}).get("name") or name
+        overrides = server_state.get("settings", {}).get("shortNames") or {}
+        override = (overrides.get(name) or overrides.get(display_name) or "").strip()
+        short = override or ((roster_team or {}).get("shortName") or "").strip()
         rows.append({
-            "teamName": (roster_team or {}).get("name") or name,
-            "short": short or derive_short_name(
-                (roster_team or {}).get("name") or name),
+            "teamName": display_name,
+            "short": short or derive_short_name(display_name),
+            "shortSource": ("operator" if override
+                            else ("roster" if short else "derived")),
             "shortDerived": not short,
             # Kills come from the client's own kill narration, NOT from
             # its running TeamScore.

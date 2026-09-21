@@ -2033,6 +2033,11 @@ Team Charlie
            is which team, so when the roster, the kill timing and the
            players' own tags all come up empty, this asks. -->
       <div id="ff_joinPrompt" style="margin-top:8px;"></div>
+      <!-- The short tag each row shows, editable where it goes out.
+           The client writes no short name, so one is derived from the
+           team name -- right most of the time and wrong enough of it
+           that it needs correcting without leaving this screen. -->
+      <div id="ff_shortNames" style="margin-top:8px;"></div>
     </div>
 
     <div class="card">
@@ -5504,6 +5509,7 @@ function ffOpen(url){
       ffRenderAliveGridRows(ffState);
       ffRenderAliveJoin();
       ffRenderJoinPrompt();
+      ffRenderShortNames();
       ffRenderLobby();
       // Once per connection: the dropdown should be usable the moment
       // the tab is opened, not after someone finds the button.
@@ -9718,6 +9724,66 @@ function ffShowLobbyFillResult(msg){
    remaining pair -- so what is here is genuinely undecidable from the
    log, and guessing would put one team's survivors under another team's
    name. */
+/* The short tag on each row of the alive table, editable here.
+
+   It is derived from the team name when nothing better exists, because
+   the client publishes no short name at all -- and a derivation is right
+   most of the time and wrong enough of it to need fixing. Doing that in
+   the roster means leaving this screen; the table is what is going out,
+   so the correction belongs beside it.
+
+   Typed here it wins over the roster and over the derivation, and is
+   kept against the name the CLIENT writes, so it survives a roster that
+   has never heard of that team. */
+let ffLastShortKey = "";
+function ffRenderShortNames(){
+  const el = document.getElementById("ff_shortNames");
+  if(!el) return;
+  const rows = ((ffState && ffState.liveOps && ffState.liveOps.sidetableRows) || [])
+    .filter(r => r && r.teamName);
+  if(!rows.length){ el.innerHTML = ""; ffLastShortKey = ""; return; }
+  const busy = document.activeElement;
+  if(busy && busy.classList && busy.classList.contains("ff-short-set")) return;
+  const key = JSON.stringify(rows.map(r => [r.teamName, r.short, r.shortSource]));
+  if(key === ffLastShortKey) return;
+  ffLastShortKey = key;
+
+  el.innerHTML =
+    "<details><summary style='cursor:pointer;color:#98a3bd;font-size:12px;'>" +
+    "Short names on the table (" + rows.length + ") — click to edit</summary>" +
+    "<div style='margin-top:6px;display:grid;" +
+    "grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:6px;'>" +
+    rows.map(r =>
+      "<div class='row' style='gap:6px;align-items:center;'>" +
+      "<span style='flex:1;min-width:0;font-size:11px;overflow:hidden;" +
+      "text-overflow:ellipsis;white-space:nowrap;' title='" +
+      ffEscapeHtml(r.teamName) + "'>" + ffEscapeHtml(r.teamName) + "</span>" +
+      "<input type='text' class='ff-short-set' data-team='" +
+      ffEscapeHtml(r.teamName) + "' value='" + ffEscapeHtml(r.short || "") +
+      "' style='width:86px;font-size:11px;padding:3px 6px;' " +
+      "title='" + (r.shortSource === "operator" ? "yours"
+                 : r.shortSource === "roster" ? "from the roster"
+                 : "made from the team name") + "'>" +
+      "<span style='font-size:10px;color:" +
+      (r.shortSource === "operator" ? "#4ade80'>set"
+       : r.shortSource === "roster" ? "#98a3bd'>roster" : "#6b7590'>auto") +
+      "</span></div>").join("") + "</div></details>";
+}
+
+document.addEventListener("change", (e) => {
+  if(!e.target.classList.contains("ff-short-set")) return;
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN && ffState)) return;
+  const map = Object.assign({}, (ffState.settings || {}).shortNames || {});
+  const value = e.target.value.trim();
+  // Emptying it hands the row back to the roster and the derivation,
+  // rather than pinning it to a blank.
+  if(value) map[e.target.dataset.team] = value;
+  else delete map[e.target.dataset.team];
+  const settings = Object.assign({}, ffState.settings || {}, { shortNames: map });
+  ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { settings } } }));
+  ffLastShortKey = "";
+});
+
 let ffLastJoinPromptKey = "";
 function ffRenderJoinPrompt(){
   const el = document.getElementById("ff_joinPrompt");
