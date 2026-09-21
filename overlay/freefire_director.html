@@ -102,6 +102,8 @@
   <div class="panel">
     <h2>Fights right now</h2>
     <div id="fights"></div>
+    <h2 id="closingHead" style="margin-top:22px" hidden>Closing in</h2>
+    <div id="closing"></div>
     <div class="note" id="posNote"></div>
   </div>
   <div class="panel">
@@ -149,6 +151,8 @@ function render(d){
     $("callTeams").textContent = "waiting for a match";
     $("callWhy").textContent = "";
     $("fights").innerHTML = "<div class='empty'>no fights yet</div>";
+    $("closing").innerHTML = "";
+    $("closingHead").hidden = true;
     $("posNote").textContent = "";
     return;
   }
@@ -175,6 +179,21 @@ function render(d){
       "<div class='bar'><i style='width:" +
       Math.max(6, Math.round(100 * e.weight / (top || 1))) + "%'></i></div></div>";
   }).join("") : "<div class='empty'>no fights in the last 45 seconds</div>";
+
+  /* Squads near each other that are not fighting yet -- the shot to be
+     ready for rather than the one to cut to. Distance is meaningless
+     without the scale it is judged against, which changes with the
+     circle, so the heading carries it. */
+  const near = d.closingIn || [];
+  $("closingHead").hidden = !near.length;
+  $("closingHead").textContent = near.length
+    ? "Closing in — within " + (d.nearRange || 0) + " units" : "Closing in";
+  $("closing").innerHTML = near.map(c =>
+    "<div class='fight'><div class='fteams' style='font-size:27px'>" +
+    esc(c.teams.join("  +  ")) + "</div>" +
+    "<div class='fmeta'><span>" + c.apart + " apart</span>" +
+    "<span class='" + (c.ageSeconds > 45 ? "stale" : "where") + "'>" +
+    c.ageSeconds + "s old</span></div></div>").join("");
 
   $("posNote").innerHTML = d.positionsAre
     ? "Positions are " + esc(d.positionsAre) + " — the game publishes no live " +

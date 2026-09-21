@@ -29,6 +29,7 @@ import difflib
 import hashlib
 import io
 import json
+import math
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -6504,6 +6505,17 @@ FREEFIRE_POSITION_STALE = 120.0
 # Two engagements this close in weight are both worth watching, which is
 # what a split screen is for.
 FREEFIRE_SPLIT_RATIO = 0.6
+# How close two squads count as converging, as a multiple of the circle's
+# current radius, with a floor and a ceiling.
+#
+# Proportional rather than fixed, because "close" means less as the game
+# goes on. Three hundred units apart inside a 500-radius circle is the
+# same part of the map; inside a 75-radius circle one of them is not even
+# in the zone. Measured on a real match, squads not yet fighting sat
+# 292-630 apart while a pair already fighting read 0.
+FREEFIRE_NEARBY_RADII = 1.5
+FREEFIRE_NEARBY_MIN = 150.0
+FREEFIRE_NEARBY_MAX = 600.0
 
 
 # How long each zone phase runs, before anything has been watched. Taken
@@ -6581,6 +6593,18 @@ def director_feed(live, linked=None, now=None):
     name_of = lambda gs: gs_names.get(gs) or ("Squad %s" % gs)
     wiped = set(live.get("wiped") or [])
 
+    # The number the observer presses. It is the client's own TeamID --
+    # the one it printed beside the team name at match load, and the one
+    # the in-game panel is ordered by. It is NOT the squad number the
+    # players and deaths are keyed on: those two numbering spaces do not
+    # agree, so it has to come back through the join.
+    slot_of = {}
+    for row in (linked or {}).get("rows") or []:
+        if row.get("gsTeam") is not None and row.get("teamId") is not None:
+            slot_of[row["gsTeam"]] = row["teamId"]
+    label = lambda gs: ("(%s) %s" % (slot_of[gs], name_of(gs))
+                        if gs in slot_of else name_of(gs))
+
     # Where each squad was last seen, if recently enough to mean anything.
     seen = {}
     for when, gs, x, z in (live.get("revivePoints") or []):
@@ -6608,8 +6632,9 @@ def director_feed(live, linked=None, now=None):
             if gs in seen and (spot is None or seen[gs][0] > spot[0]):
                 spot = seen[gs]
         engagements.append({
-            "teams": [name_of(a), name_of(b)],
+            "teams": [label(a), label(b)],
             "squads": [a, b],
+            "slots": [slot_of.get(a), slot_of.get(b)],
             "knocks": entry["knocks"], "kills": entry["kills"],
             "weight": weight,
             "secondsAgo": int(now - entry["last"]),
@@ -6627,8 +6652,41 @@ def director_feed(live, linked=None, now=None):
         gs, n = max(kills.items(), key=lambda kv: kv[1])
         if n:
             rest = sorted((v for k, v in kills.items() if k != gs), reverse=True)
-            leader = {"team": name_of(gs), "squad": gs, "kills": n,
-                      "lead": n - (rest[0] if rest else 0)}
+            leader = {"team": label(gs), "squad": gs, "slot": slot_of.get(gs),
+                      "kills": n, "lead": n - (rest[0] if rest else 0)}
+
+    # Squads whose last known positions are close to each other but who
+    # are NOT already trading blows -- the fight that has not started yet.
+    #
+    # Built on the same revive fixes as everything else here, so it
+    # carries the same caveat twice over: both squads need a recent one,
+    # and both are minutes old. It is a nudge to point a camera, not a
+    # proximity alert, and the ages are published so it reads that way.
+    fighting = {tuple(sorted((e["squads"][0], e["squads"][1])))
+                for e in engagements}
+    radius = (live.get("zone") or {}).get("radius") or 0
+    near_range = min(FREEFIRE_NEARBY_MAX,
+                     max(FREEFIRE_NEARBY_MIN, radius * FREEFIRE_NEARBY_RADII))
+    closing_in = []
+    spots = [(gs, v) for gs, v in seen.items() if gs not in wiped]
+    for i, (ga, (ta, xa, za)) in enumerate(spots):
+        for gb, (tb, xb, zb) in spots[i + 1:]:
+            key = tuple(sorted((ga, gb)))
+            if key in fighting:
+                continue
+            gap = math.hypot(xa - xb, za - zb)
+            if gap > near_range:
+                continue
+            closing_in.append({
+                "teams": [label(ga), label(gb)],
+                "squads": [ga, gb],
+                "slots": [slot_of.get(ga), slot_of.get(gb)],
+                "apart": int(gap),
+                # The OLDER of the two fixes, because the pair is only as
+                # current as its stalest half.
+                "ageSeconds": int(now - min(ta, tb)),
+            })
+    closing_in.sort(key=lambda c: (c["apart"], c["ageSeconds"]))
 
     zone = live.get("zone") or {}
     closing = (zone.get("phase") or "").startswith(("PRE_SHRINK", "SHRINK",
@@ -6659,6 +6717,11 @@ def director_feed(live, linked=None, now=None):
 
     return {
         "engagements": engagements[:4],
+        "closingIn": closing_in[:3],
+        # Published so the board can say what "close" currently means --
+        # it changes with the circle, and a distance with no scale beside
+        # it tells a director nothing.
+        "nearRange": int(near_range),
         "killLeader": leader,
         "teamsUp": up,
         "zone": {"stage": zone.get("stage"), "phase": zone.get("phase"),
