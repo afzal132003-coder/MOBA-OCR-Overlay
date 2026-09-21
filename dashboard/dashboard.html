@@ -9708,6 +9708,17 @@ function ffShowLobbyFillResult(msg){
         " squad(s) had no team chosen, so their players went nowhere. Pick a team " +
         "in the dropdown beside each and press it again.</div>"
       : "");
+  /* Pull the roster grid back in line with what the engine now holds.
+     Without this the players landed on the engine and the boxes above
+     went on showing the state from before the button was pressed -- so
+     every player read "already in the roster" while the grid looked
+     empty, which reads as the button having done nothing. Same edit
+     buffer, same fix as after reading the lobby. */
+  const shown = ffRefreshRosterFromState();
+  if(shown){
+    el.innerHTML += "<div style='margin-top:4px;color:#98a3bd;'>Roster grid " +
+      "refreshed — " + shown + " team(s).</div>";
+  }
   ffRenderLobby(true);
 }
 
