@@ -9300,9 +9300,33 @@ async def ocr_loop():
             if sidetable_region and sidetable_region.get("w", 0) > 0 and sidetable_region.get("h", 0) > 0:
                 sidetable_crop = crop_to_bgr(sct, sidetable_region)
 
+            # The alive grid is READ OFF THE SCREEN, and the table has
+            # not come from the screen since the log took it over. When
+            # the operator has pinned the table to the log there is
+            # nothing for this to feed: its rows are discarded further
+            # down, and everything it produced -- twelve elim crops and
+            # twelve name crops, template-matched every poll -- was work
+            # done for a result nobody reads.
+            #
+            # The capture is skipped with it, not just the classify: the
+            # grab is the expensive half.
+            #
+            # The screen preview is unaffected; that is a separate crop
+            # and is what an operator actually looks at.
             alive_grid = build_alive_grid(regions)
+            # Read from the SETTING, not from log_owns: this runs before
+            # log_owns is worked out for this poll, and using it here
+            # would be a NameError on the first one and last poll's
+            # answer on every other. The setting is what the operator
+            # pinned, which is exactly the question being asked.
+            #
+            # In "auto" the grid is still captured, because whether the
+            # log can take the table is not known until it has been read.
+            pinned_to_log = (server_state.get("settings", {})
+                             .get("aliveTableSource") == "log")
             alive_grid_crops = (capture_alive_grid_crops(sct, alive_grid)
-                                if (alive_grid and do_screen) else None)
+                                if (alive_grid and do_screen and not pinned_to_log)
+                                else None)
 
             # The client's own elimination banner, read every poll. The
             # test for one being up is a handful of microseconds on a

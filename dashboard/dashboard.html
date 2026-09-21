@@ -1954,15 +1954,20 @@ Team Charlie
            is comparing a row against the picture, which fails if the
            picture scrolls away. -->
       <div style="display:flex;gap:14px;margin-top:12px;align-items:flex-start;">
-        <div style="flex:1;min-width:0;overflow-x:auto;">
-          <p class="hint" style="margin:0 0 6px;">In the <strong>Team</strong> and <strong>Elim</strong>
-            columns, <strong>Enter</strong> drops to the same box one row down and <strong>Shift+Enter</strong>
-            goes back up, wrapping at the ends — so all twelve rows can be set without touching the mouse.
-            With a dropdown's list open, the first Enter closes the list and the next one moves down; typing
-            the team name straight into a closed dropdown moves down on the first Enter.</p>
-          <div id="ff_aliveGridRows"></div>
-        </div>
-        <div style="flex:0 0 272px;position:sticky;top:8px;">
+        <!-- The twelve-row calibration table used to sit here.
+             It was for reading the alive table OFF THE SCREEN, and the
+             table has not come from the screen since the log took it
+             over -- so every poll it cost twelve elim crops and twelve
+             name crops, template-matched, for rows nothing read. The
+             engine skips that work entirely now while the table is
+             pinned to the log.
+
+             What is kept is the pair of live views: what the screen
+             actually shows, and what is going to air. Those are what an
+             operator checks. Anything needing a correction is corrected
+             where it is wrong -- a squad that could not be placed in the
+             prompt below the table, a short name in the roster. -->
+        <div style="flex:1;min-width:0;max-width:520px;position:sticky;top:8px;">
           <div class="hint" style="margin-bottom:4px;"><strong>The game, live</strong> — what the OCR is reading</div>
           <img id="ff_aliveGameLive" alt=""
             style="display:block;width:100%;border-radius:6px;border:1px solid #2b3348;background:#0a0d18;min-height:130px;">
