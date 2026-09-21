@@ -1221,6 +1221,12 @@ def blank_live_match():
         # line is still allowed to mark as a headshot. An event takes at
         # most one trace, which is what keeps the counts honest.
         "hsPending": {},
+        # TeamID -> gsTeam, said by the operator in the dashboard when
+        # nothing automatic could place a squad. Lives with the MATCH,
+        # not with the settings, because the client issues fresh squad
+        # numbers every game -- carrying one into the next match would
+        # pair a name to whoever happens to hold that number next.
+        "operatorJoins": {},
         # The safe zone as it stands, and every stage it has been through.
         # The history is what a post-game circle analysis is built from;
         # it is bounded by the number of stages a match has, which is
@@ -6592,8 +6598,15 @@ def _ign_tag(ign):
     Players who carry no tag give "" and are simply no evidence either
     way.
     """
-    text = re.sub(r"[^A-Za-z0-9. ]", "", (ign or "")).strip()
-    head = re.split(r"[. ]", text, 1)[0]
+    # Everything that is not a letter or digit separates. Players use far
+    # more than a dot and a space: "KYTㅤGaRyy!" carries its tag
+    # behind an ideographic space, and splitting on ASCII alone read the
+    # whole name as one word and gave up on it -- a whole squad of KYT
+    # players went unidentified for that reason.
+    parts = [p for p in re.split(r"[^A-Za-z0-9]+", ign or "") if p]
+    if not parts:
+        return ""
+    head = parts[0]
     return head.upper() if 2 <= len(head) <= 6 else ""
 
 
@@ -6862,6 +6875,41 @@ def director_feed(live, linked=None, now=None):
     }
 
 
+def unjoined_prompt(live, linked):
+    """What the dashboard has to ask about: squads nothing could place.
+
+    Everything automatic has had its go by the time this is built --
+    the roster, the kill timing, the players' own tags, and the last
+    pair. What is left is genuinely undecidable from the log, so it is
+    put in front of the operator rather than guessed at. A guess here
+    puts one team's survivors under another team's name, which reads as
+    fact on air.
+
+    Both halves are given, because the pairing needs both: the teams with
+    no squad, and the squads with no team, each with enough to recognise
+    it by -- the players' names, and how many of them are still up.
+    """
+    rows = (linked or {}).get("rows") or []
+    taken = {r.get("gsTeam") for r in rows if r.get("gsTeam") is not None}
+    wiped = set(live.get("wiped") or [])
+
+    teams = [{"teamId": r.get("teamId"), "name": r.get("teamName"),
+              "short": r.get("short")}
+             for r in rows if r.get("gsTeam") is None]
+    squads = []
+    for gs_team, squad in sorted((live.get("gsIgns") or {}).items()):
+        if gs_team in taken:
+            continue
+        down = (live.get("gsDown") or {}).get(gs_team) or set()
+        squads.append({
+            "gsTeam": gs_team,
+            "players": [str(i) for i in squad.values()],
+            "alive": 0 if gs_team in wiped else max(0, len(squad) - len(down)),
+            "out": gs_team in wiped,
+        })
+    return {"teams": teams, "squads": squads}
+
+
 def join_last_by_elimination(live, names, already):
     """The last squad and the last team must be each other.
 
@@ -6938,6 +6986,17 @@ def link_live_teams(live, roster):
     inferred = reject_contradicted_joins(live, inferred, team_names)
     inferred.update(join_squads_by_tag(live, team_names, inferred))
     inferred.update(join_last_by_elimination(live, team_names, inferred))
+    # The operator's own pairings go on last and win outright: they are
+    # a statement of fact and everything above them is an inference. A
+    # squad they have claimed is also taken off the table for the rest,
+    # so nothing else can be handed it.
+    stated = {int(tid): gs for tid, gs in
+              (live.get("operatorJoins") or {}).items()}
+    if stated:
+        taken = set(stated.values())
+        inferred = {tid: gs for tid, gs in inferred.items()
+                    if tid not in stated and gs not in taken}
+        inferred.update(stated)
 
     ended = live.get("ended")
     wiped = live.get("wiped", [])
@@ -6947,7 +7006,10 @@ def link_live_teams(live, roster):
         index = roster_teams.index(roster_team) if roster_team in roster_teams else None
         gs_team = roster_to_gs.get(index) if index is not None else None
         joined_by = "roster" if gs_team is not None else None
-        if gs_team is None and tid in inferred:
+        if tid in (live.get("operatorJoins") or {}) or str(tid) in (live.get("operatorJoins") or {}):
+            gs_team = inferred.get(tid, gs_team)
+            joined_by = "operator"
+        elif gs_team is None and tid in inferred:
             gs_team = inferred[tid]
             joined_by = "timing"
 
@@ -8735,6 +8797,28 @@ async def handle_client(websocket, path=None):
                                     for t in roster if (t.get("name") or "").strip()],
                     "logFile": os.path.basename(str(log)) if log else "",
                 }))
+            elif payload.get("type") == "freefire_join_squad":
+                # "That squad is that team." Kept with the match, since
+                # squad numbers are reissued every game.
+                try:
+                    tid = int(payload.get("teamId"))
+                    gs_team = int(payload.get("gsTeam"))
+                except (TypeError, ValueError):
+                    tid = gs_team = None
+                joins = _live_match.setdefault("operatorJoins", {})
+                if tid is None:
+                    pass
+                elif gs_team is None or payload.get("clear"):
+                    joins.pop(str(tid), None)
+                    joins.pop(tid, None)
+                else:
+                    # One squad, one team: claiming a squad releases it
+                    # from whatever it was paired with before.
+                    for other in [k for k, v in joins.items() if v == gs_team]:
+                        joins.pop(other, None)
+                    joins[str(tid)] = gs_team
+                await broadcast({"type": "state_sync", "data": server_state,
+                                 "locked": list(locked_fields)})
             elif payload.get("type") == "freefire_clear_roster":
                 # Wipes the teams ON THE ENGINE, which the dashboard's own
                 # clear could not do: that one emptied twelve boxes in the
@@ -9380,6 +9464,12 @@ async def ocr_loop():
                             table_changed = True
                             server_state["liveOps"]["sidetableSource"] = "log"
                             changed = True
+
+                    # Anything nothing could place, put to the operator.
+                    prompt = unjoined_prompt(_live_match, linked)
+                    if prompt != server_state["liveOps"].get("joinPrompt"):
+                        server_state["liveOps"]["joinPrompt"] = prompt
+                        changed = True
 
                     squads = linked.get("unresolved", [])
                     if squads != server_state["pending"].get("squads"):
