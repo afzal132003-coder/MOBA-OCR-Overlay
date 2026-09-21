@@ -1188,6 +1188,13 @@ def blank_live_match():
         "zoneHistory": [],
         "airline": None,   # {"start": [x,y,z], "end": [x,y,z]}
         "itemCounts": {},  # runtime player id -> {EITEM_TYPE -> count}
+        # When each side's counter moved, which is what lets the two
+        # numbering spaces be joined without a roster -- see
+        # infer_squad_teams. Bounded: a match is a few dozen kills per
+        # squad and both lists ride along in every state_sync.
+        "gsKillTimes": {},   # gsTeam -> [epoch, ...]
+        "tidBumpTimes": {},  # TeamID -> [epoch, ...]
+        "lastTeamScore": {}, # TeamID -> last score seen, to spot a rise
         "wiped": [],       # gsTeam, in the order the client wiped them
     }
 
@@ -1344,7 +1351,20 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
 
         score = DEBUGGER_TEAM_SCORE_REGEX.search(line)
         if score:
-            live["teamScores"][int(score.group("tid"))] = int(score.group("score"))
+            tid, value = int(score.group("tid")), int(score.group("score"))
+            previous = (live.get("lastTeamScore") or {}).get(tid)
+            live["teamScores"][tid] = value
+            live.setdefault("lastTeamScore", {})[tid] = value
+            # Only a RISE is an event. The client repeats the line
+            # unchanged, and counting repeats would smear the timing this
+            # join depends on.
+            if previous is not None and value > previous:
+                stamp = DEBUGGER_TS_REGEX.match(line.strip())
+                when = _debugger_epoch(stamp.group("ts")) if stamp else None
+                if when is not None:
+                    times = live.setdefault("tidBumpTimes", {}).setdefault(tid, [])
+                    times.append(when)
+                    del times[:-FREEFIRE_JOIN_HISTORY]
             continue
 
         add = DEBUGGER_SPECTATOR_ADD_REGEX.search(line)
@@ -1489,6 +1509,12 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
             team = gs_team_of(killer_id)
             live["gsKills"][team] = live["gsKills"].get(team, 0) + 1
             live.setdefault("playerKills", {})[killer_id] = live.get("playerKills", {}).get(killer_id, 0) + 1
+            stamp = DEBUGGER_TS_REGEX.match(line.strip())
+            when = _debugger_epoch(stamp.group("ts")) if stamp else None
+            if when is not None:
+                times = live.setdefault("gsKillTimes", {}).setdefault(team, [])
+                times.append(when)
+                del times[:-FREEFIRE_JOIN_HISTORY]
         else:
             # Knockdowns are the only per-player stat the result file does
             # not carry, so they are counted here and travel with the match
@@ -6168,6 +6194,85 @@ def utility_board(live, linked=None):
     return rows
 
 
+# How many increments to remember per team, each side. A match is a few
+# dozen kills for the busiest squad, so this holds a whole one.
+FREEFIRE_JOIN_HISTORY = 80
+# A kill and the score line it causes land within a second or so of each
+# other. Two seconds is loose enough for that and far tighter than the
+# gaps between one team's kills.
+FREEFIRE_JOIN_WINDOW = 2.0
+# What it takes to believe a pairing: at least this many increments lined
+# up, and the runner-up beaten by this factor. Measured on a live match,
+# every true pair matched ALL of its kills and the next best managed one.
+FREEFIRE_JOIN_MIN_HITS = 2
+FREEFIRE_JOIN_MARGIN = 2.0
+
+
+def infer_squad_teams(live):
+    """Joins TeamID to gsTeam with no roster, on when each counter moved.
+
+    The client numbers teams one way for names and scores (TeamID) and
+    another for players and deaths (gsTeam), and prints the two on
+    different lines that never mention each other. Measured on a real
+    match, the numbers themselves agree for 0 of 12 teams, so the roster
+    has been the only bridge -- and a new event with nothing entered yet
+    has no bridge at all. That is what put eleven correctly named teams on
+    air with no alive bars.
+
+    But ONE event moves both sides: a kill raises that squad's gsKills
+    and, a moment later, that team's TeamScore. Over a match each team's
+    pattern of increments is distinctive, so the two can be matched on
+    timing alone.
+
+    Deliberately strict. A wrong pairing shows one team's survivors
+    against another team's name, which is worse than showing none: a gap
+    reads as missing data, a wrong bar reads as fact. So a pairing is used
+    only when it lines up FREEFIRE_JOIN_MIN_HITS increments and beats the
+    runner-up by FREEFIRE_JOIN_MARGIN, each squad and team is taken at
+    most once, and the strongest evidence is claimed first.
+
+    Returns {TeamID: gsTeam}. Teams yet to score cannot appear -- they
+    have produced no evidence -- and simply stay unjoined until they do.
+    """
+    kills = live.get("gsKillTimes") or {}
+    bumps = live.get("tidBumpTimes") or {}
+    if not kills or not bumps:
+        return {}
+
+    scored = []
+    for gs_team, ks in kills.items():
+        for tid, bs in bumps.items():
+            taken, hits = set(), 0
+            for k in ks:
+                for i, b in enumerate(bs):
+                    if i not in taken and abs(b - k) <= FREEFIRE_JOIN_WINDOW:
+                        taken.add(i)
+                        hits += 1
+                        break
+            if hits:
+                scored.append((hits, gs_team, tid))
+    scored.sort(reverse=True)
+
+    # Runner-up for each squad, so a pairing can be required to stand out.
+    best_other = {}
+    for hits, gs_team, tid in scored:
+        best_other.setdefault(gs_team, []).append(hits)
+
+    joined, used_gs, used_tid = {}, set(), set()
+    for hits, gs_team, tid in scored:
+        if gs_team in used_gs or tid in used_tid:
+            continue
+        if hits < FREEFIRE_JOIN_MIN_HITS:
+            continue
+        rivals = [h for h in best_other.get(gs_team, []) if h != hits]
+        if rivals and hits < max(rivals) * FREEFIRE_JOIN_MARGIN:
+            continue
+        joined[tid] = gs_team
+        used_gs.add(gs_team)
+        used_tid.add(tid)
+    return joined
+
+
 def _ign_tag(ign):
     """The team tag a player is carrying in front of their name.
 
@@ -6254,6 +6359,13 @@ def link_live_teams(live, roster):
     for gs_team, index in gs_to_roster.items():
         roster_to_gs.setdefault(index, gs_team)
 
+    # The roster is the proper bridge between the two numbering spaces and
+    # is used wherever it reaches. This fills the gap where it does not --
+    # a new event, or a lobby not yet read -- from the client's own event
+    # timing. Never overrides the roster: an operator's mapping is a
+    # statement of fact, this is an inference.
+    inferred = infer_squad_teams(live)
+
     ended = live.get("ended")
     wiped = live.get("wiped", [])
     rows = []
@@ -6261,6 +6373,10 @@ def link_live_teams(live, roster):
         roster_team = match_roster_team(name, roster_teams)
         index = roster_teams.index(roster_team) if roster_team in roster_teams else None
         gs_team = roster_to_gs.get(index) if index is not None else None
+        joined_by = "roster" if gs_team is not None else None
+        if gs_team is None and tid in inferred:
+            gs_team = inferred[tid]
+            joined_by = "timing"
 
         bars = []
         alive_count = None
@@ -6330,6 +6446,9 @@ def link_live_teams(live, roster):
             "rawText": name,
             "teamId": tid,
             "gsTeam": gs_team,
+            # Said out loud so an operator can see WHY a row has bars, and
+            # distrust the inferred ones first if something looks wrong.
+            "joinedBy": joined_by,
             "source": "log",
         })
 
