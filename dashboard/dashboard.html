@@ -150,6 +150,19 @@
     background:rgba(10,13,24,0.75);color:#eef2fb;font-size:14px;font-family:inherit;
     transition:border-color 0.15s ease, box-shadow 0.15s ease;
   }
+  /* Textareas were styled nowhere, so they took the browser's default
+     text colour against the dark background several of them set inline
+     -- dark on dark. Typed text was invisible in the team-names box
+     until it was selected. Given the same treatment as the text inputs
+     here rather than patched inline, so a new textarea cannot inherit
+     the same fault. */
+  textarea{
+    box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid #2b3348;
+    background:rgba(10,13,24,0.75);color:#eef2fb;font-size:14px;font-family:inherit;
+    caret-color:#eef2fb;
+    transition:border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  textarea::placeholder{ color:#6b7690; }
   input[type=text]:focus, input[type=number]:focus, select:focus, textarea:focus{
     outline:none;border-color:#7d6bff;box-shadow:0 0 0 3px rgba(125,107,255,0.18);
   }
@@ -1788,7 +1801,7 @@
       <textarea id="ff_teamNamesList" rows="14" placeholder="Team Alpha, TA
 Team Bravo, TB
 Team Charlie
-..." style="width:100%;font-family:monospace;font-size:13px;background:#0a0d18;"></textarea>
+..." style="width:100%;font-family:monospace;font-size:13px;background:#0a0d18;color:#eef2fb"></textarea>
       <div class="row" style="gap:8px;margin-top:10px;">
         <button id="ff_teamNamesApply">Apply &amp; Save Roster</button>
         <button class="secondary" id="ff_teamNamesReload">Reload From Saved Roster</button>
@@ -2234,7 +2247,7 @@ Team Charlie
         <div class="team-form" style="flex:1;">
           <label id="ff_qmeSourceLabel">No match to export yet — fetch or commit one first.</label>
           <textarea id="ff_qmeOutput" rows="12" readonly
-            style="width:100%;font-family:monospace;font-size:12px;background:#0a0d18;"></textarea>
+            style="width:100%;font-family:monospace;font-size:12px;background:#0a0d18;color:#eef2fb"></textarea>
         </div>
       </div>
       <div class="row" style="gap:8px;margin-top:8px;">

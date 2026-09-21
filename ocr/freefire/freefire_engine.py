@@ -6219,9 +6219,19 @@ FREEFIRE_JOIN_HISTORY = 80
 # gaps between one team's kills.
 FREEFIRE_JOIN_WINDOW = 2.0
 # What it takes to believe a pairing: at least this many increments lined
-# up, and the runner-up beaten by this factor. Measured on a live match,
-# every true pair matched ALL of its kills and the next best managed one.
-FREEFIRE_JOIN_MIN_HITS = 2
+# up, and the runner-up beaten by this factor.
+#
+# One increment is enough, because the MARGIN is what rejects a
+# coincidence, not the count. A squad whose single kill lines up with one
+# team and nothing else is unambiguous. Two squads killing in the same
+# instant each match both teams, so each has a rival of equal weight and
+# both are refused -- which is the case the minimum was really guarding
+# against, and the margin already covers it.
+#
+# Raising this to two cost a real join on air: a squad on one kill sat
+# eliminated in the game and alive on the graphic, because nothing had
+# joined it to a name.
+FREEFIRE_JOIN_MIN_HITS = 1
 FREEFIRE_JOIN_MARGIN = 2.0
 # A single score rise of this much or more is a placement award, not
 # kills. Kills arrive one line at a time, each worth one; the placement
