@@ -5742,6 +5742,12 @@ def squad_aliases():
     return ((server_state.get("aliases") or {}).get("squads") or {})
 
 
+# Similar enough that a name is the same team spelled differently rather
+# than a different team that happens to look alike. Only used to let such
+# a name beat a fragment that is literally contained in it.
+TEAM_NAME_NEAR_EXACT = 0.90
+
+
 def match_roster_team(file_team_name, roster_teams, min_ratio=None,
                      min_containment=0):
     """Returns the roster team dict this result-file team name refers to,
@@ -5788,11 +5794,42 @@ def match_roster_team(file_team_name, roster_teams, min_ratio=None,
             return team
     # Containment before fuzzy -- see the block comment above for why.
     if len(target) >= min_containment:
-        for norm, team in candidates:
-            if len(norm) < min_containment:
-                continue
-            if target in norm or norm in target:
-                return team
+        # The BEST containment, not the first one in roster order.
+        #
+        # "ASIN" sits inside "MISS ASSASIN", so a roster holding both ASIN
+        # and MISS ASSASSIN answered ASIN for whichever came first -- and
+        # then for the other one too. Seen on air: ASIN on the table
+        # twice, MISS ASSASSIN absent, and the two squads' alive counts
+        # landing on one row.
+        #
+        # Ranked on how much of the longer name the shorter one covers,
+        # so a whole name beats a fragment of it, with similarity as the
+        # tiebreak.
+        def _cover(norm):
+            short, long_ = sorted((len(norm), len(target)))
+            return short / long_ if long_ else 0.0
+
+        contained = [(norm, team) for norm, team in candidates
+                     if len(norm) >= min_containment
+                     and (target in norm or norm in target)]
+        if contained:
+            norm, team = max(
+                contained,
+                key=lambda ct: (_cover(ct[0]),
+                                difflib.SequenceMatcher(None, target, ct[0]).ratio()))
+            # A name that is nearly the whole thing beats a fragment that
+            # merely sits inside it. "MISSASSASIN" against "MISSASSASSIN"
+            # is one letter out -- not containment at all, but obviously
+            # the right team, and it has to be able to win.
+            rival, rival_ratio = None, 0.0
+            for cand_norm, cand_team in candidates:
+                ratio = difflib.SequenceMatcher(None, target, cand_norm).ratio()
+                if ratio > rival_ratio:
+                    rival, rival_ratio = cand_team, ratio
+            held = difflib.SequenceMatcher(None, target, norm).ratio()
+            if rival is not None and rival_ratio >= TEAM_NAME_NEAR_EXACT and rival_ratio > held:
+                return rival
+            return team
 
     if len(target) < min_containment:
         # Short. On the client's own side table the name IS short -- it
