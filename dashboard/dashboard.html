@@ -5554,6 +5554,22 @@ function ffOpen(url){
         ffWireLobbyNameChoices(msg);
       }
       ffRenderLobby();
+    } else if(msg.type === "freefire_lobby_names_applied"){
+      /* Without this the status sat on "Applying..." for ever, which
+         reads as the read being slow rather than as a reply nobody was
+         listening for. */
+      const el = document.getElementById("ff_lobbyStatus");
+      if(el){
+        const bits = [];
+        if(msg.taught) bits.push(msg.taught + " spelling(s) learned");
+        if(msg.renamed) bits.push(msg.renamed + " team(s) renamed");
+        if(msg.created) bits.push(msg.created + " team(s) created");
+        el.style.color = "#4ade80";
+        el.innerHTML = "✓ " + (bits.length ? bits.join(", ") : "Nothing to change") +
+          ". <div style='margin-top:4px;color:#fbbf24;'>The roster now has the " +
+          "teams. It does NOT have their players yet — pick each squad's team " +
+          "in the dropdowns below and press <b>Fill Roster From Lobby</b>.</div>";
+      }
     } else if(msg.type === "freefire_fill_roster_result"){
       ffShowLobbyFillResult(msg);
     } else if(msg.type === "freefire_icon_library_reloaded"){
