@@ -8217,15 +8217,29 @@ async def handle_client(websocket, path=None):
                 # all three new and would have added seven duplicate teams
                 # to an eleven-team roster, which is the state that puts a
                 # team on the table twice and another not at all.
+                # Three outcomes, and only one of them is decided here.
+                #
+                #   spelled exactly as the roster has it  -> nothing to do
+                #   nothing in the roster resembles it    -> create it
+                #   something resembles it                -> ASK
+                #
+                # The middle case is safe to act on: there is no team it
+                # could be confused with. The last is not. CHILLMATES
+                # against CHILL MATES is almost certainly the same team,
+                # and NKG against NKG ESP almost certainly is -- but
+                # "almost certainly" is how a roster ends up with two
+                # entries for one team, which puts that team on the table
+                # twice and another not at all. So the resemblance is
+                # reported and the operator says which it is.
                 teams_made = 0
-                matched_existing = []
+                pending = []
                 for name in names:
                     if name.strip().upper() in by_name:
                         continue
                     existing = match_roster_team(name, roster)
                     if existing is not None:
-                        matched_existing.append(
-                            "%s -> %s" % (name.strip(), existing.get("name")))
+                        pending.append({"logName": name.strip(),
+                                        "suggested": (existing.get("name") or "").strip()})
                         continue
                     team = {"name": name.strip(), "displayName": "", "shortName": "",
                             "logo": "", "groupPhoto": "", "players": []}
@@ -8248,7 +8262,56 @@ async def handle_client(websocket, path=None):
                     "squads": len(squads), "players": len(lobby),
                     "withUid": sum(1 for p in lobby if p["uid"]),
                     "teamsCreated": teams_made, "names": names,
+                    # The names that resemble an existing team, with the
+                    # roster to choose from. Nothing was done to these.
+                    "pending": pending,
+                    "rosterTeams": [(t.get("name") or "").strip()
+                                    for t in roster if (t.get("name") or "").strip()],
                     "logFile": os.path.basename(str(log)) if log else "",
+                }))
+            elif payload.get("type") == "freefire_lobby_name_decisions":
+                # The operator's answer to the resemblances above. Three
+                # things they can say about each one, and each is a
+                # different edit:
+                #
+                #   use    it IS that team, spelled differently. Teach the
+                #          spelling so it is not asked again.
+                #   rename it is that team, and the client's spelling is
+                #          the one to show. Rename in place, so the logos
+                #          and players already on it are kept.
+                #   new    it is a different team. Create it.
+                decisions = payload.get("decisions") or {}
+                roster = server_state.setdefault("roster", {}).setdefault("teams", [])
+                made, renamed, taught = 0, 0, 0
+                for log_name, choice in decisions.items():
+                    action = (choice or {}).get("action")
+                    target = ((choice or {}).get("team") or "").strip()
+                    team = next((t for t in roster
+                                 if (t.get("name") or "").strip() == target), None)
+                    if action == "new":
+                        if not any((t.get("name") or "").strip().upper()
+                                   == log_name.strip().upper() for t in roster):
+                            roster.append({"name": log_name.strip(), "displayName": "",
+                                           "shortName": "", "logo": "",
+                                           "groupPhoto": "", "players": []})
+                            made += 1
+                    elif action == "rename" and team is not None:
+                        team["name"] = log_name.strip()
+                        renamed += 1
+                    elif action == "use" and team is not None:
+                        # Taught the same way every other team alias is,
+                        # so match_roster_team finds it first next time
+                        # and this is asked once rather than every match.
+                        (server_state.setdefault("aliases", {})
+                         .setdefault("teams", {}))[_ign_key(log_name)] = (
+                            team.get("name") or "")
+                        taught += 1
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state,
+                                 "locked": list(locked_fields)})
+                await websocket.send(json.dumps({
+                    "type": "freefire_lobby_names_applied",
+                    "created": made, "renamed": renamed, "taught": taught,
                 }))
             elif payload.get("type") == "freefire_fill_roster_from_lobby":
                 # Take the squads the log has seen join and write their

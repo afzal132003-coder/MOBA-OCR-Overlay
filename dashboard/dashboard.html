@@ -5546,10 +5546,12 @@ function ffOpen(url){
           `${msg.withUid} with UID, from the running game` +
           (msg.logFile ? ` (${msg.logFile})` : "") + ". " +
           (msg.teamsCreated ? `${msg.teamsCreated} new team(s) created. ` : "") +
+          ffLobbyNameChoices(msg) +
           "<div style='margin-top:4px;color:#fbbf24;'>Now pick each squad's " +
           "team in the dropdowns below and press <b>Fill Roster From Lobby</b>. " +
           "The game does not say which squad is which team, so that pairing " +
           "is yours.</div>";
+        ffWireLobbyNameChoices(msg);
       }
       ffRenderLobby();
     } else if(msg.type === "freefire_fill_roster_result"){
@@ -9289,6 +9291,68 @@ function ffShowResultsPushResult(msg){
                                            { nameMap, overwrite: true })));
     el.style.color = "#98a3bd";
     el.textContent = "Pairing and pushing match " + msg.match + " again…";
+  });
+}
+
+/* Names the client printed that RESEMBLE a team already in the roster.
+   The engine deliberately does not decide these. "CHILLMATES" against
+   "CHILL MATES" is almost certainly the same team -- and "almost
+   certainly" is how a roster ends up holding both, which puts one team
+   on the table twice and another not at all.
+
+   Three answers, because three different things can be true: it IS that
+   team (teach the spelling), it is that team and the client spells it
+   better (rename in place, keeping the logo and players already on it),
+   or it is genuinely a different team (create it). */
+function ffLobbyNameChoices(msg){
+  const pending = msg.pending || [];
+  if(!pending.length) return "";
+  const teams = msg.rosterTeams || [];
+  const rows = pending.map((p, i) => {
+    const opts = [
+      "<option value='use|" + ffEscapeHtml(p.suggested) + "'>Same team as " +
+        ffEscapeHtml(p.suggested) + "</option>",
+      "<option value='rename|" + ffEscapeHtml(p.suggested) + "'>Same team — " +
+        "rename it to " + ffEscapeHtml(p.logName) + "</option>",
+      "<option value='new|'>A different team — create " +
+        ffEscapeHtml(p.logName) + "</option>",
+    ].concat(teams
+      .filter(t => t !== p.suggested)
+      .map(t => "<option value='use|" + ffEscapeHtml(t) + "'>Same team as " +
+                ffEscapeHtml(t) + "</option>"));
+    return "<div class='row' style='gap:8px;align-items:center;margin-top:4px;'>" +
+      "<span style='min-width:140px;'>The game says <strong>" +
+      ffEscapeHtml(p.logName) + "</strong></span>" +
+      "<select id='ff_lobbyName_" + i + "' style='font-size:12px;padding:3px 6px;'>" +
+      opts.join("") + "</select></div>";
+  }).join("");
+  return "<div style='margin-top:8px;padding:8px;border:1px solid #3d4763;" +
+    "border-radius:8px;'>" +
+    "<div style='color:#fbbf24;margin-bottom:4px;'>" + pending.length +
+    " name(s) look like a team you already have. Nothing was changed — " +
+    "say which is which.</div>" + rows +
+    "<div class='row' style='gap:8px;margin-top:8px;align-items:center;'>" +
+    "<button id='ff_lobbyNamesApply' style='margin:0;'>Apply</button>" +
+    "<span class='hint'>Remembered, so you are asked once.</span></div></div>";
+}
+
+function ffWireLobbyNameChoices(msg){
+  const pending = msg.pending || [];
+  const btn = document.getElementById("ff_lobbyNamesApply");
+  if(!pending.length || !btn) return;
+  btn.addEventListener("click", () => {
+    if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+    const decisions = {};
+    pending.forEach((p, i) => {
+      const sel = document.getElementById("ff_lobbyName_" + i);
+      if(!sel || !sel.value) return;
+      const cut = sel.value.indexOf("|");
+      decisions[p.logName] = { action: sel.value.slice(0, cut),
+                               team: sel.value.slice(cut + 1) };
+    });
+    ffWs.send(JSON.stringify({ type: "freefire_lobby_name_decisions", decisions }));
+    const el = document.getElementById("ff_lobbyStatus");
+    if(el){ el.style.color = "#98a3bd"; el.textContent = "Applying…"; }
   });
 }
 
