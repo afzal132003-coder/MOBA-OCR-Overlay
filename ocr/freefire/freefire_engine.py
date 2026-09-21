@@ -6424,6 +6424,56 @@ FREEFIRE_JOIN_MARGIN = 2.0
 FREEFIRE_PLACEMENT_JUMP = 3
 
 
+def derive_short_name(name):
+    """A short tag for a team the roster has none for.
+
+    The client writes only the full name -- there is no short name
+    anywhere in its log -- so a table that wants "FC" rather than "Fallen
+    Champs" has to make one. This is a starting point an operator
+    overrides, not an answer: the roster's own shortName always wins
+    where it is set.
+
+    Generic words go first, then two or more words give their initials
+    and a single word gives its opening. "Fallen Champs" -> FC,
+    "BW ESPORTS" -> BW, "KYT ESPORTS" -> KYT, "HELL WARRIOR" -> HW.
+    """
+    words = re.findall(r"[A-Za-z0-9]+", name or "")
+    kept = [w for w in words
+            if w.upper() not in FREEFIRE_GENERIC_TEAM_WORDS] or words
+    if not kept:
+        return ""
+    if len(kept) >= 2:
+        return "".join(w[0] for w in kept)[:4].upper()
+    return kept[0][:4].upper()
+
+
+def squad_tag_agreement(live, gs_team, team_name):
+    """How the squad's own IGN tags weigh for or against this team name.
+
+    Returns (for, against): how many tagged players point at this team,
+    and how many point somewhere else. Players carrying no tag count for
+    neither -- they are not evidence either way.
+
+    A tag counts FOR when it matches the name outright, starts it, or is
+    the initials of its words -- "TE" for "TOKYO ESPORTS", "FC" for
+    "Fallen Champs", "GODZ" for "GodZilla!".
+    """
+    squad = (live.get("gsIgns") or {}).get(gs_team) or {}
+    plain = re.sub(r"[^A-Za-z0-9]", "", team_name or "").upper()
+    initials = "".join(w[0] for w in
+                       re.findall(r"[A-Za-z0-9]+", team_name or "")).upper()
+    votes_for = votes_against = 0
+    for ign in squad.values():
+        tag = _ign_tag(ign)
+        if not tag:
+            continue
+        if plain.startswith(tag) or tag in plain or initials == tag:
+            votes_for += 1
+        else:
+            votes_against += 1
+    return votes_for, votes_against
+
+
 def infer_squad_teams(live):
     """Joins TeamID to gsTeam with no roster, on when each counter moved.
 
@@ -6487,6 +6537,52 @@ def infer_squad_teams(live):
         used_gs.add(gs_team)
         used_tid.add(tid)
     return joined
+
+
+def reject_contradicted_joins(live, joined, names):
+    """Drops pairings the squad's own players argue against.
+
+    Timing alone got 4 of 7 right on a live lobby and put two squads
+    under the wrong team's name. On air that is the worse failure by far:
+    a missing row reads as missing data and gets checked, a wrong row
+    reads as fact and does not.
+
+    So the players decide. Where a squad carries tags and NONE of them
+    points at the name it was paired with, the pairing goes. Squads whose
+    players carry no tags are left alone -- silence is not disagreement.
+    """
+    kept = {}
+    for tid, gs_team in joined.items():
+        name = names.get(tid) or ""
+        votes_for, votes_against = squad_tag_agreement(live, gs_team, name)
+        if votes_against and not votes_for:
+            continue
+        kept[tid] = gs_team
+    return kept
+
+
+def join_squads_by_tag(live, names, already):
+    """Pairs a squad to a team on its players' tags alone.
+
+    For the squad that has not fought yet, which the timing join cannot
+    see at all. Needs the tag to point at exactly ONE of the names on
+    offer -- two candidates and it says nothing, since guessing between
+    them is the mistake this exists to avoid.
+    """
+    taken_tid = set(already)
+    taken_gs = set(already.values())
+    found = {}
+    for gs_team in (live.get("gsIgns") or {}):
+        if gs_team in taken_gs:
+            continue
+        hits = [tid for tid, name in names.items()
+                if tid not in taken_tid
+                and squad_tag_agreement(live, gs_team, name)[0]]
+        if len(hits) == 1:
+            found[hits[0]] = gs_team
+            taken_tid.add(hits[0])
+            taken_gs.add(gs_team)
+    return found
 
 
 def _ign_tag(ign):
@@ -6816,7 +6912,13 @@ def link_live_teams(live, roster):
     # a new event, or a lobby not yet read -- from the client's own event
     # timing. Never overrides the roster: an operator's mapping is a
     # statement of fact, this is an inference.
+    # Timing first, then the players themselves: they veto a pairing they
+    # contradict, and settle one timing could not see because that squad
+    # has not fought yet.
     inferred = infer_squad_teams(live)
+    team_names = live.get("teamNames") or {}
+    inferred = reject_contradicted_joins(live, inferred, team_names)
+    inferred.update(join_squads_by_tag(live, team_names, inferred))
 
     ended = live.get("ended")
     wiped = live.get("wiped", [])
@@ -6843,8 +6945,15 @@ def link_live_teams(live, roster):
                 bars += ["alive"] * (size - len(bars))
             alive_count = sum(1 for b in bars if b == "alive")
 
+        # The short tag the table shows. The roster's own wins; failing
+        # that one is made from the name, because the client publishes
+        # none and a twelve-row table has no space for "MENTALIST ESP".
+        short = ((roster_team or {}).get("shortName") or "").strip()
         rows.append({
             "teamName": (roster_team or {}).get("name") or name,
+            "short": short or derive_short_name(
+                (roster_team or {}).get("name") or name),
+            "shortDerived": not short,
             # Kills come from the client's own kill narration, NOT from
             # its running TeamScore.
             #

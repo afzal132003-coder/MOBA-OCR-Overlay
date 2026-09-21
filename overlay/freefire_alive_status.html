@@ -1350,7 +1350,14 @@ function apply(state){
       el.style.backgroundPosition = rowStripPos;
     }
     const team = logoFor(row.teamName, state.roster);
-    const label = (team && team.shortName) || row.teamName || "";
+    /* Short name, in the order of who knows best: the roster, because an
+       operator set it; then the one the engine derives from the client's
+       own team name; then the full name, which is what this used to show
+       and which a twelve-row table simply truncates -- "MENTALIST ESP"
+       arrived on air as "MENTALIST". The client publishes no short name
+       of its own, so the derived one is a starting point to overwrite,
+       not an answer. */
+    const label = (team && team.shortName) || row.short || row.teamName || "";
     // aliveCount is null when the squad could not be linked to the roster
     // (that link is what turns the client's squad number into a team).
     // Showing a full-alive pip would be a confident lie, so an unknown
