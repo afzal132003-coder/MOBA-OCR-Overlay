@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Free Fire — Director</title>
+<!--
+  A 1920x1080 browser source for whoever is calling the shots.
+
+  NOT an on-air graphic. It is a board for a director to read at a
+  glance while watching the game, so it is plain, large, and says WHY
+  rather than only what -- a call you can see the reason for is a call
+  you can overrule in a second.
+
+  Everything comes from liveOps.director, which the engine builds from
+  the client's own kill narration.
+
+  ONE THING TO BE CLEAR ABOUT, because a director will act on it:
+  WHO is fighting whom is certain -- every knock and kill names an
+  attacker and a defender. WHERE is a best effort. The client publishes
+  no continuous positions; the only routine fix is a revive, and a squad
+  revives essentially where it just fought. So a position here can be up
+  to two minutes old and is missing entirely for a fight nobody was
+  revived in. It is always shown with its age for that reason, and never
+  drawn as live tracking.
+-->
+<style>
+  :root{
+    --bg:#0b0e15; --panel:#141924; --line:#26304a; --dim:#7e8ba6;
+    --txt:#eef3fc; --hot:#ff9f45; --cool:#6fc3ff; --good:#79e6a2;
+    --warn:#ffd166;
+  }
+  *{box-sizing:border-box;margin:0}
+  html,body{width:1920px;height:1080px;overflow:hidden}
+  body{
+    background:var(--bg); color:var(--txt);
+    font:16px/1.4 "Segoe UI",system-ui,-apple-system,sans-serif;
+    padding:34px 40px; display:flex; flex-direction:column; gap:26px;
+  }
+  header{display:flex;align-items:baseline;gap:22px}
+  h1{font-size:30px;letter-spacing:.22em;color:var(--hot);font-weight:800}
+  .sub{color:var(--dim);font-size:18px}
+  #conn{margin-left:auto;font-size:16px;padding:5px 16px;border-radius:99px;
+        border:1px solid var(--line);color:var(--dim)}
+  #conn.on{color:var(--good);border-color:#2c6244}
+
+  .call{
+    background:var(--panel);border:2px solid var(--hot);border-radius:18px;
+    padding:28px 34px;display:flex;align-items:center;gap:36px;
+  }
+  .shot{font-size:74px;font-weight:800;letter-spacing:.04em;color:var(--hot);
+        white-space:nowrap;line-height:1}
+  .callbody{min-width:0}
+  .callteams{font-size:44px;font-weight:700;white-space:nowrap;overflow:hidden;
+             text-overflow:ellipsis}
+  .callwhy{font-size:21px;color:var(--dim);margin-top:6px}
+
+  .grid{display:grid;grid-template-columns:1fr 520px;gap:26px;flex:1;min-height:0}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;
+         padding:22px 26px;min-height:0;display:flex;flex-direction:column}
+  .panel h2{font-size:17px;letter-spacing:.2em;color:var(--dim);
+            text-transform:uppercase;font-weight:600;margin-bottom:16px}
+
+  .fight{padding:16px 0;border-top:1px solid var(--line)}
+  .fight:first-of-type{border-top:0}
+  .fteams{font-size:34px;font-weight:700}
+  .fmeta{font-size:19px;color:var(--dim);margin-top:5px;display:flex;gap:20px;
+         flex-wrap:wrap;align-items:center}
+  .bar{height:10px;background:#1d2434;border-radius:99px;margin-top:10px;overflow:hidden}
+  .bar > i{display:block;height:100%;background:var(--hot);border-radius:99px}
+  .fight.second .bar > i{background:var(--cool)}
+  .where{color:var(--cool)}
+  .stale{color:var(--warn)}
+
+  .stat{display:flex;align-items:baseline;gap:14px;margin-bottom:18px}
+  .stat .k{font-size:15px;letter-spacing:.16em;color:var(--dim);
+           text-transform:uppercase;min-width:132px}
+  .stat .v{font-size:32px;font-weight:700}
+  .stat .v small{font-size:19px;color:var(--dim);font-weight:400}
+
+  .note{color:var(--dim);font-size:16px;margin-top:auto;padding-top:14px;
+        border-top:1px solid var(--line);line-height:1.5}
+  .empty{color:var(--dim);font-size:26px;padding:26px 0}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>DIRECTOR</h1>
+  <span class="sub">from the client's own kill narration</span>
+  <span id="conn">connecting</span>
+</header>
+
+<div class="call">
+  <div class="shot" id="shot">—</div>
+  <div class="callbody">
+    <div class="callteams" id="callTeams">waiting for a match</div>
+    <div class="callwhy" id="callWhy"></div>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="panel">
+    <h2>Fights right now</h2>
+    <div id="fights"></div>
+    <div class="note" id="posNote"></div>
+  </div>
+  <div class="panel">
+    <h2>Match</h2>
+    <div class="stat"><span class="k">Kill leader</span>
+      <span class="v" id="leader">—</span></div>
+    <div class="stat"><span class="k">Squads up</span>
+      <span class="v" id="up">—</span></div>
+    <div class="stat"><span class="k">Circle</span>
+      <span class="v" id="zone">—</span></div>
+    <div class="stat"><span class="k">Next change</span>
+      <span class="v" id="countdown">—</span></div>
+    <div class="note">
+      <b>MAP SCREEN</b> nothing running, or the circle is the story.<br>
+      <b>MAP + POV</b> one fight, and roughly where it is.<br>
+      <b>SPLIT SCREEN</b> two fights worth watching at once.<br>
+      <b>POV</b> one fight, no position for it.
+    </div>
+  </div>
+</div>
+
+<script>
+const _params = new URLSearchParams(location.search);
+if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
+if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
+/* Same rule as every other overlay here: served over https from a real
+   host, connect back to it, so a browser source needs no ?relay=. */
+const _sameOrigin = (location.protocol === "https:"
+  && location.hostname && !/^(localhost|127\.|\[?::1)/.test(location.hostname))
+  ? "wss://" + location.host : "";
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || _sameOrigin;
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_director&rostercache=1"
+  : "ws://localhost:8765?page=freefire_director&rostercache=1";
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g,
+  (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+
+function render(d){
+  if(!d){
+    $("shot").textContent = "—";
+    $("countdown").innerHTML = "—";
+    $("callTeams").textContent = "waiting for a match";
+    $("callWhy").textContent = "";
+    $("fights").innerHTML = "<div class='empty'>no fights yet</div>";
+    $("posNote").textContent = "";
+    return;
+  }
+  const call = d.call || {};
+  $("shot").textContent = call.shot || "—";
+  $("callTeams").textContent = (call.teams && call.teams.length)
+    ? call.teams.join("   vs   ") : "no engagement";
+  $("callWhy").textContent = call.why || "";
+
+  const list = d.engagements || [];
+  const top = list.length ? list[0].weight : 1;
+  $("fights").innerHTML = list.length ? list.map((e, i) => {
+    /* The position's AGE is shown beside it, always. A director acting
+       on "where" needs to know whether it is twelve seconds old or a
+       hundred, and the number is the only honest way to say so. */
+    const where = e.where
+      ? "<span class='" + (e.whereAgeSeconds > 45 ? "stale" : "where") + "'>near " +
+        e.where[0] + ", " + e.where[1] + " &middot; " + e.whereAgeSeconds + "s old</span>"
+      : "<span class='stale'>no position</span>";
+    return "<div class='fight" + (i === 1 ? " second" : "") + "'>" +
+      "<div class='fteams'>" + esc(e.teams.join("  vs  ")) + "</div>" +
+      "<div class='fmeta'><span>" + e.knocks + " knocks &middot; " + e.kills +
+      " kills</span><span>" + e.secondsAgo + "s ago</span>" + where + "</div>" +
+      "<div class='bar'><i style='width:" +
+      Math.max(6, Math.round(100 * e.weight / (top || 1))) + "%'></i></div></div>";
+  }).join("") : "<div class='empty'>no fights in the last 45 seconds</div>";
+
+  $("posNote").innerHTML = d.positionsAre
+    ? "Positions are " + esc(d.positionsAre) + " — the game publishes no live " +
+      "tracking, so treat them as a direction, not a pin."
+    : "";
+
+  const led = d.killLeader;
+  $("leader").innerHTML = led
+    ? esc(led.team) + " <small>" + led.kills + " kills" +
+      (led.lead > 0 ? ", +" + led.lead : ", tied") + "</small>"
+    : "—";
+  $("up").textContent = (d.teamsUp == null) ? "—" : d.teamsUp;
+  /* The client publishes no timer, so this is elapsed-in-phase against
+     how long that phase has run before. Shown with a tilde and with how
+     many matches it is based on, because a director planning a shot
+     around "40 seconds" should know whether that is measured or guessed. */
+  const c = d.countdown;
+  $("countdown").innerHTML = c
+    ? "~" + c.secondsLeft + "s <small>" + esc(c.next) +
+      (c.fromMatches ? " &middot; from " + c.fromMatches + " match" +
+        (c.fromMatches === 1 ? "" : "es") : " &middot; estimate") + "</small>"
+    : "—";
+
+  const z = d.zone;
+  $("zone").innerHTML = (z && z.stage != null)
+    ? String(z.stage) + " <small>" + esc(z.phase || "") +
+      (z.radius ? " &middot; r" + z.radius : "") + "</small>"
+    : "—";
+}
+
+let _lastRoster = null, ws;
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => { $("conn").textContent = "connected"; $("conn").className = "on"; };
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type !== "state_sync" || !msg.data) return;
+    if(msg.data.roster) _lastRoster = msg.data.roster;
+    else if(_lastRoster) msg.data.roster = _lastRoster;
+    render((msg.data.liveOps || {}).director);
+  };
+  ws.onclose = () => {
+    $("conn").textContent = "reconnecting"; $("conn").className = "";
+    setTimeout(connect, 2000);
+  };
+  ws.onerror = () => ws.close();
+}
+connect();
+</script>
+</body>
+</html>

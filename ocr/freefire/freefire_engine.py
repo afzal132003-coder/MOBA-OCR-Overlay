@@ -1171,6 +1171,8 @@ DEBUGGER_SPECTATOR_ADD_REGEX = re.compile(
 # is not the same as being out, and the death count per squad runs well
 # past four. This is what puts a player back on the alive side.
 DEBUGGER_REVIVE_REGEX = re.compile(r"Revive Player\s+(?P<pid>\d+),")
+DEBUGGER_REVIVE_POS_REGEX = re.compile(
+    r"revivePosition=\((?P<x>-?[\d.]+),\s*(?P<y>-?[\d.]+),\s*(?P<z>-?[\d.]+)\)")
 # Written the instant the match ends. Both the result file and the replay
 # JSON are on disk by the same second (checked across 7 matches), so this
 # line is a safe trigger to go and read them.
@@ -1223,6 +1225,7 @@ def blank_live_match():
         # it is bounded by the number of stages a match has, which is
         # single figures, so it does not need trimming.
         "zone": None,
+        "zonePhaseAt": None,   # when the current phase began, for the countdown
         "zoneHistory": [],
         "airline": None,   # {"start": [x,y,z], "end": [x,y,z]}
         "itemCounts": {},  # runtime player id -> {EITEM_TYPE -> count}
@@ -1230,6 +1233,17 @@ def blank_live_match():
         # numbering spaces be joined without a roster -- see
         # infer_squad_teams. Bounded: a match is a few dozen kills per
         # squad and both lists ride along in every state_sync.
+        # Who fought whom and when: [epoch, killerSquad, victimSquad,
+        # "knock"|"kill"]. This is what a director feed is built from --
+        # an engagement is two squads trading blows, and that needs no
+        # positions at all. Bounded; a match is a few hundred events.
+        "fights": [],
+        # [epoch, squad, x, z] for each revive. A squad revives
+        # essentially where it just fought: measured over a session, 278
+        # of 280 revives followed a knock of that same squad within two
+        # minutes, median 18 seconds. It is the only routine fix on WHERE
+        # a fight is, the client publishing no continuous positions.
+        "revivePoints": [],
         "gsKillTimes": {},   # gsTeam -> [epoch, ...]
         "tidBumpTimes": {},  # TeamID -> [epoch, ...]
         "lastTeamScore": {}, # TeamID -> last score seen, to spot a rise
@@ -1467,6 +1481,16 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
         if revive:
             pid = revive.group("pid")
             live["gsDown"].get(gs_team_of(pid), set()).discard(pid)
+            spot = DEBUGGER_REVIVE_POS_REGEX.search(line)
+            stamp = DEBUGGER_TS_REGEX.match(line.strip())
+            when = _debugger_epoch(stamp.group("ts")) if stamp else None
+            if spot and when is not None:
+                points = live.setdefault("revivePoints", [])
+                # y is dropped for the same reason as the zone's: it is a
+                # map, and height decides nothing on one.
+                points.append([when, gs_team_of(pid),
+                               float(spot.group("x")), float(spot.group("z"))])
+                del points[:-FREEFIRE_FIGHT_HISTORY]
             continue
 
         end = DEBUGGER_MATCH_END_REGEX.search(line)
@@ -1510,8 +1534,24 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
             # y is dropped throughout: it is 0.00 on every line measured,
             # and a circle on a map is drawn in two dimensions anyway.
             if state != live.get("zone"):
-                live["zone"] = state
                 stamp = DEBUGGER_TS_REGEX.match(line.strip())
+                when = _debugger_epoch(stamp.group("ts")) if stamp else None
+                # How long the phase that just ENDED actually lasted.
+                # The client publishes no countdown, so the only way to
+                # say "shrinking in 40 seconds" is to know how long this
+                # phase runs -- and the only honest source for that is
+                # having watched it. Learned per stage and phase, kept
+                # across matches, median of what has been seen.
+                before = live.get("zone") or {}
+                started = live.get("zonePhaseAt")
+                if before and started and when is not None:
+                    key = "%s:%s" % (before.get("stage"), before.get("phase"))
+                    seen = (server_state.setdefault("zoneTimings", {})
+                            .setdefault(key, []))
+                    seen.append(round(when - started))
+                    del seen[:-9]          # a handful is plenty for a median
+                live["zone"] = state
+                live["zonePhaseAt"] = when
                 live.setdefault("zoneHistory", []).append(
                     dict(state, time=stamp.group("ts") if stamp else ""))
             continue
@@ -1583,6 +1623,18 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
             # not carry, so they are counted here and travel with the match
             # end for the Booyah card.
             live.setdefault("playerKnocks", {})[killer_id] = live.get("playerKnocks", {}).get(killer_id, 0) + 1
+        # Both a knock and a kill are one squad engaging another, which is
+        # what a director needs to know. Recorded for both, kind kept, so
+        # a running fight and a finishing blow can be weighed differently.
+        stamp = DEBUGGER_TS_REGEX.match(line.strip())
+        when = _debugger_epoch(stamp.group("ts")) if stamp else None
+        if when is not None:
+            attacker, defender = gs_team_of(killer_id), gs_team_of(victim_id)
+            if attacker != defender:
+                fights = live.setdefault("fights", [])
+                fights.append([when, attacker, defender,
+                               "kill" if kill else "knock"])
+                del fights[:-FREEFIRE_FIGHT_HISTORY]
         killer = id_map.get(killer_id, {})
         victim = id_map.get(victim_id, {})
         ts = DEBUGGER_TS_REGEX.match(line.strip())
@@ -6309,6 +6361,9 @@ def utility_board(live, linked=None):
 # How many increments to remember per team, each side. A match is a few
 # dozen kills for the busiest squad, so this holds a whole one.
 FREEFIRE_JOIN_HISTORY = 80
+# How many fight events and revive points to keep. A match produces a few
+# hundred of each and both ride along in every state_sync.
+FREEFIRE_FIGHT_HISTORY = 400
 # A kill and the score line it causes land within a second or so of each
 # other. Two seconds is loose enough for that and far tighter than the
 # gaps between one team's kills.
@@ -6438,6 +6493,180 @@ def guess_squad_team(players, names):
         return None
     best = max(votes, key=votes.get)
     return best if votes[best] >= 2 else None
+
+
+# How far back an engagement counts as "happening now". Long enough that
+# a fight with a lull in it stays one fight, short enough that a fight
+# that is over drops off the board.
+FREEFIRE_FIGHT_WINDOW = 45.0
+# A revive this old is no longer where anybody is standing.
+FREEFIRE_POSITION_STALE = 120.0
+# Two engagements this close in weight are both worth watching, which is
+# what a split screen is for.
+FREEFIRE_SPLIT_RATIO = 0.6
+
+
+# How long each zone phase runs, before anything has been watched. Taken
+# from six matches in one session; the client publishes no countdown, so
+# these are measured, and they are replaced by what is actually seen.
+FREEFIRE_ZONE_SECONDS = {
+    "0:PRE_SHRINK": 120, "0:SHRINK": 240,
+    "1:PRE_SHRINK": 40,  "1:SHRINK": 150,
+    "2:PRE_SHRINK": 50,  "2:SHRINK": 90,
+    "3:PRE_SHRINK": 50,  "3:SHRINK": 75,
+    "4:PRE_SHRINK": 30,  "4:SHRINK": 60,
+    "5:PRE_SHRINK": 30,
+}
+
+
+def zone_countdown(live, now=None):
+    """Seconds until the circle does the next thing, and what that is.
+
+    ESTIMATED, and says so. The client writes the zone's stage, centre,
+    radius and phase but never a timer, so this is elapsed-in-phase
+    measured against how long that phase has run before. Those durations
+    are consistent -- stage 1's warning ran 40 seconds in five of six
+    matches -- which is what makes the estimate worth showing at all.
+    """
+    zone = live.get("zone") or {}
+    started = live.get("zonePhaseAt")
+    stage, phase = zone.get("stage"), zone.get("phase")
+    if stage is None or not phase or started is None:
+        return None
+    key = "%s:%s" % (stage, phase)
+    seen = sorted((server_state.get("zoneTimings") or {}).get(key) or [])
+    expected = (seen[len(seen) // 2] if seen
+                else FREEFIRE_ZONE_SECONDS.get(key))
+    if not expected:
+        return None
+    elapsed = max(0, int((time.time() if now is None else now) - started))
+    return {
+        "phase": phase,
+        "stage": stage,
+        "elapsed": elapsed,
+        "expected": expected,
+        # Never negative: an overrun means the estimate was short, not
+        # that the circle is late.
+        "secondsLeft": max(0, expected - elapsed),
+        "next": "circle starts closing" if phase == "PRE_SHRINK"
+                else ("circle stops closing" if phase == "SHRINK"
+                      else "next circle"),
+        # Said plainly so nothing downstream presents it as a real timer.
+        "estimated": True,
+        "fromMatches": len(seen),
+    }
+
+
+def director_feed(live, linked=None, now=None):
+    """What a director would want said out loud, right now.
+
+    Ranks the engagements of the last FREEFIRE_FIGHT_WINDOW seconds by
+    how much is happening in them, names the squads, and says where if
+    anything recent says where.
+
+    WHO is fighting WHOM needs no positions at all -- every knock and kill
+    names an attacker and a defender, and an engagement is simply the pair
+    of them trading. That is the part this can be certain about.
+
+    WHERE is a best effort and is labelled as one. The client publishes no
+    continuous positions; the only routine fix is a revive, and a squad
+    revives essentially where it just fought -- measured over a session,
+    278 of 280 revives followed a knock of that same squad within two
+    minutes, median 18 seconds. So a position here is up to a couple of
+    minutes old and is missing entirely for a fight nobody was revived in.
+    Never presented as live tracking.
+    """
+    now = time.time() if now is None else now
+    gs_names = (linked or {}).get("gsNames") or {}
+    name_of = lambda gs: gs_names.get(gs) or ("Squad %s" % gs)
+    wiped = set(live.get("wiped") or [])
+
+    # Where each squad was last seen, if recently enough to mean anything.
+    seen = {}
+    for when, gs, x, z in (live.get("revivePoints") or []):
+        if now - when <= FREEFIRE_POSITION_STALE:
+            seen[gs] = (when, x, z)
+
+    pairs = {}
+    for when, attacker, defender, kind in (live.get("fights") or []):
+        age = now - when
+        if age > FREEFIRE_FIGHT_WINDOW:
+            continue
+        key = tuple(sorted((attacker, defender)))
+        entry = pairs.setdefault(key, {"knocks": 0, "kills": 0, "last": 0.0})
+        entry[("kills" if kind == "kill" else "knocks")] += 1
+        entry["last"] = max(entry["last"], when)
+
+    engagements = []
+    for (a, b), entry in pairs.items():
+        # A kill counts for more than a knock: it is the moment worth
+        # being on, and a fight that is producing them is the fight that
+        # is being decided.
+        weight = entry["knocks"] + entry["kills"] * 2
+        spot = None
+        for gs in (a, b):
+            if gs in seen and (spot is None or seen[gs][0] > spot[0]):
+                spot = seen[gs]
+        engagements.append({
+            "teams": [name_of(a), name_of(b)],
+            "squads": [a, b],
+            "knocks": entry["knocks"], "kills": entry["kills"],
+            "weight": weight,
+            "secondsAgo": int(now - entry["last"]),
+            "where": [round(spot[1]), round(spot[2])] if spot else None,
+            "whereAgeSeconds": int(now - spot[0]) if spot else None,
+            "alive": [gs not in wiped for gs in (a, b)],
+        })
+    engagements.sort(key=lambda e: (-e["weight"], e["secondsAgo"]))
+
+    # Which squad is ahead on kills. Not a badge the client publishes --
+    # it publishes the numbers, and this is the top of them.
+    kills = live.get("gsKills") or {}
+    leader = None
+    if kills:
+        gs, n = max(kills.items(), key=lambda kv: kv[1])
+        if n:
+            rest = sorted((v for k, v in kills.items() if k != gs), reverse=True)
+            leader = {"team": name_of(gs), "squad": gs, "kills": n,
+                      "lead": n - (rest[0] if rest else 0)}
+
+    zone = live.get("zone") or {}
+    closing = (zone.get("phase") or "").startswith(("PRE_SHRINK", "SHRINK",
+                                                    "RANDOM"))
+    up = sum(1 for gs, squad in (live.get("gsIgns") or {}).items()
+             if gs not in wiped and squad)
+
+    # The call. Deliberately a suggestion with its reason attached, never
+    # an instruction: a director can see things this cannot, and a line
+    # that says WHY can be overruled in a second.
+    if not engagements:
+        shot = "MAP SCREEN"
+        why = ("circle closing, no fight running" if closing
+               else "nothing is happening")
+        teams = []
+    elif len(engagements) >= 2 and             engagements[1]["weight"] >= engagements[0]["weight"] * FREEFIRE_SPLIT_RATIO:
+        shot = "SPLIT SCREEN"
+        why = "two fights worth watching at once"
+        teams = engagements[0]["teams"] + engagements[1]["teams"]
+    elif engagements[0]["where"]:
+        shot = "MAP + POV"
+        why = "one fight, and we know roughly where"
+        teams = engagements[0]["teams"]
+    else:
+        shot = "POV"
+        why = "one fight, no position for it"
+        teams = engagements[0]["teams"]
+
+    return {
+        "engagements": engagements[:4],
+        "killLeader": leader,
+        "teamsUp": up,
+        "zone": {"stage": zone.get("stage"), "phase": zone.get("phase"),
+                 "radius": zone.get("radius")} if zone else None,
+        "countdown": zone_countdown(live, now),
+        "call": {"shot": shot, "why": why, "teams": teams},
+        "positionsAre": "from revives, up to 2 minutes old",
+    }
 
 
 def link_live_teams(live, roster):
@@ -8933,6 +9162,26 @@ async def ocr_loop():
                     utility = utility_board(_live_match, linked)
                     if utility != server_state["liveOps"].get("utility"):
                         server_state["liveOps"]["utility"] = utility
+                        changed = True
+
+                    # The director's view: who is fighting, where if
+                    # anything says where, and what to put on screen.
+                    # Compared without its ages, which tick every second
+                    # and would otherwise republish the whole state on
+                    # every poll for no change anyone can see.
+                    director = director_feed(_live_match, linked)
+                    def _shape(feed):
+                        return json.dumps({
+                            "call": feed.get("call"),
+                            "killLeader": feed.get("killLeader"),
+                            "teamsUp": feed.get("teamsUp"),
+                            "zone": feed.get("zone"),
+                            "e": [[e["squads"], e["knocks"], e["kills"], e["where"]]
+                                  for e in feed.get("engagements") or []],
+                        }, sort_keys=True)
+                    previous = server_state["liveOps"].get("director")
+                    if previous is None or _shape(director) != _shape(previous):
+                        server_state["liveOps"]["director"] = director
                         changed = True
 
                     if await handle_live_signals(signals, linked["gsNames"]):
