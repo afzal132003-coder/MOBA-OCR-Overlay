@@ -1841,6 +1841,22 @@ Team Charlie
       <div id="ff_rosterTable" style="overflow-x:auto;margin-top:10px;"></div>
       <button id="ff_rosterSave" style="display:none;">Save Roster</button>
     </div>
+
+    <div class="card" id="ff_lobbyCard">
+      <h2>Live Lobby <span id="ff_lobbyWhen" style="color:#6b7590;font-size:12px;font-weight:400;"></span></h2>
+      <p class="hint">Every squad the client has narrated joining, with each player's IGN and UID &mdash;
+        read straight from the debugger log as they connect, so it is there from the moment the lobby fills.
+        It does not wait for the game to end or for a result file to be written.</p>
+      <p class="hint">The <strong>UID</strong> is the part worth having. It is the account, not the name:
+        stable across a rename and across events, and it is what a result file is matched on before any name is
+        looked at. Adding these to the roster once means every later game resolves to your registered names by
+        itself &mdash; including the IGNs on the Booyah tab.</p>
+      <div class="row" style="gap:8px;align-items:center;">
+        <button class="secondary" id="ff_lobbyFetch">Fetch from the lobby</button>
+        <button id="ff_lobbyFill">Add these players to the roster</button>
+      </div>
+      <div id="ff_lobbySquads" style="margin-top:10px;"></div>
+    </div>
   </div>
 
   <!-- ===================== LIVE IN-GAME OPS ===================== -->
@@ -2287,22 +2303,6 @@ Team Charlie
       </div>
     </div>
 
-    <div class="card" id="ff_lobbyCard">
-      <h2>Live Lobby <span id="ff_lobbyWhen" style="color:#6b7590;font-size:12px;font-weight:400;"></span></h2>
-      <p class="hint">Every squad the client has narrated joining, with each player's IGN and UID &mdash;
-        read straight from the debugger log as they connect, so it is there from the moment the lobby fills.
-        It does not wait for the game to end or for a result file to be written.</p>
-      <p class="hint">The <strong>UID</strong> is the part worth having. It is the account, not the name:
-        stable across a rename and across events, and it is what a result file is matched on before any name is
-        looked at. Adding these to the roster once means every later game resolves to your registered names by
-        itself &mdash; including the IGNs on the Booyah tab.</p>
-      <div class="row" style="gap:8px;align-items:center;">
-        <button class="secondary" id="ff_lobbyFetch">Fetch from the lobby</button>
-        <button id="ff_lobbyFill">Add these players to the roster</button>
-        <span class="hint" id="ff_lobbyStatus" style="align-self:center;"></span>
-      </div>
-      <div id="ff_lobbySquads" style="margin-top:10px;"></div>
-    </div>
 
     <div class="card" id="ff_booyahCard" style="display:none;">
       <h2>Booyah Squad <span id="ff_booyahTeam" style="color:#6b7590;font-size:12px;font-weight:400;"></span></h2>
@@ -2974,10 +2974,9 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
    sharing classes would have it fight over "active" state with the MOBA
    tabs and collide on id="tab-prematch" etc.) ---------- */
 /* Opens a Free Fire tab and scrolls to a card in it.
-   The next step after reading the lobby lives in a DIFFERENT tab from
-   the button that reads it, and telling an operator its name is not the
-   same as taking them to it -- "pair each squad in the dropdowns below"
-   sent someone looking for dropdowns that were on another screen. */
+   Live Lobby now sits under Roster Import in the same tab, but the page
+   is long enough that "just below" is still a scroll, so the link takes
+   you to it. */
 function ffGoToCard(tab, cardId){
   const btn = document.querySelector('.ff-tab-btn[data-fftab="' + tab + '"]');
   if(btn) btn.click();
@@ -2991,7 +2990,7 @@ function ffWireLobbyJump(){
   const jump = document.getElementById("ff_goLobby");
   if(jump) jump.addEventListener("click", (ev) => {
     ev.preventDefault();
-    ffGoToCard("postmatch", "ff_lobbyCard");
+    ffGoToCard("prematch", "ff_lobbyCard");
   });
 }
 
@@ -5569,7 +5568,7 @@ function ffOpen(url){
           (msg.logFile ? ` (${msg.logFile})` : "") + ". " +
           (msg.teamsCreated ? `${msg.teamsCreated} new team(s) created. ` : "") +
           ffLobbyNameChoices(msg) +
-          "<div style='margin-top:4px;color:#fbbf24;'>Next: pair each squad to its team, then press <b>Add these players to the roster</b>. That is in the <b>Post-Match</b> tab, under <b>Live Lobby</b>. " + "<a href='#' id='ff_goLobby' style='color:#7db2ff;'>Take me there</a></div>" +
+          "<div style='margin-top:4px;color:#fbbf24;'>Next: in <b>Live Lobby</b> just below, pair each squad to its team and press <b>Add these players to the roster</b>. " + "<a href='#' id='ff_goLobby' style='color:#7db2ff;'>Jump to it</a></div>" +
           "<div style='margin-top:4px;color:#98a3bd;'>The game does not say which " +
           "squad is which team, so that pairing is yours.</div>";
         ffWireLobbyJump();
@@ -5605,7 +5604,7 @@ function ffOpen(url){
         const shown = ffRefreshRosterFromState();
         el.innerHTML = "✓ " + (bits.length ? bits.join(", ") : "Nothing to change") +
           ". " + shown + " team(s) now in the grid below." +
-          "<div style='margin-top:4px;color:#fbbf24;'>Next: pair each squad to its team, then press <b>Add these players to the roster</b>. That is in the <b>Post-Match</b> tab, under <b>Live Lobby</b>. " + "<a href='#' id='ff_goLobby' style='color:#7db2ff;'>Take me there</a></div>";
+          "<div style='margin-top:4px;color:#fbbf24;'>Next: in <b>Live Lobby</b> just below, pair each squad to its team and press <b>Add these players to the roster</b>. " + "<a href='#' id='ff_goLobby' style='color:#7db2ff;'>Jump to it</a></div>";
         ffWireLobbyJump();
       }
     } else if(msg.type === "freefire_fill_roster_result"){
