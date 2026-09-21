@@ -682,6 +682,12 @@ def default_state():
     }
 
 
+# How far back from the team-name burst to look for squad members. The
+# client announces players before it announces teams, and a lobby loads
+# within a minute or two -- while the previous match is many minutes back.
+FREEFIRE_LOBBY_LOOKBACK = 240.0
+
+
 def roster_from_debugger_log(log_path):
     """The lobby as the client itself knows it: every squad, its name, and
     every player's IGN and UID.
@@ -752,15 +758,38 @@ def roster_from_debugger_log(log_path):
             uid_by_pid[m.group("pid")] = m.group("uid")
             uid_by_ign[(m.group("ign") or "").strip()] = m.group("uid")
 
+    # The names are scoped to the latest match, but the MEMBERS cannot be:
+    # the client announces who is in which squad BEFORE it announces the
+    # teams, so everyone added ahead of that burst sits above `start` and
+    # was being missed. Measured on a live lobby: 6 squads and 9 players
+    # came back where the match had 12 and 48.
+    #
+    # Scoped by time instead, reaching back from the moment the teams were
+    # announced. The lobby loads within a minute or two of that, and the
+    # previous match is a good deal further back than this window.
+    burst = DEBUGGER_TS_REGEX.match(lines[start].strip())
+    floor = _debugger_epoch(burst.group("ts")) if burst else None
+    if floor is not None:
+        floor -= FREEFIRE_LOBBY_LOOKBACK
+
     teams, members = {}, {}
-    for line in lines[start:]:
-        m = tinit.search(line)
-        if m:
-            teams[m.group("tid")] = (m.group("name") or "").strip()
+    for index, line in enumerate(lines):
+        if index >= start:
+            m = tinit.search(line)
+            if m:
+                teams[m.group("tid")] = (m.group("name") or "").strip()
         m = spec.search(line)
-        if m:
-            members[m.group("pid")] = ((m.group("ign") or "").strip(),
-                                       m.group("gs_team"))
+        if not m:
+            continue
+        if floor is not None:
+            stamp = DEBUGGER_TS_REGEX.match(line.strip())
+            when = _debugger_epoch(stamp.group("ts")) if stamp else None
+            if when is not None and when < floor:
+                continue
+        elif index < start:
+            continue
+        members[m.group("pid")] = ((m.group("ign") or "").strip(),
+                                   m.group("gs_team"))
 
     squads = {}
     for pid, (ign, gs) in members.items():
@@ -1267,6 +1296,14 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
             # whichever line triggers this, so clearing it here would
             # throw away the new match's flight path, not the old one's.
             airline = live.get("airline")
+            # The squad list is NOT carried here, and that is deliberate.
+            # Keeping it shortens the window where the lobby reads empty
+            # at the start of a match -- but the client issues fresh
+            # runtime ids each game, so the old players are not overwritten
+            # by the new ones, they pile up beside them. Measured over four
+            # matches in one log: 48 players became 146 and squad sizes
+            # went from 4 to around 12, which is the number every alive
+            # count is computed against.
             live.clear()
             live.update(blank_live_match())
             live["airline"] = airline
@@ -8171,9 +8208,24 @@ async def handle_client(websocket, path=None):
 
                 roster = server_state.setdefault("roster", {}).setdefault("teams", [])
                 by_name = {(t.get("name") or "").strip().upper(): t for t in roster}
+                # Whether a team is NEW is decided the same way every other
+                # name on this side is decided, not by exact spelling.
+                #
+                # The client writes CHILLMATES, NKG and TEV where the
+                # roster holds CHILL MATES, NKG ESP and TEAM EVOLUTION --
+                # the same teams, entered by a human. An exact test called
+                # all three new and would have added seven duplicate teams
+                # to an eleven-team roster, which is the state that puts a
+                # team on the table twice and another not at all.
                 teams_made = 0
+                matched_existing = []
                 for name in names:
                     if name.strip().upper() in by_name:
+                        continue
+                    existing = match_roster_team(name, roster)
+                    if existing is not None:
+                        matched_existing.append(
+                            "%s -> %s" % (name.strip(), existing.get("name")))
                         continue
                     team = {"name": name.strip(), "displayName": "", "shortName": "",
                             "logo": "", "groupPhoto": "", "players": []}
