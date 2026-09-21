@@ -9167,9 +9167,13 @@ function ffShowResultsPushResult(msg){
       + "<div class='hint' style='margin-top:4px;'>Sheet script: "
       + (msg.scriptVersion
           ? ffEscapeHtml(msg.scriptVersion)
-          : "<strong>an old version is deployed</strong> — paste "
-            + "ocr/freefire/freefire_sheet_push.gs into Apps Script, then "
-            + "Deploy → Manage deployments → edit → New version")
+          : "<strong>an old version answered</strong> — either the "
+            + "deployment was never updated, <em>or</em> the webhook URL "
+            + "above points at a DIFFERENT deployment than the one you "
+            + "updated. Check the URL in Apps Script → Deploy → "
+            + "Manage deployments matches the one saved here, then paste "
+            + "ocr/freefire/freefire_sheet_push.gs in and re-deploy as a "
+            + "New version.")
       + "</div>";
     return;
   }
