@@ -2973,6 +2973,28 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
    above on purpose -- that handler is global across the whole document, so
    sharing classes would have it fight over "active" state with the MOBA
    tabs and collide on id="tab-prematch" etc.) ---------- */
+/* Opens a Free Fire tab and scrolls to a card in it.
+   The next step after reading the lobby lives in a DIFFERENT tab from
+   the button that reads it, and telling an operator its name is not the
+   same as taking them to it -- "pair each squad in the dropdowns below"
+   sent someone looking for dropdowns that were on another screen. */
+function ffGoToCard(tab, cardId){
+  const btn = document.querySelector('.ff-tab-btn[data-fftab="' + tab + '"]');
+  if(btn) btn.click();
+  const card = document.getElementById(cardId);
+  if(card) card.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+/* The link is written into a status message, so it is wired after that
+   message is put on the page rather than once at load. */
+function ffWireLobbyJump(){
+  const jump = document.getElementById("ff_goLobby");
+  if(jump) jump.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    ffGoToCard("postmatch", "ff_lobbyCard");
+  });
+}
+
 document.querySelectorAll(".ff-tab-btn").forEach(btn => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".ff-tab-btn").forEach(b => b.classList.remove("active"));
@@ -5547,10 +5569,10 @@ function ffOpen(url){
           (msg.logFile ? ` (${msg.logFile})` : "") + ". " +
           (msg.teamsCreated ? `${msg.teamsCreated} new team(s) created. ` : "") +
           ffLobbyNameChoices(msg) +
-          "<div style='margin-top:4px;color:#fbbf24;'>Now pick each squad's " +
-          "team in the dropdowns below and press <b>Fill Roster From Lobby</b>. " +
-          "The game does not say which squad is which team, so that pairing " +
-          "is yours.</div>";
+          "<div style='margin-top:4px;color:#fbbf24;'>Next: pair each squad to its team, then press <b>Add these players to the roster</b>. That is in the <b>Post-Match</b> tab, under <b>Live Lobby</b>. " + "<a href='#' id='ff_goLobby' style='color:#7db2ff;'>Take me there</a></div>" +
+          "<div style='margin-top:4px;color:#98a3bd;'>The game does not say which " +
+          "squad is which team, so that pairing is yours.</div>";
+        ffWireLobbyJump();
         // Teams the engine just created are in its state, not in the grid,
         // until this is called.
         ffRefreshRosterFromState();
@@ -5583,9 +5605,8 @@ function ffOpen(url){
         const shown = ffRefreshRosterFromState();
         el.innerHTML = "✓ " + (bits.length ? bits.join(", ") : "Nothing to change") +
           ". " + shown + " team(s) now in the grid below." +
-          "<div style='margin-top:4px;color:#fbbf24;'>Any team still missing its " +
-          "players: pick that squad's team in the dropdowns below and press " +
-          "<b>Fill Roster From Lobby</b>.</div>";
+          "<div style='margin-top:4px;color:#fbbf24;'>Next: pair each squad to its team, then press <b>Add these players to the roster</b>. That is in the <b>Post-Match</b> tab, under <b>Live Lobby</b>. " + "<a href='#' id='ff_goLobby' style='color:#7db2ff;'>Take me there</a></div>";
+        ffWireLobbyJump();
       }
     } else if(msg.type === "freefire_fill_roster_result"){
       ffShowLobbyFillResult(msg);
