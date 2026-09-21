@@ -9157,7 +9157,20 @@ function ffShowResultsPushResult(msg){
   }
   if(!msg.ok){
     el.style.color = "#f5a4a4";
-    el.innerHTML = "⚠ Failed: " + ffEscapeHtml(msg.error || "unknown error") + ffPushTiming(msg);
+    /* Which version of the Apps Script answered. Apps Script serves the
+       DEPLOYED version, not what is saved in its editor, so pasting new
+       code and running new code are different things -- and from here
+       they look identical. A reply with no version at all IS the answer:
+       it predates the marker, so the deployment was never updated. */
+    el.innerHTML = "⚠ Failed: " + ffEscapeHtml(msg.error || "unknown error")
+      + ffPushTiming(msg)
+      + "<div class='hint' style='margin-top:4px;'>Sheet script: "
+      + (msg.scriptVersion
+          ? ffEscapeHtml(msg.scriptVersion)
+          : "<strong>an old version is deployed</strong> — paste "
+            + "ocr/freefire/freefire_sheet_push.gs into Apps Script, then "
+            + "Deploy → Manage deployments → edit → New version")
+      + "</div>";
     return;
   }
   /* A push that "worked" while dropping half the teams is the worst

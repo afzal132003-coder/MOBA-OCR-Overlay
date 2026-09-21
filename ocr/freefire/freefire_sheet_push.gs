@@ -571,8 +571,17 @@ function pushBooyah_(book, booyah, result) {
 }
 
 
+// Bumped whenever this file changes in a way the engine or an operator
+// needs to see deployed. It rides back on every reply, because Apps
+// Script serves the DEPLOYED version and not what is saved in the
+// editor -- so "I pasted the new code" and "the new code is running" are
+// different things, and without this there is no way to tell them apart
+// from outside. Diagnosed the hard way: a tab name was sent and ignored,
+// and the reply named a constant from a version nobody thought was live.
+var SCRIPT_VERSION = "2026-09-21.1-tab-name";
+
 function doPost(e) {
-  var result = { ok: false, matched: 0, total: 0 };
+  var result = { ok: false, matched: 0, total: 0, scriptVersion: SCRIPT_VERSION };
   var sheet = null;
 
   try {
