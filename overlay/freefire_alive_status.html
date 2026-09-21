@@ -937,6 +937,11 @@ function rememberStatus(rows){
   });
 }
 
+/* Enough published rows to believe the table describes the whole lobby.
+   The client narrates every team at match start, so a real table is
+   eleven or twelve; anything much shorter is a log still being read. */
+const ABSENT_IS_OUT_MIN_ROWS = 8;
+
 function fillFromRoster(rows, state){
   const slots = 12;
   rememberStatus(rows);
@@ -967,10 +972,27 @@ function fillFromRoster(rows, state){
      cleared, still fills its table instead of showing gaps. */
   const roster = ((state.roster || {}).teams) || [];
   const assigned = ((state.liveOps || {}).aliveRowTeams) || [];
-  const candidates = roster.map(t => (t.name || "").trim())
-    .concat(assigned.map(n => (n || "").trim()))
-    .filter(n => n);
+  /* The row assignments are a LAST resort, not a second opinion.
+     They belong to the alive grid and are not cleared when an event
+     changes, so at a new event they still hold the previous one's teams
+     -- which arrived on air as two squads from a tournament that had
+     finished, sitting in a live table. They are used only when the
+     roster has nothing at all to offer. */
+  const candidates = (roster.length
+      ? roster.map(t => (t.name || "").trim())
+      : assigned.map(n => (n || "").trim())
+    ).filter(n => n);
   if(!candidates.length) return rows;
+
+  /* A team the client is not narrating is not in this lobby.
+     Padding it in as "unknown" left it sitting mid-table with live
+     squads, which reads as a team still playing. It is shown as out
+     instead, which sorts it to the bottom with the other dead squads.
+
+     Only once the table is substantial: a handful of rows means the log
+     is still catching up, and marking every absent team dead on the
+     strength of three rows would empty the table on air. */
+  const lobbyKnown = rows.length >= ABSENT_IS_OUT_MIN_ROWS;
 
   const filled = rows.slice();
   candidates.forEach(name => {
@@ -982,6 +1004,15 @@ function fillFromRoster(rows, state){
     // than drawn as a blank. A squad we have never seen still shows
     // nothing -- there is genuinely nothing to show.
     const held = lastKnownStatus.get(key);
+    if(lobbyKnown){
+      filled.push({
+        teamName: name, eliminated: true, aliveCount: 0,
+        bars: ["dead", "dead", "dead", "dead"],
+        elims: (held && held.elims != null) ? held.elims : null,
+        notInLobby: true,
+      });
+      return;
+    }
     filled.push(held ? {
       teamName: name, eliminated: held.eliminated, aliveCount: held.aliveCount,
       bars: held.bars.slice(), elims: null, statusHeld: true,

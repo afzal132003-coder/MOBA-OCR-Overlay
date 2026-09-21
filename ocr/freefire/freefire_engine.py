@@ -1195,6 +1195,10 @@ def blank_live_match():
         "gsKillTimes": {},   # gsTeam -> [epoch, ...]
         "tidBumpTimes": {},  # TeamID -> [epoch, ...]
         "lastTeamScore": {}, # TeamID -> last score seen, to spot a rise
+        # The running score with placement stripped out -- see where it is
+        # maintained. This is what stands in for a kill count on a team
+        # nothing has joined yet.
+        "teamKillScore": {},
         "wiped": [],       # gsTeam, in the order the client wiped them
     }
 
@@ -1359,12 +1363,25 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
             # unchanged, and counting repeats would smear the timing this
             # join depends on.
             if previous is not None and value > previous:
+                step = value - previous
+                # A kill raises the score one at a time, on its own line.
+                # A placement bonus lands as ONE large jump when the team
+                # is eliminated. Keeping the score with those jumps left
+                # out gives a kill count for a team that nothing has
+                # joined -- which is exactly the team that has no other
+                # source. Seen on air: a squad on six kills reading 7 the
+                # moment it died.
+                if step < FREEFIRE_PLACEMENT_JUMP:
+                    live.setdefault("teamKillScore", {})[tid] = (
+                        live.get("teamKillScore", {}).get(tid, previous) + step)
                 stamp = DEBUGGER_TS_REGEX.match(line.strip())
                 when = _debugger_epoch(stamp.group("ts")) if stamp else None
                 if when is not None:
                     times = live.setdefault("tidBumpTimes", {}).setdefault(tid, [])
                     times.append(when)
                     del times[:-FREEFIRE_JOIN_HISTORY]
+            elif previous is None:
+                live.setdefault("teamKillScore", {})[tid] = value
             continue
 
         add = DEBUGGER_SPECTATOR_ADD_REGEX.search(line)
@@ -6206,6 +6223,10 @@ FREEFIRE_JOIN_WINDOW = 2.0
 # every true pair matched ALL of its kills and the next best managed one.
 FREEFIRE_JOIN_MIN_HITS = 2
 FREEFIRE_JOIN_MARGIN = 2.0
+# A single score rise of this much or more is a placement award, not
+# kills. Kills arrive one line at a time, each worth one; the placement
+# bonus lands in one step and is far larger.
+FREEFIRE_PLACEMENT_JUMP = 3
 
 
 def infer_squad_teams(live):
@@ -6425,7 +6446,8 @@ def link_live_teams(live, roster):
             # beats no number at all, and the roster fixes it properly.
             "elims": (live.get("gsKills", {}).get(gs_team, 0)
                       if gs_team is not None
-                      else live.get("teamScores", {}).get(tid, 0)),
+                      else live.get("teamKillScore", {}).get(
+                          tid, live.get("teamScores", {}).get(tid, 0))),
             # The running score is still published as the SCORE, which is
             # what it honestly is: kills plus placement.
             "score": live.get("teamScores", {}).get(tid, 0),
