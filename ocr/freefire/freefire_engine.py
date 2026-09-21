@@ -3904,6 +3904,27 @@ def apply_team_marks(rows):
         mark = marks.get((row.get("teamName") or "").strip().upper()) or {}
         row["inZone"] = bool(mark.get("zone"))
         row["onFire"] = bool(mark.get("fire"))
+
+    # Who is ahead on eliminations, flagged automatically.
+    #
+    # Unlike zone and fire this needs nobody to tick anything: the client
+    # publishes every team's kills and the leader is simply the top of
+    # them. Only ever ONE row, and only while it is alone at the top --
+    # a shared lead is not a leader, and a badge that appears on two rows
+    # says less than no badge at all.
+    best, tied = 0, False
+    for row in rows:
+        elims = row.get("elims")
+        if elims is None or row.get("eliminated"):
+            continue
+        if elims > best:
+            best, tied = elims, False
+        elif elims == best and best:
+            tied = True
+    for row in rows:
+        row["killLeader"] = bool(
+            best and not tied and not row.get("eliminated")
+            and row.get("elims") == best)
     return rows
 
 

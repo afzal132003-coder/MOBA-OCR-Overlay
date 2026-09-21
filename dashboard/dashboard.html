@@ -2038,6 +2038,13 @@ Team Charlie
            team name -- right most of the time and wrong enough of it
            that it needs correcting without leaving this screen. -->
       <div id="ff_shortNames" style="margin-top:8px;"></div>
+      <!-- The zone / fire glow ticks. These used to live in the
+           twelve-row calibration table, which went with the OCR, and
+           went with it by accident -- they are nothing to do with
+           reading the screen. Rebuilt here against the published rows,
+           which is where they belonged anyway: they follow the SQUAD,
+           not a row number. -->
+      <div id="ff_teamMarks" style="margin-top:8px;"></div>
     </div>
 
     <div class="card">
@@ -5510,6 +5517,7 @@ function ffOpen(url){
       ffRenderAliveJoin();
       ffRenderJoinPrompt();
       ffRenderShortNames();
+      ffRenderTeamMarks();
       ffRenderLobby();
       // Once per connection: the dropdown should be usable the moment
       // the tab is opened, not after someone finds the button.
@@ -9735,6 +9743,55 @@ function ffShowLobbyFillResult(msg){
    Typed here it wins over the roster and over the derivation, and is
    kept against the name the CLIENT writes, so it survives a roster that
    has never heard of that team. */
+/* Zone and fire glow, per team.
+
+   These were checkboxes in the twelve-row OCR table and were lost when
+   it went -- an accident, since they have nothing to do with reading the
+   screen. They are an operator saying "this squad is in the zone" or
+   "this squad is on fire", and the overlay puts a glow on that row.
+
+   Keyed on the team, not a row number, so the mark follows the squad
+   wherever the table reorders it. */
+let ffLastMarksKey = "";
+function ffRenderTeamMarks(){
+  const el = document.getElementById("ff_teamMarks");
+  if(!el) return;
+  const rows = ((ffState && ffState.liveOps && ffState.liveOps.sidetableRows) || [])
+    .filter(r => r && r.teamName);
+  if(!rows.length){ el.innerHTML = ""; ffLastMarksKey = ""; return; }
+  const key = JSON.stringify(rows.map(r => [r.teamName, r.short, !!r.inZone, !!r.onFire]));
+  if(key === ffLastMarksKey) return;
+  ffLastMarksKey = key;
+
+  el.innerHTML =
+    "<details><summary style='cursor:pointer;color:#98a3bd;font-size:12px;'>" +
+    "Zone / fire glow — click to set</summary>" +
+    "<div style='margin-top:6px;display:grid;" +
+    "grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px;'>" +
+    rows.map(r =>
+      "<div class='row' style='gap:8px;align-items:center;'>" +
+      "<span style='flex:1;min-width:0;font-size:11px;overflow:hidden;" +
+      "text-overflow:ellipsis;white-space:nowrap;'>" +
+      ffEscapeHtml(r.short || r.teamName) + "</span>" +
+      "<label style='font-size:11px;display:flex;gap:4px;align-items:center;'>" +
+      "<input type='checkbox' class='ff-team-mark' data-mark='zone' data-team='" +
+      ffEscapeHtml(r.teamName) + "'" + (r.inZone ? " checked" : "") + "> zone</label>" +
+      "<label style='font-size:11px;display:flex;gap:4px;align-items:center;'>" +
+      "<input type='checkbox' class='ff-team-mark' data-mark='fire' data-team='" +
+      ffEscapeHtml(r.teamName) + "'" + (r.onFire ? " checked" : "") + "> fire</label>" +
+      "</div>").join("") + "</div></details>";
+}
+
+document.addEventListener("change", (e) => {
+  if(!e.target.classList.contains("ff-team-mark")) return;
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffWs.send(JSON.stringify({ type: "freefire_set_team_mark",
+                             team: e.target.dataset.team,
+                             mark: e.target.dataset.mark,
+                             on: e.target.checked }));
+  ffLastMarksKey = "";
+});
+
 let ffLastShortKey = "";
 function ffRenderShortNames(){
   const el = document.getElementById("ff_shortNames");

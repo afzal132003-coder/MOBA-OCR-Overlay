@@ -1426,6 +1426,12 @@ function apply(state){
     el.classList.toggle("out", !!row.eliminated);
     el.classList.toggle("zone", !!row.inZone);
     el.classList.toggle("fire", !!row.onFire);
+    /* Needs no tick: the client publishes every team's kills and this is
+       the top of them. Only ever on one row, and only while that row is
+       alone at the top -- a shared lead is not a leader. The class is
+       set whether or not the package styles it, so adding the look later
+       is a stylesheet change and nothing more. */
+    el.classList.toggle("killleader", !!row.killLeader);
     if(row.eliminated){
       nowEliminated.add(key);
       noteElimination(key, row);
