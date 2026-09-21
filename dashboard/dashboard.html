@@ -5557,6 +5557,18 @@ function ffOpen(url){
         ffWireLobbyNameChoices(msg);
       }
       ffRenderLobby();
+    } else if(msg.type === "freefire_roster_cleared"){
+      ffRosterDraft = ffBlankRoster();
+      ffParsedRoster = ffRosterDraft;
+      ffDrawRosterBoxes();
+      const el = document.getElementById("ff_lobbyStatus");
+      if(el){
+        el.style.color = "#4ade80";
+        el.innerHTML = "✓ Cleared " + msg.teams + " team(s) and " +
+          msg.aliases + " learned spelling(s) on the engine." +
+          "<div style='margin-top:4px;color:#fbbf24;'>Now press <b>Read Lobby " +
+          "From Live Game</b> to load this event's teams.</div>";
+      }
     } else if(msg.type === "freefire_lobby_names_applied"){
       /* Without this the status sat on "Applying..." for ever, which
          reads as the read being slow rather than as a reply nobody was
@@ -5941,18 +5953,29 @@ function ffHandleLobbyCapture(msg){
 }
 
 document.getElementById("ff_rosterClearAll").addEventListener("click", () => {
-  const filled = ffRosterDraft
-    ? ffRosterDraft.teams.filter(t => (t.name || "").trim()).length : 0;
-  if(!confirm(`Clear ALL team info? This wipes ${filled} team(s) -- names, short names, `
-    + `logos and every player row -- from all 12 boxes.\n\nNothing is sent to the engine `
-    + `until you press Save Roster, so this can be undone by simply not saving.`)) return;
+  /* Clears on the ENGINE, not just in these boxes.
+     It used to empty twelve boxes here and wait for a Save. Two ways that
+     failed: a roster holding more than twelve teams could not be emptied
+     at all, and reading the lobby afterwards refreshed these boxes from
+     the engine -- which still had every team -- so the clear appeared to
+     undo itself. An operator starting a new event pressed it, saw the
+     boxes empty, read the lobby, and got the last event's teams back. */
+  const onEngine = ((ffState && ffState.roster && ffState.roster.teams) || [])
+    .filter(t => (t.name || "").trim()).length;
+  const aliases = Object.keys(
+    (ffState && ffState.aliases && ffState.aliases.teams) || {}).length;
+  if(!confirm("Clear ALL team info on the ENGINE?\n\n"
+    + onEngine + " team(s) and " + aliases + " learned spelling(s) will be deleted -- "
+    + "names, short names, logos and every player row.\n\n"
+    + "This cannot be undone. Use it when a new event starts.")) return;
 
-  ffRosterDraft = ffBlankRoster();
-  ffParsedRoster = ffRosterDraft;
-  ffDrawRosterBoxes();
-  document.getElementById("ff_rosterSave").style.display = "inline-block";
-  document.getElementById("ff_lobbyStatus").textContent =
-    "All 12 boxes cleared locally. Press Save Roster to apply, or reload the page to get the saved roster back.";
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)){
+    document.getElementById("ff_lobbyStatus").textContent =
+      "NOT cleared -- not connected to the Free Fire engine.";
+    return;
+  }
+  ffWs.send(JSON.stringify({ type: "freefire_clear_roster" }));
+  document.getElementById("ff_lobbyStatus").textContent = "Clearing…";
 });
 
 document.getElementById("ff_lobbyCapture").addEventListener("click", () => {

@@ -8607,6 +8607,34 @@ async def handle_client(websocket, path=None):
                                     for t in roster if (t.get("name") or "").strip()],
                     "logFile": os.path.basename(str(log)) if log else "",
                 }))
+            elif payload.get("type") == "freefire_clear_roster":
+                # Wipes the teams ON THE ENGINE, which the dashboard's own
+                # clear could not do: that one emptied twelve boxes in the
+                # page and waited for a Save, so a roster holding more than
+                # twelve could not be emptied at all, and reading the lobby
+                # afterwards simply put the engine's copy back.
+                #
+                # The team aliases go with them. An alias points at a team
+                # BY NAME, so once the teams are gone every one of them
+                # points at nothing -- and they are the very thing that
+                # mismatched three teams onto one, so carrying them into a
+                # new event is carrying the fault forward.
+                #
+                # Players, logos and short names go too. That is the point
+                # of the button, and it asks first in the page.
+                previous = len((server_state.get("roster") or {}).get("teams") or [])
+                aliases = len((server_state.get("aliases") or {}).get("teams") or {})
+                server_state.setdefault("roster", {})["teams"] = []
+                server_state.setdefault("aliases", {})["teams"] = {}
+                server_state["liveOps"]["lobbyPlayers"] = []
+                save_state()
+                print(f"[roster] cleared {previous} team(s) and {aliases} alias(es)")
+                await broadcast({"type": "state_sync", "data": server_state,
+                                 "locked": list(locked_fields)})
+                await websocket.send(json.dumps({
+                    "type": "freefire_roster_cleared",
+                    "teams": previous, "aliases": aliases,
+                }))
             elif payload.get("type") == "freefire_lobby_name_decisions":
                 # The operator's answer to the resemblances above. Three
                 # things they can say about each one, and each is a
@@ -9233,8 +9261,27 @@ async def ocr_loop():
                     # The lobby, with UIDs, published as soon as people
                     # join -- so a roster can be filled during game 1
                     # instead of after it.
+                    # The poll's own view of the lobby, from what the tail
+                    # has seen since the engine started.
+                    #
+                    # It must not clobber a richer one. Read Lobby From
+                    # Live Game re-reads the WHOLE file and comes back
+                    # with every squad and every UID; this tail has only
+                    # what went past since start-up, and the join lines
+                    # carrying the UIDs are usually behind it. Measured
+                    # live: the button fetched 48 players with 48 UIDs and
+                    # the next poll replaced them with 20 and none, so the
+                    # IGNs and UIDs an operator had just fetched vanished
+                    # within a second.
+                    #
+                    # Whichever knows more wins, counted on UIDs first
+                    # since that is the half a roster cannot do without.
                     lobby = live_lobby_players(_live_match, _debugger_id_map, linked)
-                    if lobby != server_state["liveOps"].get("lobbyPlayers"):
+                    held = server_state["liveOps"].get("lobbyPlayers") or []
+                    def _worth(rows):
+                        return (sum(1 for r in rows if (r.get("uid") or "").strip()),
+                                len(rows))
+                    if lobby != held and _worth(lobby) >= _worth(held):
                         server_state["liveOps"]["lobbyPlayers"] = lobby
                         changed = True
 
