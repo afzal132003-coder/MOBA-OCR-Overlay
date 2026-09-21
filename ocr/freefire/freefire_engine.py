@@ -6862,6 +6862,24 @@ def director_feed(live, linked=None, now=None):
     }
 
 
+def join_last_by_elimination(live, names, already):
+    """The last squad and the last team must be each other.
+
+    Not a guess. When every other team in the match has been paired and
+    exactly one squad is left over, there is nowhere else for either to
+    go -- so this is the one inference here that cannot be wrong, and it
+    costs nothing.
+
+    Only ever fires on the final pair. Two left over is genuinely
+    ambiguous and is left alone.
+    """
+    squads = [gs for gs in (live.get("gsIgns") or {}) if gs not in set(already.values())]
+    teams = [tid for tid in names if tid not in already]
+    if len(squads) == 1 and len(teams) == 1:
+        return {teams[0]: squads[0]}
+    return {}
+
+
 def link_live_teams(live, roster):
     """Joins the client's two team numbering spaces through the roster.
 
@@ -6919,6 +6937,7 @@ def link_live_teams(live, roster):
     team_names = live.get("teamNames") or {}
     inferred = reject_contradicted_joins(live, inferred, team_names)
     inferred.update(join_squads_by_tag(live, team_names, inferred))
+    inferred.update(join_last_by_elimination(live, team_names, inferred))
 
     ended = live.get("ended")
     wiped = live.get("wiped", [])

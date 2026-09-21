@@ -1358,10 +1358,18 @@ function apply(state){
        of its own, so the derived one is a starting point to overwrite,
        not an answer. */
     const label = (team && team.shortName) || row.short || row.teamName || "";
-    // aliveCount is null when the squad could not be linked to the roster
-    // (that link is what turns the client's squad number into a team).
-    // Showing a full-alive pip would be a confident lie, so an unknown
-    // count falls back to the empty/dead indicator.
+    /* aliveCount is null when nothing has been able to link this squad
+       to a team -- no roster entry, no kill to match on, no tag to read.
+       That is NOT the same as the squad being dead, and it used to draw
+       exactly the same: four dark pips. On air that put teams with all
+       four players up next to a squad that really had been wiped, and
+       nothing told them apart.
+
+       So an unknown count shows NO indicator at all. A blank reads as
+       "we do not know", which is true; four dark pips read as "this
+       squad is out", which was a confident lie in the other direction
+       from the full-alive one this used to avoid. */
+    const aliveUnknown = !row.eliminated && row.aliveCount == null;
     const alive = row.eliminated ? 0
       : (row.aliveCount == null ? 0 : Math.max(0, Math.min(4, row.aliveCount)));
     // GC keeps its indicator art in a "Live Stats" subfolder; CLT keeps
@@ -1398,8 +1406,9 @@ function apply(state){
     }
     const pip = el.querySelector(".status-pip");
     // Nothing has been read for this squad, so nothing is claimed about
-    // it -- see fillFromRoster.
-    pip.style.visibility = row.statusUnknown ? "hidden" : "";
+    // it -- see fillFromRoster, and aliveUnknown above for the row that
+    // IS being published but has no count anyone could stand behind.
+    pip.style.visibility = (row.statusUnknown || aliveUnknown) ? "hidden" : "";
     const pipSrc = `url('${base}${art}')`;
     if(pip.style.backgroundImage !== pipSrc){
       pip.style.backgroundImage = pipSrc;
