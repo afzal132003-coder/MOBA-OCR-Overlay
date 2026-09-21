@@ -5551,6 +5551,9 @@ function ffOpen(url){
           "team in the dropdowns below and press <b>Fill Roster From Lobby</b>. " +
           "The game does not say which squad is which team, so that pairing " +
           "is yours.</div>";
+        // Teams the engine just created are in its state, not in the grid,
+        // until this is called.
+        ffRefreshRosterFromState();
         ffWireLobbyNameChoices(msg);
       }
       ffRenderLobby();
@@ -5565,10 +5568,12 @@ function ffOpen(url){
         if(msg.renamed) bits.push(msg.renamed + " team(s) renamed");
         if(msg.created) bits.push(msg.created + " team(s) created");
         el.style.color = "#4ade80";
+        const shown = ffRefreshRosterFromState();
         el.innerHTML = "✓ " + (bits.length ? bits.join(", ") : "Nothing to change") +
-          ". <div style='margin-top:4px;color:#fbbf24;'>The roster now has the " +
-          "teams. It does NOT have their players yet — pick each squad's team " +
-          "in the dropdowns below and press <b>Fill Roster From Lobby</b>.</div>";
+          ". " + shown + " team(s) now in the grid below." +
+          "<div style='margin-top:4px;color:#fbbf24;'>Any team still missing its " +
+          "players: pick that squad's team in the dropdowns below and press " +
+          "<b>Fill Roster From Lobby</b>.</div>";
       }
     } else if(msg.type === "freefire_fill_roster_result"){
       ffShowLobbyFillResult(msg);
@@ -5648,6 +5653,21 @@ function ffNormaliseRoster(teams){
 function ffRenderRosterPreview(teams){
   ffRosterDraft = ffNormaliseRoster(teams);
   ffDrawRosterBoxes();
+}
+
+/* Pulls the grid back in line with what the engine actually holds.
+   ffRosterDraft is an EDIT buffer, which is why it is not kept in step
+   with every state_sync -- doing that would throw away whatever is being
+   typed. But after an action the operator just asked for, which changed
+   the roster on the engine's side, the grid showing the state from
+   before that action is simply wrong: the teams were created and the
+   page still read "0 of 12 teams filled in" with empty boxes. */
+function ffRefreshRosterFromState(){
+  const teams = (ffState && ffState.roster && ffState.roster.teams) || [];
+  ffRosterDraft = ffNormaliseRoster(teams);
+  ffParsedRoster = ffRosterDraft;
+  ffDrawRosterBoxes();
+  return teams.length;
 }
 
 function ffDrawRosterBoxes(){
