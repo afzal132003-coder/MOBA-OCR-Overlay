@@ -9199,6 +9199,32 @@ async def handle_live_signals(signals, gs_names):
             # Last game's held elim counts must not carry into this one --
             # see _alive_grid_last_elims. Every row starts unread again.
             reset_alive_for_new_match("match_start in the log")
+
+            # And rebuild the log's own state from the file, the way a
+            # restart does.
+            #
+            # An operator was restarting the engine between games because
+            # the table came out right afterwards and not otherwise.
+            # Replaying the same log through the same code did not
+            # reproduce it -- the join, the publish chain and the squad
+            # sizes all matched a fresh read exactly -- so rather than
+            # ship a fix for a cause I could not find, this makes the
+            # engine do what the restart did.
+            #
+            # Clearing the path is what triggers it: the reader treats an
+            # unknown file as new, reads it from the top and builds the
+            # state silently, emitting nothing. That is the same pass a
+            # restart performs, so whatever incremental state was drifting
+            # cannot survive it.
+            #
+            # Costs one pass over the log per MATCH, in the executor. A
+            # 30MB file parses in well under a second and a match lasts
+            # fifteen minutes.
+            global _debugger_path, _debugger_offset, _debugger_id_map
+            _debugger_path = None
+            _debugger_offset = 0
+            _debugger_id_map = {}
+            print("[live] new game -- rebuilding from the log, as a restart would")
             changed = True
 
         elif signal["type"] == "match_end":
