@@ -1175,6 +1175,27 @@ DEBUGGER_SPECTATOR_ADD_REGEX = re.compile(
 # A dead player can come back -- Free Fire has revival points -- so a death
 # is not the same as being out, and the death count per squad runs well
 # past four. This is what puts a player back on the alive side.
+# An airdrop becoming visible.
+#
+# This is the client setting up MATERIALS for the drop's model, which is
+# the nearest thing the log has to an airdrop event -- there is no spawn
+# line, and no position anywhere near one (checked: 0 of 16 events had a
+# coordinate within 25 lines either side).
+#
+# Because it is a render event it only fires when the spectator camera
+# looks at a drop. Measured over eight matches it fired in four of them
+# and not at all in the other four. So it is published as something an
+# operator can act on, never as a trigger that can be relied upon to
+# arrive: a graphic wired straight to this would be silently absent half
+# the night.
+DEBUGGER_AIRDROP_REGEX = re.compile(
+    r"NetworkMaterialHelperExcute\s*:\s*PickUp_Airdrop")
+# The client writes several material lines a second or two apart for one
+# drop. Collapsed so four lines are not four airdrops. Measured: 24 raw
+# lines were 8 moments at this window, and still 8 at fifteen seconds --
+# the bursts are tight and the gaps between them are minutes.
+FREEFIRE_AIRDROP_BURST = 15.0
+
 DEBUGGER_REVIVE_REGEX = re.compile(r"Revive Player\s+(?P<pid>\d+),")
 DEBUGGER_REVIVE_POS_REGEX = re.compile(
     r"revivePosition=\((?P<x>-?[\d.]+),\s*(?P<y>-?[\d.]+),\s*(?P<z>-?[\d.]+)\)")
@@ -1239,6 +1260,8 @@ def blank_live_match():
         "zonePhaseAt": None,   # when the current phase began, for the countdown
         "zoneHistory": [],
         "airline": None,   # {"start": [x,y,z], "end": [x,y,z]}
+        # [epoch, ...] one per airdrop moment seen this match.
+        "airdrops": [],
         "itemCounts": {},  # runtime player id -> {EITEM_TYPE -> count}
         # When each side's counter moved, which is what lets the two
         # numbering spaces be joined without a roster -- see
@@ -1518,6 +1541,16 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
                     by_uid[str(uid)] = count
             signal({"type": "match_end", "matchId": end.group("match_id"),
                     "knocks": by_uid})
+            continue
+
+        if DEBUGGER_AIRDROP_REGEX.search(line):
+            stamp = DEBUGGER_TS_REGEX.match(line.strip())
+            when = _debugger_epoch(stamp.group("ts")) if stamp else None
+            if when is not None:
+                drops = live.setdefault("airdrops", [])
+                if not drops or when - drops[-1] > FREEFIRE_AIRDROP_BURST:
+                    drops.append(when)
+                    signal({"type": "airdrop", "at": when})
             continue
 
         item = DEBUGGER_ITEM_SYNC_REGEX.search(line)
@@ -9589,6 +9622,25 @@ async def ocr_loop():
                                 len(rows))
                     if lobby != held and _worth(lobby) >= _worth(held):
                         server_state["liveOps"]["lobbyPlayers"] = lobby
+                        changed = True
+
+                    # Airdrops seen this match. Published with how long
+                    # ago the last one was, so a graphic can be offered
+                    # while it is still worth showing and not ten minutes
+                    # later.
+                    drops = _live_match.get("airdrops") or []
+                    airdrop = {
+                        "count": len(drops),
+                        "lastAt": drops[-1] if drops else None,
+                        "secondsAgo": int(time.time() - drops[-1]) if drops else None,
+                        # Said with the data, so nothing downstream has to
+                        # remember it: this is a render event and misses
+                        # the drops the camera never looked at.
+                        "seenOnly": "only when the spectator camera looked at one",
+                    }
+                    previous = server_state["liveOps"].get("airdrop") or {}
+                    if airdrop["count"] != previous.get("count"):
+                        server_state["liveOps"]["airdrop"] = airdrop
                         changed = True
 
                     board = headshot_board(_live_match, _debugger_id_map, linked)

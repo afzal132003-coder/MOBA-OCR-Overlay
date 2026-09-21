@@ -2045,6 +2045,10 @@ Team Charlie
            which is where they belonged anyway: they follow the SQUAD,
            not a row number. -->
       <div id="ff_teamMarks" style="margin-top:8px;"></div>
+      <!-- Airdrops the client has rendered this match. A prompt, not a
+           trigger: it is a render event and misses the drops the
+           spectator camera never looked at. -->
+      <div id="ff_airdrop" style="margin-top:8px;"></div>
     </div>
 
     <div class="card">
@@ -5518,6 +5522,7 @@ function ffOpen(url){
       ffRenderJoinPrompt();
       ffRenderShortNames();
       ffRenderTeamMarks();
+      ffRenderAirdrop();
       ffRenderLobby();
       // Once per connection: the dropdown should be usable the moment
       // the tab is opened, not after someone finds the button.
@@ -9763,6 +9768,38 @@ function ffShowLobbyFillResult(msg){
 
    Keyed on the team, not a row number, so the mark follows the squad
    wherever the table reorders it. */
+/* Airdrops seen this match.
+
+   Deliberately a prompt rather than something that fires a graphic by
+   itself. The log has no airdrop spawn line and no position; the nearest
+   thing is the client setting up the drop's materials, which only
+   happens when the spectator camera looks at one. Measured over eight
+   matches it fired in four and not at all in the other four -- so a
+   graphic wired straight to it would be silently absent half the night,
+   which is worse than an operator watching for it. */
+let ffLastAirdropKey = "";
+function ffRenderAirdrop(){
+  const el = document.getElementById("ff_airdrop");
+  if(!el) return;
+  const a = (ffState && ffState.liveOps && ffState.liveOps.airdrop) || null;
+  if(!a || !a.count){ el.innerHTML = ""; ffLastAirdropKey = ""; return; }
+  const key = String(a.count) + ":" + String(a.lastAt);
+  if(key === ffLastAirdropKey) return;
+  ffLastAirdropKey = key;
+  const fresh = a.secondsAgo != null && a.secondsAgo < 90;
+  el.innerHTML =
+    "<div style='background:" + (fresh ? "#0d2a1a;border:1px solid #2c6244"
+                                      : "#161b28;border:1px solid #2b3348") +
+    ";border-radius:6px;padding:7px 10px;font-size:12px;'>" +
+    (fresh ? "<strong style='color:#4ade80;'>Airdrop on screen</strong>"
+           : "<span style='color:#98a3bd;'>Airdrop</span>") +
+    " &mdash; " + a.count + " seen this match" +
+    (a.secondsAgo != null ? ", last " + a.secondsAgo + "s ago" : "") +
+    "<div class='hint' style='margin-top:2px;'>Seen " + ffEscapeHtml(a.seenOnly || "") +
+    ", so this misses the ones nobody watched. No location: the log carries none." +
+    "</div></div>";
+}
+
 let ffLastMarksKey = "";
 function ffRenderTeamMarks(){
   const el = document.getElementById("ff_teamMarks");
