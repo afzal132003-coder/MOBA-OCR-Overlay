@@ -5577,7 +5577,7 @@ function ffOpen(url){
         ffRefreshRosterFromState();
         ffWireLobbyNameChoices(msg);
       }
-      ffRenderLobby();
+      ffRenderLobby(true);
     } else if(msg.type === "freefire_roster_cleared"){
       ffRosterDraft = ffBlankRoster();
       ffParsedRoster = ffRosterDraft;
@@ -9514,12 +9514,40 @@ function ffLobbyGuessTeam(squad, roster){
   return score >= 4 ? best : "";
 }
 
-function ffRenderLobby(){
+/* What this block last drew. The engine republishes its state several
+   times a second, and every one of those called this, which rebuilt the
+   whole thing with innerHTML -- destroying and recreating the very
+   dropdown an operator was choosing from. An open list vanished under
+   the cursor, and a selection made a moment before the next sync was
+   gone with it. */
+let ffLastLobbyKey = "";
+
+function ffRenderLobby(force){
   const host = document.getElementById("ff_lobbySquads");
   if(!host) return;
+
+  /* Never redraw under the operator's hand. A select that is open or
+     focused is being used right now, and nothing arriving from the
+     engine is worth taking it away for. */
+  const busy = document.activeElement;
+  if(!force && busy && busy.classList
+      && busy.classList.contains("ff-lobby-assign")) return;
+
   const squads = ffLobbySquads();
   const roster = ((ffState && ffState.roster && ffState.roster.teams) || []).filter(t => t.name);
   const when = document.getElementById("ff_lobbyWhen");
+
+  /* And only redraw when something actually differs. Most syncs change
+     nothing here -- they are kills and alive counts -- so without this
+     the list is rebuilt continuously for no visible reason. */
+  const key = JSON.stringify([
+    squads.map(sq => [sq.gsTeam, sq.team,
+                      sq.players.map(p => [p.ign, p.uid])]),
+    roster.map(t => [t.name, (t.players || []).map(p => p.uid)]),
+    ffLobbyAssign,
+  ]);
+  if(!force && key === ffLastLobbyKey) return;
+  ffLastLobbyKey = key;
 
   if(!squads.length){
     when.textContent = "";
@@ -9590,7 +9618,19 @@ function ffRenderLobby(){
 document.addEventListener("change", (e) => {
   if(!e.target.classList.contains("ff-lobby-assign")) return;
   ffLobbyAssign[e.target.dataset.gs] = e.target.value;
-  ffRenderLobby();
+  /* Deliberately NOT a redraw. The select already shows what was picked,
+     and rebuilding here would take the focus off the control the
+     operator is still working down the list of. Only the label beside it
+     needs to catch up. */
+  const row = e.target.closest(".row");
+  const label = row && row.querySelector("strong");
+  if(label){
+    label.innerHTML = e.target.value
+      ? ffEscapeHtml(e.target.value)
+      : '<span style="color:#fbbf24;">squad ' +
+        ffEscapeHtml(e.target.dataset.gs) + ' — not matched to a roster team</span>';
+  }
+  ffLastLobbyKey = "";     // so the next genuine change still redraws
 });
 
 document.getElementById("ff_lobbyFetch").addEventListener("click", () => {
@@ -9598,7 +9638,7 @@ document.getElementById("ff_lobbyFetch").addEventListener("click", () => {
   // request -- this just redraws from the latest state and says what it
   // is looking at, which is what "fetch" means from here.
   const el = document.getElementById("ff_lobbyStatus");
-  ffRenderLobby();
+  ffRenderLobby(true);
   const squads = ffLobbySquads();
   el.style.color = squads.length ? "#98a3bd" : "#fbbf24";
   el.textContent = squads.length
@@ -9644,7 +9684,7 @@ function ffShowLobbyFillResult(msg){
         " squad(s) had no team chosen, so their players went nowhere. Pick a team " +
         "in the dropdown beside each and press it again.</div>"
       : "");
-  ffRenderLobby();
+  ffRenderLobby(true);
 }
 
 /* The card above Match Review: what is about to be written, and a way
