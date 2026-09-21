@@ -6168,6 +6168,47 @@ def utility_board(live, linked=None):
     return rows
 
 
+def _ign_tag(ign):
+    """The team tag a player is carrying in front of their name.
+
+    "NKG.Zyphor05" -> "NKG", "ASIN.ASH" -> "ASIN", "TGT.Botgod" -> "TGT".
+    Players who carry no tag give "" and are simply no evidence either
+    way.
+    """
+    text = re.sub(r"[^A-Za-z0-9. ]", "", (ign or "")).strip()
+    head = re.split(r"[. ]", text, 1)[0]
+    return head.upper() if 2 <= len(head) <= 6 else ""
+
+
+def guess_squad_team(players, names):
+    """Which of the log's team names a squad belongs to, by their tags.
+
+    The roster is the proper way to join a squad to a team, and this does
+    not replace it. It is for the case the roster cannot cover: a new
+    event where nothing has been entered yet, where the alternative is an
+    operator hand-assigning eleven squads while a match runs.
+
+    A tag counts when it matches the name outright, starts it, or matches
+    the initials of its words -- "TGT" against "TG TYCOONS". The squad
+    needs at least two players agreeing, because one tagged player is as
+    likely to be someone who happens to prefix their name.
+    """
+    votes = {}
+    for p in players:
+        tag = _ign_tag(p.get("ign"))
+        if not tag:
+            continue
+        for name in names:
+            plain = re.sub(r"[^A-Za-z0-9]", "", name).upper()
+            initials = "".join(w[0] for w in re.findall(r"[A-Za-z0-9]+", name)).upper()
+            if plain == tag or plain.startswith(tag) or initials == tag:
+                votes[name] = votes.get(name, 0) + 1
+    if not votes:
+        return None
+    best = max(votes, key=votes.get)
+    return best if votes[best] >= 2 else None
+
+
 def link_live_teams(live, roster):
     """Joins the client's two team numbering spaces through the roster.
 
@@ -6253,8 +6294,22 @@ def link_live_teams(live, roster):
             # No longer withheld after the whistle either: that guard
             # existed only because of the inflation, and a kill count has
             # none to withhold.
+            # gsKills is the honest kill count, but it is keyed by the
+            # squad numbering, which only the roster can join to a team
+            # name. With no roster loaded -- a new event, or a lobby read
+            # that has not been done yet -- nothing joins, and keying
+            # elims solely on that published NO number at all for every
+            # row. Seen live: eleven correctly named teams, every elims
+            # cell empty.
+            #
+            # So the running score stands in when there is no join. It is
+            # inflated for a team once that team is eliminated (it gains
+            # the placement bonus), which is why it is not the first
+            # choice -- but a number that is right until a squad dies
+            # beats no number at all, and the roster fixes it properly.
             "elims": (live.get("gsKills", {}).get(gs_team, 0)
-                      if gs_team is not None else None),
+                      if gs_team is not None
+                      else live.get("teamScores", {}).get(tid, 0)),
             # The running score is still published as the SCORE, which is
             # what it honestly is: kills plus placement.
             "score": live.get("teamScores", {}).get(tid, 0),
