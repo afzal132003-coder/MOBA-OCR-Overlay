@@ -6511,8 +6511,8 @@ def derive_short_name(name):
     return kept[0][:4].upper()
 
 
-def squad_tag_agreement(live, gs_team, team_name):
-    """How the squad's own IGN tags weigh for or against this team name.
+def tag_votes(igns, team_name):
+    """How a set of player names weighs for or against one team name.
 
     Returns (for, against): how many tagged players point at this team,
     and how many point somewhere else. Players carrying no tag count for
@@ -6522,20 +6522,46 @@ def squad_tag_agreement(live, gs_team, team_name):
     the initials of its words -- "TE" for "TOKYO ESPORTS", "FC" for
     "Fallen Champs", "GODZ" for "GodZilla!".
     """
-    squad = (live.get("gsIgns") or {}).get(gs_team) or {}
     plain = re.sub(r"[^A-Za-z0-9]", "", team_name or "").upper()
     initials = "".join(w[0] for w in
                        re.findall(r"[A-Za-z0-9]+", team_name or "")).upper()
     votes_for = votes_against = 0
-    for ign in squad.values():
+    for ign in igns or ():
         tag = _ign_tag(ign)
         if not tag:
             continue
-        if plain.startswith(tag) or tag in plain or initials == tag:
+        # A tag sitting SOMEWHERE inside a name is only evidence when it
+        # is long enough not to be a coincidence. "TE" is the initials of
+        # TOKYO ESPORTS and also happens to fall inside MENTALIST ESP, so
+        # counting it for both made a squad that was obviously TOKYO
+        # ambiguous and left it unplaced.
+        inside = len(tag) >= 4 and tag in plain
+        if plain.startswith(tag) or initials == tag or inside:
             votes_for += 1
         else:
             votes_against += 1
     return votes_for, votes_against
+
+
+def name_squad_by_tags(igns, names):
+    """The one team these players' tags point at, or "" if not exactly one.
+
+    Used where nothing else can decide: in the LOBBY, before anybody has
+    fired a shot, the kill-timing join has no evidence at all and this is
+    the only thing that can put a squad under a name.
+
+    Deliberately silent when two names fit. Guessing between them is the
+    mistake that puts one team's players in another team's roster slot,
+    and a squad left unnamed is one an operator can see and set.
+    """
+    hits = [n for n in names if tag_votes(igns, n)[0]]
+    return hits[0] if len(hits) == 1 else ""
+
+
+def squad_tag_agreement(live, gs_team, team_name):
+    """tag_votes for a squad of the live match, by its squad number."""
+    squad = (live.get("gsIgns") or {}).get(gs_team) or {}
+    return tag_votes(list(squad.values()), team_name)
 
 
 def infer_squad_teams(live):
@@ -8846,12 +8872,34 @@ async def handle_client(websocket, path=None):
                     by_name[name.strip().upper()] = team
                     teams_made += 1
 
+                # Put each squad under a team where the players' own tags
+                # say which one, so the IGNs land in the right slot
+                # instead of every squad arriving unassigned.
+                #
+                # This is the only thing that CAN decide it in a lobby:
+                # the kill-timing join has no kills yet, and the log never
+                # states which squad is which team. Silent where two names
+                # fit, because guessing there puts one team's players into
+                # another team's roster slot -- and a squad left blank is
+                # one the operator can see and set.
+                taken = set()
+                placed = 0
+                for squad in squads:
+                    igns = [p.get("ign") for p in (squad.get("players") or [])]
+                    free = [n for n in names if n not in taken]
+                    guess = name_squad_by_tags(igns, free)
+                    squad["guessedTeam"] = guess
+                    if guess:
+                        taken.add(guess)
+                        placed += 1
+
                 lobby = []
                 for squad in squads:
                     for p in squad.get("players") or []:
                         lobby.append({"pid": "", "uid": p.get("uid") or "",
                                       "ign": p.get("ign") or "",
-                                      "gsTeam": squad.get("gsTeam"), "team": ""})
+                                      "gsTeam": squad.get("gsTeam"),
+                                      "team": squad.get("guessedTeam") or ""})
                 server_state["liveOps"]["lobbyPlayers"] = lobby
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state,
@@ -8861,6 +8909,10 @@ async def handle_client(websocket, path=None):
                     "squads": len(squads), "players": len(lobby),
                     "withUid": sum(1 for p in lobby if p["uid"]),
                     "teamsCreated": teams_made, "names": names,
+                    # How many squads the players' tags could place, so
+                    # the operator knows how many are left to do by hand
+                    # rather than counting blank dropdowns.
+                    "placed": placed, "squadCount": len(squads),
                     # The names that resemble an existing team, with the
                     # roster to choose from. Nothing was done to these.
                     "pending": pending,

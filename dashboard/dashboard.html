@@ -1788,28 +1788,6 @@
     </div>
 
     <div class="card">
-      <h2>Team Names</h2>
-      <p class="hint">The fast path to correct team names on air before full rosters (players, UIDs, logos) are
-        ready. A player in the room often registers under the wrong name or just the short/abbreviated one, so
-        paste the official list from the tournament sheet here — one team per line, <code>Full Name, Short
-        Name</code> (short name optional, comma or a tab both work — pasting two spreadsheet columns pastes as a
-        tab automatically). Matching checks the result file's team name against BOTH, so a room that only got
-        "TSG" still resolves to "TSG ARMY". It doesn't need to match the file's spelling exactly either — same
-        exact / "contains" / fuzzy fallback the full roster uses. Only name and short name are touched here — a
-        slot's logo and players, if it already has them, are left exactly as they are; fill those in later below,
-        in any order, with no need to redo this list.</p>
-      <textarea id="ff_teamNamesList" rows="14" placeholder="Team Alpha, TA
-Team Bravo, TB
-Team Charlie
-..." style="width:100%;font-family:monospace;font-size:13px;background:#0a0d18;color:#eef2fb"></textarea>
-      <div class="row" style="gap:8px;margin-top:10px;">
-        <button id="ff_teamNamesApply">Apply &amp; Save Roster</button>
-        <button class="secondary" id="ff_teamNamesReload">Reload From Saved Roster</button>
-      </div>
-      <div class="hint" id="ff_teamNamesStatus" style="margin-top:6px;"></div>
-    </div>
-
-    <div class="card">
       <h2>Roster Import</h2>
       <p class="hint">Upload a CSV with one row per player: <code>team,ign,uid</code> (a header row is fine, it's
         auto-detected). This is the roster every other Free Fire tab matches names/UIDs against.</p>
@@ -5596,6 +5574,12 @@ function ffOpen(url){
           `${msg.withUid} with UID, from the running game` +
           (msg.logFile ? ` (${msg.logFile})` : "") + ". " +
           (msg.teamsCreated ? `${msg.teamsCreated} new team(s) created. ` : "") +
+          /* How many squads the players' own tags could place. An
+             operator reading "6 of 10" knows four dropdowns are waiting;
+             without it they have to scroll and count blanks. */
+          (msg.squadCount
+            ? `<b>${msg.placed || 0} of ${msg.squadCount}</b> squad(s) matched to a team ` +
+              `by the players' tags. ` : "") +
           ffLobbyNameChoices(msg) +
           "<div style='margin-top:4px;color:#fbbf24;'>Next: in <b>Live Lobby</b> just below, pair each squad to its team and press <b>Add these players to the roster</b>. " + "<a href='#' id='ff_goLobby' style='color:#7db2ff;'>Jump to it</a></div>" +
           "<div style='margin-top:4px;color:#98a3bd;'>The game does not say which " +
@@ -6096,77 +6080,6 @@ document.getElementById("ff_rosterSave").addEventListener("click", () => {
   if(kept === false) return;
   document.getElementById("ff_rosterStatus").textContent =
     `Roster saved — ${kept} team${kept === 1 ? "" : "s"}.`;
-});
-
-/* ---------- Team Names (quick list) ----------
-   A faster on-ramp to the same roster.teams[i].name/shortName the full
-   Pre-Match grid edits -- "Full Name, Short Name" per line, matched to
-   slots by position, so a plain paste from a tournament sheet gets team
-   matching working before anyone has typed a single IGN or UID. Both are
-   needed because a player joining the room sometimes registers the squad
-   under its short/abbreviated form rather than the full name -- see
-   match_roster_team in freefire_engine.py, which already checks a file's
-   team name against BOTH name and shortName, so populating shortName
-   here is what makes that path actually catch anything. Nothing new is
-   stored: this reads and writes the exact same ffRosterDraft/roster.teams
-   the grid does, just through a friendlier input surface. */
-
-// Tab first: pasting two spreadsheet columns produces a tab-separated
-// line, and a short name containing a literal comma is far more likely
-// than one containing a tab.
-function ffTeamNamesSplitLine(line){
-  const sep = line.includes("\t") ? "\t" : ",";
-  const parts = line.split(sep);
-  return { name: (parts[0] || "").trim(), shortName: (parts[1] || "").trim() };
-}
-
-function ffTeamNamesToText(teams){
-  return (teams || [])
-    .map(t => t.shortName ? `${t.name || ""}, ${t.shortName}` : (t.name || ""))
-    .join("\n").replace(/\n+$/, "");
-}
-
-function ffRenderTeamNamesList(ff){
-  const el = document.getElementById("ff_teamNamesList");
-  if(!el || document.activeElement === el) return;   // don't clobber a mid-paste edit
-  // Prefer the staged draft if one exists (an unsaved edit from the
-  // Pre-Match grid should be reflected here too), otherwise the saved
-  // roster.
-  const teams = (ffRosterDraft && ffRosterDraft.teams) ||
-    (ff.roster && ff.roster.teams) || [];
-  const text = ffTeamNamesToText(teams);
-  if(el.value !== text) el.value = text;
-}
-
-document.getElementById("ff_teamNamesApply").addEventListener("click", () => {
-  if(!ffState) return;
-  if(!ffRosterDraft) ffRosterDraft = ffNormaliseRoster((ffState.roster && ffState.roster.teams) || []);
-  const lines = document.getElementById("ff_teamNamesList").value.split("\n");
-  let changed = 0;
-  lines.slice(0, FF_TEAM_SLOTS).forEach((line, i) => {
-    if(!line.trim()) return;   // a blank line leaves that slot untouched, see below
-    const { name, shortName } = ffTeamNamesSplitLine(line);
-    // A blank field (name or short name) leaves what's already in that
-    // slot untouched rather than clearing it -- a shorter list than 12,
-    // or a line with no short name given, almost always means "not
-    // decided yet", not "wipe it". Use the roster grid's own per-slot
-    // Clear button to actually blank one.
-    if(name && ffRosterDraft.teams[i].name !== name){ ffRosterDraft.teams[i].name = name; changed++; }
-    if(shortName && ffRosterDraft.teams[i].shortName !== shortName){ ffRosterDraft.teams[i].shortName = shortName; changed++; }
-  });
-  ffParsedRoster = ffRosterDraft;
-  ffDrawRosterBoxes();
-  const kept = ffSaveRoster();
-  document.getElementById("ff_teamNamesStatus").textContent = kept === false
-    ? "Nothing to save yet."
-    : `Saved — ${changed} field${changed === 1 ? "" : "s"} updated, ${kept} team${kept === 1 ? "" : "s"} total.`;
-});
-
-document.getElementById("ff_teamNamesReload").addEventListener("click", () => {
-  document.getElementById("ff_teamNamesList").value =
-    ffTeamNamesToText((ffState && ffState.roster && ffState.roster.teams) || []);
-  document.getElementById("ff_teamNamesStatus").textContent =
-    "Reloaded from the last saved roster — any unsaved edits here were discarded.";
 });
 
 let ffLastRosterKey = "";
