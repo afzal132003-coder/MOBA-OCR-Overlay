@@ -45,6 +45,47 @@ def save_config(cfg):
     CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
 
 
+def list_monitors():
+    with mss.mss() as sct:
+        return [dict(m) for m in sct.monitors]
+
+
+def choose_monitor(default):
+    """Show the screens and ask, rather than silently taking one.
+
+    This rig runs the game on the second screen -- the Free Fire config
+    has monitor 2 -- so a calibrator that quietly defaults to 1 hands you
+    a screenshot of the wrong display and no clue why. Printing the
+    resolutions makes the right answer obvious, and --monitor still skips
+    the question for anyone who already knows.
+    """
+    monitors = list_monitors()
+    real = monitors[1:]                       # [0] is the virtual all-screens one
+    if len(real) <= 1:
+        return 1
+    print("Screens on this machine:")
+    for i, m in enumerate(real, start=1):
+        mark = "  <- current setting" if i == default else ""
+        print("   %d.  %d x %d  at (%d, %d)%s"
+              % (i, m["width"], m["height"], m["left"], m["top"], mark))
+    print("")
+    try:
+        answer = input("Which screen is the game on? [%d] " % default).strip()
+    except (EOFError, KeyboardInterrupt):
+        return default
+    if not answer:
+        return default
+    try:
+        pick = int(answer)
+    except ValueError:
+        print("Not a number -- using %d." % default)
+        return default
+    if not (1 <= pick <= len(real)):
+        print("No screen %d -- using %d." % (pick, default))
+        return default
+    return pick
+
+
 def grab(monitor):
     with mss.mss() as sct:
         if monitor >= len(sct.monitors):
@@ -102,13 +143,19 @@ def verify(region, monitor):
 
 def main():
     cfg = load_config()
-    monitor = int(cfg.get("monitor", 1))
+    monitor = int(cfg.get("monitor", 2))
     args = sys.argv[1:]
-    if "--monitor" in args:
+    asked = "--monitor" in args
+    if asked:
         monitor = int(args[args.index("--monitor") + 1])
 
     print("BGMI calibration -- one region: the Android picture.")
-    print("Monitor %d. Have the observer TEAM PANEL open in the game.\n" % monitor)
+    print("Have the observer TEAM PANEL open in the game.\n")
+
+    if not asked:
+        monitor = choose_monitor(monitor)
+    cfg["monitor"] = monitor
+    print("\nUsing screen %d.\n" % monitor)
 
     frame, mon = grab(monitor)
     print("Drag a box around the GAME PICTURE ONLY.")

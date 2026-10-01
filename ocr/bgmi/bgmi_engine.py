@@ -44,7 +44,9 @@ CONNECTED = set()
 
 def default_config():
     return {
-        "monitor": 1,
+        # This rig runs the game on the second screen; calibrate_bgmi.py
+        # asks and writes whichever one you pick.
+        "monitor": 2,
         # The panel's rectangle on screen. BlueStacks draws window chrome
         # around the Android framebuffer, so this is NOT the window --
         # calibrate it to the game picture itself or every offset in
