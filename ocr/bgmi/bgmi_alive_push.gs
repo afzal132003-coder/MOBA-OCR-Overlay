@@ -36,15 +36,30 @@ var SCRIPT_VERSION = "2026-10-02.1-bgmi-alive";
 var SHEET_NAME = "LIVESTATUS";  // blank = the first tab
 var SHEET_GID = null;           // or pin it by gid; name wins when both are set
 
-// The column holding the slot number each row belongs to.
+// WHICH ROW A SLOT OWNS.
 //
-// NOT OPTIONAL, and worth getting right. The positional fallback assumes
-// slot 1 sits on DATA_START_ROW. If the sheet's own numbering does not
-// start at 1, or does not match the slot numbers the game prints, every
-// team lands on another team's row -- silently, and consistently enough
-// to look deliberate rather than broken. Run `authorize` and read what
-// it prints before setting this.
+// This sheet has no slot column -- its column B is a serial 1..16, and
+// nothing on it carries the numbers the game prints. What it does have
+// is the teams in slot order, matching the scoresheet exactly: row 5 is
+// the scoresheet's slot 3, row 20 is slot 18.
+//
+// So the row is worked out, not looked up:
+//
+//     row = DATA_START_ROW + (slot - FIRST_SLOT)
+//
+// which makes FIRST_SLOT the one number that matters. Get it wrong and
+// every team lands on another team's row, consistently enough to look
+// deliberate -- so authorize() prints the mapping with each row's team
+// name beside it, to be checked by eye before anything is deployed.
+//
+// SLOT_COLUMN stays as an override: set it if a slot column is ever
+// added, and the rows are read from it instead of being counted.
+var FIRST_SLOT = 3;
 var SLOT_COLUMN = "";
+
+// The column holding team names. Used ONLY by authorize(), to print
+// alongside the mapping so it can be checked at a glance.
+var TEAM_NAME_COLUMN = "D";
 
 var ALIVE_START_COLUMN = "Q";   // first of the four alive checkboxes
 var ALIVE_COLUMN_COUNT = 4;
@@ -99,7 +114,7 @@ function pushAlive_(body, result) {
       sheetRow = rowOf[slot];
       if (!sheetRow) { missed.push(slot); return; }
     } else {
-      sheetRow = DATA_START_ROW + slot - 1;
+      sheetRow = DATA_START_ROW + (slot - FIRST_SLOT);
       if (sheetRow < DATA_START_ROW || sheetRow > DATA_END_ROW) { missed.push(slot); return; }
     }
 
@@ -176,26 +191,39 @@ function authorize() {
   Logger.log("");
 
   var count = DATA_END_ROW - DATA_START_ROW + 1;
-  var width = Math.min(sheet.getLastColumn(), 20);
-  Logger.log("WHAT IS IN ROWS " + DATA_START_ROW + "-" + DATA_END_ROW +
-             ", COLUMN BY COLUMN. Find the one holding the slot numbers");
-  Logger.log("the GAME prints beside each squad, and set SLOT_COLUMN to it.");
+
+  // THE CHECK THAT MATTERS: which slot lands on which row, with that
+  // row's team name beside it. Everything else here is background.
+  Logger.log("SLOT -> ROW, with the team currently on that row:");
   Logger.log("");
-  for (var c = 1; c <= width; c++) {
-    var vals = sheet.getRange(DATA_START_ROW, c, count, 1).getValues();
-    var cells = vals.map(function (r) {
-      return String(r[0]).substring(0, 12);
-    });
-    var filled = cells.filter(function (v) { return v !== ""; }).length;
-    if (!filled) continue;
-    Logger.log("  " + indexToCol_(c) + ":  " + cells.join(" | "));
+  var names = sheet.getRange(DATA_START_ROW, colToIndex_(TEAM_NAME_COLUMN),
+                             count, 1).getValues();
+  var slotCol = SLOT_COLUMN
+    ? sheet.getRange(DATA_START_ROW, colToIndex_(SLOT_COLUMN), count, 1).getValues()
+    : null;
+  for (var i = 0; i < count; i++) {
+    var row = DATA_START_ROW + i;
+    var slot = slotCol
+      ? parseInt(String(slotCol[i][0]).replace(/[^0-9]/g, ""), 10)
+      : FIRST_SLOT + i;
+    Logger.log("   slot " + (slot < 10 ? " " : "") + slot +
+               "  ->  row " + row + "   " + String(names[i][0]).substring(0, 22));
   }
   Logger.log("");
-  if (SLOT_COLUMN) {
-    Logger.log("SLOT_COLUMN is currently \"" + SLOT_COLUMN + "\". Check its row " +
-               "above reads the slot numbers the game shows.");
-  } else {
-    Logger.log("*** SLOT_COLUMN IS BLANK. Set it from the list above before " +
-               "deploying, or every team may be written to another team's row. ***");
+  Logger.log(SLOT_COLUMN
+    ? 'Rows are read from column "' + SLOT_COLUMN + '".'
+    : "Rows are counted from FIRST_SLOT = " + FIRST_SLOT + ". If the team " +
+      "beside each slot above is the team the game shows in that slot, this " +
+      "is right. If every team is off by the same amount, change FIRST_SLOT.");
+  Logger.log("");
+
+  var width = Math.min(sheet.getLastColumn(), 26);
+  Logger.log("For reference, what is in rows " + DATA_START_ROW + "-" +
+             DATA_END_ROW + " column by column:");
+  for (var c = 1; c <= width; c++) {
+    var vals = sheet.getRange(DATA_START_ROW, c, count, 1).getValues();
+    var cells = vals.map(function (r) { return String(r[0]).substring(0, 12); });
+    if (!cells.filter(function (v) { return v !== ""; }).length) continue;
+    Logger.log("  " + indexToCol_(c) + ":  " + cells.join(" | "));
   }
 }

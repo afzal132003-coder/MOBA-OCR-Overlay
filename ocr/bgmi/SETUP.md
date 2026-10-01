@@ -57,23 +57,28 @@ scope is missing the failure arrives mid-match as a permission error.
 ### 3a. The alive script
 
 1. **CODM STATS → Extensions → Apps Script**, paste `bgmi_alive_push.gs`, Save.
-2. Run **`authorize`**. It prints *the contents of every column* in rows
-   5–20:
+2. Run **`authorize`**. The part to read is the mapping:
 
 ```
-  B:  1 | 2 | 3 | 4 | 5 | ...        <- a serial number, NOT the slot
-  D:  3 | 4 | 5 | 6 | 7 | ...        <- this is the slot the game prints
+SLOT -> ROW, with the team currently on that row:
+
+   slot  3  ->  row 5    MYT ESP
+   slot  4  ->  row 6    MIDDLE MAN
+   ...
+   slot 18  ->  row 20   LIZARD G
 ```
 
-3. Set `SLOT_COLUMN` to whichever column holds **the numbers the game
-   shows beside each squad**, Save, run `authorize` again to confirm.
+3. **Check the team beside each slot is the team the game shows in that
+   slot.** If every team is off by the same amount, change `FIRST_SLOT`.
+   That is the only number that matters here.
 4. **Deploy → New deployment → Web app → Execute as: Me → Anyone with
    the link.** Copy the URL — this is the **Alive webhook**.
 
-> It prints the columns rather than naming one, on purpose. An earlier
-> version guessed, and confidently pointed at a column numbered 1–16
-> while the game's slots run 3–18. A wrong answer here puts every team on
-> another team's row and looks entirely deliberate.
+> **Leave `SLOT_COLUMN` blank.** This sheet has no slot column: its
+> column B is a serial `1…16`, not the numbers the game prints. What it
+> does have is the teams in slot order, matching the scoresheet exactly,
+> so the row is counted — `row = 5 + (slot - 3)` — rather than looked up.
+> Set `SLOT_COLUMN` only if a slot column is ever added.
 
 ### 3b. The results script
 
