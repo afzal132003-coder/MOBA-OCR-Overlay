@@ -5,115 +5,145 @@
 <title>Titanium Aero - GEN6.7</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  /* Poppins with a real fallback stack -- this dashboard runs on an
-     operator's PC that may be offline or behind a locked-down network
+  /* Two faces, each with a real fallback stack -- this dashboard runs on
+     an operator's PC that may be offline or behind a locked-down network
      mid-event, and a webfont that fails to load must not take the
-     layout's readability with it. */
-  body{font-family:'Poppins','Segoe UI',Arial,sans-serif;background:#0a0d18;color:#eef2fb;margin:0;padding:24px;
-    border-top:4px solid transparent;
-    border-image:linear-gradient(90deg,#6d4dff,#a06bff,#ec4899,#7d6bff) 1;
-    /* Ambient glow: a cool wash top-left and a warm one bottom-right, so
-       the page reads as lit rather than flat. Fixed attachment keeps the
-       light source still while content scrolls past it -- scrolling the
-       glow with the content makes it read as a texture instead. */
+     layout's readability with it.
+
+     Inter carries the body; Rajdhani, a condensed face, carries headings
+     and every navigation label. Splitting them is what lets the menu read
+     as a menu: nav labels are set apart by their TYPE rather than by
+     giving each one a filled pill, so a bar of seven games stops looking
+     like seven buttons competing for the same press. */
+  :root{
+    --accent:#4d9fff; --accent-deep:#0071e3;
+    --ground:#06090c; --panel:#0d1218; --line:#1b2430;
+    --text:#e8edf2; --muted:#9aa7b5; --dim:#7d8b9c;
+    --nav:'Rajdhani','Segoe UI',Arial,sans-serif;
+  }
+  body{font-family:'Inter','Segoe UI',Arial,sans-serif;background:#06090c;color:#e8edf2;margin:0;padding:24px;
+    border-top:3px solid #0071e3;
+    /* One cool wash, top-left, so the page reads as lit rather than flat.
+       The warm counter-glow and the four-stop rainbow rule went with the
+       restyle: against a near-black ground they fought the one accent
+       colour that now carries state, and a dashboard where several things
+       glow is one where nothing stands out. Fixed attachment keeps the
+       light source still while content scrolls past it. */
     background-image:
-      radial-gradient(1100px 700px at 12% -10%, rgba(109,77,255,0.16), transparent 60%),
-      radial-gradient(900px 600px at 100% 105%, rgba(255,138,76,0.13), transparent 62%);
+      radial-gradient(1200px 760px at 10% -12%, rgba(0,113,227,0.10), transparent 62%);
     background-attachment:fixed;
     min-height:100vh;
   }
-  h1{font-size:20px;margin-bottom:4px;}
+  h1{font-family:var(--nav);font-size:22px;letter-spacing:0.04em;margin-bottom:4px;}
   #status{display:inline-block;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:700;margin-bottom:16px;}
   #status.connected{background:#1b5e3a;color:#a4f5c4;}
   #status.disconnected{background:#5e1b1b;color:#f5a4a4;}
-  .hint{font-size:12px;color:#6b7590;margin-top:-4px;}
+  .hint{font-size:12px;color:#7d8b9c;margin-top:-4px;}
   #tso_status{transition:opacity 0.6s ease; margin-top:8px;}
 
-  .brand-title{font-size:26px;font-weight:800;letter-spacing:0.5px;margin:0 0 2px;color:#7d6bff;}
-  .brand-title span{color:#eef2fb;font-weight:600;}
-  .brand-tagline{font-size:13px;color:#98a3bd;margin:0 0 16px;font-style:italic;}
+  .brand-title{font-family:var(--nav);font-size:28px;font-weight:700;letter-spacing:0.1em;margin:0 0 2px;color:#4d9fff;}
+  .brand-title span{color:#e8edf2;font-weight:600;}
+  .brand-tagline{font-size:13px;color:#9aa7b5;margin:0 0 16px;}
 
-  .category-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;}
-  .category-btn{
-    background:rgba(20,26,40,0.85);color:#98a3bd;border:1px solid #2b3348;
-    padding:10px 20px;border-radius:12px;font-weight:600;cursor:pointer;
-    font-size:13px;text-transform:uppercase;letter-spacing:0.6px;font-family:inherit;
-    transition:background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  /* TWO LEVELS OF NAVIGATION, DELIBERATELY UNALIKE.
+     Game above, section below. Before the restyle both were rows of
+     filled gradient pills, so which row you were looking at came down to
+     reading the words -- and with seven games over five sections that is
+     the thing that made the menu feel unsorted. Now the game row is a
+     segmented bar and the section row is underlined text, so the level is
+     legible from shape alone, at a glance, mid-match. */
+  .category-bar{
+    display:flex;gap:2px;flex-wrap:wrap;margin-bottom:20px;
+    background:#0a0e14;border:1px solid #1b2430;border-radius:10px;padding:4px;
   }
-  .category-btn:hover{color:#eef2fb;border-color:#3a4460;}
+  .category-btn{
+    background:transparent;color:#9aa7b5;border:0;
+    padding:9px 18px;border-radius:7px;font-weight:600;cursor:pointer;
+    font-size:13px;text-transform:uppercase;letter-spacing:0.09em;font-family:var(--nav);
+    transition:background 0.15s ease, color 0.15s ease;
+  }
+  .category-btn:hover{color:#e8edf2;background:#121a24;}
   .category-btn.active{
-    background:linear-gradient(180deg,#8b7bff,#6d59f5);color:#0a0d18;border-color:transparent;
-    box-shadow:0 4px 16px rgba(109,89,245,0.4);
+    background:#16202c;color:#e8edf2;
+    box-shadow:inset 0 -2px 0 #4d9fff;
   }
   .category-panel{display:none;}
   .category-panel.active{display:block;}
-  .coming-soon{background:#141a28;border:1px dashed #2b3348;border-radius:10px;padding:40px 20px;text-align:center;}
-  .coming-soon h2{color:#7d6bff;text-transform:uppercase;letter-spacing:0.5px;margin-top:0;}
+  .coming-soon{background:#0d1218;border:1px dashed #1b2430;border-radius:10px;padding:40px 20px;text-align:center;}
+  .coming-soon h2{color:#4d9fff;text-transform:uppercase;letter-spacing:0.08em;margin-top:0;}
 
-  .tabbar{display:flex;gap:8px;margin:16px 0 0;}
+  /* All four games' tab bars are styled by this one rule -- they were
+     already sharing it before the restyle, which is why the menu could be
+     made consistent without touching any of the four switch handlers. */
+  .tabbar{display:flex;gap:26px;margin:18px 0 0;border-bottom:1px solid #1b2430;}
+  .ff-tabbar{gap:26px !important;border-bottom:1px solid #1b2430;}
   .tabbar button, .ff-tab-btn, .val-tab-btn, .dota2-tab-btn{
-    background:rgba(20,26,40,0.7);color:#98a3bd;border:1px solid #2b3348;border-bottom:none;
-    padding:10px 18px;border-radius:10px 10px 0 0;font-weight:600;cursor:pointer;
-    font-size:12px;text-transform:uppercase;letter-spacing:0.6px;font-family:inherit;
-    box-shadow:none;margin-top:0;
+    background:transparent;color:#6f7d8e;border:0;
+    padding:0 0 12px;border-radius:0;font-weight:600;cursor:pointer;
+    font-size:14px;text-transform:uppercase;letter-spacing:0.09em;font-family:var(--nav);
+    box-shadow:none;margin-top:0;transition:color 0.15s ease;
+  }
+  .tabbar button:hover, .ff-tab-btn:hover, .val-tab-btn:hover, .dota2-tab-btn:hover{
+    color:#e8edf2;opacity:1;
   }
   .tabbar button.active, .ff-tab-btn.active, .val-tab-btn.active, .dota2-tab-btn.active{
-    background:linear-gradient(180deg,#8b7bff,#6d59f5);color:#0a0d18;border-color:transparent;
+    background:transparent;color:#e8edf2;border-color:transparent;
+    box-shadow:inset 0 -2px 0 #4d9fff;
   }
   .ff-pending-dot{display:none;}
   .ff-pending-dot.on{
     display:inline-block;min-width:18px;padding:0 5px;margin-left:6px;
-    border-radius:9px;background:#e0a44a;color:#1b1408;
+    border-radius:9px;background:#ffa53d;color:#1b1408;
     font-size:11px;font-weight:700;line-height:18px;text-align:center;vertical-align:middle;
   }
   .ff-map-row{
     display:flex;flex-wrap:wrap;gap:10px;align-items:center;
-    padding:10px 0;border-top:1px solid #2b3348;
+    padding:10px 0;border-top:1px solid #1b2430;
   }
   .ff-map-row:first-child{border-top:none;}
   .ff-map-what{flex:1 1 260px;min-width:220px;}
   .ff-map-what b{display:block;font-size:14px;}
-  .ff-map-what span{color:#6b7590;font-size:12px;}
+  .ff-map-what span{color:#7d8b9c;font-size:12px;}
   .ff-map-row select{min-width:210px;}
   .ff-qme-row{
     display:flex;gap:8px;align-items:center;
-    padding:6px 0;border-top:1px solid #2b3348;
+    padding:6px 0;border-top:1px solid #1b2430;
   }
   .ff-qme-row:first-child{border-top:none;}
   .ff-qme-order{display:flex;flex-direction:column;gap:0;}
   .ff-qme-order button{
     padding:0 6px;font-size:10px;line-height:16px;min-width:20px;
-    background:transparent;border:1px solid #2b3348;color:#98a3bd;margin:1px 0;
+    background:transparent;border:1px solid #1b2430;color:#9aa7b5;margin:1px 0;
   }
-  .ff-qme-num{width:34px;text-align:center;color:#6b7590;font-size:12px;flex:0 0 auto;}
+  .ff-qme-num{width:34px;text-align:center;color:#7d8b9c;font-size:12px;flex:0 0 auto;}
   .ff-qme-row input[type="text"]{flex:2;min-width:160px;}
   .ff-qme-row input[type="number"]{width:70px;flex:0 0 auto;}
-  .ff-qme-derived{color:#6b7590;font-size:12px;flex:0 0 110px;text-align:right;}
+  .ff-qme-derived{color:#7d8b9c;font-size:12px;flex:0 0 110px;text-align:right;}
   .ff-asset{
     display:flex;gap:9px;align-items:center;
-    padding:7px 9px;border:1px solid #2b3348;border-radius:6px;background:#141a2b;
+    padding:7px 9px;border:1px solid #1b2430;border-radius:6px;background:#0d1218;
   }
-  .ff-asset img{width:44px;height:44px;object-fit:contain;background:#0a0d18;border-radius:4px;flex:0 0 auto;}
+  .ff-asset img{width:44px;height:44px;object-fit:contain;background:#06090c;border-radius:4px;flex:0 0 auto;}
   .ff-asset .meta{flex:1 1 auto;min-width:0;}
-  .ff-asset code{display:block;color:#6b7590;font-size:10.5px;}
+  .ff-asset code{display:block;color:#7d8b9c;font-size:10.5px;}
   .ff-asset input{width:100%;margin-top:3px;font-size:12px;padding:3px 6px;}
   .ff-asset.named{border-color:#3d5a44;}
   .ff-fullsize{
     display:flex;flex-direction:column;gap:6px;align-items:center;
-    padding:8px;border:1px solid #2b3348;border-radius:6px;background:#141a2b;
+    padding:8px;border:1px solid #1b2430;border-radius:6px;background:#0d1218;
   }
-  .ff-fullsize img{width:100%;max-height:150px;object-fit:contain;background:#0a0d18;border-radius:4px;}
-  .ff-fullsize code{color:#6b7590;font-size:10.5px;}
+  .ff-fullsize img{width:100%;max-height:150px;object-fit:contain;background:#06090c;border-radius:4px;}
+  .ff-fullsize code{color:#7d8b9c;font-size:10.5px;}
   .ff-fullsize input{width:100%;font-size:12px;padding:3px 6px;}
   .ff-fullsize.named{border-color:#3d5a44;}
-  .ff-char-pick{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid #2b3348;}
+  .ff-char-pick{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid #1b2430;}
   .ff-char-pick:first-child{border-top:none;}
-  .ff-char-pick img{width:46px;height:46px;object-fit:contain;background:#0a0d18;border-radius:4px;}
+  .ff-char-pick img{width:46px;height:46px;object-fit:contain;background:#06090c;border-radius:4px;}
   .ff-char-pick .who{flex:1 1 180px;min-width:150px;}
   .ff-char-pick .who b{display:block;font-size:14px;}
-  .ff-char-pick .who span{color:#6b7590;font-size:12px;}
+  .ff-char-pick .who span{color:#7d8b9c;font-size:12px;}
   .ff-char-pick select{min-width:220px;}
   /* A result-file import can leave forty-odd rows pending. Left to grow
      they push every other mapping card off the screen, which is what made
@@ -124,30 +154,31 @@
   .tab-panel.active, .ff-tab-panel.active, .val-tab-panel.active, .dota2-tab-panel.active{display:block;}
   .dota2-prow{display:flex;gap:6px;align-items:center;margin-bottom:6px;}
   .dota2-prow .dota2-pname{flex:1;}
-  select.dota2-hero{background:#0a0d18;border:1px solid #2b3348;color:#98a3bd;padding:6px 8px;
+  select.dota2-hero{background:#06090c;border:1px solid #1b2430;color:#9aa7b5;padding:6px 8px;
     border-radius:4px;font-size:12px;width:150px;}
 
-  /* Cards read as lit glass panels: a faint top-edge highlight where the
-     ambient light would catch, a soft drop shadow for depth, and a
-     translucent surface so the page glow shows through rather than each
-     card sitting on its own flat block. */
+  /* Cards sit flat on the ground now. The glass treatment -- translucent
+     fill, blur, inset highlight -- was doing its work against a lighter
+     page; on a near-black ground it mostly cost a blur pass per card, and
+     this dashboard carries upwards of twenty on a tab. A plain surface
+     with one hairline border reads as cleanly and costs nothing. */
   .card{
-    background:linear-gradient(180deg, rgba(27,34,51,0.92), rgba(18,24,38,0.92));
-    border:1px solid #1f2739;border-radius:18px;padding:20px 22px;margin-bottom:20px;
-    box-shadow:0 10px 30px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.05);
-    backdrop-filter:blur(6px);
+    background:#0d1218;
+    border:1px solid #1b2430;border-radius:12px;padding:22px 24px;margin-bottom:18px;
   }
-  .card h2{margin-top:0;font-size:15px;color:#7d6bff;text-transform:uppercase;letter-spacing:0.6px;font-weight:700;}
-  .card h3{font-size:12px;color:#98a3bd;text-transform:uppercase;margin:0 0 10px;letter-spacing:0.5px;}
+  .card h2{font-family:var(--nav);margin-top:0;font-size:19px;color:#e8edf2;
+    text-transform:uppercase;letter-spacing:0.07em;font-weight:600;}
+  .card h3{font-family:var(--nav);font-size:14px;color:#9aa7b5;text-transform:uppercase;
+    margin:0 0 10px;letter-spacing:0.09em;font-weight:600;}
   .row{display:flex;gap:24px;flex-wrap:wrap;}
   .two-col{display:flex;gap:24px;flex-wrap:wrap;}
   .col{flex:1;min-width:300px;}
   .team-form{flex:1;min-width:260px;}
 
-  label{display:block;font-size:12px;color:#98a3bd;margin:10px 0 4px;}
+  label{display:block;font-size:12px;color:#9aa7b5;margin:10px 0 4px;}
   input[type=text], input[type=number]{
-    width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid #2b3348;
-    background:rgba(10,13,24,0.75);color:#eef2fb;font-size:14px;font-family:inherit;
+    width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid #1b2430;
+    background:rgba(6,9,12,0.75);color:#e8edf2;font-size:14px;font-family:inherit;
     transition:border-color 0.15s ease, box-shadow 0.15s ease;
   }
   /* Textareas were styled nowhere, so they took the browser's default
@@ -157,27 +188,37 @@
      here rather than patched inline, so a new textarea cannot inherit
      the same fault. */
   textarea{
-    box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid #2b3348;
-    background:rgba(10,13,24,0.75);color:#eef2fb;font-size:14px;font-family:inherit;
-    caret-color:#eef2fb;
+    box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid #1b2430;
+    background:rgba(6,9,12,0.75);color:#e8edf2;font-size:14px;font-family:inherit;
+    caret-color:#e8edf2;
     transition:border-color 0.15s ease, box-shadow 0.15s ease;
   }
   textarea::placeholder{ color:#6b7690; }
   input[type=text]:focus, input[type=number]:focus, select:focus, textarea:focus{
-    outline:none;border-color:#7d6bff;box-shadow:0 0 0 3px rgba(125,107,255,0.18);
+    outline:none;border-color:#4d9fff;box-shadow:0 0 0 3px rgba(77,159,255,0.18);
   }
-  input[type=file]{color:#98a3bd;font-size:12px;}
-  .logo-preview{width:48px;height:48px;border-radius:50%;object-fit:cover;background:#0a0d18;border:2px solid #7d6bff;margin-top:8px;}
+  input[type=file]{color:#9aa7b5;font-size:12px;}
+  .logo-preview{width:48px;height:48px;border-radius:50%;object-fit:cover;background:#06090c;border:2px solid #4d9fff;margin-top:8px;}
+  /* Flat fills, and a 44px minimum. These get pressed in a hurry with a
+     match running, and the old 38px targets were below the size a hand
+     reliably hits without looking. Rajdhani uppercase matches the nav, so
+     an action reads as an action rather than as a label. */
+  /* Dark ink on the light accent, not white on a deep blue. White on
+     #0071e3 is 4.39:1 -- under the 4.5 these 14px labels need, and this
+     is read at a glance with a match running. This pair is 7.34:1, and
+     it reuses the one blue that already marks the active tab, so the
+     whole dashboard carries a single accent rather than two. */
   button{
-    background:linear-gradient(180deg,#8b7bff,#6d59f5);color:#0a0d18;border:none;padding:10px 18px;border-radius:10px;
-    font-weight:600;cursor:pointer;font-size:13px;margin-top:12px;font-family:inherit;
-    box-shadow:0 4px 14px rgba(109,89,245,0.35);
-    transition:opacity 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+    background:#4d9fff;color:#06090c;border:none;padding:11px 20px;border-radius:8px;
+    font-weight:600;cursor:pointer;font-size:14px;margin-top:12px;min-height:44px;
+    font-family:var(--nav);text-transform:uppercase;letter-spacing:0.08em;
+    transition:background 0.15s ease, transform 0.1s ease;
   }
-  button.secondary{background:rgba(43,51,72,0.85);color:#eef2fb;box-shadow:none;}
-  button.danger{background:linear-gradient(180deg,#d2544e,#b03c36);color:#fff;box-shadow:0 4px 14px rgba(192,69,63,0.3);}
-  button:hover{opacity:0.92;box-shadow:0 6px 20px rgba(109,89,245,0.45);}
-  button.secondary:hover{box-shadow:none;background:rgba(56,66,92,0.9);}
+  button.secondary{background:transparent;color:#9aa7b5;border:1px solid #1b2430;box-shadow:none;}
+  button.danger{background:#e06a63;color:#1a0806;box-shadow:none;}
+  button:hover{background:#7ab6ff;opacity:1;}
+  button.secondary:hover{box-shadow:none;background:#121a24;color:#e8edf2;}
+  button.danger:hover{background:#c74a43;}
   /* Fire-and-forget buttons (push/apply/save) had zero click feedback --
      no hover transition, no pressed state, nothing -- so clicking one felt
      unresponsive even when it worked, especially for buttons like Push
@@ -186,17 +227,17 @@
   button:active{transform:scale(0.96); opacity:0.85;}
 
   select{
-    width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid #2b3348;
-    background:rgba(10,13,24,0.75);color:#eef2fb;font-size:14px;font-family:inherit;
+    width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid #1b2430;
+    background:rgba(6,9,12,0.75);color:#e8edf2;font-size:14px;font-family:inherit;
     transition:border-color 0.15s ease, box-shadow 0.15s ease;
   }
 
   .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;}
-  .stat-card{background:#0a0d18;border:1px solid #2b3348;border-radius:8px;padding:12px;
+  .stat-card{background:#06090c;border:1px solid #1b2430;border-radius:8px;padding:12px;
     display:flex; gap:12px; align-items:stretch;}
   .stat-card .stat-main{flex:1;min-width:0;}
-  .stat-card .label{font-size:12px;color:#98a3bd;text-transform:uppercase;}
-  .stat-card .live-value{font-size:26px;font-weight:800;color:#7d6bff;margin:6px 0;}
+  .stat-card .label{font-size:12px;color:#9aa7b5;text-transform:uppercase;}
+  .stat-card .live-value{font-size:26px;font-weight:800;color:#4d9fff;margin:6px 0;}
   .stat-card .override-row{display:flex;align-items:center;gap:8px;margin-top:8px;}
   .stat-card input[type=number]{width:80px;display:inline-block;}
   .stat-card.locked{border-color:#f2c14e;}
@@ -219,9 +260,9 @@
      instead of a separate section the operator had to scroll to and
      visually match up by eye against this card. */
   .stat-card .stat-crop{width:110px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    background:#000;border:1px solid #1f2739;border-radius:6px;padding:4px;}
+    background:#000;border:1px solid #161e28;border-radius:6px;padding:4px;}
   .stat-card .stat-crop img{width:100%;height:50px;object-fit:contain;}
-  .stat-card .stat-crop .crop-caption{font-size:9px;color:#6b7590;text-transform:uppercase;margin-top:4px;text-align:center;}
+  .stat-card .stat-crop .crop-caption{font-size:9px;color:#7d8b9c;text-transform:uppercase;margin-top:4px;text-align:center;}
 
   /* Player K/D/A Live Stats -- 10 compact rows (5 players x 2 teams), each
      with one shared crop (one combined "K/D/A" region per player now, not
@@ -229,30 +270,30 @@
      much smaller than the main stat-card since there are so many more of
      them. */
   .pstat-row{display:flex; align-items:center; gap:8px; margin-bottom:8px;
-    background:#0a0d18; border:1px solid #2b3348; border-radius:6px; padding:6px 8px;}
-  .pstat-row .pstat-name{flex:1; font-size:12px; font-weight:700; color:#eef2fb; min-width:0;
+    background:#06090c; border:1px solid #1b2430; border-radius:6px; padding:6px 8px;}
+  .pstat-row .pstat-name{flex:1; font-size:12px; font-weight:700; color:#e8edf2; min-width:0;
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .pstat-kda-crop-wrap{display:flex; flex-direction:column; align-items:center; gap:2px; flex-shrink:0;}
-  .pstat-kda-crop{width:56px; height:22px; object-fit:contain; background:#000; border-radius:3px; border:1px solid #1f2739;}
+  .pstat-kda-crop{width:56px; height:22px; object-fit:contain; background:#000; border-radius:3px; border:1px solid #161e28;}
   /* Raw OCR text, not the parsed number -- lets you see "OCR read garbage
      that failed to parse" vs "OCR read fine but something downstream is
      wrong" instead of a stuck value being a total black box. Same idea as
      the Turtle/Game Timer cards' "last OCR reading" line. */
-  .pstat-kda-lasttext{font-size:9px; color:#6b7590; max-width:56px; overflow:hidden;
+  .pstat-kda-lasttext{font-size:9px; color:#7d8b9c; max-width:56px; overflow:hidden;
     text-overflow:ellipsis; white-space:nowrap; text-align:center;}
   .pstat-cell{display:flex; align-items:center; gap:4px;}
-  .pstat-cell .pstat-label{font-size:10px; color:#6b7590; text-transform:uppercase;}
-  .pstat-cell .pstat-value{font-size:15px; font-weight:800; color:#7d6bff; width:22px; text-align:center;}
+  .pstat-cell .pstat-label{font-size:10px; color:#7d8b9c; text-transform:uppercase;}
+  .pstat-cell .pstat-value{font-size:15px; font-weight:800; color:#4d9fff; width:22px; text-align:center;}
   .pstat-cell .pstat-override-toggle{display:flex; align-items:center; cursor:pointer;}
   .pstat-cell .pstat-override-toggle input{width:12px; height:12px; margin:0; cursor:pointer;}
   .pstat-cell .pstat-override-input{width:32px; font-size:11px; padding:2px 3px;
-    background:#161129; border:1px solid #2b3348; border-radius:3px; color:#eef2fb;}
+    background:#161129; border:1px solid #1b2430; border-radius:3px; color:#e8edf2;}
   .pstat-cell .pstat-override-input:disabled{opacity:0.35;}
 
   .crop-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;}
-  .crop-box{background:#0a0d18;border:1px solid #2b3348;border-radius:8px;padding:8px;text-align:center;}
+  .crop-box{background:#06090c;border:1px solid #1b2430;border-radius:8px;padding:8px;text-align:center;}
   .crop-box img{width:100%;height:60px;object-fit:contain;background:#000;border-radius:4px;}
-  .crop-box .label{font-size:11px;color:#98a3bd;margin-top:6px;text-transform:uppercase;}
+  .crop-box .label{font-size:11px;color:#9aa7b5;margin-top:6px;text-transform:uppercase;}
 
   .mini-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
   .mini-grid label{margin:0 0 4px;}
@@ -261,8 +302,8 @@
   .player-row label{margin:0 0 4px;}
 
   .draft-slot{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
-  .draft-slot .slot-num{width:16px;color:#6b7590;font-size:11px;text-align:center;flex-shrink:0;}
-  .draft-slot img.hero-preview{width:30px;height:30px;border-radius:4px;object-fit:cover;background:#0a0d18;border:1px solid #2b3348;display:none;flex-shrink:0;}
+  .draft-slot .slot-num{width:16px;color:#7d8b9c;font-size:11px;text-align:center;flex-shrink:0;}
+  .draft-slot img.hero-preview{width:30px;height:30px;border-radius:4px;object-fit:cover;background:#06090c;border:1px solid #1b2430;display:none;flex-shrink:0;}
   .draft-slot input[type=text]{flex:1;font-size:12px;padding:6px 8px;}
 
   /* Picks-only reorder arrows: move the hero pick up/down a slot without
@@ -270,26 +311,26 @@
      driven off the players roster, not the pick array. */
   .reorder-btns{display:flex;flex-direction:column;gap:2px;flex-shrink:0;}
   .reorder-btn{
-    background:#2b3348;color:#eef2fb;border:none;border-radius:4px;
+    background:#1b2430;color:#e8edf2;border:none;border-radius:4px;
     width:20px;height:16px;font-size:9px;line-height:1;padding:0;margin:0;
     cursor:pointer;display:flex;align-items:center;justify-content:center;
   }
   .reorder-btn:hover{background:#3a4a80;}
   .reorder-btn:disabled{opacity:0.25;cursor:default;}
-  .reorder-btn:disabled:hover{background:#2b3348;}
+  .reorder-btn:disabled:hover{background:#1b2430;}
 
   .paste-zone{
-    border:1px dashed #2b3348; border-radius:8px; padding:14px; outline:none; cursor:text;
+    border:1px dashed #1b2430; border-radius:8px; padding:14px; outline:none; cursor:text;
   }
-  .paste-zone:focus{ border-color:#7d6bff; background:#141a28; }
-  .paste-hint{ font-size:12px; color:#6b7590; margin-top:8px; }
+  .paste-zone:focus{ border-color:#4d9fff; background:#141a28; }
+  .paste-hint{ font-size:12px; color:#7d8b9c; margin-top:8px; }
 
   .gfx-box{
     position:absolute; border:1px dashed rgba(139,92,246,0.35); box-sizing:border-box;
     cursor:move; display:flex; align-items:center; justify-content:center;
     overflow:hidden; background:none;
   }
-  .gfx-box:hover{ border:1px solid #7d6bff; background:rgba(139,92,246,0.08); }
+  .gfx-box:hover{ border:1px solid #4d9fff; background:rgba(139,92,246,0.08); }
   .gfx-box.gfx-selected{ border:1px solid #ff5050; box-shadow:0 0 0 1px rgba(255,80,80,0.45); }
   .gfx-box.gfx-arrow{ border:none; background:none; }
   .gfx-box.gfx-arrow:hover{ border:none; background:none; }
@@ -297,25 +338,25 @@
   .gfx-arrow-shape{ width:100%; height:100%; background:#3ddc6a; filter:drop-shadow(0 0 4px #3ddc6a); }
   .gfx-ghost{ opacity:0.85; }
   .gfx-box img{ max-width:100%; max-height:100%; object-fit:contain; pointer-events:none; }
-  .gfx-box .gfx-label{ color:#7d6bff; font-size:10px; text-align:center; pointer-events:none; padding:2px; }
+  .gfx-box .gfx-label{ color:#4d9fff; font-size:10px; text-align:center; pointer-events:none; padding:2px; }
   .gfx-handle{
     position:absolute; right:-5px; bottom:-5px; width:12px; height:12px;
-    background:#7d6bff; border:1px solid #0a0d18; cursor:nwse-resize; border-radius:2px;
+    background:#4d9fff; border:1px solid #06090c; cursor:nwse-resize; border-radius:2px;
   }
 
   .timer-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;}
   .timer-row > div{display:flex;flex-direction:column;}
-  .timer-display{font-size:26px;font-weight:800;color:#7d6bff;min-width:80px;align-self:center;}
+  .timer-display{font-size:26px;font-weight:800;color:#4d9fff;min-width:80px;align-self:center;}
   .timer-row input[type=number]{width:80px;}
   .timer-row button{margin-top:0;}
 
   .session-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:20px;}
   .session-card{
-    background:#141a28;border:1px solid #1f2739;border-radius:14px;padding:14px 16px;
+    background:#141a28;border:1px solid #161e28;border-radius:14px;padding:14px 16px;
     box-shadow:0 4px 18px rgba(0,0,0,0.25);
   }
-  .session-card .s-label{font-size:11px;color:#98a3bd;text-transform:uppercase;letter-spacing:0.5px;}
-  .session-card .s-value{font-size:26px;font-weight:800;color:#eef2fb;margin:4px 0 2px;}
+  .session-card .s-label{font-size:11px;color:#9aa7b5;text-transform:uppercase;letter-spacing:0.5px;}
+  .session-card .s-value{font-size:26px;font-weight:800;color:#e8edf2;margin:4px 0 2px;}
   .session-card .s-sub{font-size:11px;color:#7c8bb0;}
   .session-card .s-trend{font-size:11px;font-weight:700;margin-top:2px;display:inline-flex;align-items:center;gap:3px;}
   .session-card .s-trend.up{color:#4ade80;}
@@ -330,7 +371,7 @@
     background-image:
       repeating-linear-gradient(0deg, rgba(139,92,246,0.10) 0 1px, transparent 1px 7px),
       repeating-linear-gradient(90deg, rgba(139,92,246,0.10) 0 1px, transparent 1px 7px);
-    border:1px solid #1f2739;
+    border:1px solid #161e28;
   }
   .spark-svg .spark-line{
     fill:none;stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round;
@@ -339,9 +380,9 @@
 
   .uptime-ring{position:relative;width:72px;height:72px;flex-shrink:0;}
   .uptime-ring svg{transform:rotate(-90deg);}
-  .uptime-ring .ring-track{fill:none;stroke:#1f2739;stroke-width:6;}
+  .uptime-ring .ring-track{fill:none;stroke:#161e28;stroke-width:6;}
   .uptime-ring .ring-fill{fill:none;stroke:#a06bff;stroke-width:6;stroke-linecap:round;transition:stroke-dashoffset 0.5s ease;}
-  .uptime-ring .ring-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:#eef2fb;}
+  .uptime-ring .ring-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:#e8edf2;}
   .session-card:has(.uptime-row){display:flex;flex-direction:column;}
   .uptime-row{display:flex;align-items:center;gap:16px;margin-top:12px;flex:1;}
 
@@ -375,9 +416,9 @@
   }
   .entry-gate-title{
     font-size:32px;font-weight:800;line-height:1.3;margin:0 0 14px;
-    background:linear-gradient(90deg,#a06bff,#ec4899,#7d6bff);-webkit-background-clip:text;background-clip:text;color:transparent;
+    background:linear-gradient(90deg,#a06bff,#ec4899,#4d9fff);-webkit-background-clip:text;background-clip:text;color:transparent;
   }
-  .entry-gate-sub{font-size:14px;color:#98a3bd;margin:0 0 30px;}
+  .entry-gate-sub{font-size:14px;color:#9aa7b5;margin:0 0 30px;}
   .entry-gate-enter{
     background:linear-gradient(135deg,#6d4dff,#a06bff);color:#fff;border:none;
     padding:12px 40px;border-radius:8px;font-weight:800;letter-spacing:1px;text-transform:uppercase;
@@ -441,7 +482,7 @@
 </div>
 
 <details class="card" id="overlayLinksCard" style="margin-bottom:20px;">
-  <summary style="cursor:pointer;font-weight:800;color:#7d6bff;font-size:14px;">Overlay Browser Source Links (all games)</summary>
+  <summary style="cursor:pointer;font-weight:800;color:#4d9fff;font-size:14px;">Overlay Browser Source Links (all games)</summary>
   <p class="hint">Paste one of these straight into an OBS Browser Source's URL field — works from any PC, not just
     the one running the OCR engine, same as this dashboard's own hosted link.</p>
   <div class="row" style="gap:8px;align-items:center;margin:8px 0;">
@@ -515,7 +556,7 @@
       </div>
       <div class="team-form">
         <label>Last OCR reading</label>
-        <div id="gameTimer_lastText" style="font-size:12px;color:#98a3bd;min-height:18px;">&mdash;</div>
+        <div id="gameTimer_lastText" style="font-size:12px;color:#9aa7b5;min-height:18px;">&mdash;</div>
       </div>
     </div>
     <div class="timer-row">
@@ -610,7 +651,7 @@
       their whole "K/D/A" reading (e.g. "18/0/2"), not three separate boxes. Its own calibration pass, separate from
       the main HUD, for whenever you have time. Check the box next to any value to override it manually (locks that
       player's whole K/D/A reading, since OCR reads all three together); uncheck to hand it back to OCR:</p>
-    <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+    <div class="hint" style="background:#06090c;border:1px solid #1b2430;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
       python ocr\moba\calibrate_teamstats.py
     </div>
     <div class="two-col" style="margin-top:14px;">
@@ -639,17 +680,17 @@
       </div>
       <div class="team-form">
         <label>Turtle Status</label>
-        <div id="turtle_status" style="font-weight:800;color:#7d6bff;">idle</div>
+        <div id="turtle_status" style="font-weight:800;color:#4d9fff;">idle</div>
         <label>Last OCR reading</label>
-        <div id="turtle_lastText" style="font-size:12px;color:#98a3bd;min-height:18px;">&mdash;</div>
+        <div id="turtle_lastText" style="font-size:12px;color:#9aa7b5;min-height:18px;">&mdash;</div>
         <label>Live countdown</label>
         <div id="turtle_countdownDisplay" style="font-size:20px;font-weight:800;">&mdash;</div>
       </div>
       <div class="team-form">
         <label>Lord Status</label>
-        <div id="lord_status" style="font-weight:800;color:#7d6bff;">idle</div>
+        <div id="lord_status" style="font-weight:800;color:#4d9fff;">idle</div>
         <label>Last OCR reading</label>
-        <div id="lord_lastText" style="font-size:12px;color:#98a3bd;min-height:18px;">&mdash;</div>
+        <div id="lord_lastText" style="font-size:12px;color:#9aa7b5;min-height:18px;">&mdash;</div>
       </div>
     </div>
     <p class="hint">Manual override — works regardless of what OCR is doing, useful while detection is still
@@ -925,7 +966,7 @@
       straight off the screen through the same fast per-region OCR your live kills/gold HUD uses, no image upload
       needed. First time only: calibrate the 20 regions once with the command below (like you did for the HUD),
       it's reused after that.</p>
-    <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+    <div class="hint" style="background:#06090c;border:1px solid #1b2430;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
       python ocr\moba\calibrate_postmatch_hero.py
     </div>
     <button id="import_battleReport_capture">Capture From Screen Now</button>
@@ -934,7 +975,7 @@
     <button class="secondary" id="import_battleReport_apply" style="display:none;">Apply to Post Match Players</button>
 
     <details style="margin-top:14px;">
-      <summary style="cursor:pointer;color:#98a3bd;font-size:12px;">Or upload/paste a screenshot instead (slower — full-page OCR, fuzzy name match)</summary>
+      <summary style="cursor:pointer;color:#9aa7b5;font-size:12px;">Or upload/paste a screenshot instead (slower — full-page OCR, fuzzy name match)</summary>
       <div class="paste-zone" id="import_battleReport_zone" tabindex="0" style="margin-top:10px;">
         <input type="file" id="import_battleReport_file" accept="image/*">
         <div class="paste-hint">or click in this box and press Ctrl+V to paste a screenshot</div>
@@ -951,7 +992,7 @@
       (e.g. "18 0 2" — this screen uses a gap between the numbers, not the "/" the live in-game HUD uses). Whichever
       player you select for the MVP graphic pulls their K/D/A from here. First time only: calibrate the 10 regions
       once with the command below.</p>
-    <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+    <div class="hint" style="background:#06090c;border:1px solid #1b2430;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
       python ocr\moba\calibrate_postmatch_kda.py
     </div>
     <button id="import_kda_capture">Capture From Screen Now</button>
@@ -965,7 +1006,7 @@
     <p class="hint">Have the game's post-match "Overall" screen up (per-player gold next to KDA), then hit Capture.
       Gold is read per player straight off the screen and summed per team automatically. First time only:
       calibrate the 10 regions once with the command below.</p>
-    <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+    <div class="hint" style="background:#06090c;border:1px solid #1b2430;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
       python ocr\moba\calibrate_postmatch_gold.py
     </div>
     <button id="import_gold_capture">Capture From Screen Now</button>
@@ -984,7 +1025,7 @@
     </div>
 
     <details style="margin-top:14px;">
-      <summary style="cursor:pointer;color:#98a3bd;font-size:12px;">Or upload/paste a screenshot instead (slower — full-page OCR, fuzzy name match)</summary>
+      <summary style="cursor:pointer;color:#9aa7b5;font-size:12px;">Or upload/paste a screenshot instead (slower — full-page OCR, fuzzy name match)</summary>
       <div class="paste-zone" id="import_gold_zone" tabindex="0" style="margin-top:10px;">
         <input type="file" id="import_gold_file" accept="image/*">
         <div class="paste-hint">or click in this box and press Ctrl+V to paste a screenshot</div>
@@ -1018,7 +1059,7 @@
       multiple boxes and move them together with arrow keys or by dragging any one of them. Ctrl+Z
       undoes the last drag/resize/nudge/reset on this page, Ctrl+S saves. The two on-clock arrows
       stay level with each other — moving one vertically moves both.</p>
-    <div id="gfx_stage_wrap" style="position:relative;width:960px;height:540px;background:#000;border:1px solid #2b3348;border-radius:6px;overflow:hidden;">
+    <div id="gfx_stage_wrap" style="position:relative;width:960px;height:540px;background:#000;border:1px solid #1b2430;border-radius:6px;overflow:hidden;">
       <img id="gfx_bg" style="position:absolute;top:0;left:0;width:960px;height:540px;object-fit:cover;" alt="">
       <div id="gfx_stage" style="position:absolute;top:0;left:0;width:960px;height:540px;"></div>
       <div id="gfx_guides" style="position:absolute;top:0;left:0;width:960px;height:540px;pointer-events:none;z-index:50;"></div>
@@ -1132,7 +1173,7 @@
         not a verdict, and check each one before saving. Low-confidence guesses (&lt;45%) are left blank rather than
         filled with a bad guess. First time only, calibrate each of the 10 slots tightly around just the agent art
         (not the name or lock-in icon):</p>
-      <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+      <div class="hint" style="background:#06090c;border:1px solid #1b2430;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
         python ocr\valorant\calibrate_valorant.py valorant_charselect_team1_0 valorant_charselect_team1_1 valorant_charselect_team1_2 valorant_charselect_team1_3 valorant_charselect_team1_4 valorant_charselect_team2_0 valorant_charselect_team2_1 valorant_charselect_team2_2 valorant_charselect_team2_3 valorant_charselect_team2_4
       </div>
       <button id="val_charselect_capture">Auto-Detect From Screen Now</button>
@@ -1235,7 +1276,7 @@
       </div>
       <p class="hint" style="margin-top:14px;">Left side color — manual choice, not tied to Attacking Side above.
         Picks which of two backgrounds is shown (colors mirrored between them). Currently:
-        <span id="val_hoaxLeftSideStatus" style="color:#98a3bd;">attacker (red)</span></p>
+        <span id="val_hoaxLeftSideStatus" style="color:#9aa7b5;">attacker (red)</span></p>
       <div class="row">
         <button id="val_hoaxLeftAttacker">Left Side: Attacker (Red)</button>
         <button class="secondary" id="val_hoaxLeftDefender">Left Side: Defender (Teal)</button>
@@ -1247,7 +1288,7 @@
       <p class="hint">A SEPARATE round-score reading from the manual Round Score card above -- this one is OCR-fed
         and only drives the Hoax Overlay's score, not the main In-Game HUD (which stays fully manual/editorial on
         purpose). First time only, calibrate:</p>
-      <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+      <div class="hint" style="background:#06090c;border:1px solid #1b2430;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
         python ocr\valorant\calibrate_valorant.py valo-ingame
       </div>
       <div class="stat-grid" id="val_ocrScoreGrid"></div>
@@ -1273,7 +1314,7 @@
         row's Kills/Deaths/Assists/Coins read continuously off the in-game Tab-held scoreboard (needs Tab held the
         whole match, e.g. by a dedicated observer PC — see tools/valorant_tab_hold.ahk). Name and agent portrait come
         from your roster/Agent Pick, not OCR. First time only, calibrate the 40 stat cells:</p>
-      <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+      <div class="hint" style="background:#06090c;border:1px solid #1b2430;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
         python ocr\valorant\calibrate_valorant.py valo-livestats
       </div>
       <p class="hint" style="margin-top:10px;">Row → Player — the live scoreboard can re-sort as the match goes on;
@@ -1408,7 +1449,7 @@
         reads straight off the screen, no screenshot/upload needed. First time only, calibrate the 10x5 stat grid
         (K/D/A, ACS, K/D, First Bloods, Plants per row — an interactive multi-step tool, follow its on-screen
         instructions):</p>
-      <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+      <div class="hint" style="background:#06090c;border:1px solid #1b2430;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
         python ocr\valorant\calibrate_valorant.py valo-postmatch
       </div>
       <button id="val_import_capture">Capture From Screen Now</button>
@@ -1417,7 +1458,7 @@
       <button class="secondary" id="val_import_apply" style="display:none;">Apply to Post Match Players</button>
 
       <details style="margin-top:14px;">
-        <summary style="cursor:pointer;color:#98a3bd;font-size:12px;">Or upload/paste a screenshot instead</summary>
+        <summary style="cursor:pointer;color:#9aa7b5;font-size:12px;">Or upload/paste a screenshot instead</summary>
         <div class="paste-zone" id="val_import_zone" tabindex="0" style="margin-top:10px;">
           <input type="file" id="val_import_file" accept="image/*">
           <div class="paste-hint">Upload the post-match scoreboard screenshot, or click here and press Ctrl+V to paste one</div>
@@ -1462,7 +1503,7 @@
           <input type="checkbox" id="valgfx_grid_toggle"> Show alignment grid (100px)
         </label>
       </div>
-      <div id="valgfx_stage_scroll" style="max-width:100%;max-height:640px;overflow:auto;border:1px solid #2b3348;border-radius:6px;">
+      <div id="valgfx_stage_scroll" style="max-width:100%;max-height:640px;overflow:auto;border:1px solid #1b2430;border-radius:6px;">
         <div id="valgfx_stage_wrap" style="position:relative;width:960px;height:540px;background:#000;">
           <img id="valgfx_bg" style="position:absolute;top:0;left:0;width:960px;height:540px;object-fit:cover;" alt="">
           <div id="valgfx_stage" style="position:absolute;top:0;left:0;width:960px;height:540px;"></div>
@@ -1488,7 +1529,7 @@
         <div class="two-col" style="margin-top:14px;">
           <div class="col">
             <h3>Character Pick preview</h3>
-            <div style="width:318px;height:358px;overflow:hidden;position:relative;background:#0a0d18;border:1px solid #2b3348;border-radius:6px;">
+            <div style="width:318px;height:358px;overflow:hidden;position:relative;background:#06090c;border:1px solid #1b2430;border-radius:6px;">
               <img id="valcf_preview_characterpick" style="width:100%;height:100%;object-fit:cover;" alt="">
             </div>
             <div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap;">
@@ -1504,7 +1545,7 @@
           </div>
           <div class="col">
             <h3>Team Chemistry Stats preview</h3>
-            <div style="width:297px;height:228px;overflow:hidden;position:relative;background:#0a0d18;border:1px solid #2b3348;border-radius:6px;">
+            <div style="width:297px;height:228px;overflow:hidden;position:relative;background:#06090c;border:1px solid #1b2430;border-radius:6px;">
               <img id="valcf_preview_teamchemistry" style="width:100%;height:100%;object-fit:cover;" alt="">
             </div>
             <div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap;">
@@ -1559,10 +1600,10 @@
       <h2>Team Setup</h2>
       <div style="display:flex;gap:20px;">
         <div style="flex:1;">
-          <h3 style="font-size:13px;color:#98a3bd;margin:0 0 8px;">Team 1 (left)</h3>
+          <h3 style="font-size:13px;color:#9aa7b5;margin:0 0 8px;">Team 1 (left)</h3>
           <input type="text" id="dota2_t1name" placeholder="Team name" style="font-weight:700;">
           <div style="display:flex;align-items:center;gap:10px;margin:6px 0 10px;">
-            <img id="dota2_t1logoPreview" style="width:44px;height:44px;object-fit:contain;border:1px solid #2b3348;border-radius:6px;background:#0a0d18;display:none;">
+            <img id="dota2_t1logoPreview" style="width:44px;height:44px;object-fit:contain;border:1px solid #1b2430;border-radius:6px;background:#06090c;display:none;">
             <button type="button" class="secondary" id="dota2_t1logoPick">Upload Logo</button>
           </div>
           <div class="dota2-prow"><input type="text" class="dota2-pname" data-team="team1" data-i="0" placeholder="Player 1 IGN"><select class="dota2-hero" data-team="team1" data-i="0"></select></div>
@@ -1572,10 +1613,10 @@
           <div class="dota2-prow"><input type="text" class="dota2-pname" data-team="team1" data-i="4" placeholder="Player 5 IGN"><select class="dota2-hero" data-team="team1" data-i="4"></select></div>
         </div>
         <div style="flex:1;">
-          <h3 style="font-size:13px;color:#98a3bd;margin:0 0 8px;">Team 2 (right)</h3>
+          <h3 style="font-size:13px;color:#9aa7b5;margin:0 0 8px;">Team 2 (right)</h3>
           <input type="text" id="dota2_t2name" placeholder="Team name" style="font-weight:700;">
           <div style="display:flex;align-items:center;gap:10px;margin:6px 0 10px;">
-            <img id="dota2_t2logoPreview" style="width:44px;height:44px;object-fit:contain;border:1px solid #2b3348;border-radius:6px;background:#0a0d18;display:none;">
+            <img id="dota2_t2logoPreview" style="width:44px;height:44px;object-fit:contain;border:1px solid #1b2430;border-radius:6px;background:#06090c;display:none;">
             <button type="button" class="secondary" id="dota2_t2logoPick">Upload Logo</button>
           </div>
           <div class="dota2-prow"><input type="text" class="dota2-pname" data-team="team2" data-i="0" placeholder="Player 1 IGN"><select class="dota2-hero" data-team="team2" data-i="0"></select></div>
@@ -1607,7 +1648,7 @@
       <button id="dota2_captureNetKda">Capture From Screen Now</button>
       <div id="dota2_netkda_status" class="hint"></div>
       <div id="dota2_netkda_table" style="margin-top:14px;overflow-x:auto;"></div>
-      <div style="margin-top:12px;padding-top:12px;border-top:1px solid #2b3348;">
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid #1b2430;">
         <button id="dota2_applyMapping">Apply &amp; Push to Overlay</button>
         <span class="hint">Locks in the "who" picks and any hand-corrected numbers above, and sends the final Net Worth / K/D/A / Damage per player live to the overlay.</span>
         <div id="dota2_apply_status" class="hint" style="margin-top:6px;"></div>
@@ -1677,7 +1718,7 @@
         <select id="dota2gfx_filter"></select>
       </div>
       <div id="dota2gfx_stage_wrap" style="position:relative;width:960px;height:540px;
-           background:#000;border:1px solid #2b3348;border-radius:8px;overflow:hidden;">
+           background:#000;border:1px solid #1b2430;border-radius:8px;overflow:hidden;">
         <img id="dota2gfx_bg" src="../overlay/assets/dota2_postmatch_blank.png"
              style="position:absolute;top:0;left:0;width:960px;height:540px;object-fit:fill;" alt="">
         <div id="dota2gfx_stage" style="position:absolute;inset:0;"></div>
@@ -1757,8 +1798,8 @@
       label above each card is what would reach the sheet. This is here to be disagreed with: a picture of the
       panel alone tells you nothing you cannot see in the game, but a row marked dead that plainly is not is
       worth catching before it goes out.</p>
-    <img id="bgmi_preview" style="width:100%;max-width:1100px;border-radius:8px;border:1px solid #2b3348;
-         background:#0a0d18;display:none;">
+    <img id="bgmi_preview" style="width:100%;max-width:1100px;border-radius:8px;border:1px solid #1b2430;
+         background:#06090c;display:none;">
     <div class="hint" id="bgmi_previewNote" style="margin-top:8px;"></div>
   </div>
 
@@ -1766,14 +1807,14 @@
     <h2>Setup</h2>
     <p class="hint">Run the engine in its own window &mdash; it is a separate process on its own port (8767), so it
       never disturbs a Free Fire event:</p>
-    <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;
+    <div class="hint" style="background:#06090c;border:1px solid #1b2430;border-radius:6px;padding:10px;
          font-family:monospace;font-size:11px;word-break:break-all;">
       python ocr\bgmi\bgmi_engine.py --serve
     </div>
     <p class="hint" style="margin-top:10px;">The capture region must be the <em>game picture</em>, not the
       BlueStacks window &mdash; the window adds a title bar and a side toolbar, and every offset shifts by their
       size. Teach it a digit it has never seen with:</p>
-    <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;
+    <div class="hint" style="background:#06090c;border:1px solid #1b2430;border-radius:6px;padding:10px;
          font-family:monospace;font-size:11px;word-break:break-all;">
       python ocr\bgmi\learn_glyphs.py shot.png --first-slot 12
     </div>
@@ -1873,7 +1914,7 @@
         </div>
       </div>
       <p class="hint">Or paste CSV text directly:</p>
-      <textarea id="ff_rosterPaste" rows="4" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:6px;border:1px solid #2b3348;background:#0a0d18;color:#eef2fb;font-size:13px;font-family:monospace;" placeholder="team,ign,uid&#10;Team Tufan,SAIKYO.01,2281027273&#10;Team Tufan,TT_TUFAN,126560212"></textarea>
+      <textarea id="ff_rosterPaste" rows="4" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:6px;border:1px solid #1b2430;background:#06090c;color:#e8edf2;font-size:13px;font-family:monospace;" placeholder="team,ign,uid&#10;Team Tufan,SAIKYO.01,2281027273&#10;Team Tufan,TT_TUFAN,126560212"></textarea>
       <button class="secondary" id="ff_rosterParse">Parse Roster</button>
       <div id="ff_rosterStatus" class="hint"></div>
 
@@ -1896,7 +1937,7 @@
     </div>
 
     <div class="card" id="ff_lobbyCard">
-      <h2>Live Lobby <span id="ff_lobbyWhen" style="color:#6b7590;font-size:12px;font-weight:400;"></span></h2>
+      <h2>Live Lobby <span id="ff_lobbyWhen" style="color:#7d8b9c;font-size:12px;font-weight:400;"></span></h2>
       <p class="hint">Every squad the client has narrated joining, with each player's IGN and UID &mdash;
         read straight from the debugger log as they connect, so it is there from the moment the lobby fills.
         It does not wait for the game to end or for a result file to be written.</p>
@@ -1999,7 +2040,7 @@
         between players 1 and 2, so they have no box of their own and usually need none. Pin one only if that
         column's crop actually sits off-centre while the others look right — once drawn, it's used exactly where
         you put it instead of being calculated.</p>
-      <div class="hint" id="ff_aliveCalibCmd" style="margin-top:4px;background:#0a0d18;border:1px solid #2b3348;
+      <div class="hint" id="ff_aliveCalibCmd" style="margin-top:4px;background:#06090c;border:1px solid #1b2430;
            border-radius:6px;padding:8px 10px;font-family:monospace;font-size:11px;word-break:break-all;"></div>
       <!-- Table on the left, both live views in a column beside it, so a
            row and what it's reading are on screen together. The column
@@ -2023,14 +2064,14 @@
         <div style="flex:1;min-width:0;max-width:520px;position:sticky;top:8px;">
           <div class="hint" style="margin-bottom:4px;"><strong>The game, live</strong> — what the OCR is reading</div>
           <img id="ff_aliveGameLive" alt=""
-            style="display:block;width:100%;border-radius:6px;border:1px solid #2b3348;background:#0a0d18;min-height:130px;">
+            style="display:block;width:100%;border-radius:6px;border:1px solid #1b2430;background:#06090c;min-height:130px;">
           <div class="hint" id="ff_aliveGameLiveAge" style="margin-top:3px;font-size:10px;">waiting for the engine…</div>
 
           <div class="hint" style="margin:10px 0 4px;"><strong>The overlay, live</strong> — what's going to air.
             Drag to move, scroll to zoom.</div>
           <div id="ff_aliveOutWrap" style="position:relative;width:100%;height:300px;overflow:hidden;
-               border-radius:6px;border:1px solid #2b3348;cursor:grab;
-               background:#0a0d18 repeating-conic-gradient(#12172a 0% 25%, #0a0d18 0% 50%) 0 0/16px 16px;">
+               border-radius:6px;border:1px solid #1b2430;cursor:grab;
+               background:#06090c repeating-conic-gradient(#12172a 0% 25%, #06090c 0% 50%) 0 0/16px 16px;">
             <iframe id="ff_aliveOutFrame" title="Alive status output"
               style="position:absolute;width:1920px;height:1080px;border:0;transform-origin:top left;
                      pointer-events:none;"></iframe>
@@ -2042,7 +2083,7 @@
           </div>
           <div class="hint" id="ff_aliveOutWhy" style="margin-top:3px;font-size:10px;"></div>
 
-          <div style="margin-top:12px;border-top:1px solid #2b3348;padding-top:10px;">
+          <div style="margin-top:12px;border-top:1px solid #1b2430;padding-top:10px;">
             <label class="hint" style="display:block;">
               <input type="checkbox" id="ff_elimApproval" checked>
               Confirm eliminations before they go on air
@@ -2053,7 +2094,7 @@
             <div id="ff_elimPending" style="margin-top:8px;"></div>
 
             <div class="row" style="gap:8px;align-items:center;margin-top:10px;
-                 border-top:1px solid #2b3348;padding-top:9px;">
+                 border-top:1px solid #1b2430;padding-top:9px;">
               <label style="font-size:11px;white-space:nowrap;">Alive table read from
                 <select id="ff_aliveTableSource" style="margin-left:6px;font-size:11px;padding:3px 6px;">
                   <option value="auto">Auto</option>
@@ -2065,7 +2106,7 @@
             <p class="hint" id="ff_aliveTableSourceHint" style="margin:4px 0 0;font-size:10px;"></p>
 
             <div class="row" style="gap:8px;align-items:center;margin-top:10px;
-                 border-top:1px solid #2b3348;padding-top:9px;">
+                 border-top:1px solid #1b2430;padding-top:9px;">
               <button class="secondary" id="ff_aliveReset"
                 style="margin-top:0;font-size:11px;padding:4px 10px;">Reset for next game</button>
               <span class="hint" style="font-size:10px;flex:1;min-width:0;">Clean slate between games —
@@ -2124,7 +2165,7 @@
       <div class="hint" id="ff_sheetWebhookStatus" style="margin-top:8px;"></div>
 
       <div class="row" style="gap:8px;align-items:center;margin-top:12px;
-           border-top:1px solid #2b3348;padding-top:10px;">
+           border-top:1px solid #1b2430;padding-top:10px;">
         <div class="team-form" style="max-width:320px;margin:0;">
           <label>Live alive/elim push</label>
           <select id="ff_liveSheetPush">
@@ -2184,13 +2225,13 @@
         structured log feed makes this redundant). The old side-table preview here was dropped: it only ever
         showed raw OCR text off the whole table, which didn't hold up — the Alive Table Row Assignment card below
         replaces it with a per-row preview of exactly what's being read. First time only, calibrate the region:</p>
-      <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
+      <div class="hint" style="background:#06090c;border:1px solid #1b2430;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;">
         python ocr\freefire\calibrate.py
       </div>
       <p class="hint">Saves into <code>ocr/freefire_config.json</code> — separate from the MOBA engine's <code>config.json</code>, so calibrating here never touches the MOBA setup.</p>
       <div style="margin-top:14px;max-width:420px;">
         <h3>Killfeed / Knockout Feed</h3>
-        <img id="crop-freefire_killfeed" style="width:100%;border-radius:6px;border:1px solid #2b3348;background:#0a0d18;min-height:60px;">
+        <img id="crop-freefire_killfeed" style="width:100%;border-radius:6px;border:1px solid #1b2430;background:#06090c;min-height:60px;">
         <div class="hint" id="ff_killfeedLastText" style="margin-top:6px;white-space:pre-wrap;">(nothing read yet)</div>
       </div>
     </div>
@@ -2211,7 +2252,7 @@
       </div>
 
       <div class="row" style="gap:8px;align-items:flex-end;margin-top:12px;
-           border-top:1px solid #2b3348;padding-top:10px;">
+           border-top:1px solid #1b2430;padding-top:10px;">
         <div class="team-form" style="max-width:340px;margin:0;">
           <label>Recalibrate</label>
           <select id="ff_loadoutCalibPick">
@@ -2253,7 +2294,7 @@
     </div>
 
     <div class="card" id="ff_loadoutReviewCard" style="display:none;">
-      <h2>Capture Review <span id="ff_loadoutReviewTitle" style="color:#6b7590;font-size:12px;font-weight:400;"></span></h2>
+      <h2>Capture Review <span id="ff_loadoutReviewTitle" style="color:#7d8b9c;font-size:12px;font-weight:400;"></span></h2>
       <p class="hint">The captured pixels next to what the matcher identified them as — green is confident,
         red means low confidence and worth checking before it reaches a graphic.</p>
       <div id="ff_loadoutReviewBody"></div>
@@ -2341,7 +2382,7 @@
         <div class="team-form" style="flex:1;">
           <label id="ff_qmeSourceLabel">No match to export yet — fetch or commit one first.</label>
           <textarea id="ff_qmeOutput" rows="12" readonly
-            style="width:100%;font-family:monospace;font-size:12px;background:#0a0d18;color:#eef2fb"></textarea>
+            style="width:100%;font-family:monospace;font-size:12px;background:#06090c;color:#e8edf2"></textarea>
         </div>
       </div>
       <div class="row" style="gap:8px;margin-top:8px;">
@@ -2349,7 +2390,7 @@
       </div>
       <div class="hint" id="ff_qmeStatus" style="margin-top:6px;"></div>
 
-      <div style="border-top:1px solid #2b3348;margin-top:14px;padding-top:12px;">
+      <div style="border-top:1px solid #1b2430;margin-top:14px;padding-top:12px;">
         <h3 style="margin:0 0 6px;font-size:14px;">Push straight into the RESULTS tab</h3>
         <p class="hint" style="margin-top:0;">The same two numbers, written into the sheet for you instead of
           copied out. Each match owns a column pair on the RESULTS tab &mdash; match 1 in <code>D/E</code>, match 2
@@ -2383,7 +2424,7 @@
 
 
     <div class="card" id="ff_booyahCard" style="display:none;">
-      <h2>Booyah Squad <span id="ff_booyahTeam" style="color:#6b7590;font-size:12px;font-weight:400;"></span></h2>
+      <h2>Booyah Squad <span id="ff_booyahTeam" style="color:#7d8b9c;font-size:12px;font-weight:400;"></span></h2>
       <p class="hint">Exactly what is about to be written to the <strong>Booyah</strong> tab &mdash; B1 the team,
         B3:B6 these IGNs, C3:C6 these kills &mdash; for whichever game is selected in Broadcast Sheet Push above.
         A player the roster placed shows their registered name. One it could not is flagged with the IGN and UID
@@ -2396,7 +2437,7 @@
     </div>
 
     <div class="card" id="ff_reviewCard" style="display:none;">
-      <h2>Match Review <span id="ff_reviewMatchId" style="color:#6b7590;font-size:12px;font-weight:400;"></span></h2>
+      <h2>Match Review <span id="ff_reviewMatchId" style="color:#7d8b9c;font-size:12px;font-weight:400;"></span></h2>
       <p class="hint">Fetched from disk but not counted in standings yet — review the parse below before committing.</p>
       <div id="ff_reviewTable" style="overflow-x:auto;"></div>
       <button id="ff_commitMatch">Add This Match to Standings</button>
@@ -2546,8 +2587,8 @@
       </div>
       <div class="hint" id="ff_previewStatus" style="margin-top:8px;"></div>
       <div id="ff_previewFrameWrap" style="position:relative;width:100%;max-width:960px;aspect-ratio:16/9;
-           margin-top:12px;border:1px solid #2b3348;border-radius:8px;overflow:hidden;
-           background:#0a0d18 repeating-conic-gradient(#12172a 0% 25%, #0a0d18 0% 50%) 0 0/28px 28px;">
+           margin-top:12px;border:1px solid #1b2430;border-radius:8px;overflow:hidden;
+           background:#06090c repeating-conic-gradient(#12172a 0% 25%, #06090c 0% 50%) 0 0/28px 28px;">
         <iframe id="ff_previewFrame" title="Graphic preview"
           style="position:absolute;top:0;left:0;width:1920px;height:1080px;border:0;
                  transform-origin:top left;pointer-events:none;"></iframe>
@@ -2591,7 +2632,7 @@
         <span class="hint" id="ff_elimCardSecondsNote" style="margin:0;"></span>
       </div>
       <div id="ffgfx_stage_wrap" style="position:relative;width:960px;height:540px;
-           background:#000;border:1px solid #2b3348;border-radius:8px;overflow:hidden;">
+           background:#000;border:1px solid #1b2430;border-radius:8px;overflow:hidden;">
         <img id="ffgfx_bg" style="position:absolute;top:0;left:0;width:960px;height:540px;object-fit:fill;" alt="">
         <div id="ffgfx_stage" style="position:absolute;inset:0;"></div>
         <div id="ffgfx_guides" style="position:absolute;inset:0;pointer-events:none;z-index:50;"></div>
@@ -2986,9 +3027,9 @@ function changeConnection(){
   if (_relay) {
     let host = _relay;
     try { host = new URL(_relay.replace(/^ws/, "http")).host; } catch(e) {}
-    el.innerHTML = `Relay: ${host} &mdash; <a href="#" onclick="changeConnection();return false;" style="color:#7d6bff;">change</a>`;
+    el.innerHTML = `Relay: ${host} &mdash; <a href="#" onclick="changeConnection();return false;" style="color:#4d9fff;">change</a>`;
   } else {
-    el.innerHTML = `Local &mdash; <a href="#" onclick="changeConnection();return false;" style="color:#7d6bff;">use relay instead</a>`;
+    el.innerHTML = `Local &mdash; <a href="#" onclick="changeConnection();return false;" style="color:#4d9fff;">use relay instead</a>`;
   }
 })();
 
@@ -3543,7 +3584,7 @@ function buildPlayerOrderList(containerId, team){
     row.className = "draft-slot";
     row.innerHTML = `
       <span class="slot-num">${i+1}</span>
-      <div id="pm_playerOrder_${team}_${i}_name" style="flex:1;font-size:13px;color:#eef2fb;">—</div>
+      <div id="pm_playerOrder_${team}_${i}_name" style="flex:1;font-size:13px;color:#e8edf2;">—</div>
       ${playerReorderButtonsHtml(team, i)}
     `;
     container.appendChild(row);
@@ -3969,8 +4010,8 @@ function buildPlayerRows(containerId, team){
     row.innerHTML = `
       <div>
         <label>Player ${i+1}</label>
-        <div id="pom_${team}_${i}_nameLabel" style="font-weight:700;color:#98a3bd;">—</div>
-        <div id="pom_${team}_${i}_heroLabel" style="font-size:11px;color:#6b7590;padding-top:2px;">no pick yet</div>
+        <div id="pom_${team}_${i}_nameLabel" style="font-weight:700;color:#9aa7b5;">—</div>
+        <div id="pom_${team}_${i}_heroLabel" style="font-size:11px;color:#7d8b9c;padding-top:2px;">no pick yet</div>
       </div>
       <div>
         <label>Dmg Dealt</label>
@@ -4398,7 +4439,7 @@ function buildImportBattleReportTable(extractedRows){
   const table = document.createElement("table");
   table.style.cssText = "width:100%;border-collapse:collapse;font-size:13px;";
   table.innerHTML = `
-    <thead><tr style="text-align:left;color:#98a3bd;">
+    <thead><tr style="text-align:left;color:#9aa7b5;">
       <th style="padding:6px;">Player</th>
       ${isCalibrated ? "" : '<th style="padding:6px;">OCR read (reference)</th>'}
       <th style="padding:6px;">Hero Damage</th>
@@ -4415,9 +4456,9 @@ function buildImportBattleReportTable(extractedRows){
       const rosterName = players[i] || `(unnamed player ${i+1})`;
       const found = byTeamIdx[`${team}_${i}`];
       const tr = document.createElement("tr");
-      tr.style.borderTop = "1px solid #2b3348";
+      tr.style.borderTop = "1px solid #1b2430";
       const refCell = isCalibrated ? "" :
-        `<td style="padding:6px;color:#6b7590;font-size:11px;">${found ? `"${found.ocrName}" (${Math.round(found.matchScore*100)}%)` : "not detected"}</td>`;
+        `<td style="padding:6px;color:#7d8b9c;font-size:11px;">${found ? `"${found.ocrName}" (${Math.round(found.matchScore*100)}%)` : "not detected"}</td>`;
       const reorderCell = isCalibrated ? `
         <td style="padding:6px;">
           <div class="reorder-btns">
@@ -4427,7 +4468,7 @@ function buildImportBattleReportTable(extractedRows){
         </td>` : "";
       tr.innerHTML = `
         <td style="padding:6px;font-weight:700;">${buildWhoSelectHtml("import_br", team, i, players)}
-          <span style="color:#6b7590;font-size:11px;">(${team === "team1" ? "T1" : "T2"} #${i+1})</span></td>
+          <span style="color:#7d8b9c;font-size:11px;">(${team === "team1" ? "T1" : "T2"} #${i+1})</span></td>
         ${refCell}
         <td style="padding:6px;"><input type="number" id="import_br_${team}_${i}_dealt" style="width:90px;" value="${found && found.heroDamage != null ? found.heroDamage : ""}"></td>
         <td style="padding:6px;"><input type="number" id="import_br_${team}_${i}_taken" style="width:90px;" value="${found && found.damageTaken != null ? found.damageTaken : ""}"></td>
@@ -4492,7 +4533,7 @@ function buildImportKdaTable(rows){
   const table = document.createElement("table");
   table.style.cssText = "width:100%;border-collapse:collapse;font-size:13px;";
   table.innerHTML = `
-    <thead><tr style="text-align:left;color:#98a3bd;">
+    <thead><tr style="text-align:left;color:#9aa7b5;">
       <th style="padding:6px;">Player</th>
       <th style="padding:6px;">OCR read (raw)</th>
       <th style="padding:6px;">Kills</th>
@@ -4510,7 +4551,7 @@ function buildImportKdaTable(rows){
       const rosterName = players[i] || `(unnamed player ${i+1})`;
       const found = byTeamIdx[`${team}_${i}`];
       const tr = document.createElement("tr");
-      tr.style.borderTop = "1px solid #2b3348";
+      tr.style.borderTop = "1px solid #1b2430";
       // Raw OCR text -- the whole reason "no data" was undiagnosable
       // before: a blank Kills/Deaths/Assists cell only ever told you
       // parsing failed, never WHAT Tesseract actually read that failed to
@@ -4519,8 +4560,8 @@ function buildImportKdaTable(rows){
       const ocrText = (found && found.ocrText) ? found.ocrText : "(blank)";
       tr.innerHTML = `
         <td style="padding:6px;font-weight:700;">${buildWhoSelectHtml("import_kda", team, i, players)}
-          <span style="color:#6b7590;font-size:11px;">(${team === "team1" ? "T1" : "T2"} #${i+1})</span></td>
-        <td style="padding:6px;color:#6b7590;font-size:11px;">${ocrText}</td>
+          <span style="color:#7d8b9c;font-size:11px;">(${team === "team1" ? "T1" : "T2"} #${i+1})</span></td>
+        <td style="padding:6px;color:#7d8b9c;font-size:11px;">${ocrText}</td>
         <td style="padding:6px;"><input type="number" id="import_kda_${team}_${i}_kills" style="width:60px;" value="${found && found.kills != null ? found.kills : ""}"></td>
         <td style="padding:6px;"><input type="number" id="import_kda_${team}_${i}_deaths" style="width:60px;" value="${found && found.deaths != null ? found.deaths : ""}"></td>
         <td style="padding:6px;"><input type="number" id="import_kda_${team}_${i}_assists" style="width:60px;" value="${found && found.assists != null ? found.assists : ""}"></td>
@@ -4598,7 +4639,7 @@ function buildImportGoldTable(rows){
   const table = document.createElement("table");
   table.style.cssText = "width:100%;border-collapse:collapse;font-size:13px;";
   table.innerHTML = `
-    <thead><tr style="text-align:left;color:#98a3bd;">
+    <thead><tr style="text-align:left;color:#9aa7b5;">
       <th style="padding:6px;">Player</th>
       ${isCalibrated ? "" : '<th style="padding:6px;">OCR read (reference)</th>'}
       <th style="padding:6px;">Gold</th>
@@ -4614,9 +4655,9 @@ function buildImportGoldTable(rows){
       const rosterName = players[i] || `(unnamed player ${i+1})`;
       const found = byTeamIdx[`${team}_${i}`];
       const tr = document.createElement("tr");
-      tr.style.borderTop = "1px solid #2b3348";
+      tr.style.borderTop = "1px solid #1b2430";
       const refCell = isCalibrated ? "" :
-        `<td style="padding:6px;color:#6b7590;font-size:11px;">${found ? `"${found.ocrName}" (${Math.round(found.matchScore*100)}%)` : "not detected"}</td>`;
+        `<td style="padding:6px;color:#7d8b9c;font-size:11px;">${found ? `"${found.ocrName}" (${Math.round(found.matchScore*100)}%)` : "not detected"}</td>`;
       const reorderCell = isCalibrated ? `
         <td style="padding:6px;">
           <div class="reorder-btns">
@@ -4626,7 +4667,7 @@ function buildImportGoldTable(rows){
         </td>` : "";
       tr.innerHTML = `
         <td style="padding:6px;font-weight:700;">${buildWhoSelectHtml("import_gr", team, i, players)}
-          <span style="color:#6b7590;font-size:11px;">(${team === "team1" ? "T1" : "T2"} #${i+1})</span></td>
+          <span style="color:#7d8b9c;font-size:11px;">(${team === "team1" ? "T1" : "T2"} #${i+1})</span></td>
         ${refCell}
         <td style="padding:6px;"><input type="number" id="import_gr_${team}_${i}_gold" style="width:90px;" value="${found && found.gold != null ? found.gold : ""}"></td>
         ${reorderCell}
@@ -4673,7 +4714,7 @@ function renderGoldCandidates(candidates){
   el.appendChild(note);
   candidates.forEach(c => {
     const chip = document.createElement("div");
-    chip.style.cssText = "background:#141a28;border:1px solid #2b3348;border-radius:6px;padding:6px 10px;font-size:12px;display:flex;gap:6px;align-items:center;";
+    chip.style.cssText = "background:#141a28;border:1px solid #1b2430;border-radius:6px;padding:6px 10px;font-size:12px;display:flex;gap:6px;align-items:center;";
     const label = document.createElement("span");
     label.textContent = c.value.toLocaleString() + `  ("${c.rawText}")`;
     const b1 = document.createElement("button");
@@ -5252,7 +5293,7 @@ function gfxLoadPage(pageKey){
 
   document.querySelectorAll("#tab-graphics .row button.secondary").forEach(b => b.classList.remove("gfx-active"));
   const pageBtn = document.getElementById(`gfx_page_${pageKey}`);
-  if(pageBtn) pageBtn.style.background = "#7d6bff", pageBtn.style.color = "#0a0d18";
+  if(pageBtn) pageBtn.style.background = "#4d9fff", pageBtn.style.color = "#06090c";
   Object.keys(GRAPHIC_PAGES).filter(k => k !== pageKey).forEach(k => {
     const b = document.getElementById(`gfx_page_${k}`);
     if(b){ b.style.background = ""; b.style.color = ""; }
@@ -5494,7 +5535,7 @@ function ffShowConnectionMode(){
   const note = document.getElementById("ffConnMode");
   if(!note) return;
   note.textContent = ffUsingLocal ? "direct to the engine on this PC" : "via the relay";
-  note.style.color = ffUsingLocal ? "#4ade80" : "#98a3bd";
+  note.style.color = ffUsingLocal ? "#4ade80" : "#9aa7b5";
 }
 
 function ffProbeLocalThen(done){
@@ -5657,7 +5698,7 @@ function ffOpen(url){
               `by the players' tags. ` : "") +
           ffLobbyNameChoices(msg) +
           "<div style='margin-top:4px;color:#fbbf24;'>Next: in <b>Live Lobby</b> just below, pair each squad to its team and press <b>Add these players to the roster</b>. " + "<a href='#' id='ff_goLobby' style='color:#7db2ff;'>Jump to it</a></div>" +
-          "<div style='margin-top:4px;color:#98a3bd;'>The game does not say which " +
+          "<div style='margin-top:4px;color:#9aa7b5;'>The game does not say which " +
           "squad is which team, so that pairing is yours.</div>";
         ffWireLobbyJump();
         // Teams the engine just created are in its state, not in the grid,
@@ -5799,20 +5840,20 @@ function ffDrawRosterBoxes(){
     <div class="hint" style="margin-bottom:10px;">${filled} of ${FF_TEAM_SLOTS} teams filled in.</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;">
     ${ffRosterDraft.teams.map((t, ti) => `
-      <div style="border:1px solid ${t.name.trim() ? "#2b3348" : "#3a2b52"};border-radius:12px;padding:12px;
-        background:rgba(10,13,24,0.5);">
+      <div style="border:1px solid ${t.name.trim() ? "#1b2430" : "#3a2b52"};border-radius:12px;padding:12px;
+        background:rgba(6,9,12,0.5);">
         <div class="row" style="gap:8px;align-items:center;margin-bottom:8px;">
-          <div style="width:26px;height:26px;border-radius:50%;background:#7d6bff;color:#0a0d18;display:flex;
+          <div style="width:26px;height:26px;border-radius:50%;background:#4d9fff;color:#06090c;display:flex;
             align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0;">${ti+1}</div>
           <img id="ff_rosterLogo_${ti}" src="${t.logo || ""}"
             style="width:34px;height:34px;border-radius:8px;object-fit:contain;flex-shrink:0;
-            background:#0a0d18;border:1px solid #2b3348;${t.logo ? "" : "opacity:0.35;"}">
+            background:#06090c;border:1px solid #1b2430;${t.logo ? "" : "opacity:0.35;"}">
           <button type="button" class="secondary ff-roster-logo-btn" data-ti="${ti}"
             style="font-size:10px;padding:4px 8px;margin-top:0;">Logo</button>
           <img id="ff_rosterGroupPhoto_${ti}" src="${t.groupPhoto || ""}"
             title="Group photo (all players together, used on Booyah/summary graphics)"
             style="width:34px;height:34px;border-radius:8px;object-fit:cover;flex-shrink:0;
-            background:#0a0d18;border:1px solid #2b3348;${t.groupPhoto ? "" : "opacity:0.35;"}">
+            background:#06090c;border:1px solid #1b2430;${t.groupPhoto ? "" : "opacity:0.35;"}">
           <button type="button" class="secondary ff-roster-groupphoto-btn" data-ti="${ti}"
             title="Group photo -- all players together"
             style="font-size:10px;padding:4px 8px;margin-top:0;">Group Photo</button>
@@ -5834,7 +5875,7 @@ function ffDrawRosterBoxes(){
           <div class="row" style="gap:6px;margin-bottom:5px;align-items:center;">
             <img id="ff_rosterPhoto_${ti}_${pi}" src="${p.photo || ""}"
               style="width:22px;height:22px;border-radius:50%;object-fit:cover;flex-shrink:0;
-              background:#0a0d18;border:1px solid #2b3348;${p.photo ? "" : "opacity:0.3;"}">
+              background:#06090c;border:1px solid #1b2430;${p.photo ? "" : "opacity:0.3;"}">
             <button type="button" class="secondary ff-roster-photo-btn" data-ti="${ti}" data-pi="${pi}"
               title="Player photo" style="font-size:9px;padding:3px 6px;margin-top:0;flex-shrink:0;">Photo</button>
             <input type="text" class="ff-roster-player" data-ti="${ti}" data-pi="${pi}" data-field="ign"
@@ -6204,7 +6245,7 @@ function ffRenderLoadouts(ff){
       const lRaw = p.loadout || {};
       const l = { active: lRaw.active || "", passives: lRaw.passives || ["", "", ""], pet: lRaw.pet || "", equipment: lRaw.equipment || "" };
       rows.push(`
-        <tr style="border-top:1px solid #2b3348;">
+        <tr style="border-top:1px solid #1b2430;">
           <td style="padding:6px;font-weight:700;">${ffEscapeHtml(t.name)}</td>
           <td style="padding:6px;">${ffEscapeHtml(p.ign)}</td>
           <td style="padding:6px;"><input type="text" id="ff_lo_${ti}_${pi}_active" value="${ffEscapeHtml(l.active)}" placeholder="Active"></td>
@@ -6217,7 +6258,7 @@ function ffRenderLoadouts(ff){
     });
   });
   container.innerHTML = `
-    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#98a3bd;">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#9aa7b5;">
       <th style="padding:6px;">Team</th><th style="padding:6px;">Player</th>
       <th style="padding:6px;">Active</th><th style="padding:6px;">Passive 1</th>
       <th style="padding:6px;">Passive 2</th><th style="padding:6px;">Passive 3</th>
@@ -6396,7 +6437,7 @@ function ffRenderEvent(ff){
     lspNote.textContent = on
       ? "Writing the live table to the sheet on every change."
       : "Not writing the live table. Post-match results still push normally.";
-    lspNote.style.color = on ? "#4ade80" : "#98a3bd";
+    lspNote.style.color = on ? "#4ade80" : "#9aa7b5";
   }
   document.getElementById("ff_championBadge").checked =
     !!(ff.display && ff.display.championRushBadgeVisible);
@@ -6494,7 +6535,7 @@ function ffAliveTeamLabel(team){
 // into a named row (see apply_alive_grid_identities in the engine). Not
 // auto-detected from anything on screen: the whole point of this path is
 // avoiding OCR text-reading for identity.
-const FF_ALIVE_BAR_COLOR = { alive: "#4ade80", eliminated: "#f87171", unknown: "#6b7590" };
+const FF_ALIVE_BAR_COLOR = { alive: "#4ade80", eliminated: "#f87171", unknown: "#7d8b9c" };
 
 // One table: row dropdown, alive bars and elim preview all in the same
 // row, per the operator's own layout -- rebuilding the dropdowns wipes
@@ -6779,7 +6820,7 @@ function ffRenderAliveHereState(ff){
   if(!el) return;
   const up = !!(ff.display && ff.display.aliveStatusVisible);
   el.textContent = up ? "● ON AIR" : "○ not on air";
-  el.style.color = up ? "#4ade80" : "#6b7590";
+  el.style.color = up ? "#4ade80" : "#7d8b9c";
 
   /* The PTS. tickbox only appears for a package that HAS a second
      version of the graphic with that column -- offering it where the
@@ -6959,7 +7000,7 @@ function ffSyncAliveRowReads(ff){
     const r = reads[Number(el.dataset.row)];
     if(!on || !r){ el.textContent = ""; return; }
     if(!r.text){
-      el.style.color = "#6b7590";
+      el.style.color = "#7d8b9c";
       el.textContent = r.why || "";
       return;
     }
@@ -7067,12 +7108,12 @@ function ffRenderAliveGridRows(ff){
   // ffSyncAliveRowMarks) for the same reason the team dropdown is:
   // rebuilding a control the operator is reaching for loses the click.
   const markCell = (i, mark) => `
-    <td style="padding:4px 6px;text-align:center;${mark === "zone" ? "border-left:1px solid #2b3348;" : ""}">
+    <td style="padding:4px 6px;text-align:center;${mark === "zone" ? "border-left:1px solid #1b2430;" : ""}">
       <input type="checkbox" class="ff-alive-mark" data-row="${i}" data-mark="${mark}">
     </td>`;
   const liveCell = (i) => `
     <td class="ff-alive-live" data-row="${i}" style="padding:4px 10px;text-align:center;
-        min-width:96px;border-left:1px solid #2b3348;">
+        min-width:96px;border-left:1px solid #1b2430;">
       <span class="hint">—</span>
     </td>`;
 
@@ -7081,14 +7122,14 @@ function ffRenderAliveGridRows(ff){
 
   container.innerHTML = `
     <table style="border-collapse:collapse;font-size:12px;white-space:nowrap;">
-      <thead><tr style="text-align:left;color:#98a3bd;">
+      <thead><tr style="text-align:left;color:#9aa7b5;">
         <th style="padding:4px 8px;">Row</th>
         <th style="padding:4px 8px;" colspan="4">Alive (crop → read → override)</th>
         <th style="padding:4px 8px;">Elim (crop → read → override)</th>
-        <th style="padding:4px 6px;border-left:1px solid #2b3348;" title="Squad is in the blue zone">ZONE</th>
+        <th style="padding:4px 6px;border-left:1px solid #1b2430;" title="Squad is in the blue zone">ZONE</th>
         <th style="padding:4px 6px;" title="Top killer / on a run">FIRE</th>
-        <th style="padding:4px 10px;border-left:1px solid #2b3348;">ON AIR (live)</th>
-        <th style="padding:4px 8px;border-left:1px solid #2b3348;">Team</th>
+        <th style="padding:4px 10px;border-left:1px solid #1b2430;">ON AIR (live)</th>
+        <th style="padding:4px 8px;border-left:1px solid #1b2430;">Team</th>
       </tr></thead>
       <tbody>
       ${Array.from({length: FF_ALIVE_GRID_ROWS}, (_, i) => {
@@ -7100,14 +7141,14 @@ function ffRenderAliveGridRows(ff){
         const options = ['<option value="">— unassigned —</option>']
           .concat(roster.map(t => `<option value="${ffEscapeHtml(t.name)}" title="${ffEscapeHtml(t.name)}" ${t.name === current ? "selected" : ""}>${ffEscapeHtml(ffAliveTeamLabel(t))}</option>`));
         return `
-          <tr style="border-top:1px solid #2b3348;">
-            <td style="padding:4px 8px;color:#6b7590;">${i + 1}</td>
+          <tr style="border-top:1px solid #1b2430;">
+            <td style="padding:4px 8px;color:#7d8b9c;">${i + 1}</td>
             ${[0, 1, 2, 3].map(b => barCell(i, b, barOverrides[`${i}_${b}`])).join("")}
             ${elimCell(i, elimOverrides[String(i)])}
             ${markCell(i, "zone")}
             ${markCell(i, "fire")}
             ${liveCell(i)}
-            <td style="padding:4px 8px;border-left:1px solid #2b3348;">
+            <td style="padding:4px 8px;border-left:1px solid #1b2430;">
               <div class="ff-alive-team-auto" data-row="${i}" style="margin-bottom:3px;"></div>
               <div class="row" style="gap:5px;align-items:center;margin:0;">
                 <select class="ff-alive-grid-row" data-row="${i}" style="min-width:160px;">${options.join("")}</select>
@@ -7265,7 +7306,7 @@ function ffUpdateAliveGridLive(ff){
     const aliveColor = r.eliminated ? "#f87171" : "#4ade80";
     cell.innerHTML =
       `<span style="color:${aliveColor};font-weight:700;">${r.eliminated ? "OUT" : alive + "/4"}</span>` +
-      ` <span style="color:#6b7590;">·</span> ` +
+      ` <span style="color:#7d8b9c;">·</span> ` +
       `<span style="color:#ffc400;font-weight:700;">${kills}</span>` +
       `<div class="hint" style="font-size:10px;">${r.source === "grid" ? "grid" : (r.source || "log")}</div>`;
   });
@@ -7418,7 +7459,7 @@ function ffApplyAliveGridPreview(msg){
     (r.bars || []).forEach((b, bi) => {
       const cell = document.querySelector(`.ff-alive-bar-auto[data-row="${i}"][data-bar="${bi}"]`);
       if(!cell) return;
-      const color = FF_ALIVE_BAR_COLOR[b.status] || "#6b7590";
+      const color = FF_ALIVE_BAR_COLOR[b.status] || "#7d8b9c";
       const badge = b.overridden ? ' <span style="color:#a78bfa;">(forced)</span>' : "";
       cell.innerHTML = (b.preview ? `<img src="${b.preview}" style="height:28px;border:2px solid ${color};border-radius:3px;display:block;margin:0 auto 3px;">` : "") +
         `<span style="color:${color};font-weight:700;">${ffEscapeHtml(b.status)}</span>${badge}`;
@@ -7431,8 +7472,8 @@ function ffApplyAliveGridPreview(msg){
       if(r.teamPreview){
         teamCell.innerHTML =
           `<img src="${r.teamPreview}" style="max-width:100%;height:22px;object-fit:contain;` +
-          `border:1px solid #2b3348;border-radius:3px;display:block;background:#0a0d18;">` +
-          `<span style="font-size:10px;color:${r.teamText ? "#98a3bd" : "#fbbf24"};">` +
+          `border:1px solid #1b2430;border-radius:3px;display:block;background:#06090c;">` +
+          `<span style="font-size:10px;color:${r.teamText ? "#9aa7b5" : "#fbbf24"};">` +
           (r.teamText ? "reads “" + ffEscapeHtml(r.teamText) + "”"
                       : "nothing readable in that box") + `</span>`;
       } else {
@@ -7466,7 +7507,7 @@ function ffApplyAliveGridPreview(msg){
       } else {
         badge = "";
       }
-      elimCell.innerHTML = (r.elimPreview ? `<img src="${r.elimPreview}" style="height:28px;border:1px solid #2b3348;border-radius:3px;display:block;margin:0 auto 3px;">` : "") +
+      elimCell.innerHTML = (r.elimPreview ? `<img src="${r.elimPreview}" style="height:28px;border:1px solid #1b2430;border-radius:3px;display:block;margin:0 auto 3px;">` : "") +
         `<span style="color:#ffc400;font-weight:700;">${r.elims == null ? "(unread)" : r.elims}</span>${badge}`;
     }
   });
@@ -7517,8 +7558,8 @@ function ffRenderLoadoutCapture(ff){
 
     let body;
     if(!loadout){
-      body = `<div style="height:70px;border-radius:4px;background:#0a0d18;display:flex;align-items:center;
-        justify-content:center;color:#6b7590;font-size:11px;">not captured</div>`;
+      body = `<div style="height:70px;border-radius:4px;background:#06090c;display:flex;align-items:center;
+        justify-content:center;color:#7d8b9c;font-size:11px;">not captured</div>`;
     } else {
       const slots = loadout.slots || {};
       // Every slot listed, including the ones that came back unidentified --
@@ -7527,25 +7568,25 @@ function ffRenderLoadoutCapture(ff){
       const rows = Object.keys(FF_SLOT_LABELS).map(slot => {
         const s = slots[slot] || {};
         const shown = s.name || s.label || "—";
-        const colour = !s.label ? "#6b7590" : (s.lowConfidence ? "#f5a4a4" : "#4ade80");
+        const colour = !s.label ? "#7d8b9c" : (s.lowConfidence ? "#f5a4a4" : "#4ade80");
         const title = s.reason ? ffEscapeHtml(s.reason)
                      : (s.label ? `confidence ${s.confidence}` : "no match");
         return `<div style="display:flex;justify-content:space-between;gap:4px;font-size:9px;" title="${title}">
-            <span style="color:#6b7590;">${FF_SLOT_LABELS[slot]}</span>
+            <span style="color:#7d8b9c;">${FF_SLOT_LABELS[slot]}</span>
             <span style="color:${colour};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70px;"
               >${ffEscapeHtml(String(shown))}</span>
           </div>`;
       }).join("");
       const anyLow = Object.values(slots).some(s => s && s.lowConfidence);
-      body = `<div style="background:#0a0d18;border-radius:4px;padding:4px;">${rows}</div>
+      body = `<div style="background:#06090c;border-radius:4px;padding:4px;">${rows}</div>
         ${anyLow ? `<div style="font-size:9px;color:#f5a4a4;margin-top:2px;">⚠ check low-confidence</div>` : ""}`;
     }
 
     return `
       <div class="ff-loadout-cell" data-index="${i}" data-ti="${entry.ti}" data-pi="${entry.pi}"
-        style="padding:6px;border-radius:8px;border:2px solid ${isNext ? "#7d6bff" : "#2b3348"};background:#141a28;">
+        style="padding:6px;border-radius:8px;border:2px solid ${isNext ? "#4d9fff" : "#1b2430"};background:#141a28;">
         ${body}
-        <div style="font-size:10px;color:#6b7590;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${ffEscapeHtml(teamLabel)}</div>
+        <div style="font-size:10px;color:#7d8b9c;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${ffEscapeHtml(teamLabel)}</div>
         <div style="font-size:11px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${ffEscapeHtml(entry.player.ign || `P${entry.pi + 1}`)}</div>
         <div class="row" style="gap:4px;margin-top:4px;">
           <button type="button" class="secondary ff-loadout-review" data-ti="${entry.ti}" data-pi="${entry.pi}"
@@ -7618,15 +7659,15 @@ function ffRenderLoadoutReview(msg){
     const s = slots[slot] || {};
     const img = (msg.images || {})[slot];
     const shown = s.name || s.label || "no match";
-    const colour = !s.label ? "#6b7590" : (s.lowConfidence ? "#f5a4a4" : "#4ade80");
+    const colour = !s.label ? "#7d8b9c" : (s.lowConfidence ? "#f5a4a4" : "#4ade80");
     return `
       <div style="text-align:center;">
-        <div style="font-size:10px;color:#98a3bd;margin-bottom:3px;">${FF_SLOT_LABELS[slot]}</div>
-        ${img ? `<img src="${img}" style="width:72px;height:72px;object-fit:contain;border:1px solid #2b3348;border-radius:4px;background:#0a0d18;">`
-              : `<div style="width:72px;height:72px;border:1px solid #2b3348;border-radius:4px;background:#0a0d18;display:flex;align-items:center;justify-content:center;color:#6b7590;font-size:9px;">no crop</div>`}
+        <div style="font-size:10px;color:#9aa7b5;margin-bottom:3px;">${FF_SLOT_LABELS[slot]}</div>
+        ${img ? `<img src="${img}" style="width:72px;height:72px;object-fit:contain;border:1px solid #1b2430;border-radius:4px;background:#06090c;">`
+              : `<div style="width:72px;height:72px;border:1px solid #1b2430;border-radius:4px;background:#06090c;display:flex;align-items:center;justify-content:center;color:#7d8b9c;font-size:9px;">no crop</div>`}
         <div style="font-size:11px;font-weight:700;color:${colour};margin-top:3px;max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
              title="${ffEscapeHtml(String(shown))}">${ffEscapeHtml(String(shown))}</div>
-        <div style="font-size:9px;color:#6b7590;">${s.manual ? "you set this" : (s.label ? `conf ${s.confidence}` : "")}</div>
+        <div style="font-size:9px;color:#7d8b9c;">${s.manual ? "you set this" : (s.label ? `conf ${s.confidence}` : "")}</div>
         ${alternatives(slot, s)}
       </div>`;
   }).join("");
@@ -7650,17 +7691,17 @@ function ffRenderLoadoutReview(msg){
     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;">${cells}</div>
     <div style="margin-top:12px;display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
       <div>
-        <div style="font-size:10px;color:#98a3bd;margin-bottom:3px;">IGN slot (read as text)</div>
-        ${ignImg ? `<img src="${ignImg}" style="max-width:220px;border:1px solid #2b3348;border-radius:4px;background:#0a0d18;">` : `<span class="hint">no crop</span>`}
-        <div style="font-size:12px;font-weight:700;margin-top:3px;color:${ignMismatch ? "#f5a4a4" : "#eef2fb"};">${ffEscapeHtml(readIgn || "(nothing read)")}</div>
-        <div style="font-size:10px;color:#6b7590;">roster says: ${ffEscapeHtml(rosterIgn || "—")}</div>
+        <div style="font-size:10px;color:#9aa7b5;margin-bottom:3px;">IGN slot (read as text)</div>
+        ${ignImg ? `<img src="${ignImg}" style="max-width:220px;border:1px solid #1b2430;border-radius:4px;background:#06090c;">` : `<span class="hint">no crop</span>`}
+        <div style="font-size:12px;font-weight:700;margin-top:3px;color:${ignMismatch ? "#f5a4a4" : "#e8edf2"};">${ffEscapeHtml(readIgn || "(nothing read)")}</div>
+        <div style="font-size:10px;color:#7d8b9c;">roster says: ${ffEscapeHtml(rosterIgn || "—")}</div>
         ${ignMismatch ? `<div style="font-size:10px;color:#f5a4a4;margin-top:3px;max-width:220px;">
           ⚠ Doesn't match the roster — this capture may have gone to the wrong player.
           Check the pointer and re-capture.</div>` : ""}
       </div>
       ${cardImg ? `<div>
-        <div style="font-size:10px;color:#98a3bd;margin-bottom:3px;">Whole card</div>
-        <img src="${cardImg}" style="max-width:320px;border:1px solid #2b3348;border-radius:4px;">
+        <div style="font-size:10px;color:#9aa7b5;margin-bottom:3px;">Whole card</div>
+        <img src="${cardImg}" style="max-width:320px;border:1px solid #1b2430;border-radius:4px;">
       </div>` : ""}
     </div>`;
 
@@ -7870,7 +7911,7 @@ function ffHandleMatchResult(msg){
     const playerRows = t.players.map(p => `
       <tr style="border-top:none;">
         <td></td>
-        <td colspan="2" style="padding:2px 6px;color:#98a3bd;font-size:11px;">
+        <td colspan="2" style="padding:2px 6px;color:#9aa7b5;font-size:11px;">
           ${ffEscapeHtml(p.name)} (${p.uid}) — ${p.kills}k</td>
         <td colspan="2" style="padding:2px 6px;">
           <input type="number" min="0" class="ff-review-damage" data-uid="${ffEscapeHtml(String(p.uid))}"
@@ -7884,7 +7925,7 @@ function ffHandleMatchResult(msg){
           ⚠ ${ffEscapeHtml(t.reviewReason || "Needs manual verification.")}</td>
       </tr>` : "";
     return `
-      <tr style="border-top:1px solid #2b3348;${t.needsUidReview ? "background:rgba(217,119,6,0.08);" : ""}">
+      <tr style="border-top:1px solid #1b2430;${t.needsUidReview ? "background:rgba(217,119,6,0.08);" : ""}">
         <td style="padding:6px;">${t.rank}</td>
         <td style="padding:6px;font-weight:700;">${t.needsUidReview ? "⚠ " : ""}${ffEscapeHtml(t.teamName)}</td>
         <td style="padding:6px;">${t.killScore}</td>
@@ -7898,7 +7939,7 @@ function ffHandleMatchResult(msg){
       <label>Match duration (optional)</label>
       <input type="text" id="ff_reviewDuration" placeholder="e.g. 18:42">
     </div>
-    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#98a3bd;">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#9aa7b5;">
       <th style="padding:6px;">Rank</th><th style="padding:6px;">Team</th>
       <th style="padding:6px;">Kill Pts</th><th style="padding:6px;">Rank Pts</th>
       <th style="padding:6px;">Total Pts</th>
@@ -8465,23 +8506,23 @@ function ffRenderChampionRush(ff){
     return;
   }
   const crowned = cr.champion
-    ? '<p style="margin:0 0 10px;font-weight:700;color:#e0a44a;">' +
+    ? '<p style="margin:0 0 10px;font-weight:700;color:#ffa53d;">' +
       ffEscapeHtml(cr.champion) + ' are CHAMPIONS — Booyah in game ' + cr.championGame + '.</p>'
     : '<p class="hint" style="margin:0 0 10px;">No champion yet — an activated team needs a Booyah.</p>';
   box.innerHTML = crowned +
     '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +
-    '<thead><tr style="text-align:left;color:#98a3bd;">' +
+    '<thead><tr style="text-align:left;color:#9aa7b5;">' +
       '<th style="padding:5px;">Team</th><th style="padding:5px;">Points</th>' +
       '<th style="padding:5px;">Status</th></tr></thead><tbody>' +
     totals.map(t =>
-      '<tr style="border-top:1px solid #2b3348;">' +
+      '<tr style="border-top:1px solid #1b2430;">' +
         '<td style="padding:5px;font-weight:600;">' + ffEscapeHtml(t.teamName) + '</td>' +
         '<td style="padding:5px;">' + t.points + '</td>' +
         '<td style="padding:5px;">' + (t.teamName === cr.champion
-            ? '<span style="color:#e0a44a;font-weight:700;">CHAMPIONS</span>'
+            ? '<span style="color:#ffa53d;font-weight:700;">CHAMPIONS</span>'
             : t.activated
               ? '<span style="color:#7fd6a0;font-weight:600;">Champion Rush active</span>'
-              : '<span style="color:#6b7590;">' + t.needs + ' more</span>') + '</td>' +
+              : '<span style="color:#7d8b9c;">' + t.needs + ' more</span>') + '</td>' +
       '</tr>').join("") + '</tbody></table>';
 }
 document.getElementById("ff_crSave").addEventListener("click", () => {
@@ -8738,11 +8779,11 @@ function ffQmeRender(){
         }));
       picker = free.length || picked
         ? `<select class="ff-qme-pick" data-i="${i}" style="width:100%;margin-top:3px;font-size:11px;">${opts.join("")}</select>`
-        : `<div style="color:#6b7590;font-size:11px;margin-top:3px;">every team in the file is already on another row</div>`;
+        : `<div style="color:#7d8b9c;font-size:11px;margin-top:3px;">every team in the file is already on another row</div>`;
     }
 
     const status = !name
-      ? '<span style="color:#6b7590;">—</span>'
+      ? '<span style="color:#7d8b9c;">—</span>'
       : match
         ? `<span style="color:#4ade80;">✓ #${match.rank != null ? match.rank : "?"} → ${match.rankScore != null ? match.rankScore : "?"} pts · ${match.killScore != null ? match.killScore : "?"} kills</span>` +
           (picked ? `<div style="color:#e8c76a;font-size:10px;">bound by hand to "${ffEscapeHtml(picked)}"</div>` : "")
@@ -8859,7 +8900,7 @@ document.getElementById("ff_qmeFillFromResult").addEventListener("click", () => 
     el.style.color = "#f5a4a4";
     el.innerHTML = `Filled ${placed.length} row(s). <strong>${unmatched.length} team(s) in the result file `
       + `have no roster match:</strong> ${unmatched.map(ffEscapeHtml).join(", ")}`
-      + `<div style="color:#98a3bd;margin-top:3px;">Pick those rows from the dropdowns yourself, `
+      + `<div style="color:#9aa7b5;margin-top:3px;">Pick those rows from the dropdowns yourself, `
       + `or add the name to the roster so it matches next time.</div>`;
   }
 });
@@ -8896,7 +8937,7 @@ document.addEventListener("change", (e) => {
   ffQmeSaveRowOrder();
   const el = document.getElementById("ff_qmeFillStatus");
   if(el){
-    el.style.color = e.target.value ? "#e8c76a" : "#98a3bd";
+    el.style.color = e.target.value ? "#e8c76a" : "#9aa7b5";
     el.textContent = e.target.value
       ? `${name} is now reading the result file's "${e.target.value}".`
       : `${name} is back to matching on its own name.`;
@@ -9213,7 +9254,7 @@ function ffPushTiming(msg){
   const s = (msg.elapsedMs / 1000).toFixed(1);
   const slow = msg.elapsedMs > 8000;
   return "<div style='margin-top:4px;font-size:11px;color:" +
-    (slow ? "#e8c76a" : "#6b7590") + ";'>Google Sheets took <strong>" + s +
+    (slow ? "#e8c76a" : "#7d8b9c") + ";'>Google Sheets took <strong>" + s +
     "s</strong>" + (slow ? " — slower than usual." : "") + "</div>";
 }
 
@@ -9248,7 +9289,7 @@ function ffShowResultsPushResult(msg){
       }
       ffWs.send(JSON.stringify(
         Object.assign({}, ffLastPushPayload, { overwrite: true })));
-      el.style.color = "#98a3bd";
+      el.style.color = "#9aa7b5";
       el.textContent = "Overwriting match " + msg.match + "…";
     });
     return;
@@ -9297,7 +9338,7 @@ function ffShowResultsPushResult(msg){
      re-published without the new code being pasted in first. Saying
      nothing here is what let that go unnoticed for a whole match. */
   const booyahNote = msg.booyah
-    ? "<div style='margin-top:4px;color:#98a3bd;'>Booyah tab: " +
+    ? "<div style='margin-top:4px;color:#9aa7b5;'>Booyah tab: " +
       ffEscapeHtml(String(msg.booyah)) + "</div>" + unplaced
     : (ffLastBooyahSent
         ? "<div style='margin-top:4px;color:#f5a4a4;'>⚠ <strong>The Booyah tab was " +
@@ -9356,7 +9397,7 @@ function ffShowResultsPushResult(msg){
     " of " + msg.total + "</strong> teams." +
     "<div style='margin-top:4px;'>No row in column C for: <strong>" +
     unmatched.map(ffEscapeHtml).join(", ") + "</strong></div>" +
-    "<div style='margin-top:4px;color:#98a3bd;'>Their scores were written nowhere. " +
+    "<div style='margin-top:4px;color:#9aa7b5;'>Their scores were written nowhere. " +
     (free.length
       ? "These rows on the sheet were not filled by this push — pair them below, " +
         "or fix the spelling on the sheet."
@@ -9385,7 +9426,7 @@ function ffShowResultsPushResult(msg){
        scores", which would be true and useless. */
     ffWs.send(JSON.stringify(Object.assign({}, ffLastPushPayload,
                                            { nameMap, overwrite: true })));
-    el.style.color = "#98a3bd";
+    el.style.color = "#9aa7b5";
     el.textContent = "Pairing and pushing match " + msg.match + " again…";
   });
 }
@@ -9474,7 +9515,7 @@ function ffWireLobbyNameChoices(msg){
       return;
     }
     ffWs.send(JSON.stringify({ type: "freefire_lobby_name_decisions", decisions }));
-    if(el){ el.style.color = "#98a3bd"; el.textContent = "Applying…"; }
+    if(el){ el.style.color = "#9aa7b5"; el.textContent = "Applying…"; }
   });
 }
 
@@ -9595,20 +9636,20 @@ function ffRenderLobby(force){
     const rows = sq.players.map(p => {
       const have = p.uid && known.has(p.uid);
       return `
-        <tr style="border-top:1px solid #2b3348;">
+        <tr style="border-top:1px solid #1b2430;">
           <td style="padding:4px 8px;">${ffEscapeHtml(p.ign || "(no name)")}</td>
-          <td style="padding:4px 8px;font-family:monospace;font-size:11px;color:#98a3bd;">
+          <td style="padding:4px 8px;font-family:monospace;font-size:11px;color:#9aa7b5;">
             ${p.uid ? ffEscapeHtml(p.uid)
                     : '<span style="color:#fbbf24;">no UID in the log</span>'}</td>
           <td style="padding:4px 8px;font-size:11px;">${
             have ? '<span style="color:#4ade80;">already in the roster</span>'
-                 : (p.uid ? '<span style="color:#98a3bd;">new</span>'
-                          : '<span style="color:#6b7590;">can’t be added</span>')}</td>
+                 : (p.uid ? '<span style="color:#9aa7b5;">new</span>'
+                          : '<span style="color:#7d8b9c;">can’t be added</span>')}</td>
         </tr>`;
     }).join("");
 
     return `
-      <div style="border:1px solid #2b3348;border-radius:6px;padding:8px 10px;margin-bottom:8px;">
+      <div style="border:1px solid #1b2430;border-radius:6px;padding:8px 10px;margin-bottom:8px;">
         <div class="row" style="gap:8px;align-items:center;margin-bottom:6px;">
           <strong style="font-size:13px;">${
             sq.team ? ffEscapeHtml(sq.team)
@@ -9621,7 +9662,7 @@ function ffRenderLobby(force){
             style="min-width:200px;font-size:11px;">${opts.join("")}</select>
         </div>
         <table style="border-collapse:collapse;font-size:12px;width:100%;">
-          <thead><tr style="text-align:left;color:#98a3bd;">
+          <thead><tr style="text-align:left;color:#9aa7b5;">
             <th style="padding:3px 8px;">IGN</th>
             <th style="padding:3px 8px;">UID</th>
             <th style="padding:3px 8px;"></th>
@@ -9657,7 +9698,7 @@ document.getElementById("ff_lobbyFetch").addEventListener("click", () => {
   const el = document.getElementById("ff_lobbyStatus");
   ffRenderLobby(true);
   const squads = ffLobbySquads();
-  el.style.color = squads.length ? "#98a3bd" : "#fbbf24";
+  el.style.color = squads.length ? "#9aa7b5" : "#fbbf24";
   el.textContent = squads.length
     ? "Read " + squads.length + " squads from the live lobby."
     : "Nothing in the lobby yet — the log has narrated no joins.";
@@ -9678,7 +9719,7 @@ document.getElementById("ff_lobbyFill").addEventListener("click", () => {
   });
   ffWs.send(JSON.stringify({
     type: "freefire_fill_roster_from_lobby", assignments }));
-  el.style.color = "#98a3bd";
+  el.style.color = "#9aa7b5";
   el.textContent = "Adding…";
 });
 
@@ -9709,7 +9750,7 @@ function ffShowLobbyFillResult(msg){
      buffer, same fix as after reading the lobby. */
   const shown = ffRefreshRosterFromState();
   if(shown){
-    el.innerHTML += "<div style='margin-top:4px;color:#98a3bd;'>Roster grid " +
+    el.innerHTML += "<div style='margin-top:4px;color:#9aa7b5;'>Roster grid " +
       "refreshed — " + shown + " team(s).</div>";
   }
   ffRenderLobby(true);
@@ -9777,10 +9818,10 @@ function ffRenderAirdrop(){
   const fresh = a.secondsAgo != null && a.secondsAgo < 90;
   el.innerHTML =
     "<div style='background:" + (fresh ? "#0d2a1a;border:1px solid #2c6244"
-                                      : "#161b28;border:1px solid #2b3348") +
+                                      : "#161b28;border:1px solid #1b2430") +
     ";border-radius:6px;padding:7px 10px;font-size:12px;'>" +
     (fresh ? "<strong style='color:#4ade80;'>Airdrop on screen</strong>"
-           : "<span style='color:#98a3bd;'>Airdrop</span>") +
+           : "<span style='color:#9aa7b5;'>Airdrop</span>") +
     " &mdash; " + a.count + " seen this match" +
     (a.secondsAgo != null ? ", last " + a.secondsAgo + "s ago" : "") +
     "<div class='hint' style='margin-top:2px;'>Seen " + ffEscapeHtml(a.seenOnly || "") +
@@ -9800,7 +9841,7 @@ function ffRenderTeamMarks(){
   ffLastMarksKey = key;
 
   el.innerHTML =
-    "<details><summary style='cursor:pointer;color:#98a3bd;font-size:12px;'>" +
+    "<details><summary style='cursor:pointer;color:#9aa7b5;font-size:12px;'>" +
     "Zone / fire glow — click to set</summary>" +
     "<div style='margin-top:6px;display:grid;" +
     "grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px;'>" +
@@ -9842,7 +9883,7 @@ function ffRenderShortNames(){
   ffLastShortKey = key;
 
   el.innerHTML =
-    "<details><summary style='cursor:pointer;color:#98a3bd;font-size:12px;'>" +
+    "<details><summary style='cursor:pointer;color:#9aa7b5;font-size:12px;'>" +
     "Short names on the table (" + rows.length + ") — click to edit</summary>" +
     "<div style='margin-top:6px;display:grid;" +
     "grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:6px;'>" +
@@ -9859,7 +9900,7 @@ function ffRenderShortNames(){
                  : "made from the team name") + "'>" +
       "<span style='font-size:10px;color:" +
       (r.shortSource === "operator" ? "#4ade80'>set"
-       : r.shortSource === "roster" ? "#98a3bd'>roster" : "#6b7590'>auto") +
+       : r.shortSource === "roster" ? "#9aa7b5'>roster" : "#7d8b9c'>auto") +
       "</span></div>").join("") + "</div></details>";
 }
 
@@ -9903,7 +9944,7 @@ function ffRenderJoinPrompt(){
     "team each squad belongs to &mdash; the player names are the giveaway.</div>" +
     squads.map(q =>
       "<div class='row' style='gap:8px;align-items:center;margin-top:4px;'>" +
-      "<span style='min-width:58px;font-family:monospace;font-size:11px;color:#98a3bd;'>sq " +
+      "<span style='min-width:58px;font-family:monospace;font-size:11px;color:#9aa7b5;'>sq " +
       ffEscapeHtml(q.gsTeam) + "</span>" +
       "<span style='min-width:64px;font-size:11px;color:" +
       (q.out ? "#f5a4a4'>OUT" : "#4ade80'>" + q.alive + " up") + "</span>" +
@@ -9972,19 +10013,19 @@ function ffRenderBooyahCard(){
     // "cute legend" really did become TG.LEGEND. Hidden only when the
     // two are the same string, where it would be noise.
     const source = (p.fileIgn && p.fileIgn !== p.ign)
-      ? '<div style="color:#6b7590;font-size:10px;">in game: ' +
+      ? '<div style="color:#7d8b9c;font-size:10px;">in game: ' +
         ffEscapeHtml(p.fileIgn) + '</div>'
       : (!p.fileIgn
-          ? '<div style="color:#6b7590;font-size:10px;">no name in the file</div>'
+          ? '<div style="color:#7d8b9c;font-size:10px;">no name in the file</div>'
           : "");
     return `
-      <tr style="border-top:1px solid #2b3348;">
-        <td style="padding:5px 8px;color:#6b7590;white-space:nowrap;">${where}</td>
+      <tr style="border-top:1px solid #1b2430;">
+        <td style="padding:5px 8px;color:#7d8b9c;white-space:nowrap;">${where}</td>
         <td style="padding:5px 8px;">
           <div style="font-size:13px;">${ffEscapeHtml(p.ign)}</div>${source}
         </td>
-        <td style="padding:5px 8px;font-family:monospace;font-size:11px;color:#98a3bd;white-space:nowrap;">
-          ${p.uid ? ffEscapeHtml(p.uid) : '<span style="color:#6b7590;">no UID in the file</span>'}
+        <td style="padding:5px 8px;font-family:monospace;font-size:11px;color:#9aa7b5;white-space:nowrap;">
+          ${p.uid ? ffEscapeHtml(p.uid) : '<span style="color:#7d8b9c;">no UID in the file</span>'}
         </td>
         <td style="padding:5px 8px;text-align:center;">${p.kills == null ? "—" : p.kills}</td>
         <td style="padding:5px 8px;font-size:11px;white-space:nowrap;">${flag}</td>
@@ -10000,7 +10041,7 @@ function ffRenderBooyahCard(){
 
   document.getElementById("ff_booyahPlayers").innerHTML = `
     <table style="border-collapse:collapse;font-size:12px;width:100%;">
-      <thead><tr style="text-align:left;color:#98a3bd;">
+      <thead><tr style="text-align:left;color:#9aa7b5;">
         <th style="padding:4px 8px;">Cell</th>
         <th style="padding:4px 8px;">Goes up as</th>
         <th style="padding:4px 8px;">UID</th>
@@ -10046,7 +10087,7 @@ document.getElementById("ff_resultsReload").addEventListener("click", () => {
     el.textContent = "Not connected to the Free Fire engine.";
     return;
   }
-  el.style.color = "#98a3bd";
+  el.style.color = "#9aa7b5";
   el.textContent = "Reading the game folder...";
 });
 
@@ -10310,7 +10351,7 @@ function ffgfxLoadPage(pageKey){
   document.getElementById("ffgfx_bg").src = page.bg();
   Object.keys(FFGFX_PAGES).forEach(k => {
     const btn = document.getElementById("ffgfx_page_" + k);
-    if(btn){ btn.style.background = k === pageKey ? "#7d6bff" : ""; btn.style.color = k === pageKey ? "#0a0d18" : ""; }
+    if(btn){ btn.style.background = k === pageKey ? "#4d9fff" : ""; btn.style.color = k === pageKey ? "#06090c" : ""; }
   });
 
   const existing = (ffState && ffState.graphicOverrides && ffState.graphicOverrides[pageKey]) || {};
@@ -10665,7 +10706,7 @@ function ffRenderStandings(ff){
   document.getElementById("ff_standingsEmpty").style.display = standings.length ? "none" : "block";
   if(!standings.length){ document.getElementById("ff_standingsTable").innerHTML = ""; return; }
   const rows = standings.map((r, i) => `
-    <tr style="border-top:1px solid #2b3348;">
+    <tr style="border-top:1px solid #1b2430;">
       <td style="padding:6px;">${i + 1}</td>
       <td style="padding:6px;font-weight:700;">${ffEscapeHtml(r.teamName)}</td>
       <td style="padding:6px;">${r.matches}</td>
@@ -10674,7 +10715,7 @@ function ffRenderStandings(ff){
       <td style="padding:6px;">${r.bestRank != null ? "#" + r.bestRank : "-"}</td>
     </tr>`).join("");
   document.getElementById("ff_standingsTable").innerHTML = `
-    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#98a3bd;">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#9aa7b5;">
       <th style="padding:6px;">#</th><th style="padding:6px;">Team</th>
       <th style="padding:6px;">Matches</th><th style="padding:6px;">Total Kills</th>
       <th style="padding:6px;">Total Points</th><th style="padding:6px;">Best Placement</th>
@@ -11002,8 +11043,8 @@ function valBuildAgentPickRows(containerId, team){
     const row = document.createElement("div");
     row.style.cssText = "display:flex;gap:8px;align-items:center;margin-bottom:8px;";
     row.innerHTML = `
-      <img id="val_agentPick_${team}_${i}_portrait" style="width:36px;height:36px;border-radius:6px;object-fit:cover;background:#0a0d18;display:none;" alt="">
-      <div style="min-width:110px;font-weight:700;color:#98a3bd;" id="val_agentPick_${team}_${i}_nameLabel">Player ${i+1}</div>
+      <img id="val_agentPick_${team}_${i}_portrait" style="width:36px;height:36px;border-radius:6px;object-fit:cover;background:#06090c;display:none;" alt="">
+      <div style="min-width:110px;font-weight:700;color:#9aa7b5;" id="val_agentPick_${team}_${i}_nameLabel">Player ${i+1}</div>
       <input type="text" id="val_agentPick_${team}_${i}_agent" list="valAgentDatalist" placeholder="Agent" style="flex:1;">
     `;
     container.appendChild(row);
@@ -11383,10 +11424,10 @@ function valBuildLiveStatsAssignRows(team){
     wrap.appendChild(sel);
     wrap.insertAdjacentHTML("beforeend", `
       <img id="crop-assign-${nameKey}" title="Live crop of the on-screen name for this row" alt=""
-        style="width:76px;height:22px;object-fit:cover;border:1px solid #2b3348;border-radius:3px;
-        image-rendering:pixelated;flex-shrink:0;background:#0a0d18;">
+        style="width:76px;height:22px;object-fit:cover;border:1px solid #1b2430;border-radius:3px;
+        image-rendering:pixelated;flex-shrink:0;background:#06090c;">
       <div id="val-ls-live-assign-${nameKey}" title=""
-        style="font-size:10px;color:#98a3bd;width:100px;flex-shrink:0;white-space:nowrap;overflow:hidden;
+        style="font-size:10px;color:#9aa7b5;width:100px;flex-shrink:0;white-space:nowrap;overflow:hidden;
         text-overflow:ellipsis;">Reading: —</div>
     `);
     container.appendChild(wrap);
@@ -11427,20 +11468,20 @@ function valBuildLiveStatsGrid(team){
   const container = document.getElementById(`val_liveStatsGridTeam${team.slice(-1)}`);
   const table = document.createElement("table");
   table.style.cssText = "width:100%;border-collapse:collapse;font-size:12px;";
-  let thead = `<thead><tr style="text-align:center;color:#98a3bd;"><th style="padding:4px;text-align:left;">${team === "team1" ? "Team 1" : "Team 2"} Row</th>`;
+  let thead = `<thead><tr style="text-align:center;color:#9aa7b5;"><th style="padding:4px;text-align:left;">${team === "team1" ? "Team 1" : "Team 2"} Row</th>`;
   VAL_LIVESTATS_FIELDS.forEach(f => { thead += `<th style="padding:4px;">${VAL_LIVESTATS_FIELD_LABELS[f]}</th>`; });
   thead += `<th style="padding:4px;">Gun</th>`;
   thead += `<th style="padding:4px;">Name (auto-match)</th>`;
   thead += `</tr></thead>`;
   let tbody = "<tbody>";
   for(let row = 0; row < 5; row++){
-    tbody += `<tr style="border-top:1px solid #2b3348;"><td style="padding:4px;color:#98a3bd;">Row ${row + 1}</td>`;
+    tbody += `<tr style="border-top:1px solid #1b2430;"><td style="padding:4px;color:#9aa7b5;">Row ${row + 1}</td>`;
     VAL_LIVESTATS_FIELDS.forEach(f => {
       const key = `valorant_livestats_${team}_row${row}_${f}`;
       tbody += `
         <td style="padding:4px;text-align:center;">
-          <img id="crop-${key}" style="display:block;max-width:260px;max-height:400px;margin:0 auto 3px;border:1px solid #2b3348;border-radius:3px;image-rendering:pixelated;">
-          <div id="val-ls-live-${key}" style="font-size:11px;color:#98a3bd;">—</div>
+          <img id="crop-${key}" style="display:block;max-width:260px;max-height:400px;margin:0 auto 3px;border:1px solid #1b2430;border-radius:3px;image-rendering:pixelated;">
+          <div id="val-ls-live-${key}" style="font-size:11px;color:#9aa7b5;">—</div>
           <div style="display:flex;align-items:center;justify-content:center;gap:3px;margin-top:2px;">
             <input type="checkbox" id="val-ls-lock-${key}" title="Override" style="width:12px;height:12px;margin:0;">
             <input type="number" id="val-ls-input-${key}" disabled style="width:44px;font-size:11px;padding:2px;">
@@ -11457,7 +11498,7 @@ function valBuildLiveStatsGrid(team){
     const gunKey = `valorant_livestats_${team}_row${row}_gun`;
     tbody += `
       <td style="padding:4px;text-align:center;">
-        <img id="crop-${gunKey}" style="display:block;max-width:260px;max-height:400px;margin:0 auto 3px;border:1px solid #2b3348;border-radius:3px;image-rendering:pixelated;">
+        <img id="crop-${gunKey}" style="display:block;max-width:260px;max-height:400px;margin:0 auto 3px;border:1px solid #1b2430;border-radius:3px;image-rendering:pixelated;">
         <button type="button" class="secondary val-copy-calib" data-key="${gunKey}" title="Copy the recalibration command for just this cell" style="font-size:9px;padding:2px 4px;margin-top:3px;">Copy Calib Cmd</button>
       </td>
     `;
@@ -11470,8 +11511,8 @@ function valBuildLiveStatsGrid(team){
     const nameKey = `valorant_livestats_${team}_row${row}_name`;
     tbody += `
       <td style="padding:4px;text-align:center;">
-        <img id="crop-${nameKey}" style="display:block;max-width:260px;max-height:400px;margin:0 auto 3px;border:1px solid #2b3348;border-radius:3px;image-rendering:pixelated;">
-        <div id="val-ls-live-${nameKey}" style="font-size:11px;color:#98a3bd;">—</div>
+        <img id="crop-${nameKey}" style="display:block;max-width:260px;max-height:400px;margin:0 auto 3px;border:1px solid #1b2430;border-radius:3px;image-rendering:pixelated;">
+        <div id="val-ls-live-${nameKey}" style="font-size:11px;color:#9aa7b5;">—</div>
         <button type="button" class="secondary val-copy-calib" data-key="${nameKey}" title="Copy the recalibration command for just this cell" style="font-size:9px;padding:2px 4px;margin-top:3px;">Copy Calib Cmd</button>
       </td>
     `;
@@ -11609,11 +11650,11 @@ function valBuildPostMatchRows(containerId, team){
   container.innerHTML = "";
   for(let i=0;i<5;i++){
     const row = document.createElement("div");
-    row.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #1f2739;";
+    row.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #161e28;";
     row.innerHTML = `
       <div style="min-width:100px;">
         <label>Player ${i+1}</label>
-        <div id="val_pom_${team}_${i}_nameLabel" style="font-weight:700;color:#98a3bd;">&mdash;</div>
+        <div id="val_pom_${team}_${i}_nameLabel" style="font-weight:700;color:#9aa7b5;">&mdash;</div>
       </div>
       <div style="width:84px;"><label>Agent</label><input type="text" id="val_pom_${team}_${i}_agent"></div>
       <div style="width:52px;"><label>ACS</label><input type="number" id="val_pom_${team}_${i}_acs" value="0"></div>
@@ -11736,7 +11777,7 @@ function valRenderImportTable(){
   const table = document.createElement("table");
   table.style.cssText = "width:100%;border-collapse:collapse;font-size:13px;";
   table.innerHTML = `
-    <thead><tr style="text-align:left;color:#98a3bd;">
+    <thead><tr style="text-align:left;color:#9aa7b5;">
       <th style="padding:6px;">Reorder</th>
       <th style="padding:6px;">Player</th>
       <th style="padding:6px;">ACS</th>
@@ -11752,11 +11793,11 @@ function valRenderImportTable(){
   `;
   const tbody = table.querySelector("tbody");
   const cropImg = (row, col) => row.crops && row.crops[col]
-    ? `<img src="${row.crops[col]}" style="display:block;max-width:70px;max-height:24px;margin:0 auto 3px;border:1px solid #2b3348;border-radius:3px;">`
+    ? `<img src="${row.crops[col]}" style="display:block;max-width:70px;max-height:24px;margin:0 auto 3px;border:1px solid #1b2430;border-radius:3px;">`
     : "";
   valImportRows.forEach((row, i) => {
     const tr = document.createElement("tr");
-    tr.style.borderTop = "1px solid #2b3348";
+    tr.style.borderTop = "1px solid #1b2430";
     tr.innerHTML = `
       <td style="padding:6px;">
         <div class="reorder-btns">
@@ -12496,8 +12537,8 @@ function valgfxSetZoom(scale){
   valgfxApplyStageSize();
   document.querySelectorAll("[data-valgfx-zoom]").forEach(btn => {
     const active = Number(btn.dataset.valgfxZoom) === scale;
-    btn.style.background = active ? "#7d6bff" : "";
-    btn.style.color = active ? "#0a0d18" : "";
+    btn.style.background = active ? "#4d9fff" : "";
+    btn.style.color = active ? "#06090c" : "";
   });
   const pageDef = VAL_GRAPHIC_PAGES[valgfxCurrentPage];
   if(pageDef){
@@ -12529,7 +12570,7 @@ function valgfxLoadPage(pageKey){
 
   document.querySelectorAll("#valtab-graphics .row button.secondary").forEach(b => b.classList.remove("gfx-active"));
   const pageBtn = document.getElementById(`valgfx_page_${pageKey}`);
-  if(pageBtn){ pageBtn.style.background = "#7d6bff"; pageBtn.style.color = "#0a0d18"; }
+  if(pageBtn){ pageBtn.style.background = "#4d9fff"; pageBtn.style.color = "#06090c"; }
   Object.keys(VAL_GRAPHIC_PAGES).filter(k => k !== pageKey).forEach(k => {
     const b = document.getElementById(`valgfx_page_${k}`);
     if(b){ b.style.background = ""; b.style.color = ""; }
@@ -12703,8 +12744,8 @@ function valgfxShowStagePage(pageKey){
   valgfxLoadPage(pageKey);
   document.querySelectorAll("[data-valgfx-zoom]").forEach(btn => {
     const active = Number(btn.dataset.valgfxZoom) === VALGFX_SCALE;
-    btn.style.background = active ? "#7d6bff" : "";
-    btn.style.color = active ? "#0a0d18" : "";
+    btn.style.background = active ? "#4d9fff" : "";
+    btn.style.color = active ? "#06090c" : "";
   });
 }
 
@@ -12716,7 +12757,7 @@ function valgfxShowCharacterFixingPanel(){
   document.getElementById("valgfx_characterfixing_panel").style.display = "block";
   document.querySelectorAll("#valtab-graphics .row button.secondary").forEach(b => { b.style.background = ""; b.style.color = ""; });
   const btn = document.getElementById("valgfx_page_characterfixing");
-  btn.style.background = "#7d6bff"; btn.style.color = "#0a0d18";
+  btn.style.background = "#4d9fff"; btn.style.color = "#06090c";
   valcfLoad();
 }
 
@@ -12795,7 +12836,7 @@ function buildOverlayLinksTable(){
   const table = document.createElement("table");
   table.style.cssText = "width:100%;border-collapse:collapse;font-size:13px;";
   table.innerHTML = `
-    <thead><tr style="text-align:left;color:#98a3bd;">
+    <thead><tr style="text-align:left;color:#9aa7b5;">
       <th style="padding:6px;">Game</th>
       <th style="padding:6px;">Asset</th>
       <th style="padding:6px;">Browser Source Link</th>
@@ -12816,11 +12857,11 @@ function buildOverlayLinksTable(){
       if(vt) link += `&token=${encodeURIComponent(vt)}`;
     }
     const tr = document.createElement("tr");
-    tr.style.borderTop = "1px solid #2b3348";
+    tr.style.borderTop = "1px solid #1b2430";
     tr.innerHTML = `
-      <td style="padding:6px;color:#6b7590;">${item.game}</td>
+      <td style="padding:6px;color:#7d8b9c;">${item.game}</td>
       <td style="padding:6px;font-weight:700;">${item.name}</td>
-      <td style="padding:6px;"><input type="text" readonly value="${link}" style="width:100%;font-family:monospace;font-size:11px;background:#0a0d18;color:#c8cede;border:1px solid #2b3348;border-radius:4px;padding:4px 6px;" onclick="this.select();"></td>
+      <td style="padding:6px;"><input type="text" readonly value="${link}" style="width:100%;font-family:monospace;font-size:11px;background:#06090c;color:#c8cede;border:1px solid #1b2430;border-radius:4px;padding:4px 6px;" onclick="this.select();"></td>
       <td style="padding:6px;"><button type="button" class="secondary overlay-link-copy" data-link="${link}">Copy</button></td>
     `;
     tbody.appendChild(tr);
@@ -13085,7 +13126,7 @@ const DOTA2_EDIT_FIELDS = [
 
 function dota2CropImg(p, field){
   const src = p && p.crops && p.crops[field];
-  return src ? `<img src="${src}" style="display:block;max-width:80px;max-height:26px;margin:0 auto 3px;border:1px solid #2b3348;border-radius:3px;">` : "";
+  return src ? `<img src="${src}" style="display:block;max-width:80px;max-height:26px;margin:0 auto 3px;border:1px solid #1b2430;border-radius:3px;">` : "";
 }
 
 function dota2RenderCaptureTable(cap){
@@ -13095,7 +13136,7 @@ function dota2RenderCaptureTable(cap){
   const table = document.createElement("table");
   table.style.cssText = "width:100%;border-collapse:collapse;font-size:13px;";
   table.innerHTML = `
-    <thead><tr style="text-align:left;color:#98a3bd;">
+    <thead><tr style="text-align:left;color:#9aa7b5;">
       <th style="padding:6px;">Screen Row</th>
       <th style="padding:6px;">Who (roster player)</th>
       <th style="padding:6px;text-align:center;">K</th>
@@ -13110,7 +13151,7 @@ function dota2RenderCaptureTable(cap){
   ["team1","team2"].forEach(team => {
     (cap[team].players || []).forEach((p, i) => {
       const tr = document.createElement("tr");
-      tr.style.borderTop = "1px solid #2b3348";
+      tr.style.borderTop = "1px solid #1b2430";
       const label = team === "team1" ? "T1" : "T2";
       const cell = (field, val) => `
         <td style="padding:6px;text-align:center;">
@@ -13119,7 +13160,7 @@ function dota2RenderCaptureTable(cap){
                  style="width:70px;text-align:center;" value="${val ?? ""}" placeholder="—">
         </td>`;
       tr.innerHTML = `
-        <td style="padding:6px;color:#6b7590;">${label} row ${i+1}</td>
+        <td style="padding:6px;color:#7d8b9c;">${label} row ${i+1}</td>
         <td style="padding:6px;"><select class="dota2-who" data-team="${team}" data-i="${i}" style="width:180px;">${dota2WhoOptionsHtml(team, i)}</select></td>
         ${cell("kills", p && p.kills)}
         ${cell("deaths", p && p.deaths)}
