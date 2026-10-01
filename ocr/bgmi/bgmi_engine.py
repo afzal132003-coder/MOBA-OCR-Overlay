@@ -60,6 +60,8 @@ def default_config():
             # only pushes when the table has actually changed.
             "sheetWebhookUrl": "",
             "sheetTab": "",
+            "resultsTab": "",
+            "resultsGame": 1,
             "liveSheetPush": False,
             # Names cost a Tesseract pass per player, so this is the one
             # expensive thing in a capture -- but it is also the only
@@ -392,6 +394,47 @@ def push_alive_to_sheet(force=False):
     return answer
 
 
+def push_results_to_sheet(game, rows):
+    """One finished match into the scoresheet: finishes and rank per slot.
+
+    A different spreadsheet from the live table, and a different shape --
+    the scoresheet stacks one block per game down the page, so the game
+    number picks the block and the slot picks the row inside it.
+
+    Only two cells per team are written. The points, the totals, the team
+    names and the logo paths are all the sheet's own formulas, and a push
+    that touched them would overwrite the thing that makes the sheet
+    worth having.
+    """
+    settings = config.get("settings") or {}
+    url = (settings.get("sheetWebhookUrl") or "").strip()
+    if not url:
+        return {"ok": False, "error": "No sheet webhook URL set."}
+    if not rows:
+        return {"ok": False, "error": "No result rows to push."}
+    try:
+        game = int(game)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "No game number given."}
+
+    payload = {
+        "kind": "results",
+        "game": game,
+        "tab": (settings.get("resultsTab") or "").strip(),
+        "rows": [{"slot": r.get("slot"), "finishes": r.get("finishes"),
+                  "rank": r.get("rank")} for r in rows],
+    }
+    import urllib.request
+    req = urllib.request.Request(
+        url, data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            return json.loads(resp.read().decode("utf-8", "replace"))
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 # ----------------------------------------------------------------- preview
 
 def annotate(rgb, cards, rows):
@@ -541,6 +584,14 @@ async def handle_client(websocket, path=None):
                     None, push_alive_to_sheet, bool(payload.get("force", True)))
                 await websocket.send(json.dumps({
                     "type": "bgmi_sheet_result", "result": answer}))
+
+            elif kind == "bgmi_push_results":
+                loop = asyncio.get_running_loop()
+                answer = await loop.run_in_executor(
+                    None, push_results_to_sheet,
+                    payload.get("game"), payload.get("rows") or [])
+                await websocket.send(json.dumps({
+                    "type": "bgmi_results_result", "result": answer}))
 
             elif kind == "bgmi_set_settings":
                 (config.setdefault("settings", {})

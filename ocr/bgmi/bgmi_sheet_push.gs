@@ -44,32 +44,127 @@
  *   but not redeployed changes nothing, which is a confusing hour.
  */
 
-var SCRIPT_VERSION = "2026-10-01.1-bgmi-alive";
+var SCRIPT_VERSION = "2026-10-02.1-bgmi-alive-and-results";
 
-// Blank = whichever spreadsheet this script is bound to.
+// ---- ALIVE: the live side table, its own spreadsheet ---------------------
 var SPREADSHEET_ID = "13F4LTctinqHStzFOpurVH4kdRzrJiPzGDvCLGKOD7C8";
-
 var SHEET_NAME = "";            // tab name; blank = the first tab
-var SLOT_COLUMN = "";           // column holding the slot number; blank = positional
+var SLOT_COLUMN = "";           // column holding the slot number -- SEE THE NOTE BELOW
 var ALIVE_START_COLUMN = "Q";   // first of the four alive checkboxes
 var ALIVE_COLUMN_COUNT = 4;
 var ELIM_COLUMN = "U";          // the team's elimination count
 var DATA_START_ROW = 5;         // first row holding a team
 var DATA_END_ROW = 20;          // last row holding a team (16 teams: 5..20)
 
+// SET SLOT_COLUMN. It is not optional for this event.
+//
+// The positional fallback assumes slot 1 sits on DATA_START_ROW, and this
+// lobby's slots run 3 to 18 -- so positional would put every team three
+// rows above where it belongs, silently and consistently. Point
+// SLOT_COLUMN at whichever column of the live sheet holds the slot
+// numbers and the rows are found by reading them instead.
+
+// ---- RESULTS: the scoresheet, a DIFFERENT spreadsheet --------------------
+//
+// One block per game, laid out identically and stacked down the page:
+//
+//            GAME 1            GAME 2            GAME 3
+//   banner   row  2            row 23            row 44
+//   headers  row  3            row 24            row 45
+//   data     rows 4-19         rows 25-40        rows 46-61
+//
+// So a game's first data row is RESULTS_FIRST_ROW + (game - 1) * STRIDE,
+// and only two columns are ever written: finishes and rank. Everything
+// else in the block -- points, totals, the team name, the logo path --
+// is the sheet's own formulas, and nothing here touches them.
+var RESULTS_SPREADSHEET_ID = "";   // <-- the SCORESHEET's id, from its URL
+var RESULTS_SHEET_NAME = "";       // tab name; the dashboard overrides this
+var RESULTS_SLOT_COLUMN = "D";     // the block's own slot numbers
+var RESULTS_FINISH_COLUMN = "G";   // finishes  (kills)
+var RESULTS_RANK_COLUMN = "I";     // placement
+var RESULTS_FIRST_ROW = 4;         // first data row of GAME 1
+var RESULTS_ROWS_PER_GAME = 16;    // teams per block
+var RESULTS_GAME_STRIDE = 21;      // row 4 -> row 25, so 21
+
 
 function doPost(e) {
   var result = { ok: false, version: SCRIPT_VERSION, matched: 0, total: 0 };
   try {
     var body = JSON.parse(e.postData.contents);
-    if (body.tab) SHEET_NAME = String(body.tab);
-    pushAlive_(body, result);
+    if (body.kind === "results") {
+      if (body.tab) RESULTS_SHEET_NAME = String(body.tab);
+      pushResults_(body, result);
+    } else {
+      if (body.tab) SHEET_NAME = String(body.tab);
+      pushAlive_(body, result);
+    }
   } catch (err) {
     result.error = String(err);
   }
   return ContentService
     .createTextOutput(JSON.stringify(result))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+
+function pushResults_(body, result) {
+  if (!RESULTS_SPREADSHEET_ID) {
+    result.error = "RESULTS_SPREADSHEET_ID is not set -- paste the scoresheet's id into this script.";
+    return;
+  }
+  var game = parseInt(body.game, 10);
+  if (isNaN(game) || game < 1) { result.error = "No game number given."; return; }
+
+  var book = SpreadsheetApp.openById(RESULTS_SPREADSHEET_ID);
+  var sheet = RESULTS_SHEET_NAME ? book.getSheetByName(RESULTS_SHEET_NAME)
+                                 : book.getSheets()[0];
+  if (!sheet) {
+    result.error = 'No tab named "' + RESULTS_SHEET_NAME + '". Tabs here: ' +
+      book.getSheets().map(function (s) { return s.getName(); }).join(", ");
+    return;
+  }
+
+  var first = RESULTS_FIRST_ROW + (game - 1) * RESULTS_GAME_STRIDE;
+  var slotIdx = colToIndex_(RESULTS_SLOT_COLUMN);
+  var finIdx = colToIndex_(RESULTS_FINISH_COLUMN);
+  var rankIdx = colToIndex_(RESULTS_RANK_COLUMN);
+
+  // Rows are found by READING the block's own slot column, never by
+  // counting down from the top. The slots here start at 3, and a sheet
+  // whose rows are reordered or whose lobby is a different size would
+  // otherwise be written into silently and wrongly.
+  var slots = sheet.getRange(first, slotIdx, RESULTS_ROWS_PER_GAME, 1).getValues();
+  var rowOf = {};
+  for (var i = 0; i < slots.length; i++) {
+    var n = parseInt(String(slots[i][0]).replace(/[^0-9]/g, ""), 10);
+    if (!isNaN(n)) rowOf[n] = first + i;
+  }
+
+  result.tab = sheet.getName();
+  result.game = game;
+  result.blockRows = first + "-" + (first + RESULTS_ROWS_PER_GAME - 1);
+  result.slotsInBlock = Object.keys(rowOf).length;
+
+  var rows = body.rows || [];
+  result.total = rows.length;
+  var missed = [];
+
+  rows.forEach(function (row) {
+    var slot = parseInt(row.slot, 10);
+    var sheetRow = rowOf[slot];
+    if (!sheetRow) { missed.push(slot); return; }
+    // Only these two cells. Points and totals are the sheet's formulas.
+    if (row.finishes !== null && row.finishes !== undefined) {
+      sheet.getRange(sheetRow, finIdx).setValue(row.finishes);
+    }
+    if (row.rank !== null && row.rank !== undefined) {
+      sheet.getRange(sheetRow, rankIdx).setValue(row.rank);
+    }
+    result.matched++;
+  });
+
+  if (missed.length) result.unmatchedSlots = missed;
+  result.ok = true;
 }
 
 
@@ -178,10 +273,36 @@ function authorize() {
     Logger.log("Slot column " + SLOT_COLUMN + " reads: " +
                raw.map(function (r) { return r[0]; }).join(", "));
   } else {
-    Logger.log("SLOT_COLUMN is blank -- rows are taken positionally, " +
-               "slot 1 -> row " + DATA_START_ROW + ", slot " +
-               (DATA_END_ROW - DATA_START_ROW + 1) + " -> row " + DATA_END_ROW + ".");
-    Logger.log("Set SLOT_COLUMN to the column that holds the slot numbers " +
-               "if you want this to survive the rows being reordered.");
+    Logger.log("*** SLOT_COLUMN IS BLANK. Rows would be taken positionally, " +
+               "slot 1 -> row " + DATA_START_ROW + ". This lobby's slots start " +
+               "at 3, so every team would land three rows above where it " +
+               "belongs. Set SLOT_COLUMN before using this. ***");
   }
+
+  Logger.log("");
+  Logger.log("---- RESULTS (the scoresheet) ----");
+  if (!RESULTS_SPREADSHEET_ID) {
+    Logger.log("RESULTS_SPREADSHEET_ID is not set. Paste the scoresheet's id " +
+               "(the long string in its URL) and run this again.");
+    return;
+  }
+  var rbook = SpreadsheetApp.openById(RESULTS_SPREADSHEET_ID);
+  Logger.log("Scoresheet: " + rbook.getName());
+  Logger.log("Tabs: " + rbook.getSheets().map(function (s) { return s.getName(); }).join(", "));
+  var rsheet = RESULTS_SHEET_NAME ? rbook.getSheetByName(RESULTS_SHEET_NAME)
+                                  : rbook.getSheets()[0];
+  if (!rsheet) { Logger.log('NO TAB NAMED "' + RESULTS_SHEET_NAME + '"'); return; }
+
+  // Print the first few game blocks with the slots actually found in each,
+  // so the stride is confirmed against the real sheet rather than assumed.
+  for (var g = 1; g <= 3; g++) {
+    var first = RESULTS_FIRST_ROW + (g - 1) * RESULTS_GAME_STRIDE;
+    var slots = rsheet.getRange(first, colToIndex_(RESULTS_SLOT_COLUMN),
+                                RESULTS_ROWS_PER_GAME, 1).getValues();
+    Logger.log("GAME " + g + "  rows " + first + "-" +
+               (first + RESULTS_ROWS_PER_GAME - 1) +
+               "  slots: " + slots.map(function (r) { return r[0]; }).join(", "));
+  }
+  Logger.log("Writing finishes into " + RESULTS_FINISH_COLUMN +
+             " and rank into " + RESULTS_RANK_COLUMN + ", nothing else.");
 }
