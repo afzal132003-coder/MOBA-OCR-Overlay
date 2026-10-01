@@ -1753,21 +1753,31 @@
   <span id="bgmi_status" class="disconnected">DISCONNECTED</span>
 
   <div class="card">
-    <h2>Observer Panel Reader</h2>
+    <h2>Capture The Panel, One Slide At A Time</h2>
     <p class="hint">BGMI gives us no debugger log the way Free Fire does &mdash; it is a retail Android build in
-      BlueStacks, so every number here comes off the screen. Open the team panel in the observer client, then
-      press <strong>Read Now</strong>. The preview below is a fresh single capture each press, never a stream:
-      reading a frame costs ~40ms, but pushing a JPEG of the panel on every poll is the part that would actually
-      cost you, so nothing is captured while you are not looking.</p>
-    <div class="row" style="gap:8px;align-items:center;">
-      <button id="bgmi_readNow">Read Now</button>
+      BlueStacks, so every number comes off the screen. One screenful is nine teams, so a 16&ndash;20 team lobby
+      takes two or three: capture a slide, scroll the panel, capture the next. They are merged by slot number,
+      and a slide you re-capture replaces only itself.</p>
+    <p class="hint"><strong>Say where each slide starts.</strong> The panel can stop anywhere, so nothing on
+      screen says which nine teams you are looking at &mdash; but you can see it. That makes the typed number the
+      source of truth and the numbers on screen the check: if they disagree, the capture is refused rather than
+      guessed at, because the wrong answer puts one team's kills on another team's row in the sheet.</p>
+
+    <div id="bgmi_slides" style="display:flex;flex-direction:column;gap:8px;margin-top:4px;"></div>
+
+    <div class="row" style="gap:8px;align-items:center;margin-top:12px;">
+      <button class="secondary" id="bgmi_addSlide">Add Another Slide</button>
+      <button class="secondary" id="bgmi_clearSlides">Clear All (New Match)</button>
       <label style="display:flex;gap:6px;align-items:center;" class="hint">
         <input type="checkbox" id="bgmi_withPreview" checked> with preview image
       </label>
       <button class="secondary" id="bgmi_reloadGlyphs">Reload Digit Templates</button>
     </div>
+
     <div class="hint" id="bgmi_blocked" style="margin-top:10px;display:none;
          background:#2a1a1a;border:1px solid #6b3030;border-radius:6px;padding:10px;color:#ffc9c9;"></div>
+    <div class="hint" id="bgmi_learned" style="margin-top:10px;display:none;
+         background:#0c1a12;border:1px solid #1f4f2f;border-radius:6px;padding:10px;color:#9ff0c0;"></div>
     <div class="hint" id="bgmi_diag" style="margin-top:10px;font-family:monospace;font-size:11px;"></div>
   </div>
 
@@ -13610,13 +13620,67 @@ function bgmiSend(msg){
   return false;
 }
 
+/* The slide list is the operator's, not the engine's: it holds the slot
+   each slide starts at, typed before the first capture and kept after.
+   Rebuilt only when a slide is added or removed -- redrawing it on every
+   state push would take focus out of a number field mid-type, which is
+   exactly the fault that made the Free Fire squad dropdowns unusable. */
+let bgmiSlides = [{ slide: 1, firstSlot: 3 }, { slide: 2, firstSlot: 12 }];
+
+function bgmiDrawSlides(){
+  const wrap = document.getElementById("bgmi_slides");
+  if (document.activeElement && wrap.contains(document.activeElement)) return;
+  wrap.innerHTML = bgmiSlides.map(s =>
+    "<div style='display:flex;gap:10px;align-items:center;flex-wrap:wrap;" +
+    "border:1px solid #1b2430;border-radius:8px;padding:10px 12px;'>" +
+    "<span style='font-family:Rajdhani,sans-serif;font-weight:700;font-size:17px;" +
+    "letter-spacing:.08em;min-width:74px;'>SLIDE " + s.slide + "</span>" +
+    "<label style='margin:0;display:flex;gap:6px;align-items:center;'>starts at slot" +
+    "<input type='number' min='1' max='25' value='" + s.firstSlot + "' " +
+    "data-slide='" + s.slide + "' class='bgmi-first' style='width:72px;'></label>" +
+    "<button data-slide='" + s.slide + "' class='bgmi-cap'>Capture Slide " + s.slide + "</button>" +
+    "<span class='hint' id='bgmi_slideState" + s.slide + "'></span></div>").join("");
+
+  wrap.querySelectorAll(".bgmi-first").forEach(el => {
+    el.addEventListener("change", () => {
+      const row = bgmiSlides.find(x => x.slide === Number(el.dataset.slide));
+      if (row) row.firstSlot = Number(el.value);
+    });
+  });
+  wrap.querySelectorAll(".bgmi-cap").forEach(el => {
+    el.addEventListener("click", () => bgmiCapture(Number(el.dataset.slide), el));
+  });
+}
+
+function bgmiCapture(slide, btn){
+  const row = bgmiSlides.find(x => x.slide === slide);
+  const field = document.querySelector(".bgmi-first[data-slide='" + slide + "']");
+  const first = field ? Number(field.value) : (row ? row.firstSlot : null);
+  if (row) row.firstSlot = first;
+  if (!first) {
+    document.getElementById("bgmi_previewNote").textContent =
+      "Set the slot this slide starts at first.";
+    return;
+  }
+  if (!bgmiSend({type: "bgmi_capture_slide", slide: slide, firstSlot: first,
+                 preview: document.getElementById("bgmi_withPreview").checked})) {
+    document.getElementById("bgmi_previewNote").textContent =
+      "Not connected to the BGMI engine — start it with: python ocr\\bgmi\\bgmi_engine.py --serve";
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = "Reading…"; }
+  setTimeout(() => {
+    if (btn) { btn.disabled = false; btn.textContent = "Capture Slide " + slide; }
+  }, 8000);
+}
+
 function bgmiRenderDiag(d){
   if (!d) return "";
   const bits = [
     "cards " + (d.cards == null ? "-" : d.cards),
     "scroll " + (d.scroll == null ? "-" : d.scroll) + " (fit " + (d.scrollScore == null ? "-" : d.scrollScore) + ")",
-    "first slot " + (d.firstSlot == null ? "-" : d.firstSlot),
-    "slot margin " + (d.slotMargin == null ? "-" : d.slotMargin),
+    "you said " + (d.declaredSlot == null ? "-" : d.declaredSlot),
+    "screen read " + (d.readSlot == null ? "not checked" : d.readSlot),
   ];
   if (d.missingDigits && d.missingDigits.length) {
     bits.push("UNSEEN DIGITS: " + d.missingDigits.join(", "));
@@ -13630,16 +13694,44 @@ function bgmiRender(state){
   blocked.style.display = state.blockedBy ? "block" : "none";
   blocked.textContent = state.blockedBy || "";
 
-  document.getElementById("bgmi_diag").textContent = bgmiRenderDiag(state.diagnostics);
+  const diag = state.diagnostics || {};
+  document.getElementById("bgmi_diag").textContent = bgmiRenderDiag(diag);
+
+  /* Learning is silent otherwise, and a digit being learned is the one
+     thing standing between this engine refusing everything and working. */
+  const learned = document.getElementById("bgmi_learned");
+  const got = diag.learned || [], refused = diag.refusedToLearn || [];
+  if (got.length || refused.length) {
+    learned.style.display = "block";
+    let msg = "";
+    if (got.length) msg += "Learned digit " + got.join(", ") + " from that slide. ";
+    if (refused.length) {
+      msg += refused.length + " glyph(s) refused — they already look like a " +
+        "different digit, which usually means the starting slot is wrong.";
+    }
+    learned.textContent = msg;
+  } else {
+    learned.style.display = "none";
+  }
+
+  /* Per-slide status, written into the row rather than redrawing it. */
+  (state.slides ? Object.values(state.slides) : []).forEach(s => {
+    const el = document.getElementById("bgmi_slideState" + s.slide);
+    if (el) {
+      const n = (s.rows || []).length;
+      el.textContent = "✓ slots " + s.firstSlot + "–" + (s.firstSlot + n - 1) +
+        " · " + new Date(s.readAt * 1000).toLocaleTimeString();
+    }
+  });
 
   const body = document.getElementById("bgmi_rows");
   const rows = state.rows || [];
   if (!rows.length) {
     body.innerHTML = "<tr><td colspan='3' class='hint'>" +
-      (state.blockedBy ? "(refused — see above)" : "(nothing read yet)") + "</td></tr>";
+      (state.blockedBy ? "(refused — see above)" : "(nothing captured yet)") + "</td></tr>";
   } else {
     body.innerHTML = rows.map(r =>
-      "<tr style='border-top:1px solid #222a3c;'>" +
+      "<tr style='border-top:1px solid #161e28;'>" +
       "<td style='padding:4px 10px 4px 0;'>" + r.slot + "</td>" +
       "<td style='padding:4px 10px 4px 0;" + (r.alive ? "" : "color:#ff8f8f;") + "'>" +
         r.alive + " / 4" + (r.eliminated ? " — wiped" : "") + "</td>" +
@@ -13651,9 +13743,20 @@ function bgmiRender(state){
   const total = rows.reduce((a, r) => a + (r.alive || 0), 0);
   const up = rows.filter(r => (r.alive || 0) > 0).length;
   let verdict;
-  if (h.agrees === true)       verdict = "<span style='color:#79e6a2;'>agrees with the game</span>";
-  else if (h.agrees === false) verdict = "<span style='color:#ff8f8f;'>DOES NOT agree — do not trust this read</span>";
-  else                         verdict = "<span class='hint'>not checked — this page is only part of the lobby</span>";
+  if (h.agrees === true)       verdict = "<span style='color:#4ade80;'>agrees with the game</span>";
+  else if (h.agrees === false) verdict = "<span style='color:#ff8f8f;'>DOES NOT agree — do not trust this</span>";
+  else if (h.lobbySize)        verdict = "<span class='hint'>not checked — " + rows.length +
+                                         " of " + h.lobbySize + " teams captured so far</span>";
+  else                         verdict = "<span class='hint'>not checked — set the lobby size</span>";
+
+  let clash = "";
+  if (state.conflicts && state.conflicts.length) {
+    clash = "<div style='margin-top:10px;color:#ff8f8f;'>" + state.conflicts.length +
+      " slot(s) read differently by two slides: " +
+      state.conflicts.map(c => c.slot).join(", ") +
+      " — re-capture those slides.</div>";
+  }
+
   document.getElementById("bgmi_header").innerHTML =
     "<div><b>Game says</b></div>" +
     "<div>Remaining: " + (h.remaining == null ? "—" : h.remaining) + "</div>" +
@@ -13661,7 +13764,7 @@ function bgmiRender(state){
     "<div style='margin-top:8px;'><b>We read</b></div>" +
     "<div>Alive: " + total + "</div>" +
     "<div>Teams up: " + up + "</div>" +
-    "<div style='margin-top:8px;'>" + verdict + "</div>";
+    "<div style='margin-top:8px;'>" + verdict + "</div>" + clash;
 }
 
 function bgmiConnect(){
@@ -13681,13 +13784,14 @@ function bgmiConnect(){
       const note = document.getElementById("bgmi_previewNote");
       if (msg.preview) {
         img.src = msg.preview; img.style.display = "block";
-        note.textContent = "Captured " + new Date().toLocaleTimeString() + ".";
+        note.textContent = "Slide " + msg.slide + ", captured " + new Date().toLocaleTimeString() + ".";
       } else {
         img.style.display = "none";
-        note.textContent = "Read without a preview image.";
+        note.textContent = "Captured without a preview image.";
       }
-      document.getElementById("bgmi_readNow").disabled = false;
-      document.getElementById("bgmi_readNow").textContent = "Read Now";
+      document.querySelectorAll(".bgmi-cap").forEach(b => {
+        b.disabled = false; b.textContent = "Capture Slide " + b.dataset.slide;
+      });
     } else if (msg.type === "bgmi_glyphs") {
       document.getElementById("bgmi_diag").textContent =
         "slot digits: " + (msg.slot || []).join("") +
@@ -13703,19 +13807,18 @@ function bgmiConnect(){
   bgmiWs.onerror = () => bgmiWs.close();
 }
 bgmiConnect();
+bgmiDrawSlides();
 
-document.getElementById("bgmi_readNow").addEventListener("click", () => {
-  const btn = document.getElementById("bgmi_readNow");
-  const want = document.getElementById("bgmi_withPreview").checked;
-  if (!bgmiSend({type: "bgmi_read_now", preview: want})) {
-    document.getElementById("bgmi_previewNote").textContent =
-      "Not connected to the BGMI engine — start it with: python ocr\\bgmi\\bgmi_engine.py --serve";
-    return;
-  }
-  btn.disabled = true; btn.textContent = "Reading…";
-  // The engine always answers, but a capture on a busy box can take a
-  // moment; don't leave the button dead if the socket drops mid-read.
-  setTimeout(() => { btn.disabled = false; btn.textContent = "Read Now"; }, 8000);
+document.getElementById("bgmi_addSlide").addEventListener("click", () => {
+  const last = bgmiSlides.length ? bgmiSlides[bgmiSlides.length - 1] : null;
+  bgmiSlides.push({ slide: (last ? last.slide : 0) + 1,
+                    firstSlot: last ? last.firstSlot + 9 : 1 });
+  bgmiDrawSlides();
+});
+
+document.getElementById("bgmi_clearSlides").addEventListener("click", () => {
+  if (!bgmiSend({type: "bgmi_clear_slides"})) return;
+  document.getElementById("bgmi_previewNote").textContent = "Cleared — ready for a new match.";
 });
 
 document.getElementById("bgmi_reloadGlyphs").addEventListener("click", () => {

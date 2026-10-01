@@ -492,6 +492,45 @@ def remember(stores, store, digit, bitmap, near=0.97):
     return True
 
 
+def learn_slot_digits(cards, first_slot, stores, contradiction=0.90):
+    """Learn slot digits from a page the OPERATOR has labelled.
+
+    The operator scrolls the panel and says where the page starts, so the
+    slot of every card on it follows. That is a better teacher than any
+    fit we could run -- it needs no templates to begin with, which is the
+    only way out of the standing deadlock where digit 2 cannot be read
+    because digit 2 has never been seen.
+
+    It also trusts a typed number, so there is one guard. A bitmap that
+    already looks like a DIFFERENT digit is not learned: mistype the
+    starting slot and every digit on screen would otherwise be filed
+    under the wrong name, which does not merely fail to help -- it
+    poisons a store that was working. Refusing those and reporting them
+    turns a typo into a visible disagreement instead.
+    """
+    learned, refused = [], []
+    for i, c in enumerate(cards):
+        label = "%02d" % (first_slot + i)
+        for cell, bm in enumerate(c.get("slot_bitmaps") or []):
+            if bm is None:
+                continue
+            want = label[cell]
+            rival, rival_score = None, 0.0
+            for digit, refs in (stores.get("slot") or {}).items():
+                if digit == want:
+                    continue
+                for ref in refs:
+                    s = similarity(bm, ref)
+                    if s > rival_score:
+                        rival, rival_score = digit, s
+            if rival is not None and rival_score >= contradiction:
+                refused.append((want, rival, round(rival_score, 3)))
+                continue
+            if remember(stores, "slot", want, bm):
+                learned.append(want)
+    return learned, refused
+
+
 # ------------------------------------------------------------------- header
 #
 # "Remaining 32  Team 10" -- the game's own totals, and the only thing on

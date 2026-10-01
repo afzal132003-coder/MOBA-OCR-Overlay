@@ -84,9 +84,15 @@ templates = bp.load_templates()
 
 server_state = {
     "bgmi": {
-        "rows": [],
+        # One entry per slide, keyed by its number as a string. A slide is
+        # one screenful of the panel: the operator captures it, scrolls,
+        # and captures the next. Kept separately rather than merged on
+        # arrival so a re-capture of slide 2 replaces only slide 2, and so
+        # the dashboard can show which slide a disagreement came from.
+        "slides": {},
+        "rows": [],              # the slides merged, by slot
+        "conflicts": [],
         "header": {"remaining": None, "teamsAlive": None},
-        "diagnostics": {},
         "readAt": 0,
         "blockedBy": "",
     }
@@ -106,8 +112,21 @@ def grab_region():
     return np.asarray(Image.frombytes("RGB", shot.size, shot.rgb))
 
 
-def read_frame(rgb):
-    """Everything bgmi_panel can tell us about one frame.
+def read_frame(rgb, declared_slot=None, learn=True):
+    """One slide of the panel, read against the slot the operator declared.
+
+    THE DECLARED SLOT IS THE MECHANISM; the numbers on screen are the
+    check. The operator scrolls the panel and says where the page starts,
+    which is something they can see and we cannot reliably infer: an
+    arbitrary scroll position gives no clue which teams are on it, and
+    the fit that would otherwise have to supply it needs a complete digit
+    store to be sound.
+
+    Reading them still matters -- it is what catches a typo. When the
+    store can read the numbers and they disagree with what was typed, the
+    capture is REFUSED rather than published under either, because one of
+    the two is wrong and guessing which would put a team's kills on
+    another team's row in the sheet.
 
     Returns (rows, header, diagnostics, blocked_reason). `rows` is empty
     whenever blocked_reason is set -- a refusal never half-publishes.
@@ -120,8 +139,11 @@ def read_frame(rgb):
         "cardRows": page["card_rows"],
         "scroll": round(page["scroll"], 1),
         "scrollScore": round(page["scroll_score"], 1),
-        "firstSlot": None,
+        "declaredSlot": declared_slot,
+        "readSlot": None,
         "slotMargin": 0.0,
+        "learned": [],
+        "refusedToLearn": [],
         "missingDigits": bp.missing_digits(templates.get("slot", {})),
     }
 
@@ -130,34 +152,69 @@ def read_frame(rgb):
                               "the capture region on the game picture rather "
                               "than the BlueStacks window?")
 
-    if diag["missingDigits"]:
-        return [], {}, diag, (
-            "Digit %s has never been seen, so the slot numbers cannot be "
-            "trusted -- most starting positions become unjudgeable. Capture a "
-            "frame scrolled so a slot containing it is on screen, then run "
-            "learn_glyphs.py on it." % ", ".join(diag["missingDigits"]))
+    if declared_slot is None:
+        return [], {}, diag, ("Say which slot this slide starts at. The panel "
+                              "can stop anywhere, so nothing on screen says "
+                              "which teams these nine are.")
 
-    first, margin = bp.fit_slot_run(cards, templates.get("slot", {}))
-    diag["firstSlot"], diag["slotMargin"] = first, round(margin, 3)
-    if first is None:
-        return [], {}, diag, ("The slot numbers did not fit any consecutive "
-                              "run clearly (margin %.3f). Mid-scroll, or the "
-                              "panel is partly covered." % margin)
+    # Learn from what was declared. This is the way out of the deadlock:
+    # digit 2 could never be read because digit 2 had never been seen, and
+    # a labelled page needs no templates to teach from.
+    if learn:
+        got, refused = bp.learn_slot_digits(cards, declared_slot, templates)
+        diag["learned"] = sorted(set(got))
+        diag["refusedToLearn"] = refused
+        if got:
+            bp.save_templates(templates)
+        diag["missingDigits"] = bp.missing_digits(templates.get("slot", {}))
 
-    bp.assign_slots(cards, first)
+    # Now the check, but only once the store can actually read a number.
+    if not diag["missingDigits"]:
+        read_first, margin = bp.fit_slot_run(cards, templates.get("slot", {}))
+        diag["readSlot"], diag["slotMargin"] = read_first, round(margin, 3)
+        if read_first is not None and read_first != declared_slot:
+            return [], {}, diag, (
+                "You said this slide starts at %d, but the numbers on screen "
+                "read %d. One of those is wrong, and publishing either would "
+                "put a team's kills on another team's row — scroll to where "
+                "you meant, or correct the number."
+                % (declared_slot, read_first))
+
+    bp.assign_slots(cards, declared_slot)
     rows = bp.team_rows(cards)
     remaining, teams_alive = bp.read_header(luma, templates.get("slot", {}))
     header = {"remaining": remaining, "teamsAlive": teams_alive}
-
-    # The checksum, when the page happens to hold the whole lobby. A
-    # partial page legitimately totals less than the header, so this is
-    # reported rather than enforced -- enforcing it on a 9-of-16 view
-    # would reject every good frame.
-    lobby = int((config.get("settings") or {}).get("lobbySize") or 0)
-    header["complete"] = bool(lobby and len(rows) >= lobby)
-    header["agrees"] = bp.agrees_with_header(
-        rows, remaining, teams_alive, header["complete"])
     return rows, header, diag, ""
+
+
+def recombine():
+    """Merge every captured slide into one table, keyed by slot.
+
+    Slides may overlap -- a scroll of less than a full page is normal --
+    and where two of them can see the same slot they must agree. A clash
+    is reported rather than resolved: both were captured from the same
+    game, so a disagreement means one was taken mid-scroll or while the
+    panel was covered, and picking a winner would hide that.
+    """
+    state = server_state["bgmi"]
+    pages = [s["rows"] for s in state["slides"].values() if s.get("rows")]
+    rows, conflicts = bp.merge_pages(pages)
+    state["rows"] = rows
+    state["conflicts"] = [
+        {"slot": c[0], "a": c[1], "b": c[2]} for c in conflicts]
+
+    # The checksum only means anything once the slides between them cover
+    # the lobby. On a partial view our totals are legitimately lower than
+    # the header's, and asserting otherwise would reject every good frame.
+    lobby = int((config.get("settings") or {}).get("lobbySize") or 0)
+    head = state.get("header") or {}
+    head["complete"] = bool(lobby and len(rows) >= lobby)
+    head["agrees"] = bp.agrees_with_header(
+        rows, head.get("remaining"), head.get("teamsAlive"), head["complete"])
+    head["covered"] = len(rows)
+    head["lobbySize"] = lobby
+    state["header"] = head
+    return rows
 
 
 # ----------------------------------------------------------------- preview
@@ -215,23 +272,44 @@ async def broadcast(msg):
             pass
 
 
-def do_read(with_preview):
+def capture_slide(slide, declared_slot, with_preview=True, learn=True):
+    """Capture one slide: read it, keep it, re-merge every slide.
+
+    A slide that cannot be read replaces nothing. Re-capturing slide 2
+    after a bad frame must not take the good slide 2 away with it --
+    leaving the last good one standing is what lets the operator simply
+    press it again.
+    """
     rgb = grab_region()
-    rows, header, diag, blocked = read_frame(rgb)
-    server_state["bgmi"] = {
-        "rows": rows,
-        "header": header,
-        "diagnostics": diag,
-        "readAt": time.time(),
-        "blockedBy": blocked,
-    }
+    rows, header, diag, blocked = read_frame(rgb, declared_slot, learn)
+    state = server_state["bgmi"]
+
+    if not blocked:
+        state["slides"][str(slide)] = {
+            "slide": slide,
+            "firstSlot": declared_slot,
+            "rows": rows,
+            "readAt": time.time(),
+        }
+        if header.get("remaining") is not None:
+            state["header"].update(header)
+        # What the poll loop will keep refreshing: the panel is presumed
+        # to still be where the operator last pointed it.
+        state["activeSlide"] = slide
+        recombine()
+
+    state["readAt"] = time.time()
+    state["blockedBy"] = blocked
+    state["diagnostics"] = diag
+
     preview = ""
     if with_preview:
         page = bp.read_page(rgb, digit_templates=templates.get("kill"))
         cards = page["cards"]
-        if cards and not blocked:
-            bp.assign_slots(cards, diag.get("firstSlot") or 1)
-        preview = to_data_url(annotate(rgb, cards, rows) if cards
+        if cards and declared_slot is not None:
+            bp.assign_slots(cards, declared_slot)
+        preview = to_data_url(annotate(rgb, cards, rows if rows else
+                                       bp.team_rows(cards)) if cards
                               else Image.fromarray(rgb))
     return preview
 
@@ -247,15 +325,31 @@ async def handle_client(websocket, path=None):
                 continue
             kind = payload.get("type")
 
-            if kind == "bgmi_read_now":
+            if kind == "bgmi_capture_slide":
+                slide = int(payload.get("slide") or 1)
+                first = payload.get("firstSlot")
+                first = int(first) if first not in (None, "") else None
                 loop = asyncio.get_running_loop()
                 preview = await loop.run_in_executor(
-                    None, do_read, bool(payload.get("preview", True)))
+                    None, capture_slide, slide, first,
+                    bool(payload.get("preview", True)),
+                    bool(payload.get("learn", True)))
                 await websocket.send(json.dumps({
                     "type": "bgmi_read_result",
+                    "slide": slide,
                     "preview": preview,
                     "bgmi": server_state["bgmi"],
                 }))
+                await broadcast({"type": "state_sync", "data": server_state})
+
+            elif kind == "bgmi_clear_slides":
+                # A new match, not a correction. Kept separate from
+                # re-capturing one slide, which must never drop the others.
+                server_state["bgmi"]["slides"] = {}
+                server_state["bgmi"]["header"] = {
+                    "remaining": None, "teamsAlive": None}
+                recombine()
+                server_state["bgmi"]["blockedBy"] = ""
                 await broadcast({"type": "state_sync", "data": server_state})
 
             elif kind == "bgmi_set_settings":
@@ -288,13 +382,27 @@ async def handle_client(websocket, path=None):
 
 
 async def poll_loop():
-    """Continuous reading, off unless asked for. No preview rides along --
-    that is the expensive half and nobody is necessarily watching."""
+    """Keep the slide that is ON SCREEN fresh, off unless asked for.
+
+    Only one slide can be polled, because only one is in front of the
+    camera -- so this re-captures the last one the operator took, on the
+    assumption they left the panel where they put it. The other slides
+    keep their last good reading, which is the right answer for a page
+    nobody is looking at: it does not go stale, it just stops moving.
+
+    No preview rides along. That is the expensive half, and nobody is
+    necessarily watching.
+    """
     while True:
         settings = config.get("settings") or {}
-        if settings.get("continuousPoll"):
+        state = server_state["bgmi"]
+        active = state.get("activeSlide")
+        if settings.get("continuousPoll") and active is not None:
+            held = state["slides"].get(str(active)) or {}
             try:
-                await asyncio.get_running_loop().run_in_executor(None, do_read, False)
+                await asyncio.get_running_loop().run_in_executor(
+                    None, capture_slide, active, held.get("firstSlot"),
+                    False, False)
                 await broadcast({"type": "state_sync", "data": server_state})
             except Exception as e:
                 print("poll failed: %s" % e)
@@ -349,6 +457,14 @@ if __name__ == "__main__":
     else:
         # Without --serve: one read against the current screen, printed.
         # Have the panel open before running it.
-        rows, header, diag, blocked = read_frame(grab_region())
+        first = None
+        for arg in sys.argv[1:]:
+            if arg.startswith("--first-slot="):
+                first = int(arg.split("=", 1)[1])
+        if first is None:
+            print("Pass --first-slot=N: the panel can stop anywhere, so "
+                  "nothing on screen says which teams are on it.")
+            raise SystemExit(2)
+        rows, header, diag, blocked = read_frame(grab_region(), first, learn=False)
         print(json.dumps({"rows": rows, "header": header,
                           "diagnostics": diag, "blockedBy": blocked}, indent=2))

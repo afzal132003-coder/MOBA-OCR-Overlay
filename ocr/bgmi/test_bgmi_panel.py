@@ -246,6 +246,37 @@ def main():
     # completeness refusal in front of it that path is now unreachable, so
     # there is nothing honest to assert about it from one frame.
 
+    print("\nlearning slot digits from a page the operator labelled")
+    # The operator scrolls, says where the page starts, and that labels
+    # every card on it -- which is the only way to teach a digit that
+    # cannot yet be read. It also trusts a typed number, so the guard
+    # against a mistyped one is the thing worth testing.
+    # NOTE the shape: learn_slot_digits takes the WHOLE store, both
+    # drawers -- {"slot": {...}, "kill": {...}} -- not a bare digit map.
+    # Handed a bare one it finds no rivals to contradict anything and
+    # learns the lot, which is how this test first "passed" while proving
+    # nothing.
+    def store_of(digits):
+        return {"slot": {k: [b.copy() for b in v] for k, v in digits.items()},
+                "kill": {}}
+
+    before = {k: len(v) for k, v in slot_templates.items()}
+
+    fresh = store_of(slot_templates)
+    _, refused = bp.learn_slot_digits(cards, FIRST_SLOT, fresh)
+    check("a correctly labelled page contradicts nothing", refused == [],
+          "%d refused" % len(refused))
+
+    poisoned = store_of(slot_templates)
+    got2, refused2 = bp.learn_slot_digits(cards, 12, poisoned)
+    check("a mistyped starting slot teaches nothing at all", got2 == [],
+          "learned %s" % sorted(set(got2)))
+    check("and every glyph of it is refused, with a reason",
+          len(refused2) >= 15 and all(len(r) == 3 for r in refused2),
+          "%d refused" % len(refused2))
+    check("the store is left exactly as it was",
+          {k: len(v) for k, v in poisoned["slot"].items()} == before)
+
     print("\nKNOWN GAPS, not failures:")
     print("  * Every count in this fixture is single-digit, so a player on")
     print("    10+ kills is UNTESTED. It currently voids that team's total")
