@@ -92,6 +92,58 @@
     background:transparent;color:#e8edf2;border-color:transparent;
     box-shadow:inset 0 -2px 0 #4d9fff;
   }
+  /* Engine state, in the game bar. Four engines on four ports, and the
+     only way to learn one was down used to be switching to that game and
+     noticing nothing arrive. */
+  .nav-dot{width:7px;height:7px;border-radius:50%;background:#2b3646;display:inline-block;
+    margin-right:8px;vertical-align:middle;flex-shrink:0;}
+  .nav-dot.up{background:#4ade80;}
+  .nav-dot.wait{background:#ffa53d;}
+
+  /* A jump list for tabs carrying more than a handful of cards -- the
+     heaviest holds twenty-four, which is the only place in this
+     dashboard where finding something is genuinely scrolling. */
+  .card-index{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;margin:0 0 16px;
+    padding:12px 16px;background:#0a0e14;border:1px solid #1b2430;border-radius:10px;
+    position:sticky;top:0;z-index:5;}
+  .card-index-label{font-family:var(--nav);font-size:11px;letter-spacing:0.16em;color:#6f7d8e;
+    font-weight:600;margin-right:4px;}
+  .card-index a{font-size:12px;color:#9aa7b5;text-decoration:none;padding:3px 0;
+    border-bottom:1px solid transparent;}
+  .card-index a:hover{color:#e8edf2;border-bottom-color:#4d9fff;}
+
+  /* Folding. Most of eighty cards are idle at any moment. */
+  .card-head{cursor:pointer;user-select:none;display:flex;align-items:center;gap:9px;}
+  .card-head:focus-visible{outline:2px solid #4d9fff;outline-offset:3px;}
+  .card-caret{width:0;height:0;border-left:6px solid #6f7d8e;border-top:4px solid transparent;
+    border-bottom:4px solid transparent;transform:rotate(90deg);transition:transform 0.15s ease;
+    flex-shrink:0;}
+  .card.folded .card-caret{transform:rotate(0deg);}
+  .card.folded > *:not(h2){display:none !important;}
+  .card-flash{animation:cardflash 1.2s ease;}
+  @keyframes cardflash{0%{box-shadow:0 0 0 2px #4d9fff;}100%{box-shadow:0 0 0 2px transparent;}}
+
+  /* Ctrl+K. At eighty cards, typing three letters beats any menu -- and
+     unlike the browser's own find, this one reaches a card sitting in a
+     panel that is display:none until its tab is shown. */
+  #navPalette{display:none;position:fixed;inset:0;background:rgba(3,5,8,0.72);z-index:999;
+    padding-top:11vh;}
+  #navPalette.on{display:block;}
+  .nav-pal-box{max-width:620px;margin:0 auto;background:#0d1218;border:1px solid #1b2430;
+    border-radius:12px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,0.6);}
+  #navPaletteInput{width:100%;box-sizing:border-box;border:0;border-bottom:1px solid #1b2430;
+    background:#0a0e14;color:#e8edf2;font-size:16px;padding:16px 18px;font-family:inherit;}
+  #navPaletteInput:focus{outline:none;}
+  #navPaletteList{max-height:52vh;overflow-y:auto;}
+  .nav-pal-row{display:flex;width:100%;gap:12px;align-items:baseline;justify-content:space-between;
+    background:transparent;border:0;border-radius:0;margin:0;padding:11px 18px;cursor:pointer;
+    text-align:left;font-family:inherit;text-transform:none;letter-spacing:0;min-height:0;
+    box-shadow:none;}
+  .nav-pal-row.on, .nav-pal-row:hover{background:#16202c;}
+  .nav-pal-title{font-size:14px;color:#e8edf2;}
+  .nav-pal-where{font-size:11.5px;color:#7d8b9c;white-space:nowrap;}
+  .nav-pal-hint{padding:9px 18px;border-top:1px solid #1b2430;font-size:11px;color:#6f7d8e;}
+
   .ff-pending-dot{display:none;}
   .ff-pending-dot.on{
     display:inline-block;min-width:18px;padding:0 5px;margin-left:6px;
@@ -2795,6 +2847,16 @@
 
 </div>
 
+<div id="navPalette" role="dialog" aria-modal="true" aria-label="Jump to a card">
+  <div class="nav-pal-box">
+    <label for="navPaletteInput" style="position:absolute;left:-9999px;">Search cards</label>
+    <input id="navPaletteInput" type="text" autocomplete="off" spellcheck="false"
+           placeholder="Jump to a card…">
+    <div id="navPaletteList"></div>
+    <div class="nav-pal-hint">Up / Down to move &middot; Enter to open &middot; Esc to close</div>
+  </div>
+</div>
+
 <script>
 /* ---------- entry gate ---------- */
 document.getElementById("entry_gate_enter").addEventListener("click", () => {
@@ -3077,38 +3139,146 @@ let prematchHydrated = false;
 let postMatchHydrated = false;
 let timerTickHandle = null;
 
-/* ---------- game categories ---------- */
+/* ================= NAVIGATION =================================
+   One table and one handler, where there used to be five.
+
+   Each game grew its own tab system -- its own button class, its own
+   data- attribute, its own panel class and id prefix -- and each got its
+   own near-identical click handler. Nothing was wrong with any of them
+   individually; the cost was that a fix to one (remembering position,
+   say, or a status dot) had to be made four times and never was.
+
+   The markup is deliberately NOT renamed. Describing the four schemes in
+   a table buys the single code path without touching a single id or
+   class in the body, which is the version of this change that can go on
+   a live tool. A new game is now a row here.
+
+   onShow carries the per-tab side effects the old handlers had inline --
+   the graphics tabs build their canvas lazily and must be told when they
+   become visible. */
+const NAV = [
+  { id: "moba",     label: "MOBA",
+    btn: "tab-btn",       attr: "tab",    panel: "tab-panel",       prefix: "tab-",
+    sock: () => (typeof ws !== "undefined" ? ws : null),
+    onShow: { graphics: () => gfxLoadPage(gfxCurrentPage) } },
+  { id: "valorant", label: "Valorant",
+    btn: "val-tab-btn",   attr: "valtab", panel: "val-tab-panel",   prefix: "valtab-",
+    sock: () => (typeof valWs !== "undefined" ? valWs : null) },
+  { id: "cs2",      label: "CS2" },
+  { id: "dota2",    label: "Dota 2",
+    btn: "dota2-tab-btn", attr: "d2tab",  panel: "dota2-tab-panel", prefix: "d2tab-",
+    sock: () => (typeof dota2Ws !== "undefined" ? dota2Ws : null),
+    onShow: { graphic: () => dota2gfxLoad() } },
+  { id: "hok",      label: "HOK" },
+  { id: "freefire", label: "FreeFire Max",
+    btn: "ff-tab-btn",    attr: "fftab",  panel: "ff-tab-panel",    prefix: "fftab-",
+    sock: () => (typeof ffWs !== "undefined" ? ffWs : null) },
+  { id: "bgmi",     label: "BGMI",
+    sock: () => (typeof bgmiWs !== "undefined" ? bgmiWs : null) },
+];
+const NAV_BY_ID = {};
+NAV.forEach(g => { NAV_BY_ID[g.id] = g; });
+
+/* Panels are looked up INSIDE their own category, never document-wide.
+   The old handlers queried globally, which worked only because the four
+   schemes happened not to collide -- scoping means a future game reusing
+   a class name cannot reach into another game's panels. */
+function navPanelOf(game){ return document.getElementById("category-" + game.id); }
+
+function navShowGame(id, record){
+  const game = NAV_BY_ID[id];
+  if (!game) return false;
+  document.querySelectorAll(".category-btn").forEach(b =>
+    b.classList.toggle("active", b.dataset.category === id));
+  document.querySelectorAll(".category-panel").forEach(p =>
+    p.classList.toggle("active", p.id === "category-" + id));
+  if (record !== false) navWriteHash();
+  return true;
+}
+
+function navShowTab(gameId, tabId, record){
+  const game = NAV_BY_ID[gameId];
+  if (!game || !game.btn || !tabId) return false;
+  const root = navPanelOf(game);
+  if (!root) return false;
+  const target = document.getElementById(game.prefix + tabId);
+  if (!target) return false;
+  root.querySelectorAll("." + game.btn).forEach(b =>
+    b.classList.toggle("active", b.dataset[game.attr] === tabId));
+  root.querySelectorAll("." + game.panel).forEach(p =>
+    p.classList.toggle("active", p === target));
+  const after = game.onShow && game.onShow[tabId];
+  if (after) { try { after(); } catch (e) { /* tab still opens */ } }
+  // Those hooks build a tab's content on first open, so the cards they
+  // create are picked up here rather than only at page load.
+  try { navEnhanceCards(); } catch (e) {}
+  if (record !== false) navWriteHash();
+  return true;
+}
+
+function navCurrentTab(game){
+  if (!game || !game.btn) return "";
+  const root = navPanelOf(game);
+  const on = root && root.querySelector("." + game.btn + ".active");
+  return on ? (on.dataset[game.attr] || "") : "";
+}
+
+function navCurrentGame(){
+  const on = document.querySelector(".category-btn.active");
+  return on ? on.dataset.category : NAV[0].id;
+}
+
+/* The position lives in the URL, not just in memory. Ctrl+F5 is part of
+   every deploy here, and it used to drop you back on MOBA / In-Game every
+   single time; now the reload lands where you were. Putting it in the
+   hash rather than localStorage also makes the position something you can
+   paste to someone -- "#freefire/liveops" opens what you are looking at. */
+let navSuppressHash = false;
+function navWriteHash(){
+  const gameId = navCurrentGame();
+  const tab = navCurrentTab(NAV_BY_ID[gameId]);
+  const next = "#" + gameId + (tab ? "/" + tab : "");
+  if (location.hash === next) return;
+  navSuppressHash = true;
+  try { history.replaceState(null, "", next); } catch (e) { location.hash = next; }
+  navSuppressHash = false;
+}
+
+function navApplyHash(){
+  const raw = (location.hash || "").replace(/^#/, "");
+  if (!raw) return;
+  const [gameId, tabId] = raw.split("/");
+  if (!NAV_BY_ID[gameId]) return;
+  navShowGame(gameId, false);
+  if (tabId) navShowTab(gameId, tabId, false);
+}
+
 document.querySelectorAll(".category-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".category-btn").forEach(b => b.classList.remove("active"));
-    document.querySelectorAll(".category-panel").forEach(p => p.classList.remove("active"));
-    btn.classList.add("active");
-    document.getElementById("category-" + btn.dataset.category).classList.add("active");
+  btn.addEventListener("click", () => navShowGame(btn.dataset.category));
+});
+
+NAV.forEach(game => {
+  if (!game.btn) return;
+  const root = navPanelOf(game);
+  if (!root) return;
+  root.querySelectorAll("." + game.btn).forEach(btn => {
+    btn.addEventListener("click", () =>
+      navShowTab(game.id, btn.dataset[game.attr]));
   });
 });
 
-/* ---------- tabs ---------- */
-document.querySelectorAll(".tab-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
-    document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
-    btn.classList.add("active");
-    document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
-    if(btn.dataset.tab === "graphics") gfxLoadPage(gfxCurrentPage);
-  });
-});
+window.addEventListener("hashchange", () => { if (!navSuppressHash) navApplyHash(); });
 
-/* ---------- FreeFire sub-tabs (separate class names from .tab-btn/.tab-panel
-   above on purpose -- that handler is global across the whole document, so
-   sharing classes would have it fight over "active" state with the MOBA
-   tabs and collide on id="tab-prematch" etc.) ---------- */
-/* Opens a Free Fire tab and scrolls to a card in it.
-   Live Lobby now sits under Roster Import in the same tab, but the page
-   is long enough that "just below" is still a scroll, so the link takes
-   you to it. */
+/* Deferred: the onShow hooks reach functions and `let` bindings declared
+   further down this script, which are still in their temporal dead zone
+   while this block runs. */
+setTimeout(navApplyHash, 0);
+
+/* Opens a Free Fire tab and scrolls to a card in it. Live Lobby sits
+   under Roster Import in the same tab, but the page is long enough that
+   "just below" is still a scroll, so the link takes you to it. */
 function ffGoToCard(tab, cardId){
-  const btn = document.querySelector('.ff-tab-btn[data-fftab="' + tab + '"]');
-  if(btn) btn.click();
+  navShowTab("freefire", tab);
   const card = document.getElementById(cardId);
   if(card) card.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -3123,36 +3293,271 @@ function ffWireLobbyJump(){
   });
 }
 
-document.querySelectorAll(".ff-tab-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".ff-tab-btn").forEach(b => b.classList.remove("active"));
-    document.querySelectorAll(".ff-tab-panel").forEach(p => p.classList.remove("active"));
-    btn.classList.add("active");
-    document.getElementById("fftab-" + btn.dataset.fftab).classList.add("active");
+/* ---------- engine status, in the game bar ----------
+   Four engines now run on four ports, and the only way to learn one was
+   down was to switch to that game and notice nothing arriving. The dot
+   says it from the bar. Polled rather than hooked into each socket's
+   onopen/onclose: readyState is the truth either way, and five more
+   listeners spread across five connect() functions is five more things
+   to keep in step. */
+function navPaintStatus(){
+  document.querySelectorAll(".category-btn").forEach(btn => {
+    const game = NAV_BY_ID[btn.dataset.category];
+    let dot = btn.querySelector(".nav-dot");
+    if (!game || !game.sock) { if (dot) dot.remove(); return; }
+    if (!dot) {
+      dot = document.createElement("span");
+      dot.className = "nav-dot";
+      btn.insertBefore(dot, btn.firstChild);
+    }
+    let state = "down";
+    try {
+      const s = game.sock();
+      if (s && s.readyState === WebSocket.OPEN) state = "up";
+      else if (s && s.readyState === WebSocket.CONNECTING) state = "wait";
+    } catch (e) { state = "down"; }
+    dot.className = "nav-dot " + state;
+    dot.title = state === "up" ? "engine connected"
+              : state === "wait" ? "connecting" : "engine not connected";
   });
+}
+setInterval(navPaintStatus, 2000);
+setTimeout(navPaintStatus, 400);
+
+/* ---------- one dropdown-refresh helper ----------
+   The "dropdown keeps disappearing" fault was a <select> being refilled
+   by a state push while it was open. The rule that prevents it was
+   already written out by hand in dozens of places, which is precisely
+   why it was missing from the rest. Three parts, and all three matter:
+   never redraw what the operator is using, never redraw what has not
+   changed (every rebuild closes an open list and scrolls it to the top),
+   and keep the selection across a rebuild that does happen. */
+function setOptions(select, options, opts){
+  if (!select) return false;
+  const cfg = opts || {};
+  if (document.activeElement === select) return false;
+  const norm = options.map(o =>
+    (o && typeof o === "object") ? { value: String(o.value), label: String(o.label) }
+                                 : { value: String(o), label: String(o) });
+  const sig = JSON.stringify(norm);
+  if (select.dataset.optSig === sig) {
+    if (cfg.value != null && select.value !== String(cfg.value)) {
+      select.value = String(cfg.value);
+    }
+    return false;
+  }
+  const keep = cfg.value != null ? String(cfg.value) : select.value;
+  select.innerHTML = norm.map(o =>
+    "<option value=\"" + o.value.replace(/"/g, "&quot;") + "\">" +
+    o.label.replace(/</g, "&lt;") + "</option>").join("");
+  select.dataset.optSig = sig;
+  if (keep && norm.some(o => o.value === keep)) select.value = keep;
+  return true;
+}
+
+/* ---------- card index, and folding ----------
+   Eighty cards across fifteen tabs, and the heaviest tab holds
+   twenty-four. That is the only place in this dashboard where finding
+   something is genuinely scrolling, so tabs past a threshold get a jump
+   list, and every card can be folded away.
+
+   Folded state is per card, kept in localStorage and keyed by the panel
+   plus the card's own heading -- not by position, so inserting a card
+   above does not silently fold a different one. */
+const CARD_INDEX_MIN = 6;
+let navFolded = {};
+try { navFolded = JSON.parse(localStorage.getItem("moba_folded") || "{}"); } catch (e) {}
+function navSaveFolded(){
+  try { localStorage.setItem("moba_folded", JSON.stringify(navFolded)); } catch (e) {}
+}
+
+function navCardKey(panelId, title){ return panelId + "::" + title; }
+
+const NAV_PANEL_SEL = ".tab-panel, .ff-tab-panel, .val-tab-panel, .dota2-tab-panel";
+
+function navEnhanceCards(){
+  /* Group every card under the panel that owns it, rather than walking
+     panels and taking their direct children. Cards are not uniformly
+     direct children -- the MOBA graphics tab, the heaviest in the
+     dashboard at thirty-odd, keeps its inside a wrapper div, so a
+     ":scope > .card" pass found none there and skipped the one tab that
+     most needed an index. Asking each card which panel it is in cannot
+     miss one however it is nested. */
+  const groups = new Map();
+  document.querySelectorAll(".card").forEach(card => {
+    const panel = card.closest(NAV_PANEL_SEL) || card.closest(".category-panel");
+    if (!panel) return;
+    if (!groups.has(panel)) groups.set(panel, []);
+    groups.get(panel).push(card);
+  });
+
+  groups.forEach((cards, panel) => {
+    const titled = cards.filter(c => c.querySelector(":scope > h2"));
+
+    titled.forEach((card, i) => {
+      const h2 = card.querySelector(":scope > h2");
+      const title = (h2.textContent || "").trim();
+      const key = navCardKey(panel.id || "root", title);
+      // Every card gets an id here, not only the ones in an indexed tab:
+      // the palette jumps by id, and it reaches cards in every tab.
+      if (!card.id) card.id = (panel.id || "panel") + "-card" + i;
+      // Guarded per CARD, not per panel. The graphics tabs build most of
+      // their content when first opened, so this runs again after a tab
+      // is shown -- a panel-level guard would have meant those cards were
+      // scanned once, before they existed, and never again.
+      if (card.dataset.navCard) return;
+      card.dataset.navCard = "1";
+      h2.classList.add("card-head");
+      h2.setAttribute("tabindex", "0");
+      h2.setAttribute("role", "button");
+      const caret = document.createElement("span");
+      caret.className = "card-caret";
+      caret.setAttribute("aria-hidden", "true");
+      h2.insertBefore(caret, h2.firstChild);
+      if (navFolded[key]) card.classList.add("folded");
+      h2.setAttribute("aria-expanded", navFolded[key] ? "false" : "true");
+      const toggle = () => {
+        const now = card.classList.toggle("folded");
+        navFolded[key] = now;
+        if (!now) delete navFolded[key];
+        h2.setAttribute("aria-expanded", now ? "false" : "true");
+        navSaveFolded();
+      };
+      h2.addEventListener("click", toggle);
+      h2.addEventListener("keydown", ev => {
+        if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggle(); }
+      });
+    });
+
+    const existing = panel.querySelector(":scope > .card-index");
+    if (titled.length >= CARD_INDEX_MIN) {
+      const nav = document.createElement("nav");
+      nav.className = "card-index";
+      nav.setAttribute("aria-label", "Cards on this tab");
+      nav.innerHTML = "<span class='card-index-label'>ON THIS TAB</span>" +
+        titled.map(card => {
+          const t = (card.querySelector(":scope > h2").textContent || "").trim();
+          return "<a href='#" + card.id + "'>" + t.replace(/</g, "&lt;") + "</a>";
+        }).join("");
+      nav.querySelectorAll("a").forEach(a => {
+        a.addEventListener("click", ev => {
+          ev.preventDefault();
+          const card = document.getElementById(a.getAttribute("href").slice(1));
+          if (card) { card.classList.remove("folded"); navFlash(card); }
+        });
+      });
+      // Replaced rather than appended, so a tab that grows its cards
+      // later gets an index listing them instead of a second index.
+      if (existing) panel.replaceChild(nav, existing);
+      else panel.insertBefore(nav, panel.firstChild);
+    } else if (existing) {
+      existing.remove();
+    }
+  });
+}
+
+function navFlash(card){
+  card.scrollIntoView({ behavior: "smooth", block: "start" });
+  card.classList.add("card-flash");
+  setTimeout(() => card.classList.remove("card-flash"), 1200);
+}
+
+/* ---------- jump to any card ----------
+   At eighty cards and 226 buttons, typing three letters beats any menu.
+   Opens with Ctrl+K (or Cmd+K), filters on the card's own heading, and
+   switching to it also switches game and tab -- which is the part a
+   plain in-page search cannot do, because the card it wants is inside a
+   panel that is display:none until its tab is shown. */
+let navPaletteItems = [];
+function navBuildPalette(){
+  /* Asks each card where it lives, for the same reason navEnhanceCards
+     does: cards are not uniformly direct children of their panel, and a
+     walk downward from the panels silently skips the ones that are not. */
+  navPaletteItems = [];
+  document.querySelectorAll(".card").forEach(card => {
+    const h2 = card.querySelector(":scope > h2");
+    if (!h2 || !card.id) return;
+    const cat = card.closest(".category-panel");
+    const game = cat && NAV_BY_ID[cat.id.replace("category-", "")];
+    if (!game) return;
+    const panel = card.closest(NAV_PANEL_SEL);
+    let tabId = "", tabLabel = "";
+    if (panel && game.prefix && panel.id && panel.id.startsWith(game.prefix)) {
+      tabId = panel.id.slice(game.prefix.length);
+      const btn = cat.querySelector(
+        "." + game.btn + "[data-" + game.attr + "='" + tabId + "']");
+      tabLabel = btn ? (btn.textContent || "").trim() : "";
+    }
+    navPaletteItems.push({
+      game: game.id, gameLabel: game.label, tab: tabId, tabLabel: tabLabel,
+      title: (h2.textContent || "").trim(), id: card.id
+    });
+  });
+}
+
+function navOpenPalette(){
+  navBuildPalette();
+  document.getElementById("navPalette").classList.add("on");
+  const input = document.getElementById("navPaletteInput");
+  input.value = ""; navFilterPalette();
+  input.focus();
+}
+function navClosePalette(){
+  document.getElementById("navPalette").classList.remove("on");
+}
+function navFilterPalette(){
+  const q = document.getElementById("navPaletteInput").value.trim().toLowerCase();
+  const list = document.getElementById("navPaletteList");
+  const hits = navPaletteItems.filter(it =>
+    !q || (it.title + " " + it.gameLabel + " " + it.tabLabel).toLowerCase().includes(q)
+  ).slice(0, 40);
+  list.innerHTML = hits.length ? hits.map((it, i) =>
+    "<button class='nav-pal-row" + (i === 0 ? " on" : "") + "' data-i='" + i + "'>" +
+    "<span class='nav-pal-title'>" + it.title.replace(/</g, "&lt;") + "</span>" +
+    "<span class='nav-pal-where'>" + it.gameLabel +
+    (it.tabLabel ? " · " + it.tabLabel.replace(/</g, "&lt;") : "") + "</span></button>"
+  ).join("") : "<div class='hint' style='padding:14px 16px;'>nothing matches</div>";
+  list.dataset.hits = JSON.stringify(hits);
+  list.querySelectorAll(".nav-pal-row").forEach(row => {
+    row.addEventListener("click", () => navGoPalette(hits[Number(row.dataset.i)]));
+  });
+}
+function navGoPalette(item){
+  if (!item) return;
+  navClosePalette();
+  navShowGame(item.game);
+  if (item.tab) navShowTab(item.game, item.tab);
+  setTimeout(() => {
+    const card = document.getElementById(item.id);
+    if (card) { card.classList.remove("folded"); navFlash(card); }
+  }, 30);
+}
+
+document.addEventListener("keydown", ev => {
+  if ((ev.ctrlKey || ev.metaKey) && (ev.key === "k" || ev.key === "K")) {
+    ev.preventDefault(); navOpenPalette(); return;
+  }
+  const pal = document.getElementById("navPalette");
+  if (!pal || !pal.classList.contains("on")) return;
+  if (ev.key === "Escape") { navClosePalette(); return; }
+  const rows = Array.from(pal.querySelectorAll(".nav-pal-row"));
+  if (!rows.length) return;
+  let at = rows.findIndex(r => r.classList.contains("on"));
+  if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+    ev.preventDefault();
+    rows[Math.max(at, 0)].classList.remove("on");
+    at = (at + (ev.key === "ArrowDown" ? 1 : rows.length - 1) + rows.length) % rows.length;
+    rows[at].classList.add("on");
+    rows[at].scrollIntoView({ block: "nearest" });
+  } else if (ev.key === "Enter") {
+    ev.preventDefault();
+    let hits = [];
+    try { hits = JSON.parse(document.getElementById("navPaletteList").dataset.hits || "[]"); } catch (e) {}
+    navGoPalette(hits[Math.max(at, 0)]);
+  }
 });
 
-/* ---------- Valorant sub-tabs (same isolated-class-names reasoning as
-   the FreeFire ones above) ---------- */
-document.querySelectorAll(".val-tab-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".val-tab-btn").forEach(b => b.classList.remove("active"));
-    document.querySelectorAll(".val-tab-panel").forEach(p => p.classList.remove("active"));
-    btn.classList.add("active");
-    document.getElementById("valtab-" + btn.dataset.valtab).classList.add("active");
-  });
-});
-
-/* ---------- Dota 2 sub-tabs (same isolated-class-names reasoning) ---------- */
-document.querySelectorAll(".dota2-tab-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".dota2-tab-btn").forEach(b => b.classList.remove("active"));
-    document.querySelectorAll(".dota2-tab-panel").forEach(p => p.classList.remove("active"));
-    btn.classList.add("active");
-    document.getElementById("d2tab-" + btn.dataset.d2tab).classList.add("active");
-    if(btn.dataset.d2tab === "graphic") dota2gfxLoad();
-  });
-});
+setTimeout(navEnhanceCards, 0);
 
 /* ---------- shared helpers ---------- */
 function readFileAsDataURL(file){
@@ -8633,8 +9038,8 @@ function ffUpdatePreviewStatus(){
   status.textContent = on ? "Currently ON AIR." : "Not on air — preview only.";
 }
 
-document.getElementById("ff_previewPick").innerHTML =
-  FF_PREVIEWS.map(p => '<option value="' + p.id + '">' + ffEscapeHtml(p.label) + '</option>').join("");
+setOptions(document.getElementById("ff_previewPick"),
+  FF_PREVIEWS.map(p => ({ value: p.id, label: p.label })));
 document.getElementById("ff_previewPick").addEventListener("change", ffLoadPreview);
 document.getElementById("ff_previewReload").addEventListener("click", ffLoadPreview);
 document.getElementById("ff_previewPush").addEventListener("click", () => {
