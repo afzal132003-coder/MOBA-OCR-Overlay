@@ -249,6 +249,32 @@ def row_is_alive(luma, card_x, y):
     return float(np.percentile(strip, 97)) > ALIVE_LUMA
 
 
+def ign_image(luma, card_x, y, scale=4):
+    """The player's name, prepared for an OCR pass.
+
+    Thresholded against the crop's own floor and peak, like every other
+    reading here, and for the sharpest version of the same reason: a dead
+    player's name is drawn dimmer than a living player's BACKGROUND. An
+    absolute cut returned nothing at all for the fifteen dead rows on the
+    reference frame -- and those are exactly the names still needed, since
+    a squad wiped at minute three must still be identifiable on the
+    results screen twenty minutes later.
+
+    Returned black-on-white and upscaled, which is what Tesseract wants.
+    """
+    crop = luma[y - 3:y + ROW_H + 3, card_x + IGN_DX:card_x + IGN_DX + IGN_W]
+    if crop.size == 0:
+        return None
+    floor, peak = np.percentile(crop, 15), np.percentile(crop, 99)
+    if peak - floor < 10:
+        return None
+    mask = (crop - floor) / (peak - floor) > 0.45
+    if mask.sum() < 12:
+        return None
+    img = Image.fromarray((255 - mask * 255).astype(np.uint8))
+    return img.resize((img.width * scale, img.height * scale), Image.LANCZOS)
+
+
 def kill_bitmap(luma, card_x, y):
     crop = luma[y - 3:y + ROW_H + 3, card_x + ELIM_DX:card_x + ELIM_DX + ELIM_W]
     if crop.size == 0:
@@ -418,6 +444,83 @@ def agrees_with_header(rows, remaining, teams_alive, complete):
         return None
     return (sum(r["alive"] for r in rows) == remaining
             and sum(1 for r in rows if r["alive"] > 0) == teams_alive)
+
+
+def name_similarity(a, b):
+    import difflib
+    return difflib.SequenceMatcher(None, (a or "").lower(), (b or "").lower()).ratio()
+
+
+def squad_similarity(screen_names, known_names):
+    """How well one results-screen squad matches one slot's squad.
+
+    Scored as SETS, not name against name in order -- the results screen
+    lists players in its own order, and a squad may show three names
+    where the alive panel had four. Each screen name takes its best
+    partner among the known ones and that partner is then spent, so two
+    screen names cannot both score against the same player.
+
+    Averaging over the screen's own names, rather than over four, is what
+    stops a three-player squad being penalised a quarter of its score for
+    having three players.
+    """
+    screen = [n for n in (screen_names or []) if n]
+    pool = [n for n in (known_names or []) if n]
+    if not screen or not pool:
+        return 0.0
+    total, left = 0.0, list(pool)
+    for name in screen:
+        if not left:
+            break
+        best = max(range(len(left)), key=lambda i: name_similarity(name, left[i]))
+        total += name_similarity(name, left[best])
+        left.pop(best)
+    return total / len(screen)
+
+
+def match_squads(screen_squads, known_squads, min_score=0.55, min_margin=0.08):
+    """Assign each results-screen squad to a slot, or to nobody.
+
+    screen_squads: {rank: [names]}   known_squads: {slot: [names]}
+
+    Confident pairs first, and each one taken removes both sides from
+    everything that follows -- which is the whole advantage of treating
+    this as an assignment rather than as N separate lookups. A rank that
+    is ambiguous on its own is often decided by every other rank being
+    certain, leaving only one slot it can be.
+
+    Anything still unclear is returned unassigned, for the operator to
+    pick from a dropdown. It is NOT guessed at: the names here are two
+    OCR passes away from the truth, read off two different screens at two
+    different sizes, and a wrong pairing puts one team's placement on
+    another team's row. A blank the operator fills is visible; a wrong
+    answer that looks confident is not.
+    """
+    pairs = []
+    for rank, names in screen_squads.items():
+        for slot, known in known_squads.items():
+            pairs.append((squad_similarity(names, known), rank, slot))
+    pairs.sort(reverse=True)
+
+    taken_rank, taken_slot, matched = set(), set(), {}
+    for score, rank, slot in pairs:
+        if rank in taken_rank or slot in taken_slot or score < min_score:
+            continue
+        # The margin is against the best OTHER slot still free for this
+        # rank -- a pairing is only safe if the runner-up is clearly worse.
+        rival = max((s for s, r, sl in pairs
+                     if r == rank and sl != slot and sl not in taken_slot),
+                    default=0.0)
+        if score - rival < min_margin:
+            continue
+        matched[rank] = {"slot": slot, "score": round(score, 3),
+                         "margin": round(score - rival, 3)}
+        taken_rank.add(rank)
+        taken_slot.add(slot)
+
+    unresolved = sorted(r for r in screen_squads if r not in matched)
+    free = sorted(s for s in known_squads if s not in taken_slot)
+    return matched, unresolved, free
 
 
 def accept_kills(previous, reading):

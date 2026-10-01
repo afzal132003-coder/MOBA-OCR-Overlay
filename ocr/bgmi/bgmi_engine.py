@@ -61,6 +61,10 @@ def default_config():
             "sheetWebhookUrl": "",
             "sheetTab": "",
             "liveSheetPush": False,
+            # Names cost a Tesseract pass per player, so this is the one
+            # expensive thing in a capture -- but it is also the only
+            # bridge to the results screen, which has no slot numbers.
+            "readIgns": True,
         },
     }
 
@@ -187,6 +191,16 @@ def read_frame(rgb, declared_slot=None, learn=True):
 
     bp.assign_slots(cards, declared_slot)
     rows = bp.team_rows(cards)
+
+    # Names, while the panel is still up. This is the only chance: the
+    # alive panel goes away at the whistle and the results screen that
+    # replaces it has ranks but no slots.
+    if (config.get("settings") or {}).get("readIgns", True):
+        try:
+            diag["ignsRead"] = collect_igns(luma, cards)
+        except Exception as e:
+            diag["ignsRead"] = 0
+            diag["ignError"] = str(e)
     remaining, teams_alive = bp.read_header(luma, templates.get("slot", {}))
     header = {"remaining": remaining, "teamsAlive": teams_alive}
     return rows, header, diag, ""
@@ -220,6 +234,109 @@ def recombine():
     head["lobbySize"] = lobby
     state["header"] = head
     return rows
+
+
+# ------------------------------------------------------------ player names
+#
+# WHY THESE ARE READ AT ALL, given nothing on the live overlay needs them:
+# the results screen at the end of a match has NO slot numbers. It has
+# ranks and it has player names. The alive panel has slot numbers and the
+# same player names. So the names are the only bridge between the two,
+# and they have to be collected while the alive panel is still up --
+# it disappears the moment the match ends.
+#
+# They are kept RAW, exactly as the OCR read them, never tidied. The
+# match at the other end is fuzzy, and a cleaned-up name is a name that
+# has been guessed at twice.
+
+IGN_VOTE_PATH = Path(__file__).parent / "bgmi_igns.json"
+_ign_votes = {}
+
+
+def load_igns():
+    global _ign_votes
+    try:
+        _ign_votes = json.loads(IGN_VOTE_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        _ign_votes = {}
+
+
+def save_igns():
+    try:
+        IGN_VOTE_PATH.write_text(json.dumps(_ign_votes, indent=1), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def ocr_text(img):
+    import subprocess
+    import tempfile
+    tess = (config.get("tesseractPath")
+            or r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+    path = tempfile.mktemp(suffix=".png")
+    img.save(path)
+    try:
+        out = subprocess.run(
+            [tess, path, "stdout", "--psm", "7", "-c",
+             "tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+             "abcdefghijklmnopqrstuvwxyz0123456789"],
+            capture_output=True, text=True, timeout=20).stdout
+    except Exception:
+        return ""
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    return "".join(out.split())
+
+
+def collect_igns(luma, cards):
+    """Read every name on this page and add it to that seat's tally.
+
+    Voted rather than overwritten because the same seat is read many times
+    across a match. A name does not change, so the reading that comes back
+    most often is the one to trust, and a single frame caught mid-scroll
+    or mid-repaint cannot displace twenty good ones.
+    """
+    changed = 0
+    for c in cards:
+        slot = c.get("slot")
+        if slot is None:
+            continue
+        cx = CARD_X_OF(c)
+        for p in range(bp.PLAYERS_PER_CARD):
+            img = bp.ign_image(luma, cx, bp.row_y(c["top"], p))
+            if img is None:
+                continue
+            text = ocr_text(img)
+            if len(text) < 3:
+                continue
+            seat = _ign_votes.setdefault(str(slot), {}).setdefault(str(p), {})
+            seat[text] = seat.get(text, 0) + 1
+            changed += 1
+    if changed:
+        save_igns()
+    return changed
+
+
+def CARD_X_OF(card):
+    return bp.CARD_X[card["column"]]
+
+
+def ign_map():
+    """slot -> the four names, each the most-voted reading for its seat."""
+    out = {}
+    for slot, seats in _ign_votes.items():
+        names = []
+        for p in range(bp.PLAYERS_PER_CARD):
+            votes = seats.get(str(p)) or {}
+            names.append(max(votes, key=votes.get) if votes else "")
+        out[int(slot)] = names
+    return out
+
+
+load_igns()
 
 
 # -------------------------------------------------------------- sheet push
@@ -354,6 +471,7 @@ def capture_slide(slide, declared_slot, with_preview=True, learn=True):
         # What the poll loop will keep refreshing: the panel is presumed
         # to still be where the operator last pointed it.
         state["activeSlide"] = slide
+        state["igns"] = ign_map()
         recombine()
         # Straight on to the sheet when asked for, and only when the table
         # actually changed -- see push_alive_to_sheet.

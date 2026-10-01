@@ -277,6 +277,57 @@ def main():
     check("the store is left exactly as it was",
           {k: len(v) for k, v in poisoned["slot"].items()} == before)
 
+    print("\nreading player names off the alive panel")
+    # The results screen has ranks and names but NO slot numbers, and the
+    # alive panel is gone by then -- so the names collected here are the
+    # only bridge between the two.
+    got, want, lit_ok, dim_ok, n_lit, n_dim = [], [], 0, 0, 0, 0
+    for i, c in enumerate(cards):
+        cx = bp.CARD_X[c["column"]]
+        for p in range(bp.PLAYERS_PER_CARD):
+            img = bp.ign_image(luma, cx, bp.row_y(c["top"], p))
+            got.append(img)
+    check("a name image for every player, lit and greyed alike",
+          all(g is not None for g in got), "%d of 36" % sum(g is not None for g in got))
+
+    print("\nmatching a results squad to a slot")
+    # The pair that would wreck a tag matcher: two different teams whose
+    # tags differ by one character.
+    lmez = ["LMEzSPIDY7", "LMEzDragon", "LMEzClockko", "LMEzZOLTH"]
+    lmex = ["LETMExGLITCH", "LetMexSteve999", "LMExHUNT", "LetMexAudito7"]
+    check("a squad matches itself", bp.squad_similarity(lmez, lmez) > 0.99)
+    check("LMEz and LMEx stay far apart",
+          bp.squad_similarity(lmez, lmex) < 0.55,
+          "%.3f against 1.000 for itself" % bp.squad_similarity(lmez, lmex))
+
+    # Order differs between the two screens, and a squad may show three
+    # names where the panel had four.
+    check("name order does not matter",
+          bp.squad_similarity(list(reversed(lmez)), lmez) > 0.99)
+    check("three names still match a four-name squad",
+          bp.squad_similarity(lmez[:3], lmez) > 0.99)
+
+    known = {3: lmez, 10: lmex, 6: ["TSxWolfOP", "TSxKiboY", "TSxDiablo", "TSxGokGokGok"]}
+    screen = {3: lmez, 10: lmex, 6: known[6]}
+    matched, unresolved, free = bp.match_squads(screen, known)
+    check("each rank takes its own slot",
+          all(matched[r]["slot"] == r for r in matched) and len(matched) == 3,
+          "matched %d, unresolved %s" % (len(matched), unresolved))
+
+    # A squad that matches nothing must be handed over, not forced onto
+    # whichever slot happened to score least badly.
+    odd = {9: ["totallyDifferentOne", "andAnotherEntirely", "nothingLikeIt"]}
+    m2, un2, free2 = bp.match_squads(odd, known)
+    check("an unrecognised squad is left for the dropdown",
+          m2 == {} and un2 == [9], "matched %s" % m2)
+    check("and the slots it could still be are offered", sorted(free2) == [3, 6, 10])
+
+    # Two squads cannot both claim one slot.
+    twice = {1: lmez, 2: lmez}
+    m3, un3, _ = bp.match_squads(twice, known)
+    check("one slot cannot be taken twice",
+          len([v for v in m3.values() if v["slot"] == 3]) <= 1 and len(un3) >= 1)
+
     print("\nKNOWN GAPS, not failures:")
     print("  * Every count in this fixture is single-digit, so a player on")
     print("    10+ kills is UNTESTED. It currently voids that team's total")

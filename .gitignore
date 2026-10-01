@@ -45,3 +45,6 @@ ocr/freefire/freefire_glyphs.npz
 # so committing it would hand every other setup a reference that matches
 # nothing they see.
 ocr/freefire/freefire_banner_flag.png
+
+# Per-match player-name tallies, rebuilt from the panel each event.
+ocr/bgmi/bgmi_igns.json
