@@ -1866,6 +1866,37 @@
   </div>
 
   <div class="card">
+    <h2>Push To The Sheet</h2>
+    <p class="hint">One row per slot: the four alive checkboxes in <strong>Q&ndash;T</strong> ticked left to right,
+      and the team's elimination total in <strong>U</strong>. Four alive is all four boxes; one alive is Q only,
+      with R, S and T cleared. The sheet is ordered by slot and the game prints the slot, so this needs none of
+      the team-name matching the Free Fire push carries.</p>
+    <p class="hint">A slot whose kills could not be read sends nothing rather than a zero, and that cell is left
+      alone &mdash; writing a zero because one frame was unreadable would wipe a score that was right a moment
+      before, and nothing downstream could tell the difference.</p>
+    <label for="bgmi_sheetUrl">Web app URL (Apps Script deployment)</label>
+    <input type="text" id="bgmi_sheetUrl" placeholder="https://script.google.com/macros/s/.../exec">
+    <div class="row" style="gap:16px;align-items:flex-end;flex-wrap:wrap;">
+      <div style="flex:0 0 200px;">
+        <label for="bgmi_sheetTab">Tab name (blank = first tab)</label>
+        <input type="text" id="bgmi_sheetTab" placeholder="e.g. Match Pt">
+      </div>
+      <div style="flex:0 0 150px;">
+        <label for="bgmi_lobbySize">Lobby size</label>
+        <input type="number" id="bgmi_lobbySize" min="2" max="25" value="16">
+      </div>
+    </div>
+    <div class="row" style="gap:8px;align-items:center;margin-top:12px;">
+      <button id="bgmi_pushSheet">Push Now</button>
+      <button class="secondary" id="bgmi_saveSheet">Save Settings</button>
+      <label style="display:flex;gap:6px;align-items:center;" class="hint">
+        <input type="checkbox" id="bgmi_livePush"> push automatically after every capture
+      </label>
+    </div>
+    <div class="hint" id="bgmi_sheetStatus" style="margin-top:10px;"></div>
+  </div>
+
+  <div class="card">
     <h2>Setup</h2>
     <p class="hint">Run the engine in its own window &mdash; it is a separate process on its own port (8767), so it
       never disturbs a Free Fire event:</p>
@@ -14197,6 +14228,8 @@ function bgmiConnect(){
       document.querySelectorAll(".bgmi-cap").forEach(b => {
         b.disabled = false; b.textContent = "Capture Slide " + b.dataset.slide;
       });
+    } else if (msg.type === "bgmi_sheet_result") {
+      bgmiShowSheetResult(msg.result);
     } else if (msg.type === "bgmi_glyphs") {
       document.getElementById("bgmi_diag").textContent =
         "slot digits: " + (msg.slot || []).join("") +
@@ -14231,6 +14264,51 @@ document.getElementById("bgmi_reloadGlyphs").addEventListener("click", () => {
     document.getElementById("bgmi_diag").textContent = "Not connected to the BGMI engine.";
   }
 });
+
+function bgmiSheetSettings(){
+  return {
+    sheetWebhookUrl: document.getElementById("bgmi_sheetUrl").value.trim(),
+    sheetTab: document.getElementById("bgmi_sheetTab").value.trim(),
+    lobbySize: Number(document.getElementById("bgmi_lobbySize").value) || 16,
+    liveSheetPush: document.getElementById("bgmi_livePush").checked,
+  };
+}
+
+document.getElementById("bgmi_saveSheet").addEventListener("click", () => {
+  const el = document.getElementById("bgmi_sheetStatus");
+  el.textContent = bgmiSend({type: "bgmi_set_settings", settings: bgmiSheetSettings()})
+    ? "Saved." : "Not connected to the BGMI engine.";
+});
+
+document.getElementById("bgmi_pushSheet").addEventListener("click", () => {
+  const el = document.getElementById("bgmi_sheetStatus");
+  // Save first: pushing with a URL typed but not saved is the obvious
+  // way to get "no sheet webhook URL set" while looking straight at one.
+  if (!bgmiSend({type: "bgmi_set_settings", settings: bgmiSheetSettings()})) {
+    el.textContent = "Not connected to the BGMI engine."; return;
+  }
+  bgmiSend({type: "bgmi_push_sheet", force: true});
+  el.textContent = "Pushing…";
+});
+
+/* The answer comes back from Apps Script, so it is the only place that
+   knows whether a slot actually found a row. Reported rather than
+   swallowed: a slot with no row is a team whose numbers never arrive,
+   and the only other symptom is a row that quietly never moves. */
+function bgmiShowSheetResult(r){
+  const el = document.getElementById("bgmi_sheetStatus");
+  if (!r) { el.textContent = ""; return; }
+  if (r.error) { el.textContent = "Sheet refused: " + r.error; return; }
+  if (r.skipped) { el.textContent = "Nothing changed since the last push."; return; }
+  let msg = "Wrote " + (r.matched || 0) + " of " + (r.total || 0) + " teams";
+  if (r.tab) msg += " to tab \"" + r.tab + "\"";
+  msg += ".";
+  if (r.unmatchedSlots && r.unmatchedSlots.length) {
+    msg += "  No row for slot(s): " + r.unmatchedSlots.join(", ") +
+           " — check the row range and the slot column.";
+  }
+  el.textContent = msg;
+}
 </script>
 </body>
 </html>

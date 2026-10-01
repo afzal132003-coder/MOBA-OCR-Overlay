@@ -56,6 +56,11 @@ def default_config():
             "continuousPoll": False,
             "pollIntervalSeconds": 0.5,
             "lobbySize": 16,
+            # The broadcast sheet. Off until a URL is set, and even then
+            # only pushes when the table has actually changed.
+            "sheetWebhookUrl": "",
+            "sheetTab": "",
+            "liveSheetPush": False,
         },
     }
 
@@ -217,6 +222,59 @@ def recombine():
     return rows
 
 
+# -------------------------------------------------------------- sheet push
+
+_last_sheet_payload = None
+
+
+def push_alive_to_sheet(force=False):
+    """The merged table, into the broadcast sheet.
+
+    One row per slot: four checkboxes ticked left to right for the alive
+    count, and the team's elimination total beside them. The sheet is
+    ordered by slot and the game prints the slot, so this needs none of
+    the name matching the Free Fire push carries -- which is most of that
+    script, and all of its failure modes.
+
+    A slot whose kills could not be read sends null rather than zero, and
+    the receiving end leaves that cell alone. Writing a zero because a
+    frame was unreadable would wipe a score that was right a moment ago,
+    and nothing downstream could tell the difference.
+    """
+    global _last_sheet_payload
+    settings = config.get("settings") or {}
+    url = (settings.get("sheetWebhookUrl") or "").strip()
+    if not url:
+        return {"ok": False, "error": "No sheet webhook URL set."}
+    rows = server_state["bgmi"].get("rows") or []
+    if not rows:
+        return {"ok": False, "error": "Nothing captured yet."}
+
+    payload = {
+        "tab": (settings.get("sheetTab") or "").strip(),
+        "rows": [{"slot": r["slot"], "alive": r["alive"], "kills": r.get("kills")}
+                 for r in rows],
+    }
+    # A match sits unchanged for most of its length. Rewriting the same
+    # sixteen rows four times a second is a write the sheet must process,
+    # a quota it spends, and a cell that visibly repaints for anyone
+    # watching it.
+    if not force and payload == _last_sheet_payload:
+        return {"ok": True, "skipped": "unchanged"}
+
+    import urllib.request
+    req = urllib.request.Request(
+        url, data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            answer = json.loads(resp.read().decode("utf-8", "replace"))
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    _last_sheet_payload = payload
+    return answer
+
+
 # ----------------------------------------------------------------- preview
 
 def annotate(rgb, cards, rows):
@@ -297,6 +355,13 @@ def capture_slide(slide, declared_slot, with_preview=True, learn=True):
         # to still be where the operator last pointed it.
         state["activeSlide"] = slide
         recombine()
+        # Straight on to the sheet when asked for, and only when the table
+        # actually changed -- see push_alive_to_sheet.
+        if (config.get("settings") or {}).get("liveSheetPush"):
+            try:
+                state["sheet"] = push_alive_to_sheet(force=False)
+            except Exception as e:
+                state["sheet"] = {"ok": False, "error": str(e)}
 
     state["readAt"] = time.time()
     state["blockedBy"] = blocked
@@ -351,6 +416,13 @@ async def handle_client(websocket, path=None):
                 recombine()
                 server_state["bgmi"]["blockedBy"] = ""
                 await broadcast({"type": "state_sync", "data": server_state})
+
+            elif kind == "bgmi_push_sheet":
+                loop = asyncio.get_running_loop()
+                answer = await loop.run_in_executor(
+                    None, push_alive_to_sheet, bool(payload.get("force", True)))
+                await websocket.send(json.dumps({
+                    "type": "bgmi_sheet_result", "result": answer}))
 
             elif kind == "bgmi_set_settings":
                 (config.setdefault("settings", {})
