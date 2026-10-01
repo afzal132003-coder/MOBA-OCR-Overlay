@@ -60,49 +60,54 @@ https://docs.google.com/spreadsheets/d/1AbCdEfGh...XyZ/edit#gid=0
 
 Everything between `/d/` and `/edit`. Copy it.
 
-### 3b. Find the slot column on the ALIVE sheet
+### 3b. Both ids are already filled in
 
-**This one matters more than it looks.** Your slots run **3 to 18**, not
-1 to 16. The fallback assumes slot 1 sits on the first data row, so
-without this every team lands three rows above where it belongs —
-quietly, and consistently enough to look deliberate rather than broken.
+```js
+var SPREADSHEET_ID         = "13F4LTctinqHStzFOpurVH4kdRzrJiPzGDvCLGKOD7C8";
+var RESULTS_SPREADSHEET_ID = "1uuOBaQ5pKf85y5bq5_cnrVfBw_LKgG4HmchcYvFXhhg";
+var RESULTS_SHEET_GID      = 626963250;
+```
 
-Open the alive sheet. Look at rows **5 to 20**. Find the column showing
-`3, 4, 5 … 18`. Note its letter — that is `SLOT_COLUMN`.
+The scoresheet tab is found by **gid**, not by name — a gid never
+changes, where a renamed tab sends every push somewhere else or nowhere.
 
 ### 3c. Paste and set
 
 1. Alive sheet → **Extensions → Apps Script**
 2. Delete what's there, paste all of `ocr/bgmi/bgmi_sheet_push.gs`
-3. Set these four near the top:
+3. **Save** (Ctrl+S)
 
-```js
-var SLOT_COLUMN = "P";                    // ← 3b. NOT optional
-var RESULTS_SPREADSHEET_ID = "1AbC...";   // ← 3a
-var DATA_START_ROW = 5;                   // confirm against your sheet
-var DATA_END_ROW = 20;
-```
-
-4. **Save** (Ctrl+S)
+You do **not** have to go hunting for the slot column. Leave
+`SLOT_COLUMN` blank for now — the next step finds it for you.
 
 ### 3d. Check it before deploying
 
 Pick **`authorize`** in the function dropdown next to Run, press **Run**,
 accept the permission prompt, then read the Execution log underneath.
 
-It prints what it can actually see:
+It prints what it can actually see, and **tells you the slot column**:
 
 ```
-Slot column P reads: 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18
+>>> Column D looks like the slot column: runs 3 to 18, 15 consecutive steps.
+>>> If that is right, set:   var SLOT_COLUMN = "D";
+
+Scoresheet: ...
+Writing into tab: Match Pt (gid 626963250)
 GAME 1  rows 4-19   slots: 3, 4, 5, ...
 GAME 2  rows 25-40  slots: 3, 4, 5, ...
 ```
 
-**Read those two lines.** If the slot column prints blanks, it is the
-wrong column. If the game blocks print the wrong slots, the stride is
-wrong for your sheet and I need to know.
+**Do three things with that output:**
 
-If `SLOT_COLUMN` is blank it will shout at you here. That is deliberate.
+1. Copy the suggested `SLOT_COLUMN` into the script, save, and run
+   `authorize` once more to confirm it reads the right numbers.
+2. Check the two GAME lines show slots `3 … 18`. If they show something
+   else, the stride is wrong for your sheet — tell me.
+3. Check the tab it says it is writing into is the one you want.
+
+The slot column is a guess, which is why it asks you to confirm rather
+than using it silently. Getting it wrong puts every team on another
+team's row, and it would look deliberate.
 
 ### 3e. Deploy
 

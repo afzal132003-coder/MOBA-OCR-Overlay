@@ -77,8 +77,9 @@ var DATA_END_ROW = 20;          // last row holding a team (16 teams: 5..20)
 // and only two columns are ever written: finishes and rank. Everything
 // else in the block -- points, totals, the team name, the logo path --
 // is the sheet's own formulas, and nothing here touches them.
-var RESULTS_SPREADSHEET_ID = "";   // <-- the SCORESHEET's id, from its URL
+var RESULTS_SPREADSHEET_ID = "1uuOBaQ5pKf85y5bq5_cnrVfBw_LKgG4HmchcYvFXhhg";
 var RESULTS_SHEET_NAME = "";       // tab name; the dashboard overrides this
+var RESULTS_SHEET_GID = 626963250; // the #gid= in the tab's URL -- see below
 var RESULTS_SLOT_COLUMN = "D";     // the block's own slot numbers
 var RESULTS_FINISH_COLUMN = "G";   // finishes  (kills)
 var RESULTS_RANK_COLUMN = "I";     // placement
@@ -116,10 +117,10 @@ function pushResults_(body, result) {
   if (isNaN(game) || game < 1) { result.error = "No game number given."; return; }
 
   var book = SpreadsheetApp.openById(RESULTS_SPREADSHEET_ID);
-  var sheet = RESULTS_SHEET_NAME ? book.getSheetByName(RESULTS_SHEET_NAME)
-                                 : book.getSheets()[0];
+  var sheet = pickSheet_(book, RESULTS_SHEET_NAME, RESULTS_SHEET_GID);
   if (!sheet) {
-    result.error = 'No tab named "' + RESULTS_SHEET_NAME + '". Tabs here: ' +
+    result.error = 'No tab named "' + RESULTS_SHEET_NAME + '" (and gid ' +
+      RESULTS_SHEET_GID + ' did not match either). Tabs here: ' +
       book.getSheets().map(function (s) { return s.getName(); }).join(", ");
     return;
   }
@@ -240,6 +241,70 @@ function pushAlive_(body, result) {
 }
 
 
+/* Find a tab by name, else by gid, else the first one.
+ *
+ * A gid is what sits after #gid= in the tab's own URL, and it is the
+ * better handle of the two: it never changes, where a tab name changes
+ * the moment somebody renames it and then every push lands on the wrong
+ * tab or on none. Name still wins when one is given, because the
+ * dashboard sends one per push and that is the operator being explicit.
+ */
+function pickSheet_(book, name, gid) {
+  if (name) {
+    var byName = book.getSheetByName(name);
+    if (byName) return byName;
+  }
+  if (gid || gid === 0) {
+    var all = book.getSheets();
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].getSheetId() === gid) return all[i];
+    }
+  }
+  return name ? null : book.getSheets()[0];
+}
+
+
+/* Which column holds the slot numbers? Rather than have somebody read it
+ * off the screen and type it in, look for it: the right column is the
+ * one whose rows hold a run of plausible slot numbers. Printed by
+ * authorize() with its best guess, so SLOT_COLUMN is confirmed rather
+ * than guessed at -- and getting it wrong is the failure that puts every
+ * team three rows off while looking perfectly deliberate.
+ */
+function findSlotColumn_(sheet, startRow, endRow) {
+  var rows = endRow - startRow + 1;
+  var best = null;
+  var width = Math.min(sheet.getLastColumn(), 30);
+  for (var c = 1; c <= width; c++) {
+    var vals = sheet.getRange(startRow, c, rows, 1).getValues();
+    var nums = [], ok = 0;
+    for (var i = 0; i < vals.length; i++) {
+      var n = parseInt(String(vals[i][0]).replace(/[^0-9]/g, ""), 10);
+      if (!isNaN(n) && n >= 1 && n <= 30) { nums.push(n); ok++; }
+    }
+    if (ok < rows * 0.8) continue;            // mostly numbers, or not a candidate
+    var rising = 0;
+    for (var j = 1; j < nums.length; j++) if (nums[j] === nums[j - 1] + 1) rising++;
+    var distinct = {};
+    for (var k = 0; k < nums.length; k++) distinct[nums[k]] = 1;
+    var score = rising + Object.keys(distinct).length;
+    if (!best || score > best.score) {
+      best = { col: c, score: score, letter: indexToCol_(c),
+               first: nums[0], last: nums[nums.length - 1], rising: rising };
+    }
+  }
+  return best;
+}
+
+
+/* 1 -> "A", 17 -> "Q", 27 -> "AA". */
+function indexToCol_(n) {
+  var s = "";
+  while (n > 0) { var r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = (n - r - 1) / 26; }
+  return s;
+}
+
+
 /* "A" -> 1, "Q" -> 17, "AA" -> 27. */
 function colToIndex_(letters) {
   var s = String(letters).toUpperCase();
@@ -276,7 +341,23 @@ function authorize() {
     Logger.log("*** SLOT_COLUMN IS BLANK. Rows would be taken positionally, " +
                "slot 1 -> row " + DATA_START_ROW + ". This lobby's slots start " +
                "at 3, so every team would land three rows above where it " +
-               "belongs. Set SLOT_COLUMN before using this. ***");
+               "belongs. ***");
+  }
+
+  // Look for it, so nobody has to go hunting across the sheet.
+  var guess = findSlotColumn_(sheet, DATA_START_ROW, DATA_END_ROW);
+  if (guess) {
+    Logger.log("");
+    Logger.log(">>> Column " + guess.letter + " looks like the slot column: " +
+               "runs " + guess.first + " to " + guess.last + ", " +
+               guess.rising + " consecutive steps.");
+    Logger.log('>>> If that is right, set:   var SLOT_COLUMN = "' +
+               guess.letter + '";');
+  } else {
+    Logger.log("");
+    Logger.log("Could not find a column that looks like slot numbers in rows " +
+               DATA_START_ROW + "-" + DATA_END_ROW + ". Check those row numbers " +
+               "are where the teams actually sit.");
   }
 
   Logger.log("");
@@ -288,10 +369,13 @@ function authorize() {
   }
   var rbook = SpreadsheetApp.openById(RESULTS_SPREADSHEET_ID);
   Logger.log("Scoresheet: " + rbook.getName());
-  Logger.log("Tabs: " + rbook.getSheets().map(function (s) { return s.getName(); }).join(", "));
-  var rsheet = RESULTS_SHEET_NAME ? rbook.getSheetByName(RESULTS_SHEET_NAME)
-                                  : rbook.getSheets()[0];
-  if (!rsheet) { Logger.log('NO TAB NAMED "' + RESULTS_SHEET_NAME + '"'); return; }
+  Logger.log("Tabs: " + rbook.getSheets().map(
+    function (s) { return s.getName() + " (gid " + s.getSheetId() + ")"; }).join(", "));
+  var rsheet = pickSheet_(rbook, RESULTS_SHEET_NAME, RESULTS_SHEET_GID);
+  if (!rsheet) { Logger.log('NO TAB matched name "' + RESULTS_SHEET_NAME +
+                            '" or gid ' + RESULTS_SHEET_GID); return; }
+  Logger.log("Writing into tab: " + rsheet.getName() +
+             " (gid " + rsheet.getSheetId() + ")");
 
   // Print the first few game blocks with the slots actually found in each,
   // so the stride is confirmed against the real sheet rather than assumed.
