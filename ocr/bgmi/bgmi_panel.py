@@ -436,3 +436,161 @@ def accept_kills(previous, reading):
     if reading < previous or reading > previous + 3:
         return previous
     return reading
+
+
+# ------------------------------------------------------------- template store
+#
+# Two stores, kept apart on purpose. The slot number is drawn ~50px tall
+# and the kill count ~20px, and the same digit at those two sizes does not
+# normalise to the same bitmap -- the stroke-to-gap ratio of the stencil
+# font changes. Matching a kill digit against a slot template was good for
+# about a coin flip.
+
+GLYPH_PATH = __file__.replace("bgmi_panel.py", "bgmi_glyphs.npz")
+
+
+def load_templates(path=None):
+    """Returns {"slot": {...}, "kill": {...}}, empty if nothing is saved."""
+    import os
+    path = path or GLYPH_PATH
+    out = {"slot": {}, "kill": {}}
+    if not os.path.exists(path):
+        return out
+    with np.load(path) as data:
+        for key in data.files:
+            store, digit, _ = key.split("::")
+            out.setdefault(store, {}).setdefault(digit, []).append(data[key])
+    return out
+
+
+def save_templates(stores, path=None):
+    arrays = {}
+    for store, digits in stores.items():
+        for digit, refs in digits.items():
+            for i, ref in enumerate(refs):
+                arrays["%s::%s::%d" % (store, digit, i)] = ref
+    np.savez_compressed(path or GLYPH_PATH, **arrays)
+
+
+MAX_VARIANTS = 4
+
+
+def remember(stores, store, digit, bitmap, near=0.97):
+    """Keep a new look at a digit, unless we already have one like it.
+
+    Capped because variants are compared linearly on every frame, and
+    because an unbounded store slowly fills with near-duplicates of
+    whatever digit happens to be on screen most -- which for kills is
+    zero, by a wide margin.
+    """
+    refs = stores.setdefault(store, {}).setdefault(digit, [])
+    if any(similarity(bitmap, r) >= near for r in refs):
+        return False
+    if len(refs) >= MAX_VARIANTS:
+        return False
+    refs.append(bitmap)
+    return True
+
+
+# ------------------------------------------------------------------- header
+#
+# "Remaining 32  Team 10" -- the game's own totals, and the only thing on
+# screen computed independently of the cards. See agrees_with_header().
+
+HEADER_WHITE = 0.85     # fraction of the band's peak that counts as a number
+HEADER_DIGIT_GAP = 40   # a wider gap than this starts a new number
+
+
+def missing_digits(templates):
+    """Which of 0-9 this store has never seen."""
+    return [d for d in "0123456789" if not templates.get(d)]
+
+
+def unevaluable_starts(card_count, templates, max_slot=MAX_SLOT):
+    """Candidate starting slots that cannot be judged at all, because some
+    digit in them has no template.
+
+    fit_slot_run SKIPS those candidates, which is not the same as ruling
+    them out. If the page really is at slot 12 and there is no "2", the
+    fit quietly settles on the best candidate it can evaluate and is
+    confidently wrong -- every team on screen relabelled. Anything that
+    publishes must check this comes back empty.
+    """
+    gone = set(missing_digits(templates))
+    if not gone:
+        return []
+    out = []
+    for start in range(1, max_slot + 1):
+        labels = "".join("%02d" % (start + i) for i in range(card_count))
+        if gone & set(labels):
+            out.append(start)
+    return out
+
+
+def read_header(luma, templates, box=HEADER_BOX,
+                min_score=0.80, min_margin=0.06):
+    """The two numbers in the header, or (None, None).
+
+    The labels are grey and the numbers are white -- measured at 163-171
+    against a clipped 255, an 84-point gap. That is the whole trick: it
+    picks the numbers out without knowing where they sit, so a count
+    dropping from two digits to one (and shoving "Team" leftward) changes
+    nothing. Matching letters as digits was the alternative, and "g" came
+    back as a confident "0".
+
+    REFUSES OUTRIGHT on an incomplete digit store. A header number can
+    contain any digit, so a store missing one does not read that number
+    badly -- it reads it as a DIFFERENT NUMBER. With no "2" learned, the
+    reference frame's "Remaining 32" came back as a perfectly confident
+    37. A checksum that is quietly wrong is worse than no checksum, since
+    this is the thing that decides whether everything else is trusted.
+
+    Thresholds are tighter here than elsewhere for the same reason: that
+    false 7 scored 0.746 with a 0.041 margin, while every true digit in
+    this header scored 0.893 or better.
+    """
+    if missing_digits(templates):
+        return None, None
+    x, y, w, h = box
+    band = luma[y:y + h, x:x + w]
+    if band.size == 0:
+        return None, None
+    mask = band >= HEADER_WHITE * float(np.percentile(band, 99.9))
+    cols = mask.any(axis=0)
+
+    groups, start = [], None
+    for i, on in enumerate(cols):
+        if on and start is None:
+            start = i
+        elif not on and start is not None:
+            if i - start >= 3:
+                groups.append((start, i))
+            start = None
+    if start is not None and len(cols) - start >= 3:
+        groups.append((start, len(cols)))
+
+    numbers, current = [], []
+    for g in groups:
+        if current and g[0] - current[-1][1] > HEADER_DIGIT_GAP:
+            numbers.append(current)
+            current = []
+        current.append(g)
+    if current:
+        numbers.append(current)
+
+    out = []
+    for digits in numbers[:2]:
+        text = ""
+        for a, b in digits:
+            sub = mask[:, a:b]
+            bm = _bitmap(sub, min_ink=20)
+            hit = (best_match(bm, templates, min_score, min_margin)
+                   if bm is not None else None)
+            if hit is None:
+                text = ""
+                break
+            text += hit
+        out.append(int(text) if text else None)
+    while len(out) < 2:
+        out.append(None)
+    return out[0], out[1]

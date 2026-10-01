@@ -464,6 +464,7 @@
   <button class="category-btn" data-category="dota2">Dota 2</button>
   <button class="category-btn" data-category="hok">HOK</button>
   <button class="category-btn" data-category="freefire">FreeFire Max</button>
+  <button class="category-btn" data-category="bgmi">BGMI</button>
 </div>
 
 <div class="category-panel active" id="category-moba">
@@ -1704,6 +1705,80 @@
     <h2>HOK</h2>
     <p class="hint">Tools for this game are coming soon.</p>
   </div>
+</div>
+
+<div class="category-panel" id="category-bgmi">
+
+  <span id="bgmi_status" class="disconnected">DISCONNECTED</span>
+
+  <div class="card">
+    <h2>Observer Panel Reader</h2>
+    <p class="hint">BGMI gives us no debugger log the way Free Fire does &mdash; it is a retail Android build in
+      BlueStacks, so every number here comes off the screen. Open the team panel in the observer client, then
+      press <strong>Read Now</strong>. The preview below is a fresh single capture each press, never a stream:
+      reading a frame costs ~40ms, but pushing a JPEG of the panel on every poll is the part that would actually
+      cost you, so nothing is captured while you are not looking.</p>
+    <div class="row" style="gap:8px;align-items:center;">
+      <button id="bgmi_readNow">Read Now</button>
+      <label style="display:flex;gap:6px;align-items:center;" class="hint">
+        <input type="checkbox" id="bgmi_withPreview" checked> with preview image
+      </label>
+      <button class="secondary" id="bgmi_reloadGlyphs">Reload Digit Templates</button>
+    </div>
+    <div class="hint" id="bgmi_blocked" style="margin-top:10px;display:none;
+         background:#2a1a1a;border:1px solid #6b3030;border-radius:6px;padding:10px;color:#ffc9c9;"></div>
+    <div class="hint" id="bgmi_diag" style="margin-top:10px;font-family:monospace;font-size:11px;"></div>
+  </div>
+
+  <div class="card">
+    <h2>What it read</h2>
+    <p class="hint">The game's own totals sit on the right. They are computed by BGMI independently of the cards,
+      so when our sum matches them the table is right for reasons that have nothing to do with how well the OCR
+      did. The check only applies once the sources cover the whole lobby &mdash; on a nine-card page our totals
+      are legitimately lower, and it says so rather than failing.</p>
+    <div class="row" style="gap:24px;align-items:flex-start;flex-wrap:wrap;">
+      <div style="min-width:280px;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="color:#8b96ad;text-align:left;">
+            <th style="padding:4px 10px 4px 0;">Slot</th>
+            <th style="padding:4px 10px 4px 0;">Alive</th>
+            <th style="padding:4px 10px 4px 0;">Kills</th>
+          </tr></thead>
+          <tbody id="bgmi_rows"><tr><td colspan="3" class="hint">(nothing read yet)</td></tr></tbody>
+        </table>
+      </div>
+      <div class="hint" id="bgmi_header" style="min-width:220px;"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Preview &mdash; what the reader saw</h2>
+    <p class="hint">Boxes are the cards it located, the dot beside each name is its alive/dead verdict, and the
+      label above each card is what would reach the sheet. This is here to be disagreed with: a picture of the
+      panel alone tells you nothing you cannot see in the game, but a row marked dead that plainly is not is
+      worth catching before it goes out.</p>
+    <img id="bgmi_preview" style="width:100%;max-width:1100px;border-radius:8px;border:1px solid #2b3348;
+         background:#0a0d18;display:none;">
+    <div class="hint" id="bgmi_previewNote" style="margin-top:8px;"></div>
+  </div>
+
+  <div class="card">
+    <h2>Setup</h2>
+    <p class="hint">Run the engine in its own window &mdash; it is a separate process on its own port (8767), so it
+      never disturbs a Free Fire event:</p>
+    <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;
+         font-family:monospace;font-size:11px;word-break:break-all;">
+      python ocr\bgmi\bgmi_engine.py --serve
+    </div>
+    <p class="hint" style="margin-top:10px;">The capture region must be the <em>game picture</em>, not the
+      BlueStacks window &mdash; the window adds a title bar and a side toolbar, and every offset shifts by their
+      size. Teach it a digit it has never seen with:</p>
+    <div class="hint" style="background:#0a0d18;border:1px solid #2b3348;border-radius:6px;padding:10px;
+         font-family:monospace;font-size:11px;word-break:break-all;">
+      python ocr\bgmi\learn_glyphs.py shot.png --first-slot 12
+    </div>
+  </div>
+
 </div>
 
 <div class="category-panel" id="category-freefire">
@@ -13474,6 +13549,138 @@ document.getElementById("dota2gfx_reset").addEventListener("click", () => {
     dota2Ws.send(JSON.stringify({type: "save_graphic_overrides", page: "postmatch", overrides: {}}));
   }
   document.getElementById("dota2gfx_status").textContent = "Reset locally and pushed — all sections back to default.";
+});
+
+/* ---------- BGMI (its own WebSocket, its own local port 8767 -- same
+   isolation reasoning as FF/Valorant/Dota above, so running the BGMI
+   engine never disturbs a Free Fire event. Over the relay it is just
+   another &page= tag on the shared socket.) ---------- */
+const BGMI_WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=bgmi_dashboard"
+  : "ws://localhost:8767";
+
+let bgmiWs = null;
+
+function bgmiSend(msg){
+  if (bgmiWs && bgmiWs.readyState === WebSocket.OPEN) {
+    bgmiWs.send(JSON.stringify(msg));
+    return true;
+  }
+  return false;
+}
+
+function bgmiRenderDiag(d){
+  if (!d) return "";
+  const bits = [
+    "cards " + (d.cards == null ? "-" : d.cards),
+    "scroll " + (d.scroll == null ? "-" : d.scroll) + " (fit " + (d.scrollScore == null ? "-" : d.scrollScore) + ")",
+    "first slot " + (d.firstSlot == null ? "-" : d.firstSlot),
+    "slot margin " + (d.slotMargin == null ? "-" : d.slotMargin),
+  ];
+  if (d.missingDigits && d.missingDigits.length) {
+    bits.push("UNSEEN DIGITS: " + d.missingDigits.join(", "));
+  }
+  return bits.join("   ");
+}
+
+function bgmiRender(state){
+  if (!state) return;
+  const blocked = document.getElementById("bgmi_blocked");
+  blocked.style.display = state.blockedBy ? "block" : "none";
+  blocked.textContent = state.blockedBy || "";
+
+  document.getElementById("bgmi_diag").textContent = bgmiRenderDiag(state.diagnostics);
+
+  const body = document.getElementById("bgmi_rows");
+  const rows = state.rows || [];
+  if (!rows.length) {
+    body.innerHTML = "<tr><td colspan='3' class='hint'>" +
+      (state.blockedBy ? "(refused — see above)" : "(nothing read yet)") + "</td></tr>";
+  } else {
+    body.innerHTML = rows.map(r =>
+      "<tr style='border-top:1px solid #222a3c;'>" +
+      "<td style='padding:4px 10px 4px 0;'>" + r.slot + "</td>" +
+      "<td style='padding:4px 10px 4px 0;" + (r.alive ? "" : "color:#ff8f8f;") + "'>" +
+        r.alive + " / 4" + (r.eliminated ? " — wiped" : "") + "</td>" +
+      "<td style='padding:4px 10px 4px 0;'>" +
+        (r.kills == null ? "<span class='hint'>unread</span>" : r.kills) + "</td></tr>").join("");
+  }
+
+  const h = state.header || {};
+  const total = rows.reduce((a, r) => a + (r.alive || 0), 0);
+  const up = rows.filter(r => (r.alive || 0) > 0).length;
+  let verdict;
+  if (h.agrees === true)       verdict = "<span style='color:#79e6a2;'>agrees with the game</span>";
+  else if (h.agrees === false) verdict = "<span style='color:#ff8f8f;'>DOES NOT agree — do not trust this read</span>";
+  else                         verdict = "<span class='hint'>not checked — this page is only part of the lobby</span>";
+  document.getElementById("bgmi_header").innerHTML =
+    "<div><b>Game says</b></div>" +
+    "<div>Remaining: " + (h.remaining == null ? "—" : h.remaining) + "</div>" +
+    "<div>Teams up: " + (h.teamsAlive == null ? "—" : h.teamsAlive) + "</div>" +
+    "<div style='margin-top:8px;'><b>We read</b></div>" +
+    "<div>Alive: " + total + "</div>" +
+    "<div>Teams up: " + up + "</div>" +
+    "<div style='margin-top:8px;'>" + verdict + "</div>";
+}
+
+function bgmiConnect(){
+  bgmiWs = new WebSocket(BGMI_WS_URL);
+  bgmiWs.onopen = () => {
+    const el = document.getElementById("bgmi_status");
+    el.textContent = "CONNECTED"; el.className = "connected";
+  };
+  bgmiWs.onmessage = (evt) => {
+    let msg;
+    try { msg = JSON.parse(evt.data); } catch (e) { return; }
+    if (msg.type === "state_sync" && msg.data && msg.data.bgmi) {
+      bgmiRender(msg.data.bgmi);
+    } else if (msg.type === "bgmi_read_result") {
+      bgmiRender(msg.bgmi);
+      const img = document.getElementById("bgmi_preview");
+      const note = document.getElementById("bgmi_previewNote");
+      if (msg.preview) {
+        img.src = msg.preview; img.style.display = "block";
+        note.textContent = "Captured " + new Date().toLocaleTimeString() + ".";
+      } else {
+        img.style.display = "none";
+        note.textContent = "Read without a preview image.";
+      }
+      document.getElementById("bgmi_readNow").disabled = false;
+      document.getElementById("bgmi_readNow").textContent = "Read Now";
+    } else if (msg.type === "bgmi_glyphs") {
+      document.getElementById("bgmi_diag").textContent =
+        "slot digits: " + (msg.slot || []).join("") +
+        "   kill digits: " + (msg.kill || []).join("") +
+        (msg.missing && msg.missing.length ? "   UNSEEN: " + msg.missing.join(", ") : "   (complete)");
+    }
+  };
+  bgmiWs.onclose = () => {
+    const el = document.getElementById("bgmi_status");
+    el.textContent = "DISCONNECTED"; el.className = "disconnected";
+    setTimeout(bgmiConnect, 2000);
+  };
+  bgmiWs.onerror = () => bgmiWs.close();
+}
+bgmiConnect();
+
+document.getElementById("bgmi_readNow").addEventListener("click", () => {
+  const btn = document.getElementById("bgmi_readNow");
+  const want = document.getElementById("bgmi_withPreview").checked;
+  if (!bgmiSend({type: "bgmi_read_now", preview: want})) {
+    document.getElementById("bgmi_previewNote").textContent =
+      "Not connected to the BGMI engine — start it with: python ocr\\bgmi\\bgmi_engine.py --serve";
+    return;
+  }
+  btn.disabled = true; btn.textContent = "Reading…";
+  // The engine always answers, but a capture on a busy box can take a
+  // moment; don't leave the button dead if the socket drops mid-read.
+  setTimeout(() => { btn.disabled = false; btn.textContent = "Read Now"; }, 8000);
+});
+
+document.getElementById("bgmi_reloadGlyphs").addEventListener("click", () => {
+  if (!bgmiSend({type: "bgmi_reload_glyphs"})) {
+    document.getElementById("bgmi_diag").textContent = "Not connected to the BGMI engine.";
+  }
 });
 </script>
 </body>

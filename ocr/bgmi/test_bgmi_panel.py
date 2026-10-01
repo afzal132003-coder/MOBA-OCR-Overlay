@@ -215,6 +215,37 @@ def main():
     _, conflicts = bp.merge_pages([page_a, [{"slot": 7, "alive": 2, "kills": 4}]])
     check("disagreement is reported, not silently resolved", len(conflicts) == 1)
 
+    print("\nheader checksum, and refusing to guess")
+    check("store knows it has never seen a 2",
+          bp.missing_digits(slot_templates) == ["2"])
+    check("header refuses outright on an incomplete store",
+          bp.read_header(luma, slot_templates) == (None, None))
+    check("most starting slots are unjudgeable while a digit is missing",
+          len(bp.unevaluable_starts(9, slot_templates)) >= 20,
+          "%d of %d unjudgeable"
+          % (len(bp.unevaluable_starts(9, slot_templates)), bp.MAX_SLOT))
+
+    # Learn the 2 from the header's own, purely to reach the path that is
+    # otherwise unreachable. This is NOT a claim that a header 2 is a
+    # valid slot 2 -- that needs a frame with slot 02, 12 or 20 on it.
+    hx, hy, hw, hh = bp.HEADER_BOX
+    band = luma[hy:hy + hh, hx:hx + hw]
+    white = band >= bp.HEADER_WHITE * float(np.percentile(band, 99.9))
+    complete = {k: list(v) for k, v in slot_templates.items()}
+    complete["2"] = [bp._bitmap(white[:, 241:267], min_ink=20)]
+    check("header reads once every digit is known",
+          bp.read_header(luma, complete) == (32, 10),
+          "got %s" % (bp.read_header(luma, complete),))
+    check("nothing is unjudgeable once the store is complete",
+          bp.unevaluable_starts(9, complete) == [])
+
+    # NOT tested here, for want of a second frame: the tighter score and
+    # margin read_header uses. They were chosen because the missing 2
+    # matched a 7 at 0.746/+0.041 -- over the ordinary guards -- while
+    # every true digit in this header scored 0.893 or better. With the
+    # completeness refusal in front of it that path is now unreachable, so
+    # there is nothing honest to assert about it from one frame.
+
     print("\nKNOWN GAPS, not failures:")
     print("  * Every count in this fixture is single-digit, so a player on")
     print("    10+ kills is UNTESTED. It currently voids that team's total")
