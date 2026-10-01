@@ -177,6 +177,14 @@ function findTheTab() {
     var sh = sheets[i];
     if (sh.getLastRow() < FIRST_ROW + ROWS_PER_GAME) continue;
     var width = Math.min(sh.getLastColumn(), 15);
+    var best = null;
+
+    // EVERY column, then the best -- not the first that looks plausible.
+    // An earlier version stopped at the first match and kept landing on
+    // column A, which on these tabs is the kill-points lookup (1, 2, 3...
+    // with points beside it) sitting directly left of the real block.
+    // What separates them is the SECOND game block: a lookup table has
+    // nothing 21 rows further down, and a stack of game blocks does.
     for (var c = 1; c <= width; c++) {
       var vals = sh.getRange(FIRST_ROW, c, ROWS_PER_GAME, 1).getValues();
       var nums = [], ok = 0;
@@ -197,23 +205,49 @@ function findTheTab() {
           if (!isNaN(m)) second++;
         }
       }
-      found++;
-      Logger.log(">>> \"" + sh.getName() + "\"  gid " + sh.getSheetId());
-      Logger.log("      column " + indexToCol_(c) + " runs " + nums[0] + " to " +
-                 nums[nums.length - 1] + " (" + rising + " consecutive steps)");
-      Logger.log("      " + second + " of " + ROWS_PER_GAME +
-                 " numbers in the GAME 2 block too" +
-                 (second >= ROWS_PER_GAME * 0.9 ? "   <-- this is the one" : ""));
-      Logger.log("");
-      break;
+      var score = second * 100 + rising;
+      if (!best || score > best.score) {
+        best = { col: c, score: score, first: nums[0],
+                 last: nums[nums.length - 1], rising: rising, second: second };
+      }
     }
+    if (!best) continue;
+
+    found++;
+    Logger.log(">>> \"" + sh.getName() + "\"  gid " + sh.getSheetId());
+    Logger.log("      best column " + indexToCol_(best.col) + ": runs " +
+               best.first + " to " + best.last + ", " + best.rising +
+               " consecutive steps, " + best.second + "/" + ROWS_PER_GAME +
+               " in the GAME 2 block");
+    // The headers are the decisive evidence. A tab whose row above the
+    // data reads SLOT / PATH / TEAM NAME / Finishes / Pts / Rank is the
+    // one, and no amount of number-shape guessing beats reading them.
+    if (FIRST_ROW > 1) {
+      var head = sh.getRange(FIRST_ROW - 1, 1, 1, Math.min(sh.getLastColumn(), 14))
+                   .getValues()[0];
+      var shown = [];
+      for (var h = 0; h < head.length; h++) {
+        var t = String(head[h]).trim();
+        if (t) shown.push(indexToCol_(h + 1) + "=" + t.substring(0, 14));
+      }
+      Logger.log("      headers on row " + (FIRST_ROW - 1) + ":  " +
+                 (shown.length ? shown.join("  ") : "(none)"));
+    }
+    Logger.log("");
   }
+
   if (!found) {
     Logger.log("No tab matched. Either FIRST_ROW/ROWS_PER_GAME/GAME_STRIDE are");
     Logger.log("wrong for this workbook, or the slot column is past column 15.");
-  } else {
-    Logger.log("Set SHEET_GID to the gid above, Save, then run authorize().");
+    return;
   }
+  Logger.log("PICK THE TAB whose headers read SLOT / PATH / TEAM NAME /");
+  Logger.log("Finishes / Pts / Rank -- that is the scoresheet block, and the");
+  Logger.log("column letter beside SLOT is what SLOT_COLUMN should be.");
+  Logger.log("");
+  Logger.log("Then set both, Save, and run authorize():");
+  Logger.log('    var SHEET_GID = <the gid>;');
+  Logger.log('    var SLOT_COLUMN = "<the column under SLOT>";');
 }
 
 
