@@ -39,85 +39,59 @@ ocr\start_bgmi.bat
 Its own window, its own port (8767). It does not clash with the Free
 Fire engine on 8765 or Dota 2 on 8766 — all three can run at once.
 
-## 3. The Apps Script (the fiddly part)
+## 3. The Apps Script — TWO scripts, one per sheet
 
-Two spreadsheets are involved and they are **different files**:
+Two spreadsheets, and they each get their **own** script, their own
+deployment and their own URL:
 
-| | what | where it is set |
+| file | paste into | writes |
 |---|---|---|
-| **Alive** | live table — tick boxes + elim count | `SPREADSHEET_ID`, already filled in |
-| **Scoresheet** | per-game finishes and rank | `RESULTS_SPREADSHEET_ID`, **blank — you fill it** |
+| `bgmi_alive_push.gs` | **CODM STATS** (live) | ticks Q–T, elims in U |
+| `bgmi_results_push.gs` | **SCORESHEET** | finishes in G, rank in I |
 
-### 3a. Find the scoresheet's id
+Neither script can reach the other's spreadsheet, and that is the point.
+A script bound to a sheet reads and writes it with no extra permission;
+reaching a *different* file by id needs a broader scope, and when that
+scope is missing the failure arrives mid-match as a permission error.
 
-Open the scoresheet and look at its URL:
+### 3a. The alive script
 
-```
-https://docs.google.com/spreadsheets/d/1AbCdEfGh...XyZ/edit#gid=0
-                                      └──────┬──────┘
-                                      this is the id
-```
-
-Everything between `/d/` and `/edit`. Copy it.
-
-### 3b. Both ids are already filled in
-
-```js
-var SPREADSHEET_ID         = "13F4LTctinqHStzFOpurVH4kdRzrJiPzGDvCLGKOD7C8";
-var RESULTS_SPREADSHEET_ID = "1uuOBaQ5pKf85y5bq5_cnrVfBw_LKgG4HmchcYvFXhhg";
-var RESULTS_SHEET_GID      = 626963250;
-```
-
-The scoresheet tab is found by **gid**, not by name — a gid never
-changes, where a renamed tab sends every push somewhere else or nowhere.
-
-### 3c. Paste and set
-
-1. Alive sheet → **Extensions → Apps Script**
-2. Delete what's there, paste all of `ocr/bgmi/bgmi_sheet_push.gs`
-3. **Save** (Ctrl+S)
-
-You do **not** have to go hunting for the slot column. Leave
-`SLOT_COLUMN` blank for now — the next step finds it for you.
-
-### 3d. Check it before deploying
-
-Pick **`authorize`** in the function dropdown next to Run, press **Run**,
-accept the permission prompt, then read the Execution log underneath.
-
-It prints what it can actually see, and **tells you the slot column**:
+1. **CODM STATS → Extensions → Apps Script**, paste `bgmi_alive_push.gs`, Save.
+2. Run **`authorize`**. It prints *the contents of every column* in rows
+   5–20:
 
 ```
->>> Column D looks like the slot column: runs 3 to 18, 15 consecutive steps.
->>> If that is right, set:   var SLOT_COLUMN = "D";
-
-Scoresheet: ...
-Writing into tab: Match Pt (gid 626963250)
-GAME 1  rows 4-19   slots: 3, 4, 5, ...
-GAME 2  rows 25-40  slots: 3, 4, 5, ...
+  B:  1 | 2 | 3 | 4 | 5 | ...        <- a serial number, NOT the slot
+  D:  3 | 4 | 5 | 6 | 7 | ...        <- this is the slot the game prints
 ```
 
-**Do three things with that output:**
+3. Set `SLOT_COLUMN` to whichever column holds **the numbers the game
+   shows beside each squad**, Save, run `authorize` again to confirm.
+4. **Deploy → New deployment → Web app → Execute as: Me → Anyone with
+   the link.** Copy the URL — this is the **Alive webhook**.
 
-1. Copy the suggested `SLOT_COLUMN` into the script, save, and run
-   `authorize` once more to confirm it reads the right numbers.
-2. Check the two GAME lines show slots `3 … 18`. If they show something
-   else, the stride is wrong for your sheet — tell me.
-3. Check the tab it says it is writing into is the one you want.
+> It prints the columns rather than naming one, on purpose. An earlier
+> version guessed, and confidently pointed at a column numbered 1–16
+> while the game's slots run 3–18. A wrong answer here puts every team on
+> another team's row and looks entirely deliberate.
 
-The slot column is a guess, which is why it asks you to confirm rather
-than using it silently. Getting it wrong puts every team on another
-team's row, and it would look deliberate.
+### 3b. The results script
 
-### 3e. Deploy
+1. **SCORESHEET → Extensions → Apps Script**, paste `bgmi_results_push.gs`, Save.
+2. Run **`findTheTab`** first. This workbook has seventeen tabs; it scans
+   them and names the ones actually laid out as game blocks, with gids.
+3. Set `SHEET_GID` to the one it found, Save, run **`authorize`** to
+   confirm the GAME lines read the right slots.
+4. Deploy as above. Copy the URL — this is the **Results webhook**.
 
-**Deploy → New deployment → type: Web app → Execute as: Me → Who has
-access: Anyone with the link → Deploy.** Copy the web app URL.
+> The gid in a pasted URL is whichever tab was open at the time. That is
+> how `MVP.D3` got configured once and reported its column D as
+> `0, M1, KILL`. `findTheTab` exists so this is one run instead of
+> seventeen guesses.
 
-> After **any** later edit you must do **Deploy → Manage deployments →
-> pencil → Version: New version → Deploy**. The web app serves the
-> *deployed* version, not what is saved in the editor. An edit saved but
-> not redeployed changes nothing, and it is a confusing hour.
+> After **any** later edit to either script: **Deploy → Manage
+> deployments → pencil → Version: New version → Deploy.** The web app
+> serves the *deployed* version, not what is saved in the editor.
 
 ## 4. Wire it to the dashboard
 

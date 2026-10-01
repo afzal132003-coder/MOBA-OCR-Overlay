@@ -60,7 +60,8 @@ def default_config():
             "lobbySize": 16,
             # The broadcast sheet. Off until a URL is set, and even then
             # only pushes when the table has actually changed.
-            "sheetWebhookUrl": "",
+            "sheetWebhookUrl": "",      # the LIVE STATUS sheet's deployment
+            "resultsWebhookUrl": "",    # the SCORESHEET's own, separate one
             "sheetTab": "",
             "resultsTab": "",
             "resultsGame": 1,
@@ -409,9 +410,14 @@ def push_results_to_sheet(game, rows):
     worth having.
     """
     settings = config.get("settings") or {}
-    url = (settings.get("sheetWebhookUrl") or "").strip()
+    # Its own URL. The scoresheet has its own bound script and its own
+    # deployment, so results never travel through the live sheet's -- and
+    # neither script can reach the other's spreadsheet at all.
+    url = (settings.get("resultsWebhookUrl") or "").strip()
     if not url:
-        return {"ok": False, "error": "No sheet webhook URL set."}
+        return {"ok": False, "error":
+                "No RESULTS webhook URL set (that is a separate deployment "
+                "from the alive one, in the scoresheet's own Apps Script)."}
     if not rows:
         return {"ok": False, "error": "No result rows to push."}
     try:
@@ -420,7 +426,6 @@ def push_results_to_sheet(game, rows):
         return {"ok": False, "error": "No game number given."}
 
     payload = {
-        "kind": "results",
         "game": game,
         "tab": (settings.get("resultsTab") or "").strip(),
         "rows": [{"slot": r.get("slot"), "finishes": r.get("finishes"),
