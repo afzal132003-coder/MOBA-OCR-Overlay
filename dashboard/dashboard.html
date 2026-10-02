@@ -1960,6 +1960,7 @@
     <button class="ff-tab-btn" data-fftab="mapping">Mapping <span class="ff-pending-dot" id="ff_mappingCount"></span></button>
     <button class="ff-tab-btn" data-fftab="graphic">Graphic</button>
     <button class="ff-tab-btn" data-fftab="matchfile">Match Result File</button>
+    <button class="ff-tab-btn" data-fftab="analysis">Analysis</button>
   </div>
 
   <!-- ===================== PRE-MATCH ===================== -->
@@ -2970,6 +2971,83 @@
       </div>
       <div class="hint" id="ff_mfTarget" style="margin-top:6px;"></div>
       <div class="hint" id="ff_mfPushStatus" style="margin-top:6px;"></div>
+    </div>
+
+  </div>
+
+  <div class="ff-tab-panel" id="fftab-analysis">
+
+    <div class="card">
+      <h2>Match Analysis</h2>
+      <p class="hint">Drop a <code>ReplayInfo_*.json</code> from
+        <code>Free Fire_64_Data\Replays</code>. Every finished match leaves one, alongside a much larger
+        <code>.bin</code> &mdash; and the JSON turns out to carry what a broadcast actually wants: every kill,
+        every player's name, the squad each belongs to, and where the victim fell.</p>
+      <p class="hint"><strong>Drop the .json, not the .bin.</strong> The binary holds the continuous movement
+        paths and is not read here; the JSON is a few hundred KB and needs no decoding.</p>
+
+      <div id="ff_anDrop" style="border:2px dashed #1b2430;border-radius:12px;padding:30px 20px;
+           text-align:center;background:#0a0e14;cursor:pointer;transition:border-color .15s ease;">
+        <div style="font-family:var(--nav);font-size:17px;letter-spacing:.08em;color:#9aa7b5;">
+          DROP THE REPLAY JSON HERE
+        </div>
+        <div class="hint" style="margin-top:6px;">or click to choose one</div>
+        <input type="file" id="ff_anInput" accept=".json,application/json" style="display:none;">
+      </div>
+      <div class="hint" id="ff_anStatus" style="margin-top:10px;"></div>
+    </div>
+
+    <div class="card" id="ff_anCard" style="display:none;">
+      <h2>Kill Map</h2>
+      <p class="hint">Each dot is where a player died. Colour is the squad that <em>died</em> there by default
+        &mdash; switch it to see who was doing the killing instead. Drag the scrubber to walk the match forward,
+        or press Play.</p>
+
+      <div class="row" style="gap:20px;align-items:flex-start;flex-wrap:wrap;">
+        <div style="flex:1 1 520px;min-width:360px;">
+          <canvas id="ff_anCanvas" width="700" height="700"
+                  style="width:100%;max-width:700px;background:#080c11;border:1px solid #1b2430;
+                         border-radius:10px;display:block;"></canvas>
+
+          <div class="row" style="gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap;">
+            <button id="ff_anPlay" style="min-width:110px;">Play</button>
+            <input type="range" id="ff_anTime" min="0" max="1000" value="1000"
+                   style="flex:1 1 220px;min-width:180px;">
+            <span class="hint" id="ff_anClock" style="font-family:ui-monospace,monospace;min-width:150px;"></span>
+          </div>
+
+          <div class="row" style="gap:16px;align-items:center;margin-top:10px;flex-wrap:wrap;">
+            <label style="display:flex;gap:6px;align-items:center;margin:0;" class="hint">
+              colour by
+              <select id="ff_anColourBy" style="width:auto;">
+                <option value="victim">squad that died</option>
+                <option value="killer">squad that killed</option>
+              </select>
+            </label>
+            <label style="display:flex;gap:6px;align-items:center;margin:0;" class="hint">
+              <input type="checkbox" id="ff_anTrail" checked> keep earlier kills on screen
+            </label>
+            <label style="display:flex;gap:6px;align-items:center;margin:0;" class="hint">
+              <input type="checkbox" id="ff_anGrid" checked> grid
+            </label>
+          </div>
+        </div>
+
+        <div style="flex:0 0 280px;min-width:240px;">
+          <h3>Squads</h3>
+          <p class="hint" style="margin-top:-4px;">Click one to show only its kills.</p>
+          <div id="ff_anSquads" style="display:flex;flex-direction:column;gap:3px;"></div>
+          <button class="secondary" id="ff_anAllSquads" style="margin-top:10px;">Show All</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="ff_anFeedCard" style="display:none;">
+      <h2>Kill Feed</h2>
+      <p class="hint">Everything in the file, in order. A kill with no position is one whose victim was revived
+        rather than removed, so the client never wrote a body location for it.</p>
+      <div id="ff_anFeed" style="max-height:340px;overflow-y:auto;font-size:12.5px;
+           font-family:ui-monospace,SFMono-Regular,Menlo,monospace;"></div>
     </div>
 
   </div>
@@ -14642,6 +14720,336 @@ function ffLoadMatchFile(file){
     status.textContent = "Sending " + rows.length + " teams to match " + match +
       " (columns " + ffResultsColumnPair(match) + ")" +
       (tab ? ' on tab "' + tab + '"' : "") + "…";
+  });
+})();
+
+/* ---------- Free Fire: match analysis from the replay JSON ----------
+   The browser twin of ocr/freefire/replay_json.py. Parsed here rather
+   than in the engine for the same reason the match-result upload is: a
+   file the operator hands over is not a live match, and routing it
+   through the engine's watch-and-commit path would mean pretending it
+   was.
+
+   Two things in this file are not obvious, and both were wrong first:
+
+   NAMES ARE DERIVED. The JSON never says "player 67108879 is called X".
+   Each kill writes two Events at the same instant -- Event 3 is the
+   killer, Event 4 the victim -- and each one's SParam names the OTHER
+   party. Pair them by timestamp and both ids resolve. Reading SParam per
+   PlayerID directly gives 234 contradictory entries across 43 of 48
+   players.
+
+   THE DEATH IS THREE SECONDS AFTER THE KILL. Not noise -- measured min
+   2.87, median 3.00, max 3.00 across every death in a match, because the
+   client removes the body on a timer. A 2s join window finds nothing at
+   all while the feed otherwise looks perfect. */
+const FF_AN_SQUAD_SHIFT = 24;
+const FF_AN_DEATH_JOIN = 6.0;          // must straddle that 3.00s gap
+const FF_AN_KILL_EVENT = 3, FF_AN_DEATH_EVENT = 4;
+
+/* Twelve squads need twelve colours that stay apart on a dark map and
+   differ in lightness as well as hue, so they survive being read at dot
+   size and by someone who cannot separate red from green. */
+const FF_AN_COLOURS = [
+  "#4d9fff", "#ffa53d", "#4ade80", "#ff6b6b", "#b57bff", "#2dd4bf",
+  "#f472b6", "#facc15", "#60a5fa", "#fb923c", "#a3e635", "#e879f9",
+];
+
+let ffAnMatch = null;
+let ffAnOnlySquad = null;
+let ffAnPlaying = false;
+let ffAnTimer = null;
+
+function ffAnParse(data) {
+  const atTime = {};
+  (data.Events || []).forEach(e => {
+    if (e.Event !== FF_AN_KILL_EVENT && e.Event !== FF_AN_DEATH_EVENT) return;
+    const t = Math.round((e.Time || 0) * 1000) / 1000;
+    (atTime[t] = atTime[t] || {})[e.Event] = e;
+  });
+
+  // Each entry names the other party, so the pair is crossed over.
+  const votes = {};
+  Object.values(atTime).forEach(got => {
+    const k = got[FF_AN_KILL_EVENT], v = got[FF_AN_DEATH_EVENT];
+    if (!k || !v) return;
+    if (typeof v.SParam === "string") {
+      (votes[k.PlayerID] = votes[k.PlayerID] || {});
+      votes[k.PlayerID][v.SParam] = (votes[k.PlayerID][v.SParam] || 0) + 1;
+    }
+    if (typeof k.SParam === "string") {
+      (votes[v.PlayerID] = votes[v.PlayerID] || {});
+      votes[v.PlayerID][k.SParam] = (votes[v.PlayerID][k.SParam] || 0) + 1;
+    }
+  });
+  const names = {};
+  Object.keys(votes).forEach(pid => {
+    const c = votes[pid];
+    names[pid] = Object.keys(c).reduce((a, b) => (c[b] > c[a] ? b : a));
+  });
+
+  const deaths = [];
+  (data.PlayerHighlightInfos || []).forEach(pl =>
+    (pl.DeadEvents || []).forEach(e => {
+      const pos = e.position || {};
+      deaths.push({ pid: e.PlayerID, time: e.TriggerPoint,
+                    x: pos.x, z: pos.z });
+    }));
+
+  const kills = [];
+  Object.keys(atTime).map(Number).sort((a, b) => a - b).forEach(t => {
+    const got = atTime[t];
+    const k = got[FF_AN_KILL_EVENT], v = got[FF_AN_DEATH_EVENT];
+    if (!k || !v) return;
+    let spot = null, best = FF_AN_DEATH_JOIN;
+    deaths.forEach(d => {
+      if (d.pid !== v.PlayerID || d.time == null) return;
+      const gap = d.time - t;            // the death FOLLOWS its kill
+      if (gap >= -0.5 && gap < best) { best = gap; spot = d; }
+    });
+    kills.push({
+      time: t,
+      killer: names[k.PlayerID] || "", killerSquad: k.PlayerID >> FF_AN_SQUAD_SHIFT,
+      victim: names[v.PlayerID] || "", victimSquad: v.PlayerID >> FF_AN_SQUAD_SHIFT,
+      x: spot ? spot.x : null, z: spot ? spot.z : null,
+    });
+  });
+
+  const squads = {};
+  Object.keys(names).forEach(pid => {
+    const s = Number(pid) >> FF_AN_SQUAD_SHIFT;
+    (squads[s] = squads[s] || []).push(names[pid]);
+  });
+
+  const placed = kills.filter(k => k.x != null);
+  const bounds = placed.length ? {
+    minX: Math.min(...placed.map(k => k.x)), maxX: Math.max(...placed.map(k => k.x)),
+    minZ: Math.min(...placed.map(k => k.z)), maxZ: Math.max(...placed.map(k => k.z)),
+  } : null;
+
+  return {
+    matchId: String(data.MatchID || ""), map: data.MapID,
+    room: data.RoomName || "", playedAt: data.MatchDateTime || "",
+    duration: data.GameTotalTime || 0, playerCount: data.PlayerCount,
+    names, squads, kills, bounds,
+  };
+}
+
+function ffAnColour(sq) { return FF_AN_COLOURS[(sq - 1) % FF_AN_COLOURS.length]; }
+
+function ffAnDraw() {
+  const m = ffAnMatch;
+  const cv = document.getElementById("ff_anCanvas");
+  if (!m || !cv) return;
+  const ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height, pad = 26;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#080c11";
+  ctx.fillRect(0, 0, W, H);
+
+  if (!m.bounds) {
+    ctx.fillStyle = "#7d8b9c"; ctx.font = "15px Inter, sans-serif";
+    ctx.fillText("No positioned kills in this match.", 24, 36);
+    return;
+  }
+
+  /* One scale for both axes, so the map is not stretched. A kill map
+     drawn to fill a square would move every dot relative to every other
+     one, which is the only thing this picture is for. */
+  const b = m.bounds;
+  const spanX = Math.max(b.maxX - b.minX, 1), spanZ = Math.max(b.maxZ - b.minZ, 1);
+  const scale = Math.min((W - pad * 2) / spanX, (H - pad * 2) / spanZ);
+  const offX = (W - spanX * scale) / 2, offZ = (H - spanZ * scale) / 2;
+  // z grows north in the game, so it is flipped to read like a map.
+  const px = (x) => offX + (x - b.minX) * scale;
+  const py = (z) => H - (offZ + (z - b.minZ) * scale);
+
+  if (document.getElementById("ff_anGrid").checked) {
+    ctx.strokeStyle = "#141c26"; ctx.lineWidth = 1;
+    for (let i = 0; i <= 8; i++) {
+      const gx = pad + i * (W - pad * 2) / 8, gy = pad + i * (H - pad * 2) / 8;
+      ctx.beginPath(); ctx.moveTo(gx, pad); ctx.lineTo(gx, H - pad); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(pad, gy); ctx.lineTo(W - pad, gy); ctx.stroke();
+    }
+  }
+
+  const upTo = ffAnCurrentTime();
+  const trail = document.getElementById("ff_anTrail").checked;
+  const by = document.getElementById("ff_anColourBy").value;
+
+  m.kills.forEach(k => {
+    if (k.x == null || k.time > upTo) return;
+    const sq = by === "killer" ? k.killerSquad : k.victimSquad;
+    if (ffAnOnlySquad != null && sq !== ffAnOnlySquad) return;
+    const age = upTo - k.time;
+    // Without the trail, only the last few seconds show, which is what
+    // makes pressing Play read as a match unfolding rather than a blob.
+    if (!trail && age > 18) return;
+    const fade = trail ? Math.max(0.3, 1 - age / Math.max(m.duration, 1))
+                       : Math.max(0.15, 1 - age / 18);
+    ctx.globalAlpha = fade;
+    ctx.fillStyle = ffAnColour(sq);
+    ctx.beginPath();
+    ctx.arc(px(k.x), py(k.z), age < 4 ? 7 : 4.5, 0, Math.PI * 2);
+    ctx.fill();
+    if (age < 4) {
+      ctx.globalAlpha = 1 - age / 4;
+      ctx.strokeStyle = ffAnColour(sq); ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(px(k.x), py(k.z), 8 + age * 5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  });
+  ctx.globalAlpha = 1;
+}
+
+function ffAnCurrentTime() {
+  const m = ffAnMatch; if (!m) return 0;
+  const r = Number(document.getElementById("ff_anTime").value) / 1000;
+  return r * m.duration;
+}
+
+function ffAnClock() {
+  const m = ffAnMatch; if (!m) return;
+  const t = ffAnCurrentTime();
+  const shown = m.kills.filter(k => k.time <= t).length;
+  const mm = Math.floor(t / 60), ss = Math.floor(t % 60);
+  document.getElementById("ff_anClock").textContent =
+    mm + ":" + String(ss).padStart(2, "0") + "  ·  " + shown + " of " + m.kills.length + " kills";
+}
+
+function ffAnRenderSquads() {
+  const m = ffAnMatch;
+  const wrap = document.getElementById("ff_anSquads");
+  const tally = {};
+  m.kills.forEach(k => { tally[k.killerSquad] = (tally[k.killerSquad] || 0) + 1; });
+  const nums = Object.keys(m.squads).map(Number).sort((a, b) => (tally[b] || 0) - (tally[a] || 0));
+  wrap.innerHTML = nums.map(sq =>
+    "<button class='ff-an-squad' data-sq='" + sq + "' style='display:flex;align-items:center;gap:9px;" +
+    "width:100%;text-align:left;background:transparent;border:1px solid #1b2430;border-radius:7px;" +
+    "padding:7px 10px;margin:0;min-height:0;font-family:inherit;text-transform:none;letter-spacing:0;" +
+    "cursor:pointer;color:#e8edf2;font-size:12.5px;'>" +
+    "<span style='width:10px;height:10px;border-radius:50%;background:" + ffAnColour(sq) +
+    ";flex-shrink:0;'></span>" +
+    "<span style='flex:1;'>Squad " + sq + "</span>" +
+    "<span style='color:#9aa7b5;'>" + (tally[sq] || 0) + "</span></button>").join("");
+  wrap.querySelectorAll(".ff-an-squad").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const sq = Number(btn.dataset.sq);
+      ffAnOnlySquad = (ffAnOnlySquad === sq) ? null : sq;
+      wrap.querySelectorAll(".ff-an-squad").forEach(b =>
+        b.style.background = (Number(b.dataset.sq) === ffAnOnlySquad) ? "#16202c" : "transparent");
+      ffAnDraw();
+    });
+  });
+}
+
+function ffAnRenderFeed() {
+  const m = ffAnMatch;
+  document.getElementById("ff_anFeed").innerHTML = m.kills.map(k => {
+    const mm = Math.floor(k.time / 60), ss = Math.floor(k.time % 60);
+    const where = k.x == null ? "<span style='color:#7d8b9c;'>no position</span>"
+      : Math.round(k.x) + ", " + Math.round(k.z);
+    return "<div style='padding:3px 0;border-top:1px solid #161e28;'>" +
+      "<span style='color:#7d8b9c;'>" + mm + ":" + String(ss).padStart(2, "0") + "</span>  " +
+      "<span style='color:" + ffAnColour(k.killerSquad) + ";'>" + ffEscapeHtml(k.killer) + "</span>" +
+      " <span style='color:#7d8b9c;'>killed</span> " +
+      "<span style='color:" + ffAnColour(k.victimSquad) + ";'>" + ffEscapeHtml(k.victim) + "</span>" +
+      "  <span style='color:#7d8b9c;'>" + where + "</span></div>";
+  }).join("");
+}
+
+function ffAnLoad(file) {
+  const status = document.getElementById("ff_anStatus");
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onerror = () => { status.textContent = "Could not read that file."; };
+  reader.onload = () => {
+    let data;
+    try {
+      // The client writes these with a BOM, which JSON.parse rejects.
+      data = JSON.parse(String(reader.result).replace(/^﻿/, ""));
+    } catch (e) {
+      status.textContent = "That is not valid JSON (" + e.message + "). Did you drop the .bin by mistake?";
+      return;
+    }
+    if (!data.Events || !data.PlayerHighlightInfos) {
+      status.textContent = "No Events in that file — it does not look like a ReplayInfo JSON.";
+      return;
+    }
+    const m = ffAnParse(data);
+    if (!m.kills.length) {
+      status.textContent = file.name + " parsed, but it holds no completed kills — " +
+        "a match that ended before anyone was eliminated.";
+      document.getElementById("ff_anCard").style.display = "none";
+      document.getElementById("ff_anFeedCard").style.display = "none";
+      return;
+    }
+    ffAnMatch = m;
+    ffAnOnlySquad = null;
+    const placed = m.kills.filter(k => k.x != null).length;
+    status.textContent = file.name + " — map " + m.map + ", " + m.playerCount +
+      " players, " + Math.round(m.duration) + "s, " + Object.keys(m.squads).length +
+      " squads, " + m.kills.length + " kills (" + placed + " positioned)" +
+      (m.room ? " · " + m.room : "");
+    document.getElementById("ff_anCard").style.display = "block";
+    document.getElementById("ff_anFeedCard").style.display = "block";
+    document.getElementById("ff_anTime").value = 1000;
+    ffAnRenderSquads();
+    ffAnRenderFeed();
+    ffAnClock();
+    ffAnDraw();
+  };
+  reader.readAsText(file);
+}
+
+(function ffWireAnalysis() {
+  const drop = document.getElementById("ff_anDrop");
+  const input = document.getElementById("ff_anInput");
+  if (!drop || !input) return;
+
+  drop.addEventListener("click", () => input.click());
+  input.addEventListener("change", () => ffAnLoad(input.files[0]));
+  ["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, e => {
+    e.preventDefault(); drop.style.borderColor = "#4d9fff";
+  }));
+  ["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => {
+    e.preventDefault(); drop.style.borderColor = "#1b2430";
+  }));
+  drop.addEventListener("drop", e => {
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) ffAnLoad(f);
+  });
+
+  ["ff_anTime"].forEach(id =>
+    document.getElementById(id).addEventListener("input", () => { ffAnClock(); ffAnDraw(); }));
+  ["ff_anColourBy", "ff_anTrail", "ff_anGrid"].forEach(id =>
+    document.getElementById(id).addEventListener("change", ffAnDraw));
+
+  document.getElementById("ff_anAllSquads").addEventListener("click", () => {
+    ffAnOnlySquad = null;
+    document.querySelectorAll(".ff-an-squad").forEach(b => b.style.background = "transparent");
+    ffAnDraw();
+  });
+
+  document.getElementById("ff_anPlay").addEventListener("click", () => {
+    const btn = document.getElementById("ff_anPlay");
+    const slider = document.getElementById("ff_anTime");
+    if (ffAnPlaying) {
+      clearInterval(ffAnTimer); ffAnPlaying = false; btn.textContent = "Play"; return;
+    }
+    if (Number(slider.value) >= 1000) slider.value = 0;
+    ffAnPlaying = true; btn.textContent = "Pause";
+    // ~20s to walk a whole match, which is slow enough to follow and
+    // fast enough that nobody waits out seventeen real minutes.
+    ffAnTimer = setInterval(() => {
+      const next = Number(slider.value) + 5;
+      slider.value = Math.min(next, 1000);
+      ffAnClock(); ffAnDraw();
+      if (Number(slider.value) >= 1000) {
+        clearInterval(ffAnTimer); ffAnPlaying = false; btn.textContent = "Play";
+      }
+    }, 100);
   });
 })();
 </script>
