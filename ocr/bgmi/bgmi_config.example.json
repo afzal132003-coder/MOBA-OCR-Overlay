@@ -1,7 +1,16 @@
 {
   "monitor": 2,
-  "region": { "x": 0, "y": 0, "w": 1920, "h": 1080 },
-  "relay": { "enabled": false, "url": "", "token": "" },
+  "region": {
+    "x": 0,
+    "y": 0,
+    "w": 1920,
+    "h": 1080
+  },
+  "relay": {
+    "enabled": true,
+    "url": "wss://titanium-relay.duckdns.org",
+    "token": ""
+  },
   "settings": {
     "continuousPoll": false,
     "pollIntervalSeconds": 0.5,

@@ -52,7 +52,18 @@ def default_config():
         # calibrate it to the game picture itself or every offset in
         # bgmi_panel.py is wrong by the width of a title bar.
         "region": {"x": 0, "y": 0, "w": 1920, "h": 1080},
-        "relay": {"enabled": False, "url": "", "token": ""},
+        # ON by default, and pointing at the same hub the other engines
+        # use. Without it the engine listens only on localhost -- while a
+        # dashboard opened from the relay talks to the relay, connects
+        # happily, and sends captures into a hub where no BGMI engine is
+        # listening. That reads as CONNECTED with a button that does
+        # nothing, which is the worst shape a fault can take.
+        #
+        # The token is deliberately NOT here: it is read from
+        # ocr/.relay_token or RELAY_TOKEN, which git ignores.
+        "relay": {"enabled": True,
+                  "url": "wss://titanium-relay.duckdns.org",
+                  "token": ""},
         "settings": {
             # Off by default. See the note at the top about load.
             "continuousPoll": False,
@@ -66,6 +77,10 @@ def default_config():
             "resultsTab": "",
             "resultsGame": 1,
             "liveSheetPush": False,
+            # slot -> team name, filled in before the event. Display only:
+            # nothing in the capture or the sheet push depends on it, so a
+            # blank list can never stop a match being read.
+            "teams": {},
             # Names cost a Tesseract pass per player, so this is the one
             # expensive thing in a capture -- but it is also the only
             # bridge to the results screen, which has no slot numbers.
@@ -109,6 +124,7 @@ server_state = {
         "header": {"remaining": None, "teamsAlive": None},
         "readAt": 0,
         "blockedBy": "",
+        "teams": {},
     }
 }
 
@@ -116,6 +132,27 @@ server_state = {
 # ----------------------------------------------------------------- capture
 
 REFERENCE_SIZE = (1920, 1080)
+
+
+def refresh_config():
+    """Re-read the config file, so calibrating does not need a restart.
+
+    The config used to be read once at import. Calibrate while the engine
+    is up -- which is the obvious order, since the calibrator tells you to
+    restart afterwards and nobody reads that twice -- and the engine went
+    on grabbing the OLD region, usually the default full screen 1 with no
+    game on it. The capture then found nothing, for a reason nothing on
+    screen could explain.
+
+    Reading a small JSON per capture costs nothing worth measuring.
+    """
+    global config
+    fresh = load_config()
+    if fresh.get("region"):
+        config["region"] = fresh["region"]
+    if fresh.get("monitor"):
+        config["monitor"] = fresh["monitor"]
+    return config
 
 
 def grab_region():
@@ -437,6 +474,7 @@ def ign_map():
 
 
 load_igns()
+server_state["bgmi"]["teams"] = (config.get("settings") or {}).get("teams") or {}
 
 
 # -------------------------------------------------------------- sheet push
@@ -600,9 +638,11 @@ def capture_slide(slide, declared_slot, with_preview=True, learn=True):
     leaving the last good one standing is what lets the operator simply
     press it again.
     """
+    refresh_config()
     rgb = grab_region()
     rows, header, diag, blocked = read_frame(rgb, declared_slot, learn)
     state = server_state["bgmi"]
+    diag["region"] = dict(config.get("region") or {})
 
     if not blocked:
         state["slides"][str(slide)] = {
@@ -643,6 +683,17 @@ def capture_slide(slide, declared_slot, with_preview=True, learn=True):
 
 
 async def handle_client(websocket, path=None):
+    """One connection.
+
+    EVERY MESSAGE IS WRAPPED ON ITS OWN. This used to be a single try
+    around the whole loop, so any error inside any handler -- a screen
+    grab that failed, a bad region, anything -- ended the loop, dropped
+    the connection and said nothing at all. The dashboard reconnected a
+    moment later and showed CONNECTED, so the only symptom was a button
+    that appeared to do nothing, with no error anywhere to explain it.
+
+    Now a failing message is reported back and the connection carries on.
+    """
     CONNECTED.add(websocket)
     try:
         await websocket.send(json.dumps({"type": "state_sync", "data": server_state}))
@@ -652,78 +703,105 @@ async def handle_client(websocket, path=None):
             except ValueError:
                 continue
             kind = payload.get("type")
-
-            if kind == "bgmi_capture_slide":
-                slide = int(payload.get("slide") or 1)
-                first = payload.get("firstSlot")
-                first = int(first) if first not in (None, "") else None
-                loop = asyncio.get_running_loop()
-                preview = await loop.run_in_executor(
-                    None, capture_slide, slide, first,
-                    bool(payload.get("preview", True)),
-                    bool(payload.get("learn", True)))
-                await websocket.send(json.dumps({
-                    "type": "bgmi_read_result",
-                    "slide": slide,
-                    "preview": preview,
-                    "bgmi": server_state["bgmi"],
-                }))
-                await broadcast({"type": "state_sync", "data": server_state})
-
-            elif kind == "bgmi_clear_slides":
-                # A new match, not a correction. Kept separate from
-                # re-capturing one slide, which must never drop the others.
-                server_state["bgmi"]["slides"] = {}
-                server_state["bgmi"]["header"] = {
-                    "remaining": None, "teamsAlive": None}
-                recombine()
-                server_state["bgmi"]["blockedBy"] = ""
-                await broadcast({"type": "state_sync", "data": server_state})
-
-            elif kind == "bgmi_push_sheet":
-                loop = asyncio.get_running_loop()
-                answer = await loop.run_in_executor(
-                    None, push_alive_to_sheet, bool(payload.get("force", True)))
-                await websocket.send(json.dumps({
-                    "type": "bgmi_sheet_result", "result": answer}))
-
-            elif kind == "bgmi_push_results":
-                loop = asyncio.get_running_loop()
-                answer = await loop.run_in_executor(
-                    None, push_results_to_sheet,
-                    payload.get("game"), payload.get("rows") or [])
-                await websocket.send(json.dumps({
-                    "type": "bgmi_results_result", "result": answer}))
-
-            elif kind == "bgmi_set_settings":
-                (config.setdefault("settings", {})
-                 ).update(payload.get("settings") or {})
-                save_config(config)
-                await broadcast({"type": "state_sync", "data": server_state})
-
-            elif kind == "bgmi_set_region":
-                region = payload.get("region") or {}
-                if all(k in region for k in ("x", "y", "w", "h")):
-                    config["region"] = {k: int(region[k]) for k in ("x", "y", "w", "h")}
-                    save_config(config)
-                await websocket.send(json.dumps({
-                    "type": "bgmi_region", "region": config["region"]}))
-
-            elif kind == "bgmi_reload_glyphs":
-                global templates
-                templates = bp.load_templates()
-                await websocket.send(json.dumps({
-                    "type": "bgmi_glyphs",
-                    "slot": sorted(templates.get("slot", {})),
-                    "kill": sorted(templates.get("kill", {})),
-                    "missing": bp.missing_digits(templates.get("slot", {})),
-                }))
+            try:
+                await handle_message(websocket, kind, payload)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                try:
+                    await websocket.send(json.dumps({
+                        "type": "bgmi_error", "kind": kind, "error": repr(e)}))
+                except Exception:
+                    pass
     except Exception:
         pass
     finally:
         CONNECTED.discard(websocket)
 
 
+async def handle_message(websocket, kind, payload):
+    """One message. Raised errors are caught by the caller, reported to
+    the dashboard and the connection kept."""
+
+    if kind == "bgmi_capture_slide":
+        slide = int(payload.get("slide") or 1)
+        first = payload.get("firstSlot")
+        first = int(first) if first not in (None, "") else None
+        loop = asyncio.get_running_loop()
+        preview = await loop.run_in_executor(
+            None, capture_slide, slide, first,
+            bool(payload.get("preview", True)),
+            bool(payload.get("learn", True)))
+        await websocket.send(json.dumps({
+            "type": "bgmi_read_result",
+            "slide": slide,
+            "preview": preview,
+            "bgmi": server_state["bgmi"],
+        }))
+        await broadcast({"type": "state_sync", "data": server_state})
+
+    elif kind == "bgmi_set_teams":
+        teams = payload.get("teams") or {}
+        clean = {}
+        for slot, name in teams.items():
+            name = str(name or "").strip()
+            if name:
+                clean[str(int(slot))] = name
+        (config.setdefault("settings", {}))["teams"] = clean
+        save_config(config)
+        server_state["bgmi"]["teams"] = clean
+        await broadcast({"type": "state_sync", "data": server_state})
+        await websocket.send(json.dumps({
+            "type": "bgmi_teams_saved", "count": len(clean)}))
+
+    elif kind == "bgmi_clear_slides":
+        # A new match, not a correction. Kept separate from
+        # re-capturing one slide, which must never drop the others.
+        server_state["bgmi"]["slides"] = {}
+        server_state["bgmi"]["header"] = {
+            "remaining": None, "teamsAlive": None}
+        recombine()
+        server_state["bgmi"]["blockedBy"] = ""
+        await broadcast({"type": "state_sync", "data": server_state})
+
+    elif kind == "bgmi_push_sheet":
+        loop = asyncio.get_running_loop()
+        answer = await loop.run_in_executor(
+            None, push_alive_to_sheet, bool(payload.get("force", True)))
+        await websocket.send(json.dumps({
+            "type": "bgmi_sheet_result", "result": answer}))
+
+    elif kind == "bgmi_push_results":
+        loop = asyncio.get_running_loop()
+        answer = await loop.run_in_executor(
+            None, push_results_to_sheet,
+            payload.get("game"), payload.get("rows") or [])
+        await websocket.send(json.dumps({
+            "type": "bgmi_results_result", "result": answer}))
+
+    elif kind == "bgmi_set_settings":
+        (config.setdefault("settings", {})
+         ).update(payload.get("settings") or {})
+        save_config(config)
+        await broadcast({"type": "state_sync", "data": server_state})
+
+    elif kind == "bgmi_set_region":
+        region = payload.get("region") or {}
+        if all(k in region for k in ("x", "y", "w", "h")):
+            config["region"] = {k: int(region[k]) for k in ("x", "y", "w", "h")}
+            save_config(config)
+        await websocket.send(json.dumps({
+            "type": "bgmi_region", "region": config["region"]}))
+
+    elif kind == "bgmi_reload_glyphs":
+        global templates
+        templates = bp.load_templates()
+        await websocket.send(json.dumps({
+            "type": "bgmi_glyphs",
+            "slot": sorted(templates.get("slot", {})),
+            "kill": sorted(templates.get("kill", {})),
+            "missing": bp.missing_digits(templates.get("slot", {})),
+        }))
 async def poll_loop():
     """Keep the slide that is ON SCREEN fresh, off unless asked for.
 
@@ -788,8 +866,15 @@ async def main():
     print("BGMI engine on ws://localhost:%d" % PORT)
     missing = bp.missing_digits(templates.get("slot", {}))
     if missing:
-        print("Digit %s unseen -- slot numbers cannot be fitted until it is "
-              "learned (see learn_glyphs.py)." % ", ".join(missing))
+        # NOT a blocker, and the old wording said otherwise. Since slides
+        # carry a declared starting slot, that typed number is what places
+        # the rows; reading the digits on screen is only the check that
+        # catches a typo. A missing digit disables that check and nothing
+        # else -- captures work exactly as before.
+        print("Digit %s not seen yet, so the typed slot is taken on trust "
+              "and not cross-checked against the screen." % ", ".join(missing))
+        print("Capturing a slide that starts at 12 teaches it, and the check "
+              "turns itself on.")
     async with websockets.serve(handle_client, "localhost", PORT):
         await asyncio.gather(relay_client_loop(), poll_loop(), asyncio.Future())
 

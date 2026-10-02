@@ -79,16 +79,16 @@
      made consistent without touching any of the four switch handlers. */
   .tabbar{display:flex;gap:26px;margin:18px 0 0;border-bottom:1px solid #1b2430;}
   .ff-tabbar{gap:26px !important;border-bottom:1px solid #1b2430;}
-  .tabbar button, .ff-tab-btn, .val-tab-btn, .dota2-tab-btn{
+  .tabbar button, .ff-tab-btn, .val-tab-btn, .dota2-tab-btn, .bgmi-tab-btn{
     background:transparent;color:#6f7d8e;border:0;
     padding:0 0 12px;border-radius:0;font-weight:600;cursor:pointer;
     font-size:14px;text-transform:uppercase;letter-spacing:0.09em;font-family:var(--nav);
     box-shadow:none;margin-top:0;transition:color 0.15s ease;
   }
-  .tabbar button:hover, .ff-tab-btn:hover, .val-tab-btn:hover, .dota2-tab-btn:hover{
+  .tabbar button:hover, .ff-tab-btn:hover, .val-tab-btn:hover, .dota2-tab-btn:hover, .bgmi-tab-btn:hover{
     color:#e8edf2;opacity:1;
   }
-  .tabbar button.active, .ff-tab-btn.active, .val-tab-btn.active, .dota2-tab-btn.active{
+  .tabbar button.active, .ff-tab-btn.active, .val-tab-btn.active, .dota2-tab-btn.active, .bgmi-tab-btn.active{
     background:transparent;color:#e8edf2;border-color:transparent;
     box-shadow:inset 0 -2px 0 #4d9fff;
   }
@@ -202,8 +202,8 @@
      the naming cards at the bottom of this tab hard to reach -- so each
      list scrolls in place instead of stretching the page. */
   .ff-map-list{max-height:360px;overflow-y:auto;}
-  .tab-panel, .ff-tab-panel, .val-tab-panel, .dota2-tab-panel{display:none;background:transparent;padding-top:4px;}
-  .tab-panel.active, .ff-tab-panel.active, .val-tab-panel.active, .dota2-tab-panel.active{display:block;}
+  .tab-panel, .ff-tab-panel, .val-tab-panel, .dota2-tab-panel, .bgmi-tab-panel{display:none;background:transparent;padding-top:4px;}
+  .tab-panel.active, .ff-tab-panel.active, .val-tab-panel.active, .dota2-tab-panel.active, .bgmi-tab-panel.active{display:block;}
   .dota2-prow{display:flex;gap:6px;align-items:center;margin-bottom:6px;}
   .dota2-prow .dota2-pname{flex:1;}
   select.dota2-hero{background:#06090c;border:1px solid #1b2430;color:#9aa7b5;padding:6px 8px;
@@ -1803,6 +1803,41 @@
 <div class="category-panel" id="category-bgmi">
 
   <span id="bgmi_status" class="disconnected">DISCONNECTED</span>
+  <div class="ff-tabbar" style="display:flex;gap:8px;">
+    <button class="bgmi-tab-btn active" data-bgtab="pre">Pre-Event</button>
+    <button class="bgmi-tab-btn" data-bgtab="live">Live Capture</button>
+    <button class="bgmi-tab-btn" data-bgtab="sheet">Sheets</button>
+  </div>
+
+  <div class="bgmi-tab-panel active" id="bgtab-pre">
+   <div class="card">
+    <h2>Teams, Slot By Slot</h2>
+    <p class="hint">Sixteen teams, slots <strong>3 to 18</strong> &mdash; the numbering this lobby actually uses,
+      and the same order the scoresheet and the live sheet are in. Filled in before the event, these names travel
+      with everything the engine reads, so a slot stops being a bare number the moment a graphic or a sheet row
+      needs a team on it.</p>
+    <p class="hint">The alive table does <strong>not</strong> depend on this. Slots are read off the panel and
+      pushed to the sheet by number, so a blank list here can never stop a capture &mdash; it only means the
+      dashboard shows <code>slot 7</code> where it could have shown a name. That separation is deliberate: the
+      live table is the thing that must not break.</p>
+
+    <label for="bgmi_teamPaste">Paste sixteen names, one per line (slot 3 first)</label>
+    <textarea id="bgmi_teamPaste" rows="5" style="width:100%;max-width:560px;"
+              placeholder="MYT ESPORTS&#10;MIDDLE MAN ESP&#10;QUITE DEMON KILA&#10;SANTA ESPORTS&#10;..."></textarea>
+    <div class="row" style="gap:8px;align-items:center;margin-top:10px;">
+      <button id="bgmi_teamFill">Fill From Paste</button>
+      <button class="secondary" id="bgmi_teamSave">Save</button>
+      <button class="secondary" id="bgmi_teamClear">Clear All</button>
+    </div>
+
+    <div id="bgmi_teamGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
+         gap:8px;margin-top:16px;"></div>
+    <div class="hint" id="bgmi_teamStatus" style="margin-top:10px;"></div>
+   </div>
+
+  </div>
+
+  <div class="bgmi-tab-panel" id="bgtab-live">
 
   <div class="card">
     <h2>Capture The Panel, One Slide At A Time</h2>
@@ -1864,6 +1899,9 @@
          background:#06090c;display:none;">
     <div class="hint" id="bgmi_previewNote" style="margin-top:8px;"></div>
   </div>
+  </div>
+
+  <div class="bgmi-tab-panel" id="bgtab-sheet">
 
   <div class="card">
     <h2>Push To The Sheet</h2>
@@ -1940,6 +1978,7 @@
          font-family:monospace;font-size:11px;word-break:break-all;">
       python ocr\bgmi\learn_glyphs.py shot.png --first-slot 12
     </div>
+  </div>
   </div>
 
 </div>
@@ -3380,6 +3419,7 @@ const NAV = [
     btn: "ff-tab-btn",    attr: "fftab",  panel: "ff-tab-panel",    prefix: "fftab-",
     sock: () => (typeof ffWs !== "undefined" ? ffWs : null) },
   { id: "bgmi",     label: "BGMI",
+    btn: "bgmi-tab-btn",  attr: "bgtab",  panel: "bgmi-tab-panel",  prefix: "bgtab-",
     sock: () => (typeof bgmiWs !== "undefined" ? bgmiWs : null) },
 ];
 const NAV_BY_ID = {};
@@ -3579,7 +3619,7 @@ function navSaveFolded(){
 
 function navCardKey(panelId, title){ return panelId + "::" + title; }
 
-const NAV_PANEL_SEL = ".tab-panel, .ff-tab-panel, .val-tab-panel, .dota2-tab-panel";
+const NAV_PANEL_SEL = ".tab-panel, .ff-tab-panel, .val-tab-panel, .dota2-tab-panel, .bgmi-tab-panel";
 
 function navEnhanceCards(){
   /* Group every card under the panel that owns it, rather than walking
@@ -14294,6 +14334,10 @@ function bgmiRenderDiag(d){
     "you said " + (d.declaredSlot == null ? "-" : d.declaredSlot),
     "screen read " + (d.readSlot == null ? "not checked" : d.readSlot),
   ];
+  if (d.region && d.region.w) {
+    bits.push("region " + d.region.w + "x" + d.region.h +
+              " @" + d.region.x + "," + d.region.y);
+  }
   if (d.ignsRead != null) bits.push("names " + d.ignsRead);
   if (d.ignNote) bits.push("NAMES: " + d.ignNote);
   if (d.missingDigits && d.missingDigits.length) {
@@ -14305,6 +14349,7 @@ function bgmiRenderDiag(d){
 function bgmiRender(state){
   if (!state) return;
   bgmiLastState = state;
+  if (state.teams && Object.keys(state.teams).length) bgmiDrawTeams(state.teams);
   const blocked = document.getElementById("bgmi_blocked");
   blocked.style.display = state.blockedBy ? "block" : "none";
   blocked.textContent = state.blockedBy || "";
@@ -14347,7 +14392,9 @@ function bgmiRender(state){
   } else {
     body.innerHTML = rows.map(r =>
       "<tr style='border-top:1px solid #161e28;'>" +
-      "<td style='padding:4px 10px 4px 0;'>" + r.slot + "</td>" +
+      "<td style='padding:4px 10px 4px 0;'>" + r.slot +
+        (bgmiTeamName(r.slot) ? " <span class='hint'>" +
+          bgmiTeamName(r.slot).replace(/</g, "&lt;") + "</span>" : "") + "</td>" +
       "<td style='padding:4px 10px 4px 0;" + (r.alive ? "" : "color:#ff8f8f;") + "'>" +
         r.alive + " / 4" + (r.eliminated ? " — wiped" : "") + "</td>" +
       "<td style='padding:4px 10px 4px 0;'>" +
@@ -14406,6 +14453,18 @@ function bgmiConnect(){
       }
       document.querySelectorAll(".bgmi-cap").forEach(b => {
         b.disabled = false; b.textContent = "Capture Slide " + b.dataset.slide;
+      });
+    } else if (msg.type === "bgmi_teams_saved") {
+      const el = document.getElementById("bgmi_teamStatus");
+      if (el) el.textContent = "Saved " + msg.count + " team(s).";
+    } else if (msg.type === "bgmi_error") {
+      // The engine used to swallow these and drop the socket, so the only
+      // symptom was a button that did nothing.
+      const b = document.getElementById("bgmi_blocked");
+      b.style.display = "block";
+      b.textContent = "The engine failed on " + (msg.kind || "a message") + ": " + msg.error;
+      document.querySelectorAll(".bgmi-cap").forEach(x => {
+        x.disabled = false; x.textContent = "Capture Slide " + x.dataset.slide;
       });
     } else if (msg.type === "bgmi_sheet_result") {
       bgmiShowSheetResult(msg.result);
@@ -15050,6 +15109,95 @@ function ffAnLoad(file) {
         clearInterval(ffAnTimer); ffAnPlaying = false; btn.textContent = "Play";
       }
     }, 100);
+  });
+})();
+
+/* ---------- BGMI: the sixteen teams, before the event ----------
+   Slots 3 to 18, because that is what this lobby uses and what both
+   sheets are ordered by.
+
+   DISPLAY ONLY, and deliberately so. Captures read slot numbers off the
+   panel and the sheet push matches on those numbers, so none of it
+   consults this list. A blank list means the dashboard says "slot 7"
+   instead of a name; it can never stop a match being read, which is the
+   one thing that must not depend on pre-event data entry. */
+const BGMI_FIRST_SLOT = 3, BGMI_TEAM_COUNT = 16;
+
+function bgmiTeamSlots() {
+  const out = [];
+  for (let i = 0; i < BGMI_TEAM_COUNT; i++) out.push(BGMI_FIRST_SLOT + i);
+  return out;
+}
+
+function bgmiDrawTeams(teams) {
+  const wrap = document.getElementById("bgmi_teamGrid");
+  if (!wrap) return;
+  // Never redraw while someone is typing in it -- the fault that made the
+  // Free Fire squad dropdowns unusable.
+  if (document.activeElement && wrap.contains(document.activeElement)) return;
+  const held = teams || bgmiTeamsFromInputs();
+  wrap.innerHTML = bgmiTeamSlots().map(slot =>
+    "<label style='display:flex;align-items:center;gap:9px;margin:0;'>" +
+    "<span style='font-family:Rajdhani,sans-serif;font-weight:700;font-size:15px;" +
+    "letter-spacing:.06em;color:#9aa7b5;min-width:52px;'>SLOT " + slot + "</span>" +
+    "<input type='text' class='bgmi-team' data-slot='" + slot + "' " +
+    "value=\"" + String(held[slot] || "").replace(/"/g, "&quot;") + "\" " +
+    "placeholder='team name'></label>").join("");
+}
+
+function bgmiTeamsFromInputs() {
+  const out = {};
+  document.querySelectorAll(".bgmi-team").forEach(el => {
+    const v = el.value.trim();
+    if (v) out[el.dataset.slot] = v;
+  });
+  return out;
+}
+
+/* The one place a team name is used: turning a slot into something
+   readable. Everything else works on the number. */
+function bgmiTeamName(slot) {
+  const t = (bgmiLastState && bgmiLastState.teams) || {};
+  return t[String(slot)] || "";
+}
+
+(function bgmiWireTeams() {
+  const grid = document.getElementById("bgmi_teamGrid");
+  if (!grid) return;
+  bgmiDrawTeams({});
+
+  document.getElementById("bgmi_teamFill").addEventListener("click", () => {
+    const lines = document.getElementById("bgmi_teamPaste").value
+      .split(/\r?\n/).map(l => l.trim()).filter(l => l);
+    const status = document.getElementById("bgmi_teamStatus");
+    if (!lines.length) { status.textContent = "Nothing pasted."; return; }
+    const teams = {};
+    bgmiTeamSlots().forEach((slot, i) => { if (lines[i]) teams[slot] = lines[i]; });
+    bgmiDrawTeams(teams);
+    status.textContent = "Filled " + Math.min(lines.length, BGMI_TEAM_COUNT) +
+      " of " + BGMI_TEAM_COUNT + " slots" +
+      (lines.length > BGMI_TEAM_COUNT
+        ? " — " + (lines.length - BGMI_TEAM_COUNT) + " extra line(s) ignored, there are only " +
+          BGMI_TEAM_COUNT + " slots."
+        : lines.length < BGMI_TEAM_COUNT
+          ? " — " + (BGMI_TEAM_COUNT - lines.length) + " left blank."
+          : ".") + " Press Save to keep them.";
+  });
+
+  document.getElementById("bgmi_teamSave").addEventListener("click", () => {
+    const teams = bgmiTeamsFromInputs();
+    const status = document.getElementById("bgmi_teamStatus");
+    if (!bgmiSend({ type: "bgmi_set_teams", teams: teams })) {
+      status.textContent = "Not connected to the BGMI engine."; return;
+    }
+    status.textContent = "Saving " + Object.keys(teams).length + " team(s)…";
+  });
+
+  document.getElementById("bgmi_teamClear").addEventListener("click", () => {
+    bgmiDrawTeams({});
+    document.getElementById("bgmi_teamPaste").value = "";
+    bgmiSend({ type: "bgmi_set_teams", teams: {} });
+    document.getElementById("bgmi_teamStatus").textContent = "Cleared.";
   });
 })();
 </script>
