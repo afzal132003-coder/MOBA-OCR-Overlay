@@ -260,16 +260,34 @@ def best_match(bitmap, templates, min_score=0.70, min_margin=0.04):
 
 # ------------------------------------------------------- where is the grid
 
-def row_ink_profile(luma):
+def row_ink_profile(luma, full=False):
     """Ink per screen row, counted only in the IGN columns.
 
     That is where the rhythm lives: four player rows 58.7px apart, then a
     gap, repeating every card. Counting the whole width would drown it in
     the headers and badges that sit between cards.
     """
-    w = sx(IGN_W)
-    band = np.concatenate([luma[:, x + sx(IGN_DX):x + sx(IGN_DX) + w]
-                           for x in card_columns()], axis=1)
+    # TWO BANDS, for two different jobs.
+    #
+    # full=True takes a fixed band that needs NO geometry to place. The
+    # scale search has to use it, because reading the profile through the
+    # card columns makes that search circular -- the columns are placed
+    # using the scale being measured -- and it wandered: 1.072, 1.077,
+    # 1.090, 1.100, the pair drifting until the rows stopped lining up.
+    # From a fixed band it returns 1.090 five times out of five.
+    #
+    # full=False reads through the columns, which is sharper once the
+    # geometry is known. The fixed band includes the background showing
+    # through the panel, and that raises the floor: the winning phase
+    # beats its nearest rival by 0.24 through the columns and only 0.08
+    # across the full width, which is the difference between confidently
+    # right and a coin toss.
+    if full:
+        band = luma[:, 60:1860]
+    else:
+        w = sx(IGN_W)
+        band = np.concatenate([luma[:, x + sx(IGN_DX):x + sx(IGN_DX) + w]
+                               for x in card_columns()], axis=1)
     mask = _relative_mask(band, level=0.55, lo=20, hi=99, floor_gap=1)
     if mask is None:
         return np.zeros(luma.shape[0], dtype=np.float32)
@@ -303,6 +321,24 @@ LAST_FIT = {"score": 0.0, "margin": 0.0}
 # frame.
 MIN_FIT_MARGIN = 0.10
 
+# Is the team panel even on screen?
+#
+# The comb score cannot answer this. The room list -- the lobby screen
+# with one wide row per room -- is MORE regularly striped than the panel
+# and scores higher on it: 186.9 against 135.6, at a margin of 0.48
+# against 0.20. Calibration run against that screen fitted it happily,
+# saved scale 0.925 / origin 28 over the good values, and reported nine
+# cards with every kill read: the rooms carry "54/100" and "2/80", and a
+# kill box anchored on a "/" finds plenty of slashes there.
+#
+# Brightness does answer it. The panel is a dark translucent sheet laid
+# over the game; the lobby is white. Measured: mean luma 28.3 against
+# 179.5, and 97% of the band below 110 against 7%. The threshold sits
+# far from both, so a bright map showing through a translucent panel has
+# a long way to travel before it trips.
+PANEL_DARK_BELOW = 110
+PANEL_DARK_FRACTION = 0.45
+
 
 def _comb_score(prof, scale, off, n):
     """How well a grid at this scale and phase lands on the ink.
@@ -330,7 +366,21 @@ def _comb_score(prof, scale, off, n):
     return (hits / count) if count >= 8 else -1.0
 
 
-def detect_scroll(luma, step=0.5):
+def panel_present(luma):
+    """Does this frame show the team panel, rather than some other screen?
+
+    Returns (ok, dark_fraction). Guards both calibration and reading: a
+    frame that is not the panel must never be measured FROM and never be
+    read AS one.
+    """
+    band = luma[VIEWPORT_TOP:VIEWPORT_BOTTOM, 60:1860]
+    if band.size == 0:
+        return False, 0.0
+    frac = float((band < PANEL_DARK_BELOW).mean())
+    return frac >= PANEL_DARK_FRACTION, frac
+
+
+def detect_scroll(luma, step=0.5, full=False):
     """Find the grid's current vertical phase, in [0, card pitch).
 
     Returns (offset, score). The offset is where the FIRST player row of
@@ -344,7 +394,7 @@ def detect_scroll(luma, step=0.5):
     three pixels out -- harmless for the wide name strip, ruinous for a
     twelve-pixel digit.
     """
-    prof = row_ink_profile(luma)
+    prof = row_ink_profile(luma, full=full)
     n = len(prof)
     scale = GEOM["scale"]
     cp = CARD_PITCH * scale
@@ -373,66 +423,48 @@ def detect_scroll(luma, step=0.5):
     return best_off, best_score
 
 
-def find_geometry(rgb):
+def find_geometry(rgb, digit_templates=None):
     """Measure this capture's scale and x origin. Run at calibration.
 
     Both are properties of the capture RECTANGLE, not of any one frame --
     a region holding the whole BlueStacks window renders the panel about
-    8% smaller than one holding the game picture alone. They are measured
-    together because the origin search needs the scale to place its
-    boxes.
+    8% smaller than one holding the game picture alone.
+
+    The scale is found from the row rhythm, which is reliable. The origin
+    is then found by READING THE PANEL at each candidate and scoring what
+    came back, and the scale is confirmed the same way. Proxy objectives
+    were tried twice -- total ink, then coloured ink in the slot box --
+    and both chose an origin that scored well and read badly; one of them
+    saved 0, where three of nine cards vanished.
     """
     luma = to_luma(rgb)
     keep = (GEOM["scale"], GEOM["originX"])
     GEOM["columns"] = None
+
     best = (-1.0, keep[0])
     for scale in np.arange(SCALE_RANGE[0], SCALE_RANGE[1], 0.005):
-        GEOM["scale"] = scale
-        prof = row_ink_profile(luma)
+        GEOM["scale"] = float(scale)
+        prof = row_ink_profile(luma, full=True)
         cp = CARD_PITCH * scale
         top = max((_comb_score(prof, scale, off, len(prof))
                    for off in np.arange(0, cp, 1.0)), default=-1.0)
         if top > best[0]:
             best = (top, float(scale))
-    # The rows give the scale to about a percent. That is not enough:
-    # the columns are 537 apart at reference, so a 1.2% error is 7px per
-    # column and 14px by the third -- which pulled the leading "El" of
-    # "Eliminations" into the third column's kill box while the first
-    # column read cleanly. The rows cannot see that; the columns can.
-    #
-    # So scale and origin are refined TOGETHER against the coloured slot
-    # numbers, which are sharp, in all three columns, and therefore
-    # sensitive to the pitch as well as the offset.
-    coarse = best[1]
-    a = rgb.astype(np.float32)
-    lum = a.mean(axis=2)
-    mx, mn = a.max(axis=2), a.min(axis=2)
-    coloured = (((mx - mn) / np.maximum(mx, 1e-3)) > 0.33) & (lum > 40)
 
-    best_fit = (-1, coarse, GEOM["originX"])
-    for scale in np.arange(coarse - 0.03, coarse + 0.03, 0.003):
-        GEOM["scale"] = float(scale)
-        tops, _, _ = detect_card_tops(lum)
-        if not tops:
-            continue
-        pitch = COLUMN_PITCH * scale
-        y0, y1 = sx(SLOT_DY), sx(SLOT_DY + SLOT_H)
-        bx0, bx1 = sx(SLOT_CELLS[0][0]), sx(SLOT_CELLS[1][1])
-        for x0 in range(0, 240, 2):
-            total = 0
-            for top in tops:
-                for i in range(3):
-                    cx = int(round(x0 + i * pitch))
-                    total += int(coloured[top + y0:top + y1, cx + bx0:cx + bx1].sum())
-            if total > best_fit[0]:
-                best_fit = (total, float(scale), float(x0))
+    GEOM["scale"] = best[1]
+    origin, _ = find_origin_x(rgb, digit_templates=digit_templates)
 
-    found = {"scale": round(best_fit[1], 4), "originX": int(best_fit[2])}
+    # The scale is NOT re-searched here. Confirming it after the origin
+    # was fitted to the row-based one moved it, and the pair then no
+    # longer belonged together: scale 1.090 with an origin chosen for
+    # 1.072 read nothing at all. One is measured from the rows, the other
+    # from the reading, and neither is allowed to chase the other.
+    found = {"scale": round(best[1], 4), "originX": int(origin)}
     GEOM["scale"], GEOM["originX"], GEOM["columns"] = keep[0], keep[1], None
     return found
 
 
-def detect_card_tops(luma, viewport=(VIEWPORT_TOP, VIEWPORT_BOTTOM)):
+def detect_card_tops(luma, viewport=(VIEWPORT_TOP, VIEWPORT_BOTTOM), full=False):
     """The y of every card row FULLY inside the viewport.
 
     A clipped card is skipped, not read short. Half a card is four player
@@ -441,7 +473,7 @@ def detect_card_tops(luma, viewport=(VIEWPORT_TOP, VIEWPORT_BOTTOM)):
     from them being dead.
     """
     top, bottom = viewport
-    offset, score = detect_scroll(luma)
+    offset, score = detect_scroll(luma, full=full)
     tops = []
     k = -2
     while True:
@@ -565,54 +597,63 @@ def slot_bitmaps(luma, card_x, card_top):
     return out
 
 
-def find_origin_x(rgb, lo=0, hi=240, step=2):
-    """Where the first card column starts, found by trying.
+def origin_score(rgb, digit_templates=None):
+    """How well the current origin reads the panel, as a single number.
 
-    Scored on COLOURED ink inside the slot-number box. The slot number is
-    the only coloured thing on a card, so that box is either full of it or
-    empty -- a sharp target. Scoring on ink generally is not: the IGN box
-    is wide enough to catch real text while sixty pixels out of place, so
-    that objective happily picked an origin where the slot and kill boxes
-    sat on blank card.
+    Scored on the things that matter rather than on a proxy: how many
+    grid places hold a card, how many of those yield both slot digits,
+    and how many kill counts come back readable. Earlier objectives --
+    total ink, then coloured ink in the slot box -- were proxies, and
+    both picked origins that scored well while reading badly. One of them
+    saved an origin of 0, where three of nine cards vanished and five
+    kill counts went unread.
+    """
+    page = read_page(rgb, digit_templates=digit_templates)
+    cards = page["cards"]
+    present = sum(1 for c in cards if c.get("present"))
+    slots = sum(1 for c in cards if all(b is not None for b in c["slot_bitmaps"]))
+    read = sum(1 for c in cards if c.get("present")
+               for pl in c["players"] if pl.get("kills") is not None)
+    return present * 100 + slots * 10 + read
 
-    The rows are found once, up front; the candidates only move the boxes
-    sideways. Searching the scale per candidate as well took minutes.
 
-    Run at calibration -- the origin only moves when the capture region
+def find_origin_x(rgb, lo=0, hi=260, step=4, digit_templates=None):
+    """Where the first card column starts.
+
+    Returns the CENTRE of the best-scoring plateau, not its first member.
+    A whole range of origins reads the panel perfectly -- 32 through 56 on
+    a measured frame -- and sitting in the middle of that range leaves the
+    most room before the next frame's slight differences push a box off
+    its glyph. Taking the first good value would park it against the edge
+    of the cliff.
+
+    Run at calibration; the origin only moves when the capture region
     does.
     """
-    a = rgb.astype(np.float32)
-    lum = a.mean(axis=2)
-    mx, mn = a.max(axis=2), a.min(axis=2)
-    coloured = (((mx - mn) / np.maximum(mx, 1e-3)) > 0.33) & (lum > 40)
-
-    tops, _, _ = detect_card_tops(lum)          # also settles the scale
-    if not tops:
+    keep = (GEOM["scale"], GEOM["originX"])
+    scored = []
+    try:
+        for x0 in range(lo, hi, step):
+            set_geometry(origin_x=x0)
+            scored.append((origin_score(rgb, digit_templates), x0))
+    finally:
+        set_geometry(scale=keep[0], origin_x=keep[1])
+    if not scored:
         return GEOM["originX"], 0
-    pitch = COLUMN_PITCH * GEOM["scale"]
-    y0, y1 = sx(SLOT_DY), sx(SLOT_DY + SLOT_H)
-    bx0, bx1 = sx(SLOT_CELLS[0][0]), sx(SLOT_CELLS[1][1])
-
-    best = (-1, GEOM["originX"])
-    for x0 in range(lo, hi, step):
-        total = 0
-        for top in tops:
-            for i in range(3):
-                cx = int(round(x0 + i * pitch))
-                total += int(coloured[top + y0:top + y1, cx + bx0:cx + bx1].sum())
-        if total > best[0]:
-            best = (total, x0)
-    return best[1], best[0]
+    best = max(s for s, _ in scored)
+    plateau = [x for s, x in scored if s == best]
+    return plateau[len(plateau) // 2], best
 
 
-def read_page(rgb, digit_templates=None, viewport=(VIEWPORT_TOP, VIEWPORT_BOTTOM)):
+def read_page(rgb, digit_templates=None, viewport=(VIEWPORT_TOP, VIEWPORT_BOTTOM),
+              full_phase=False):
     """One screenful: every whole card currently visible.
 
     Slot numbers are left as bitmaps for fit_slot_run() -- read the note
     there for why they are not decided one card at a time.
     """
     luma = to_luma(rgb)
-    tops, offset, score = detect_card_tops(luma, viewport)
+    tops, offset, score = detect_card_tops(luma, viewport, full=full_phase)
     cards = []
     for row_i, card_top in enumerate(tops):
         for col_i, cx in enumerate(card_columns()):

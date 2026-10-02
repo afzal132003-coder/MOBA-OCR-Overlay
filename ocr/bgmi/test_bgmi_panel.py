@@ -64,8 +64,12 @@ def check(name, ok, detail=""):
         failures.append(name)
 
 
+def fixture():
+    return np.asarray(Image.open(FIXTURE).convert("RGB"))
+
+
 def main():
-    rgb = np.asarray(Image.open(FIXTURE).convert("RGB"))
+    rgb = fixture()
     luma = bp.to_luma(rgb)
 
     print("\nfinding the grid (it scrolls, and can stop mid-row)")
@@ -337,10 +341,82 @@ def main():
     print("  * VIEWPORT_TOP/BOTTOM are guessed from an unscrolled frame and")
     print("    need confirming against a genuinely mid-scroll capture.")
 
+    print("\nis the panel even on screen")
+    test_panel_present()
+
+    print("\nthe scale search must not drift")
+    test_scale_is_repeatable()
+
     print("\n%d checks, %d failed" % (checks, len(failures)))
     if failures:
         print("failed: " + ", ".join(failures))
     return 1 if failures else 0
+
+
+def test_panel_present():
+    """The panel is recognised; the lobby is not.
+
+    The second half of this matters more than the first. Calibration
+    fitted the room list happily -- it is more regularly striped than the
+    panel and scored HIGHER on the comb (186.9 against 135.6) -- saved
+    scale 0.925 / origin 28 over the working values, and reported nine
+    cards with every kill read, because the room rows carry "54/100" and
+    a kill box anchored on a "/" is glad to find one.
+    """
+    ok, frac = bp.panel_present(bp.to_luma(fixture()))
+    check("the panel is recognised as the panel", ok)
+    check("the panel reads as mostly dark (>0.9)", frac > 0.9, "%.2f" % frac)
+
+    # A bright screen that is NOT the panel: the lobby measured 0.07.
+    bright = np.full((1080, 1920), 200, dtype=np.uint8)
+    ok2, frac2 = bp.panel_present(bright)
+    check("a bright screen is refused", not ok2, "%.2f" % frac2)
+
+    # And the margin that this refusal protects: on the real panel the
+    # phase beats its nearest rival comfortably, through either band. The
+    # thin margins that suggested MIN_FIT_MARGIN was too strict (0.081,
+    # then 0.010) were all measured on the lobby.
+    luma = bp.to_luma(fixture())
+    keep = (bp.GEOM["scale"], bp.GEOM["originX"])
+    bp.set_geometry(scale=1.0, origin_x=bp.CARD_X[0])
+    bp.detect_scroll(luma, full=False)
+    mc = bp.LAST_FIT["margin"]
+    bp.detect_scroll(luma, full=True)
+    mf = bp.LAST_FIT["margin"]
+    bp.set_geometry(scale=keep[0], origin_x=keep[1])
+    check("column-band margin clears the threshold on a real panel",
+          mc > bp.MIN_FIT_MARGIN, "%.3f > %.2f" % (mc, bp.MIN_FIT_MARGIN))
+    check("full-band margin clears it too",
+          mf > bp.MIN_FIT_MARGIN, "%.3f > %.2f" % (mf, bp.MIN_FIT_MARGIN))
+
+
+def test_scale_is_repeatable():
+    """The scale search must not depend on where the origin happens to be.
+
+    It used to: the profile was read through the card columns, the
+    columns are placed using the scale being searched, and successive
+    runs wandered 1.072, 1.077, 1.090, 1.100 until the pair no longer
+    belonged together.
+    """
+    img = fixture()
+    found = []
+    for origin in (0, 93, 200):
+        bp.set_geometry(scale=1.0, origin_x=origin)
+        bp.GEOM["columns"] = None
+        luma = bp.to_luma(img)
+        best = (-1.0, 0.0)
+        for scale in np.arange(bp.SCALE_RANGE[0], bp.SCALE_RANGE[1], 0.005):
+            bp.GEOM["scale"] = float(scale)
+            prof = bp.row_ink_profile(luma, full=True)
+            cp = bp.CARD_PITCH * scale
+            top = max((bp._comb_score(prof, scale, off, len(prof))
+                       for off in np.arange(0, cp, 1.0)), default=-1.0)
+            if top > best[0]:
+                best = (top, float(scale))
+        found.append(round(best[1], 3))
+    check("the same scale is found from any starting origin",
+          len(set(found)) == 1, str(found))
+
 
 
 if __name__ == "__main__":

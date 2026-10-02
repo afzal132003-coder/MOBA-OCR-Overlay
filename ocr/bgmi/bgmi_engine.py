@@ -796,12 +796,36 @@ def capture_slide(slide, declared_slot, with_preview=True, learn=True):
     # The x origin is measured once and kept. The scale is measured every
     # frame by the row search, so only this needs remembering -- and only
     # until the capture region changes, which rewrites it.
+    # Before anything is measured or read: is the panel actually up?
+    #
+    # Calibrating against the lobby wrote scale 0.925 / origin 28 into
+    # the config and kept them, which would have made every read of the
+    # real panel wrong for the rest of the event. A frame that is not the
+    # panel is refused here, and nothing is saved from it.
+    ok, dark = bp.panel_present(bp.to_luma(rgb))
+    if not ok:
+        state = server_state["bgmi"]
+        state["blockedBy"] = (
+            "That is not the team panel -- the capture region is showing "
+            "another screen (the lobby or room list, most likely). Only %d%% "
+            "of it is dark where the panel is about 97%%. Open the observer "
+            "panel and press capture again; nothing was changed." % round(dark * 100)
+        )
+        diag = {"panelDark": round(dark, 3), "cards": 0,
+                "region": dict(config.get("region") or {})}
+        state["diagnostics"] = diag
+        state["readAt"] = time.time()
+        # The preview is still returned, unannotated. Being told the wrong
+        # screen is up is useful; being shown WHICH screen is up is what
+        # actually ends the hunt.
+        return to_data_url(annotate(rgb, [], [], diag, declared_slot)) if with_preview else ""
+
     settings = config.setdefault("settings", {})
     if settings.get("geomVersion") != GEOM_VERSION:
         settings["scale"] = settings["originX"] = None
         settings["geomVersion"] = GEOM_VERSION
     if settings.get("originX") is None or settings.get("scale") is None:
-        found = bp.find_geometry(rgb)
+        found = bp.find_geometry(rgb, digit_templates=kill_store())
         settings.update(found)
         settings["geomVersion"] = GEOM_VERSION
         save_config(config)
