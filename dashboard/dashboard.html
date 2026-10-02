@@ -1959,6 +1959,7 @@
     <button class="ff-tab-btn" data-fftab="postmatch">Post-Match</button>
     <button class="ff-tab-btn" data-fftab="mapping">Mapping <span class="ff-pending-dot" id="ff_mappingCount"></span></button>
     <button class="ff-tab-btn" data-fftab="graphic">Graphic</button>
+    <button class="ff-tab-btn" data-fftab="matchfile">Match Result File</button>
   </div>
 
   <!-- ===================== PRE-MATCH ===================== -->
@@ -2905,6 +2906,73 @@
     </div>
   </div>
 
+
+  <div class="ff-tab-panel" id="fftab-matchfile">
+
+    <div class="card">
+      <h2>Match Result File</h2>
+      <p class="hint">Drop a <code>MatchResult_*.log</code> (or .txt) here and it is read straight into the
+        RESULTS push &mdash; the same push the Post-Match tab uses, with the same sub-sheet and match-number
+        controls. For when the engine never saw the file: a match played on another PC, a result pulled off
+        the host's machine afterwards, or a day being entered from the archive.</p>
+      <p class="hint">Only the <strong>team line</strong> is used &mdash; team name, rank, kill score and the
+        placement points the game itself already worked out. The per-player lines are read and shown so you can
+        confirm the file is the match you meant, but nothing player-level is sent.</p>
+
+      <div id="ff_mfDrop" style="border:2px dashed #1b2430;border-radius:12px;padding:34px 20px;
+           text-align:center;background:#0a0e14;cursor:pointer;transition:border-color .15s ease;">
+        <div style="font-family:var(--nav);font-size:17px;letter-spacing:.08em;color:#9aa7b5;">
+          DROP THE MATCH FILE HERE
+        </div>
+        <div class="hint" style="margin-top:6px;">or click to choose one</div>
+        <input type="file" id="ff_mfInput" accept=".log,.txt,text/plain" style="display:none;">
+      </div>
+      <div class="hint" id="ff_mfStatus" style="margin-top:10px;"></div>
+    </div>
+
+    <div class="card" id="ff_mfResultCard" style="display:none;">
+      <h2>What Was In It</h2>
+      <p class="hint">Check this is the right match before pushing. Placement points come from the file's own
+        RankScore &mdash; the game bakes its placement table in, so nothing is recomputed here.</p>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;max-width:720px;">
+        <thead>
+          <tr style="color:#6f7d8e;text-align:left;font-size:11px;letter-spacing:.1em;">
+            <th style="padding:0 10px 8px 0;font-weight:600;">RANK</th>
+            <th style="padding:0 10px 8px 0;font-weight:600;">TEAM IN FILE</th>
+            <th style="padding:0 10px 8px 0;font-weight:600;">GOES TO SHEET AS</th>
+            <th style="padding:0 10px 8px 0;font-weight:600;">KILLS</th>
+            <th style="padding:0 10px 8px 0;font-weight:600;">PLACEMENT</th>
+            <th style="padding:0 10px 8px 0;font-weight:600;">TOTAL</th>
+          </tr>
+        </thead>
+        <tbody id="ff_mfRows"></tbody>
+      </table>
+      <div class="hint" id="ff_mfSums" style="margin-top:10px;"></div>
+      <div class="hint" id="ff_mfUnmatched" style="margin-top:6px;"></div>
+    </div>
+
+    <div class="card" id="ff_mfPushCard" style="display:none;">
+      <h2>Push To RESULTS</h2>
+      <p class="hint">Same sheet and same script as the Post-Match push &mdash; only the sub-sheet changes.
+        Each match owns its own column pair, so the match number decides which.</p>
+      <div class="row" style="gap:16px;align-items:flex-end;flex-wrap:wrap;">
+        <div style="flex:0 0 200px;">
+          <label for="ff_mfTab">Sub-sheet (tab name)</label>
+          <input type="text" id="ff_mfTab" placeholder="RESULTS">
+        </div>
+        <div style="flex:0 0 130px;">
+          <label for="ff_mfMatch">Match number</label>
+          <input type="number" id="ff_mfMatch" min="1" max="20" step="1" value="1">
+        </div>
+      </div>
+      <div class="row" style="gap:8px;align-items:center;margin-top:12px;">
+        <button id="ff_mfPush">Push To RESULTS Sheet</button>
+      </div>
+      <div class="hint" id="ff_mfTarget" style="margin-top:6px;"></div>
+      <div class="hint" id="ff_mfPushStatus" style="margin-top:6px;"></div>
+    </div>
+
+  </div>
 </div>
 
 <div id="navPalette" role="dialog" aria-modal="true" aria-label="Jump to a card">
@@ -14386,6 +14454,194 @@ function bgmiShowSheetResult(r){
   }
   el.textContent = msg;
 }
+
+/* ---------- Free Fire: a match result file, read by hand ----------
+   The engine already parses these when it finds them in the watched
+   folder; this is the same file arriving the other way, for a match it
+   never saw -- played on another PC, pulled off the host's machine
+   afterwards, or a day entered from the archive.
+
+   Parsed here in the page rather than shipped to the engine, because
+   the engine's copy is tied to watching a directory and committing a
+   live match. A file the operator hands over is neither of those, and
+   routing it through that path would mean pretending it was.
+
+   The regexes mirror FREEFIRE_TEAM_LINE_REGEX and
+   FREEFIRE_PLAYER_LINE_REGEX in freefire_engine.py. Fields are
+   label-delimited with variable-width padding, so parsing anchors on the
+   labels and never on character positions. */
+const FF_MF_TEAM_RE = /TeamName:\s*(.*?)\s*Rank:\s*(\d+)\s*KillScore:\s*(\d+)\s*RankScore:\s*(\d+)\s*TotalScore:\s*(\d+)\s*$/;
+const FF_MF_PLAYER_RE = /NAME:\s*(.*?)\s*ID:\s*(\d+)\s*KILL:\s*(\d+)\s*$/;
+
+let ffMatchFileTeams = null;
+
+function ffParseMatchFile(text){
+  const teams = [];
+  let current = null;
+  text.split(/\r?\n/).forEach(line => {
+    if (!line.trim()) return;
+    const t = FF_MF_TEAM_RE.exec(line);
+    if (t) {
+      current = { fileTeamName: t[1], teamName: t[1], rank: Number(t[2]),
+                  killScore: Number(t[3]), rankScore: Number(t[4]),
+                  totalScore: Number(t[5]), players: [] };
+      teams.push(current);
+      return;
+    }
+    const p = FF_MF_PLAYER_RE.exec(line);
+    // A player line before any team line belongs to nothing; dropped
+    // rather than invented a team for.
+    if (p && current) {
+      current.players.push({ ign: p[1], uid: p[2], kills: Number(p[3]) });
+    }
+  });
+  return teams;
+}
+
+function ffRenderMatchFile(teams){
+  const body = document.getElementById("ff_mfRows");
+  const unmatched = [];
+  body.innerHTML = teams.map(t => {
+    // Same roster resolution the Post-Match push uses: the file calls
+    // teams by a three-letter shorthand, and the RESULTS tab is labelled
+    // with registered names, so sending the file's own name matches
+    // nothing. See ffTeamNamesForSheet.
+    const named = ffTeamNamesForSheet(t);
+    const resolved = named.team && named.team !== t.fileTeamName;
+    if (!resolved) unmatched.push(t.fileTeamName);
+    return "<tr style='border-top:1px solid #161e28;'>" +
+      "<td style='padding:6px 10px 6px 0;'>" + t.rank + "</td>" +
+      "<td style='padding:6px 10px 6px 0;'>" + ffEscapeHtml(t.fileTeamName) + "</td>" +
+      "<td style='padding:6px 10px 6px 0;" + (resolved ? "" : "color:#ffa53d;") + "'>" +
+        ffEscapeHtml(named.team) + (named.short ? " <span class='hint'>(" +
+        ffEscapeHtml(named.short) + ")</span>" : "") + "</td>" +
+      "<td style='padding:6px 10px 6px 0;'>" + t.killScore + "</td>" +
+      "<td style='padding:6px 10px 6px 0;'>" + t.rankScore + "</td>" +
+      "<td style='padding:6px 10px 6px 0;'>" + t.totalScore + "</td></tr>";
+  }).join("");
+
+  /* The file carries its own check: the four player KILL values add up
+     to the team's KillScore. They agreed on every team of the sample, so
+     a team where they do not is a file cut short or read wrong -- worth
+     saying before it reaches the sheet, because a short KillScore is a
+     plausible-looking number rather than an obvious fault. */
+  const short = teams.filter(t =>
+    t.players.length &&
+    t.players.reduce((a, p) => a + p.kills, 0) !== t.killScore);
+  const sumNote = document.getElementById("ff_mfSums");
+  if (sumNote) {
+    sumNote.innerHTML = short.length
+      ? "<span style='color:#ff8f8f;'>" + short.length +
+        " team(s) whose player kills do not add up to their KillScore: " +
+        ffEscapeHtml(short.map(t => t.fileTeamName).join(", ")) +
+        ". That usually means a truncated file - check it before pushing.</span>"
+      : "Player kills add up to each team's KillScore on all " + teams.length +
+        " teams, so the file is complete.";
+  }
+
+  const note = document.getElementById("ff_mfUnmatched");
+  if (unmatched.length) {
+    note.innerHTML = "<span style='color:#ffa53d;'>" + unmatched.length +
+      " team(s) the roster has never heard of: " +
+      ffEscapeHtml(unmatched.join(", ")) +
+      ". They will be sent under the file's own name, which the sheet may " +
+      "not match. Import them on Roster Import first if the rows come back " +
+      "unmatched.</span>";
+  } else {
+    note.textContent = "Every team resolved to a roster name.";
+  }
+
+  document.getElementById("ff_mfResultCard").style.display = "block";
+  document.getElementById("ff_mfPushCard").style.display = "block";
+  const tabEl = document.getElementById("ff_mfTab");
+  const main = document.getElementById("ff_resultsTab");
+  if (tabEl && main && !tabEl.value) tabEl.value = main.value || "";
+  ffMatchFileUpdateTarget();
+}
+
+function ffMatchFileUpdateTarget(){
+  const m = Number(document.getElementById("ff_mfMatch").value) || 1;
+  const el = document.getElementById("ff_mfTarget");
+  if (el) {
+    el.textContent = "Match " + m + " writes into columns " +
+      ffResultsColumnPair(m) + " on the RESULTS tab.";
+  }
+}
+
+function ffLoadMatchFile(file){
+  const status = document.getElementById("ff_mfStatus");
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onerror = () => { status.textContent = "Could not read that file."; };
+  reader.onload = () => {
+    let teams;
+    try { teams = ffParseMatchFile(String(reader.result)); }
+    catch (e) { status.textContent = "Could not parse that file: " + e; return; }
+    if (!teams.length) {
+      status.textContent = "No team lines found in " + file.name +
+        ". A match result file has lines starting \"TeamName:\" — is this one?";
+      document.getElementById("ff_mfResultCard").style.display = "none";
+      document.getElementById("ff_mfPushCard").style.display = "none";
+      return;
+    }
+    ffMatchFileTeams = teams;
+    const players = teams.reduce((a, t) => a + t.players.length, 0);
+    status.textContent = file.name + " — " + teams.length + " teams, " +
+      players + " players.";
+    ffRenderMatchFile(teams);
+  };
+  reader.readAsText(file);
+}
+
+(function ffWireMatchFile(){
+  const drop = document.getElementById("ff_mfDrop");
+  const input = document.getElementById("ff_mfInput");
+  if (!drop || !input) return;
+
+  drop.addEventListener("click", () => input.click());
+  input.addEventListener("change", () => ffLoadMatchFile(input.files[0]));
+  ["dragenter", "dragover"].forEach(ev =>
+    drop.addEventListener(ev, e => {
+      e.preventDefault(); drop.style.borderColor = "#4d9fff";
+    }));
+  ["dragleave", "drop"].forEach(ev =>
+    drop.addEventListener(ev, e => {
+      e.preventDefault(); drop.style.borderColor = "#1b2430";
+    }));
+  drop.addEventListener("drop", e => {
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) ffLoadMatchFile(f);
+  });
+
+  const matchEl = document.getElementById("ff_mfMatch");
+  if (matchEl) matchEl.addEventListener("input", ffMatchFileUpdateTarget);
+
+  document.getElementById("ff_mfPush").addEventListener("click", () => {
+    const status = document.getElementById("ff_mfPushStatus");
+    if (!ffMatchFileTeams || !ffMatchFileTeams.length) {
+      status.textContent = "Load a match file first."; return;
+    }
+    if (!ffWs || ffWs.readyState !== WebSocket.OPEN) {
+      status.textContent = "Not connected to the Free Fire engine."; return;
+    }
+    const match = Number(document.getElementById("ff_mfMatch").value) || 1;
+    const tab = document.getElementById("ff_mfTab").value.trim();
+    // Exactly the shape the Post-Match push sends, so the engine and the
+    // Apps Script need no idea this came from a file picked by hand.
+    const rows = ffMatchFileTeams.map(t => {
+      const named = ffTeamNamesForSheet(t);
+      return { team: named.team, short: named.short,
+               placement: t.rankScore, kills: t.killScore, rank: t.rank };
+    }).filter(r => r.team);
+    ffLastBooyahSent = false;
+    ffLastPushPayload = { type: "freefire_results_push", match, rows, tab,
+                          booyah: null };
+    ffWs.send(JSON.stringify(ffLastPushPayload));
+    status.textContent = "Sending " + rows.length + " teams to match " + match +
+      " (columns " + ffResultsColumnPair(match) + ")" +
+      (tab ? ' on tab "' + tab + '"' : "") + "…";
+  });
+})();
 </script>
 </body>
 </html>
