@@ -254,12 +254,14 @@ function findTheTab() {
     return;
   }
   Logger.log("PICK THE TAB whose headers read SLOT / PATH / TEAM NAME /");
-  Logger.log("Finishes / Pts / Rank -- that is the scoresheet block, and the");
-  Logger.log("column letter beside SLOT is what SLOT_COLUMN should be.");
+  Logger.log("Finishes / Pts / Rank -- that is the scoresheet block.");
   Logger.log("");
-  Logger.log("Then set both, Save, and run authorize():");
-  Logger.log('    var SHEET_GID = <the gid>;');
-  Logger.log('    var SLOT_COLUMN = "<the column under SLOT>";');
+  Logger.log("CHANGE NOTHING IN THIS FILE. Type that tab name into the");
+  Logger.log("Sub-sheet box on the dashboard's BGMI tab, pick the game");
+  Logger.log("number, and press Push. Match-day changes there, not here --");
+  Logger.log("a tab set in this script would need a redeploy to change, and");
+  Logger.log("a redeploy forgotten mid-event looks like the push doing");
+  Logger.log("nothing at all.");
 }
 
 

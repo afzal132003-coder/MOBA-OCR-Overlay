@@ -1,0 +1,16 @@
+{
+  "monitor": 2,
+  "region": { "x": 0, "y": 0, "w": 1920, "h": 1080 },
+  "relay": { "enabled": false, "url": "", "token": "" },
+  "settings": {
+    "continuousPoll": false,
+    "pollIntervalSeconds": 0.5,
+    "lobbySize": 16,
+    "readIgns": true,
+    "sheetWebhookUrl": "",
+    "resultsWebhookUrl": "",
+    "sheetTab": "",
+    "resultsTab": "",
+    "liveSheetPush": false
+  }
+}

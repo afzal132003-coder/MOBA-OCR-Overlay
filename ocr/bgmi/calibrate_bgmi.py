@@ -25,6 +25,7 @@ from pathlib import Path
 import cv2
 import mss
 import numpy as np
+from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).parent))
 import bgmi_panel as bp
@@ -103,6 +104,11 @@ def verify(region, monitor):
     with mss.mss() as sct:
         shot = sct.grab(box)
     rgb = np.array(shot)[:, :, :3][:, :, ::-1]          # BGRA -> RGB
+    # Same rescale the engine does, so what this verifies is what will
+    # actually be read -- a check against unscaled pixels would pass or
+    # fail for reasons the running engine never sees.
+    if (region["w"], region["h"]) != (1920, 1080):
+        rgb = np.asarray(Image.fromarray(rgb).resize((1920, 1080), Image.LANCZOS))
 
     page = bp.read_page(rgb)
     cards = page["cards"]
@@ -130,9 +136,10 @@ def verify(region, monitor):
 
     if region["w"] != 1920 or region["h"] != 1080:
         print("")
-        print("  NOTE: the picture is not 1920x1080. Every offset in")
-        print("  bgmi_panel.py was measured at that size, so a different one")
-        print("  will drift. Set the emulator's display to 1920x1080.")
+        print("  NOTE: the picture is %dx%d, not 1920x1080. The engine scales"
+              % (region["w"], region["h"]))
+        print("  it to the reference size before reading, so this is handled --")
+        print("  the numbers above already come from the scaled frame.")
     print("")
     print("  Looks right. %d cards is one full page of the panel."
           % len(cards) if len(cards) == 9 else

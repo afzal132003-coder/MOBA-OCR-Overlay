@@ -115,15 +115,35 @@ server_state = {
 
 # ----------------------------------------------------------------- capture
 
+REFERENCE_SIZE = (1920, 1080)
+
+
 def grab_region():
-    """One screenshot of the configured rectangle, as RGB."""
+    """One screenshot of the configured rectangle, scaled to 1920x1080.
+
+    Every offset in bgmi_panel.py -- card columns, row pitch, the slot
+    and kill boxes -- was measured on a 1920x1080 frame. The game picture
+    inside a BlueStacks window is not that size: this rig's is 1779x998,
+    about 7% short, which is enough to walk the reader off the rows
+    entirely by the bottom of a card.
+
+    Rather than demand a particular emulator resolution, the frame is
+    resized to the reference once, here, and everything downstream keeps
+    working in the coordinates it was measured in. A 7% rescale is mild
+    and the glyph matching is shape-based, so it costs nothing worth
+    measuring -- and it means a changed window size does not silently
+    break the read.
+    """
     import mss
     r = config.get("region") or {}
     box = {"left": int(r.get("x", 0)), "top": int(r.get("y", 0)),
            "width": int(r.get("w", 1920)), "height": int(r.get("h", 1080))}
     with mss.mss() as sct:
         shot = sct.grab(box)
-    return np.asarray(Image.frombytes("RGB", shot.size, shot.rgb))
+    img = Image.frombytes("RGB", shot.size, shot.rgb)
+    if img.size != REFERENCE_SIZE:
+        img = img.resize(REFERENCE_SIZE, Image.LANCZOS)
+    return np.asarray(img)
 
 
 def read_frame(rgb, declared_slot=None, learn=True):
