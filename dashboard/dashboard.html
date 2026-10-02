@@ -1963,6 +1963,31 @@
         <input type="number" id="bgmi_resultsGame" min="1" max="20" value="1">
       </div>
     </div>
+    <div id="bgmi_resultCapture" style="margin-top:14px;padding:14px;border:1px solid #1b2430;
+         border-radius:10px;background:#0a0e14;">
+      <h3 style="margin-top:0;">Capture The Result Screen</h3>
+      <p class="hint">Open the end-of-match results screen and press this. The picture is shown below and kept
+        on disk, and the kills already captured from the alive panel are filled in for you &mdash; type each
+        team's <strong>rank</strong> beside its slot and push.</p>
+      <p class="hint"><strong>Ranks are typed, not read, for now.</strong> The results screen has its own
+        layout &mdash; two fixed places on the left, the rest scrolling, blocks of unequal height &mdash; and
+        reading it needs geometry measured against a capture from this rig, which did not exist until this
+        button did. Shipping the half that works beats shipping nothing mid-event.</p>
+      <div class="row" style="gap:8px;align-items:center;">
+        <button id="bgmi_grabResult">Capture Result Screen</button>
+        <span class="hint" id="bgmi_resultShotNote"></span>
+      </div>
+      <img id="bgmi_resultShot" style="width:100%;max-width:900px;margin-top:10px;border-radius:8px;
+           border:1px solid #1b2430;display:none;">
+      <table style="width:100%;max-width:460px;border-collapse:collapse;font-size:13px;margin-top:12px;">
+        <thead><tr style="color:#6f7d8e;text-align:left;font-size:11px;letter-spacing:.1em;">
+          <th style="padding:0 10px 8px 0;">SLOT</th><th style="padding:0 10px 8px 0;">TEAM</th>
+          <th style="padding:0 10px 8px 0;">FINISHES</th><th style="padding:0 10px 8px 0;">RANK</th>
+        </tr></thead>
+        <tbody id="bgmi_resultRows"><tr><td colspan="4" class="hint">(capture the panel first)</td></tr></tbody>
+      </table>
+    </div>
+
     <p class="hint" style="margin-top:8px;">Typing the sub-sheet here is the whole point &mdash; a tab fixed
       inside the script would need editing <em>and redeploying</em> to change match-day, and a redeploy
       forgotten mid-event looks exactly like the push doing nothing.</p>
@@ -14361,6 +14386,9 @@ function bgmiRender(state){
   if (!state) return;
   bgmiLastState = state;
   if (state.teams && Object.keys(state.teams).length) bgmiDrawTeams(state.teams);
+  if (typeof bgmiDrawResultRows === "function" && state.rows && state.rows.length) {
+    bgmiDrawResultRows(state.rows);
+  }
   const blocked = document.getElementById("bgmi_blocked");
   blocked.style.display = state.blockedBy ? "block" : "none";
   blocked.textContent = state.blockedBy || "";
@@ -14465,6 +14493,13 @@ function bgmiConnect(){
       document.querySelectorAll(".bgmi-cap").forEach(b => {
         b.disabled = false; b.textContent = "Capture Slide " + b.dataset.slide;
       });
+    } else if (msg.type === "bgmi_result_shot") {
+      const img = document.getElementById("bgmi_resultShot");
+      const note = document.getElementById("bgmi_resultShotNote");
+      if (msg.preview) { img.src = msg.preview; img.style.display = "block"; }
+      note.textContent = "Captured " + new Date().toLocaleTimeString() +
+        (msg.saved ? " — kept at " + msg.saved : "");
+      bgmiDrawResultRows(msg.rows || []);
     } else if (msg.type === "bgmi_teams_saved") {
       const el = document.getElementById("bgmi_teamStatus");
       if (el) el.textContent = "Saved " + msg.count + " team(s).";
@@ -14533,26 +14568,6 @@ document.getElementById("bgmi_saveResults").addEventListener("click", () => {
   const el = document.getElementById("bgmi_resultsStatus");
   el.textContent = bgmiSend({type: "bgmi_set_settings", settings: bgmiSheetSettings()})
     ? "Saved." : "Not connected to the BGMI engine.";
-});
-
-document.getElementById("bgmi_pushResults").addEventListener("click", () => {
-  const el = document.getElementById("bgmi_resultsStatus");
-  const rows = (bgmiLastState && bgmiLastState.resultRows) || [];
-  if (!rows.length) {
-    el.textContent = "Nothing to push — the result screen reader is not built yet, " +
-      "so there are no finishes or ranks to send.";
-    return;
-  }
-  // Save first: a URL typed but not saved is the obvious way to get
-  // "no webhook set" while looking straight at one.
-  if (!bgmiSend({type: "bgmi_set_settings", settings: bgmiSheetSettings()})) {
-    el.textContent = "Not connected to the BGMI engine."; return;
-  }
-  bgmiSend({type: "bgmi_push_results",
-            game: Number(document.getElementById("bgmi_resultsGame").value) || 1,
-            rows: rows});
-  el.textContent = "Pushing game " +
-    (document.getElementById("bgmi_resultsGame").value || 1) + "…";
 });
 
 function bgmiShowResultsResult(r){
@@ -15211,6 +15226,92 @@ function bgmiTeamName(slot) {
     bgmiSend({ type: "bgmi_set_teams", teams: {} });
     document.getElementById("bgmi_teamStatus").textContent = "Cleared.";
   });
+})();
+
+/* ---------- BGMI: the end-of-match result ----------
+   Kills come from the alive panel, which is already read and already
+   correct; only the RANK is missing, and that is typed for now.
+
+   The results screen is not read yet because it is a different layout --
+   two fixed places on the left, the rest scrolling, blocks of unequal
+   height whether a squad has three players or four -- and reading it
+   needs geometry measured against a capture from this rig. The button
+   below is what produces those captures, so the reader can be built from
+   real frames rather than guessed at. */
+let bgmiResultRanks = {};
+
+function bgmiDrawResultRows(rows) {
+  const body = document.getElementById("bgmi_resultRows");
+  if (!body) return;
+  if (document.activeElement && body.contains(document.activeElement)) return;
+  if (!rows || !rows.length) {
+    body.innerHTML = "<tr><td colspan='4' class='hint'>(capture the panel first)</td></tr>";
+    return;
+  }
+  body.innerHTML = rows.map(r => {
+    const team = (typeof bgmiTeamName === "function" ? bgmiTeamName(r.slot) : "") || "";
+    const kills = (r.kills == null) ? "<span class='hint'>unread</span>" : r.kills;
+    const rank = bgmiResultRanks[r.slot] || "";
+    return "<tr style='border-top:1px solid #161e28;'>" +
+      "<td style='padding:4px 10px 4px 0;'>" + r.slot + "</td>" +
+      "<td style='padding:4px 10px 4px 0;'>" + team.replace(/</g, "&lt;") + "</td>" +
+      "<td style='padding:4px 10px 4px 0;'>" + kills + "</td>" +
+      "<td style='padding:4px 10px 4px 0;'><input type='number' min='1' max='25' " +
+      "class='bgmi-rank' data-slot='" + r.slot + "' value='" + rank +
+      "' style='width:64px;'></td></tr>";
+  }).join("");
+  body.querySelectorAll(".bgmi-rank").forEach(el => {
+    el.addEventListener("change", () => {
+      const v = Number(el.value);
+      if (v) bgmiResultRanks[el.dataset.slot] = v;
+      else delete bgmiResultRanks[el.dataset.slot];
+    });
+  });
+}
+
+(function bgmiWireResult() {
+  const btn = document.getElementById("bgmi_grabResult");
+  if (!btn) return;
+
+  btn.addEventListener("click", () => {
+    const note = document.getElementById("bgmi_resultShotNote");
+    if (!bgmiSend({ type: "bgmi_capture_result" })) {
+      note.textContent = "Not connected to the BGMI engine."; return;
+    }
+    note.textContent = "Capturing…";
+  });
+
+  // The push sends what the alive panel read for kills and what was typed
+  // for rank. A slot with no rank is left out rather than sent as a blank,
+  // since a blank rank would clear a cell that may already be right.
+  const push = document.getElementById("bgmi_pushResults");
+  if (push) {
+    push.addEventListener("click", () => {
+      const rows = ((bgmiLastState && bgmiLastState.rows) || [])
+        .filter(r => bgmiResultRanks[r.slot])
+        .map(r => ({ slot: r.slot, finishes: r.kills,
+                     rank: bgmiResultRanks[r.slot] }));
+      const el = document.getElementById("bgmi_resultsStatus");
+      if (!rows.length) {
+        el.textContent = "No ranks typed yet — fill the Rank column above first.";
+        return;
+      }
+      const missing = rows.filter(r => r.finishes == null).map(r => r.slot);
+      if (missing.length) {
+        el.textContent = "Slot(s) " + missing.join(", ") +
+          " have no finishes read — re-capture the alive panel before pushing, " +
+          "or those cells will be left empty.";
+      }
+      if (!bgmiSend({ type: "bgmi_set_settings", settings: bgmiSheetSettings() })) {
+        el.textContent = "Not connected to the BGMI engine."; return;
+      }
+      bgmiSend({ type: "bgmi_push_results",
+                 game: Number(document.getElementById("bgmi_resultsGame").value) || 1,
+                 rows: rows });
+      el.textContent = "Pushing " + rows.length + " teams to game " +
+        (document.getElementById("bgmi_resultsGame").value || 1) + "…";
+    });
+  }
 })();
 </script>
 </body>

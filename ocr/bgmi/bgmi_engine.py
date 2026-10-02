@@ -751,6 +751,37 @@ async def broadcast(msg):
             pass
 
 
+RESULT_DIR = Path(__file__).parent / "result_captures"
+
+
+def capture_result():
+    """A screenshot of the results screen, kept and handed back.
+
+    NOT READ YET. The results screen has its own layout -- two fixed
+    ranks on the left, the rest scrolling on the right, blocks of
+    unequal height -- and reading it needs geometry measured against a
+    capture from THIS rig, which did not exist until now.
+
+    So this grabs and saves. The operator gets the picture to check
+    against, the file is kept for the reader to be built from, and the
+    ranks go in by hand in the meantime. The alternative was to ship
+    nothing until the reader was finished, during an event.
+    """
+    refresh_config()
+    rgb = grab_region()
+    try:
+        RESULT_DIR.mkdir(exist_ok=True)
+        stamp = time.strftime("%Y-%m-%d-%H-%M-%S")
+        path = RESULT_DIR / ("result_%s.png" % stamp)
+        Image.fromarray(rgb).save(path)
+        saved = str(path)
+    except Exception as e:
+        saved = "could not save: %s" % e
+    state = server_state["bgmi"]
+    state["resultShot"] = saved
+    return to_data_url(Image.fromarray(rgb)), saved
+
+
 def capture_slide(slide, declared_slot, with_preview=True, learn=True):
     """Capture one slide: read it, keep it, re-merge every slide.
 
@@ -909,6 +940,14 @@ async def handle_message(websocket, kind, payload):
             None, push_alive_to_sheet, bool(payload.get("force", True)))
         await websocket.send(json.dumps({
             "type": "bgmi_sheet_result", "result": answer}))
+
+    elif kind == "bgmi_capture_result":
+        loop = asyncio.get_running_loop()
+        preview, saved = await loop.run_in_executor(None, capture_result)
+        await websocket.send(json.dumps({
+            "type": "bgmi_result_shot", "preview": preview, "saved": saved,
+            "rows": [{"slot": r["slot"], "kills": r.get("kills")}
+                     for r in server_state["bgmi"].get("rows") or []]}))
 
     elif kind == "bgmi_push_results":
         loop = asyncio.get_running_loop()

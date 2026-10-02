@@ -53,3 +53,6 @@ ocr/bgmi/bgmi_igns.json
 # sheets -- this repo is public. The engine writes its own on first run;
 # bgmi_config.example.json is the tracked template.
 ocr/bgmi/bgmi_config.json
+
+# Result-screen captures, kept locally for the reader to be built from.
+ocr/bgmi/result_captures/
