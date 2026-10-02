@@ -38,28 +38,27 @@ var SHEET_GID = null;           // or pin it by gid; name wins when both are set
 
 // WHICH ROW A SLOT OWNS.
 //
-// This sheet has no slot column -- its column B is a serial 1..16, and
-// nothing on it carries the numbers the game prints. What it does have
-// is the teams in slot order, matching the scoresheet exactly: row 5 is
-// the scoresheet's slot 3, row 20 is slot 18.
+// Column V holds the slot numbers, 3 to 18, which is what the game
+// prints. Rows are READ from it rather than counted, so nothing depends
+// on the sheet staying in slot order.
 //
-// So the row is worked out, not looked up:
-//
-//     row = DATA_START_ROW + (slot - FIRST_SLOT)
-//
-// which makes FIRST_SLOT the one number that matters. Get it wrong and
-// every team lands on another team's row, consistently enough to look
-// deliberate -- so authorize() prints the mapping with each row's team
-// name beside it, to be checked by eye before anything is deployed.
-//
-// SLOT_COLUMN stays as an override: set it if a slot column is ever
-// added, and the rows are read from it instead of being counted.
-var FIRST_SLOT = 3;
-var SLOT_COLUMN = "";
+// (An earlier version concluded there was no slot column and counted
+// from FIRST_SLOT instead. That was wrong: the diagnostic it was based
+// on stopped at column T, and V is past it. Counting still works as a
+// fallback when SLOT_COLUMN is blank, but reading beats counting --
+// a reordered sheet silently breaks the one and not the other.)
+var SLOT_COLUMN = "V";
+var FIRST_SLOT = 3;             // only used when SLOT_COLUMN is blank
 
-// The column holding team names. Used ONLY by authorize(), to print
-// alongside the mapping so it can be checked at a glance.
-var TEAM_NAME_COLUMN = "D";
+// The column holding team names, for authorize() to print beside the
+// mapping so it can be checked by eye.
+//
+// MUST BE A STABLE COLUMN. Column D on this sheet is a live leaderboard
+// -- it sorts itself by points, and read twice an hour apart it gave two
+// completely different orders. P is the fixed, slot-ordered one and
+// matches the scoresheet. Checking the mapping against a column that
+// re-sorts itself tells you nothing.
+var TEAM_NAME_COLUMN = "P";
 
 var ALIVE_START_COLUMN = "Q";   // first of the four alive checkboxes
 var ALIVE_COLUMN_COUNT = 4;

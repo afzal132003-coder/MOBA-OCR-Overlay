@@ -60,25 +60,25 @@ scope is missing the failure arrives mid-match as a permission error.
 2. Run **`authorize`**. The part to read is the mapping:
 
 ```
-SLOT -> ROW, with the team currently on that row:
-
    slot  3  ->  row 5    MYT ESP
-   slot  4  ->  row 6    MIDDLE MAN
-   ...
+   slot 10  ->  row 12   NEMESIS
    slot 18  ->  row 20   LIZARD G
 ```
 
-3. **Check the team beside each slot is the team the game shows in that
-   slot.** If every team is off by the same amount, change `FIRST_SLOT`.
-   That is the only number that matters here.
+3. Check the team beside each slot is the team the game shows in that
+   slot. Both defaults are already set for this sheet:
+   `SLOT_COLUMN = "V"`, `TEAM_NAME_COLUMN = "P"`.
 4. **Deploy → New deployment → Web app → Execute as: Me → Anyone with
    the link.** Copy the URL — this is the **Alive webhook**.
 
-> **Leave `SLOT_COLUMN` blank.** This sheet has no slot column: its
-> column B is a serial `1…16`, not the numbers the game prints. What it
-> does have is the teams in slot order, matching the scoresheet exactly,
-> so the row is counted — `row = 5 + (slot - 3)` — rather than looked up.
-> Set `SLOT_COLUMN` only if a slot column is ever added.
+> **Column V holds the slots** (3…18) and rows are read from it, so the
+> sheet can be reordered without breaking anything.
+>
+> **Do not point `TEAM_NAME_COLUMN` at D.** D is a live leaderboard —
+> it sorts itself by points, and two runs an hour apart gave two
+> completely different orders. P is the fixed, slot-ordered column and
+> matches the scoresheet on all sixteen teams. Checking a mapping
+> against a column that re-sorts itself tells you nothing.
 
 ### 3b. The results script
 
