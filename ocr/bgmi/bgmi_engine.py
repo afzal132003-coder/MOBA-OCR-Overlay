@@ -77,6 +77,7 @@ def default_config():
             # them out on the next capture".
             "originX": None,
             "scale": None,
+            "columns": None,
             # The broadcast sheet. Off until a URL is set, and even then
             # only pushes when the table has actually changed.
             "sheetWebhookUrl": "",      # the LIVE STATUS sheet's deployment
@@ -161,7 +162,7 @@ def refresh_config():
             # Recalibrated: the origin measured against the old rectangle
             # means nothing against a new one.
             st = config.setdefault("settings", {})
-            st["originX"] = st["scale"] = None
+            st["originX"] = st["scale"] = st["columns"] = None
         config["region"] = fresh["region"]
     if fresh.get("monitor"):
         config["monitor"] = fresh["monitor"]
@@ -640,23 +641,36 @@ def annotate(rgb, cards, rows, diag=None, declared=None):
     """
     im = Image.fromarray(rgb).convert("RGB")
     d = ImageDraw.Draw(im)
-    by_index = {c["index"]: c for c in cards}
-    for i, row in enumerate(rows):
-        c = by_index.get(i)
-        if not c:
+    cols = bp.card_columns()
+    by_index = {i: r for i, r in enumerate(rows)}
+
+    # Every card the reader looked at, drawn where it ACTUALLY looked --
+    # at this capture's scale and origin. Drawing them at the reference
+    # positions made the boxes sit a card-width right of the cards they
+    # described, which is worse than no boxes: it suggests the reader is
+    # looking somewhere it is not.
+    for c in cards:
+        cx, top = cols[c["column"]], c["top"]
+        w, h = bp.sx(520), bp.sx(bp.CARD_H)
+
+        if not c.get("present", True):
+            # An empty place in the last row. Said so plainly rather than
+            # drawn as four dead players, which is what it looks like to
+            # anything counting dots.
+            d.rectangle([cx, top, cx + w, top + h], outline=(70, 80, 95), width=2)
+            d.text((cx + 8, top + 8), "no card here", fill=(125, 139, 156))
             continue
-        cx, top = bp.CARD_X[c["column"]], c["top"]
-        d.rectangle([cx, top, cx + 520, top + bp.CARD_H],
-                    outline=(90, 200, 255), width=2)
-        d.text((cx + 6, max(0, top - 16)),
-               "slot %s  %d/4 alive  %s kills"
-               % (row["slot"], row["alive"],
-                  "--" if row["kills"] is None else row["kills"]),
-               fill=(255, 220, 120))
+
+        d.rectangle([cx, top, cx + w, top + h], outline=(90, 200, 255), width=2)
+        row = by_index.get(c["index"])
+        label = ("slot %s  %d/4 alive  %s kills"
+                 % (row["slot"], row["alive"],
+                    "--" if row["kills"] is None else row["kills"])) if row else                 ("%d/4 alive" % sum(1 for pl in c["players"] if pl["alive"]))
+        d.text((cx + 6, max(0, top - 16)), label, fill=(255, 220, 120))
         for p in range(bp.PLAYERS_PER_CARD):
             y = bp.row_y(top, p)
             alive = c["players"][p]["alive"]
-            d.ellipse([cx + 64, y + 8, cx + 74, y + 18],
+            d.ellipse([cx + bp.sx(64), y + 8, cx + bp.sx(74), y + 18],
                       fill=(110, 230, 160) if alive else (230, 90, 90))
 
     # The facts of the read, ON the picture. "What is it actually looking
@@ -719,9 +733,10 @@ def capture_slide(slide, declared_slot, with_preview=True, learn=True):
         found = bp.find_geometry(rgb)
         settings.update(found)
         save_config(config)
-        print("Measured this capture: scale %.3f, card origin x=%d. Saved."
-              % (found["scale"], found["originX"]))
-    bp.set_geometry(scale=settings["scale"], origin_x=settings["originX"])
+        print("Measured this capture: scale %.3f, columns %s. Saved."
+              % (found["scale"], found.get("columns")))
+    bp.set_geometry(scale=settings["scale"], origin_x=settings["originX"],
+                    columns=settings.get("columns"))
     rows, header, diag, blocked = read_frame(rgb, declared_slot, learn)
     state = server_state["bgmi"]
     diag["region"] = dict(config.get("region") or {})

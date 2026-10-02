@@ -78,18 +78,31 @@ CARD_H = int(ROW0 + 3 * ROW_PITCH + ROW_H)    # top of card to end of row 4
 # column begins. Set from the config at startup; the scale is also
 # re-measured per frame by detect_scroll, which searches pitch as well
 # as phase.
-GEOM = {"scale": 1.0, "originX": CARD_X[0]}
+GEOM = {"scale": 1.0, "originX": CARD_X[0], "columns": None}
 
 
-def set_geometry(scale=None, origin_x=None):
+def set_geometry(scale=None, origin_x=None, columns=None):
     if scale:
         GEOM["scale"] = float(scale)
     if origin_x is not None:
         GEOM["originX"] = float(origin_x)
+    if columns is not None:
+        GEOM["columns"] = [int(c) for c in columns] if columns else None
 
 
 def card_columns():
-    """The three card x positions for THIS capture."""
+    """The three card x positions for THIS capture.
+
+    Measured per column when calibration has found them, rather than
+    stepped off one origin at a uniform pitch. The pitch is not quite
+    uniform -- or the scale is not quite exact, which comes to the same
+    thing -- and six pixels of drift by the third column put its kill box
+    half on the digit and half on the next glyph. The first two columns
+    read perfectly while the third returned 12 kills for a squad with
+    none, which is the kind of wrong that reaches a sheet unnoticed.
+    """
+    if GEOM["columns"]:
+        return list(GEOM["columns"])
     sc = GEOM["scale"]
     return [int(round(GEOM["originX"] + i * COLUMN_PITCH * sc)) for i in range(3)]
 
@@ -107,7 +120,14 @@ def sx(v):
 VIEWPORT_TOP, VIEWPORT_BOTTOM = 140, 1070
 
 IGN_DX, IGN_W = 78, 250        # the name
-ELIM_DX, ELIM_W = 378, 32      # the digits after the "/" glyph
+# The digits after the "/" glyph, and nothing else on the row. Measured
+# in reference units: the "/" ends at 382, the digit runs 385-395, and
+# the word "Eliminations" begins at 405. The box was 378-410, which took
+# the leading E of "Eliminations" with it and left every kill unread --
+# on the reference frame that E sat further right and the box got away
+# with it. 383-404 holds one digit with room, or two, and neither
+# neighbour.
+ELIM_DX, ELIM_W = 383, 21
 
 # The slot number, and the boundary between its two digits. Measured: ink
 # spans card-relative x 23-70 with the gap at 46 on every card.
@@ -124,6 +144,15 @@ MAX_SLOT = 25
 # nothing whatsoever in between. 160 is the middle of a 133-point gap, so
 # it is a threshold in name only -- there is no tuning risk here.
 ALIVE_LUMA = 160.0
+
+# Below this, there is no card in that grid place at all.
+#
+# A wiped squad still has names on it, drawn dim -- measured 87 to 94. An
+# empty place in the last row has nothing, and measures 36 to 44. The
+# slot number was tried as the test first and is not reliable: the panel
+# is semi-transparent, so the game showing through an empty place can
+# offer up enough coloured ink to look like one.
+EMPTY_LUMA = 60.0
 
 # A knocked player is NOT distinguished from a dead one. That is a
 # deliberate omission, not an oversight: the operator asked for alive and
@@ -296,8 +325,8 @@ def find_geometry(rgb):
     """
     luma = to_luma(rgb)
     keep = (GEOM["scale"], GEOM["originX"])
+    GEOM["columns"] = None
     best = (-1.0, keep[0])
-    prof_scale = None
     for scale in np.arange(SCALE_RANGE[0], SCALE_RANGE[1], 0.005):
         GEOM["scale"] = scale
         prof = row_ink_profile(luma)
@@ -306,11 +335,41 @@ def find_geometry(rgb):
                    for off in np.arange(0, cp, 1.0)), default=-1.0)
         if top > best[0]:
             best = (top, float(scale))
-    GEOM["scale"] = best[1]
-    origin, _ = find_origin_x(rgb)
-    GEOM["originX"] = float(origin)
-    found = {"scale": round(best[1], 3), "originX": int(origin)}
-    GEOM["scale"], GEOM["originX"] = keep
+    # The rows give the scale to about a percent. That is not enough:
+    # the columns are 537 apart at reference, so a 1.2% error is 7px per
+    # column and 14px by the third -- which pulled the leading "El" of
+    # "Eliminations" into the third column's kill box while the first
+    # column read cleanly. The rows cannot see that; the columns can.
+    #
+    # So scale and origin are refined TOGETHER against the coloured slot
+    # numbers, which are sharp, in all three columns, and therefore
+    # sensitive to the pitch as well as the offset.
+    coarse = best[1]
+    a = rgb.astype(np.float32)
+    lum = a.mean(axis=2)
+    mx, mn = a.max(axis=2), a.min(axis=2)
+    coloured = (((mx - mn) / np.maximum(mx, 1e-3)) > 0.33) & (lum > 40)
+
+    best_fit = (-1, coarse, GEOM["originX"])
+    for scale in np.arange(coarse - 0.03, coarse + 0.03, 0.003):
+        GEOM["scale"] = float(scale)
+        tops, _, _ = detect_card_tops(lum)
+        if not tops:
+            continue
+        pitch = COLUMN_PITCH * scale
+        y0, y1 = sx(SLOT_DY), sx(SLOT_DY + SLOT_H)
+        bx0, bx1 = sx(SLOT_CELLS[0][0]), sx(SLOT_CELLS[1][1])
+        for x0 in range(0, 240, 2):
+            total = 0
+            for top in tops:
+                for i in range(3):
+                    cx = int(round(x0 + i * pitch))
+                    total += int(coloured[top + y0:top + y1, cx + bx0:cx + bx1].sum())
+            if total > best_fit[0]:
+                best_fit = (total, float(scale), float(x0))
+
+    found = {"scale": round(best_fit[1], 4), "originX": int(best_fit[2])}
+    GEOM["scale"], GEOM["originX"], GEOM["columns"] = keep[0], keep[1], None
     return found
 
 
@@ -381,13 +440,56 @@ def ign_image(luma, card_x, y, scale=4):
     return img.resize((img.width * scale, img.height * scale), Image.LANCZOS)
 
 
+ELIM_SCAN = (352, 450)        # the stretch holding "/", the digits, "Elim..."
+
+
 def kill_bitmap(luma, card_x, y):
-    crop = luma[y - 3:y + sx(ROW_H) + 3,
-                card_x + sx(ELIM_DX):card_x + sx(ELIM_DX) + sx(ELIM_W)]
+    """The kill count, found by the "/" that always precedes it.
+
+    Anchored on the slash rather than on an absolute x. Six pixels of
+    drift by the third column -- from the column pitch not being quite
+    even, or the scale not quite exact -- put a fixed box half on the
+    digit and half on the next glyph, and the third column returned
+    twelve kills for a squad with none while the first two read
+    perfectly. The slash is on every row, immediately left of the number,
+    so measuring from it costs nothing and cannot drift.
+
+    Groups of ink across the strip run: slash, the digits, then the word
+    "Eliminations". The second group is the number, however wide.
+    """
+    x0 = card_x + sx(ELIM_SCAN[0])
+    x1 = card_x + sx(ELIM_SCAN[1])
+    crop = luma[y - 3:y + sx(ROW_H) + 3, x0:x1]
     if crop.size == 0:
         return None
     mask = _relative_mask(crop)
-    return None if mask is None else _bitmap(mask)
+    if mask is None:
+        return None
+
+    cols = mask.any(axis=0)
+    groups, start = [], None
+    for i, on in enumerate(cols):
+        if on and start is None:
+            start = i
+        elif not on and start is not None:
+            if i - start >= 2:
+                groups.append((start, i))
+            start = None
+    if start is not None and len(cols) - start >= 2:
+        groups.append((start, len(cols)))
+    if len(groups) < 2:
+        return None
+
+    # groups[0] is the slash; the number is what comes next, and a
+    # two-digit number is two groups a hair apart, so neighbours within a
+    # couple of pixels are taken together.
+    a, b = groups[1]
+    for nxt_a, nxt_b in groups[2:]:
+        if nxt_a - b <= max(2, sx(3)):
+            b = nxt_b
+        else:
+            break
+    return _bitmap(mask[:, a:b])
 
 
 def slot_bitmaps(luma, card_x, card_top):
@@ -467,6 +569,15 @@ def read_page(rgb, digit_templates=None, viewport=(VIEWPORT_TOP, VIEWPORT_BOTTOM
                             kills = int(hit)
                 players.append({"alive": row_is_alive(luma, cx, y), "kills": kills})
             slots = slot_bitmaps(luma, cx, card_top)
+            # Is there a card here at all? Judged on the names, which a
+            # wiped squad still has and an empty place does not.
+            lit = max((float(np.percentile(
+                luma[row_y(card_top, p):row_y(card_top, p) + sx(ROW_H),
+                     cx + sx(IGN_DX):cx + sx(IGN_DX) + sx(IGN_W)], 97))
+                for p in range(PLAYERS_PER_CARD)
+                if luma[row_y(card_top, p):row_y(card_top, p) + sx(ROW_H),
+                        cx + sx(IGN_DX):cx + sx(IGN_DX) + sx(IGN_W)].size),
+                default=0.0)
             cards.append({
                 "index": row_i * 3 + col_i,
                 "top": card_top,
@@ -477,10 +588,9 @@ def read_page(rgb, digit_templates=None, viewport=(VIEWPORT_TOP, VIEWPORT_BOTTOM
                 # of a 16-team lobby has one card and two empty places,
                 # and an empty place reads as four dead players -- which
                 # is how slots 19 and 20 appeared, wiped, in a lobby that
-                # stops at 18. Every real card carries a coloured slot
-                # number, a wiped one included; an empty place carries
-                # nothing, and that is the whole test.
-                "present": any(b is not None for b in slots),
+                # stops at 18.
+                "present": lit > EMPTY_LUMA,
+                "lit": round(lit, 1),
             })
     return {"cards": cards, "scroll": offset, "scroll_score": score,
             "card_rows": len(tops)}
