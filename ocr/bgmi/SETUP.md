@@ -83,16 +83,24 @@ scope is missing the failure arrives mid-match as a permission error.
 ### 3b. The results script
 
 1. **SCORESHEET → Extensions → Apps Script**, paste `bgmi_results_push.gs`, Save.
-2. Run **`findTheTab`** first. This workbook has seventeen tabs; it scans
-   them and names the ones actually laid out as game blocks, with gids.
-3. Set `SHEET_GID` to the one it found, Save, run **`authorize`** to
-   confirm the GAME lines read the right slots.
-4. Deploy as above. Copy the URL — this is the **Results webhook**.
+2. Run **`authorize`**. With nothing configured — which is the normal
+   state — it lists the tabs that look like scoresheet blocks:
 
-> The gid in a pasted URL is whichever tab was open at the time. That is
-> how `MVP.D3` got configured once and reported its column D as
-> `0, M1, KILL`. `findTheTab` exists so this is one run instead of
-> seventeen guesses.
+```
+>>> "AxB"  gid 1566823223
+      best column D: runs 3 to 18, 16/16 in the GAME 2 block
+      headers on row 3:  D=SLOT  E=PATH  F=TEAM NAME  G=Finishes  H=Pts  I=Rank
+```
+
+3. **Change nothing in the script.** Note the tab *name* you want.
+4. **Deploy → New deployment → Web app → Execute as: Me → Anyone with
+   the link.** Copy the URL — this is the **Results webhook**.
+
+> You never edit this file to change match-day. The dashboard sends the
+> sub-sheet with every push: type `AxB` (or its gid) into the BGMI tab's
+> **Sub-sheet** box. A tab fixed inside the script would need editing
+> *and redeploying* to change, and a redeploy forgotten mid-event looks
+> exactly like the push doing nothing.
 
 > After **any** later edit to either script: **Deploy → Manage
 > deployments → pencil → Version: New version → Deploy.** The web app

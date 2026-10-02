@@ -40,9 +40,16 @@
 
 var SCRIPT_VERSION = "2026-10-02.1-bgmi-results";
 
-// Which tab holds the game blocks. Leave SHEET_NAME blank and set
-// SHEET_GID from `findTheTab` -- a gid never changes, where a tab name
-// changes the moment somebody renames it.
+// Which tab holds the game blocks.
+//
+// LEAVE BOTH BLANK. The dashboard sends the tab with every push -- type
+// "AxB" (or its gid) into the BGMI tab's "Sub-sheet" box and press Push.
+// Nothing in this file needs editing to change match-day, which is the
+// point: a value that lives in the script has to be edited and
+// REDEPLOYED to change, and a redeploy forgotten mid-event is the
+// failure that looks like the push silently doing nothing.
+//
+// They remain here only as a default for running authorize() by hand.
 var SHEET_NAME = "";
 var SHEET_GID = null;
 
@@ -58,7 +65,12 @@ function doPost(e) {
   var result = { ok: false, version: SCRIPT_VERSION, matched: 0, total: 0 };
   try {
     var body = JSON.parse(e.postData.contents);
+    // The tab comes from the DASHBOARD, not from editing this file. Name
+    // or gid, whichever the operator typed.
     if (body.tab) SHEET_NAME = String(body.tab);
+    if (body.gid !== undefined && body.gid !== null && body.gid !== "") {
+      SHEET_GID = parseInt(body.gid, 10);
+    }
     pushResults_(body, result);
   } catch (err) {
     result.error = String(err);
@@ -254,7 +266,16 @@ function findTheTab() {
 function authorize() {
   var sheet = pickSheet_(SpreadsheetApp.getActiveSpreadsheet(), SHEET_NAME, SHEET_GID);
   if (!sheet) {
-    Logger.log("No tab matched. Run findTheTab() first and set SHEET_GID.");
+    // Nothing configured, which is the NORMAL state -- the dashboard
+    // supplies the tab per push. So show the candidates rather than
+    // reporting a failure: what the operator needs here is the name to
+    // type into the dashboard, not an error.
+    Logger.log("No tab is set in this file, which is expected -- the dashboard");
+    Logger.log("sends it with each push. Below are the tabs that look like");
+    Logger.log("scoresheet blocks. Type one of these NAMES into the BGMI tab's");
+    Logger.log('"Sub-sheet" box in the dashboard.');
+    Logger.log("");
+    findTheTab();
     return;
   }
   Logger.log("Spreadsheet: " + SpreadsheetApp.getActiveSpreadsheet().getName());
