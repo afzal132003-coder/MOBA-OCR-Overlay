@@ -108,8 +108,20 @@ def card_columns():
 
 
 def sx(v):
-    """A reference-space x, width or height, in this capture's pixels."""
+    """A reference-space width or height, in this capture's pixels."""
     return int(round(v * GEOM["scale"]))
+
+
+def px(x_ref):
+    """A reference-space ABSOLUTE x, in this capture's pixels.
+
+    The panel is both scaled and shifted: the first card column sits at
+    93 in the reference frame and at 40 in this one. Anything measured
+    from the frame edge rather than from a card -- the header, chiefly --
+    needs both halves of that. Scaling alone put the header box sixty
+    pixels right of the header.
+    """
+    return int(round(x_ref * GEOM["scale"] + (GEOM["originX"] - CARD_X[0] * GEOM["scale"])))
 
 # The scrolling viewport, inside the panel. Cards are clipped here, so a
 # card is only read when it fits entirely between these two lines.
@@ -204,6 +216,27 @@ def similarity(a, b):
     return 1.0 - float(np.abs(a - b).mean())
 
 
+def match_digit(bitmap, stores):
+    """Read a digit from several template stores, tried IN ORDER.
+
+    Tried rather than merged. Merging the slot digits into the kill ones
+    covers 4 to 9, which the kill store has never seen -- but it also
+    puts more rivals in front of every digit, and two that the kill store
+    read cleanly became ties and were refused. Fallback keeps the close
+    match where there is one and only reaches for the other store when
+    the first has nothing to say.
+    """
+    if isinstance(stores, dict):
+        stores = [stores]
+    for store in stores:
+        if not store:
+            continue
+        hit = best_match(bitmap, store)
+        if hit is not None:
+            return hit
+    return None
+
+
 def best_match(bitmap, templates, min_score=0.70, min_margin=0.04):
     """Nearest template, but only when it is clearly nearest.
 
@@ -261,6 +294,15 @@ def _comb(offset, n):
 
 SCALE_RANGE = (0.88, 1.16)      # the capture sizes seen in practice
 
+# How the last phase search went: its score, and how far clear of the
+# next-best phase it finished. See detect_scroll.
+LAST_FIT = {"score": 0.0, "margin": 0.0}
+
+# Below this the winning phase is not clearly better than a rival one row
+# away, which means the panel was moving. Measured 0.24 on a settled
+# frame.
+MIN_FIT_MARGIN = 0.10
+
 
 def _comb_score(prof, scale, off, n):
     """How well a grid at this scale and phase lands on the ink.
@@ -306,12 +348,29 @@ def detect_scroll(luma, step=0.5):
     n = len(prof)
     scale = GEOM["scale"]
     cp = CARD_PITCH * scale
-    best = (-1.0, 0.0)
-    for off in np.arange(0, cp, step):
-        sc = _comb_score(prof, scale, off, n)
-        if sc > best[0]:
-            best = (sc, float(off))
-    return best[1], best[0]
+    rp = ROW_PITCH * scale
+    scored = [(_comb_score(prof, scale, off, n), float(off))
+              for off in np.arange(0, cp, step)]
+    scored.sort(reverse=True)
+    best_score, best_off = scored[0]
+
+    # How much better is this phase than the best ALTERNATIVE one -- a
+    # rival at least half a row away, not the pixel next door.
+    #
+    # On a settled panel the winner beats its nearest rival by about a
+    # quarter: 89.6 against 68.5 on a measured frame, the rival being
+    # exactly one row out. Caught mid-scroll the two draw level and the
+    # pick becomes a coin toss, which is how a capture came back with the
+    # rows landing in the gaps -- six cards instead of nine and every
+    # first row unreadable. Reported so the caller can refuse.
+    rival = 0.0
+    for sc, off in scored:
+        if abs(off - best_off) >= rp * 0.5:
+            rival = sc
+            break
+    LAST_FIT["score"] = best_score
+    LAST_FIT["margin"] = (best_score - rival) / best_score if best_score > 0 else 0.0
+    return best_off, best_score
 
 
 def find_geometry(rgb):
@@ -564,7 +623,7 @@ def read_page(rgb, digit_templates=None, viewport=(VIEWPORT_TOP, VIEWPORT_BOTTOM
                 if digit_templates:
                     bm = kill_bitmap(luma, cx, y)
                     if bm is not None:
-                        hit = best_match(bm, digit_templates)
+                        hit = match_digit(bm, digit_templates)
                         if hit is not None:
                             kills = int(hit)
                 players.append({"alive": row_is_alive(luma, cx, y), "kills": kills})
@@ -959,7 +1018,17 @@ def read_header(luma, templates, box=HEADER_BOX,
     """
     if missing_digits(templates):
         return None, None
-    x, y, w, h = box
+    # The header is measured from the frame, not from a card, so it needs
+    # the shift as well as the scale -- px(), not sx(). Scaling alone put
+    # the box sixty pixels right of the numbers.
+    #
+    # The vertical band is deliberately generous. Only pure-white ink is
+    # taken from it, and the words beside the numbers are grey, so a
+    # loose box costs nothing while a tight one clips glyph tops -- which
+    # read "Team 0" for "Team 10".
+    x = px(box[0])
+    w = px(box[0] + box[2]) - x
+    y, h = sx(70), sx(115)
     band = luma[y:y + h, x:x + w]
     if band.size == 0:
         return None, None
@@ -1001,4 +1070,9 @@ def read_header(luma, templates, box=HEADER_BOX,
         out.append(int(text) if text else None)
     while len(out) < 2:
         out.append(None)
+    # Both numbers or neither. A half-read header puts a confident wrong
+    # figure next to "Game says" on the dashboard, which is worse than an
+    # empty one -- the whole point of the line is to be checked against.
+    if out[0] is None or out[1] is None:
+        return None, None
     return out[0], out[1]

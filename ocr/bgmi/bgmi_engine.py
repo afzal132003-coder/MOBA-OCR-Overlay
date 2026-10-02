@@ -224,7 +224,7 @@ def read_frame(rgb, declared_slot=None, learn=True):
     whenever blocked_reason is set -- a refusal never half-publishes.
     """
     luma = bp.to_luma(rgb)
-    page = bp.read_page(rgb, digit_templates=templates.get("kill"))
+    page = bp.read_page(rgb, digit_templates=kill_store())
     cards = page["cards"]
     diag = {
         "scale": round(bp.GEOM["scale"], 3),
@@ -232,6 +232,7 @@ def read_frame(rgb, declared_slot=None, learn=True):
         "cardRows": page["card_rows"],
         "scroll": round(page["scroll"], 1),
         "scrollScore": round(page["scroll_score"], 1),
+        "fitMargin": round(bp.LAST_FIT["margin"], 3),
         "declaredSlot": declared_slot,
         "readSlot": None,
         "slotMargin": 0.0,
@@ -244,6 +245,14 @@ def read_frame(rgb, declared_slot=None, learn=True):
         return [], {}, diag, ("No team cards found. Is the panel open, and is "
                               "the capture region on the game picture rather "
                               "than the BlueStacks window?")
+
+    # A panel caught mid-scroll fits two phases about equally well, and
+    # the wrong one puts every row in a gap. Refused rather than read.
+    if bp.LAST_FIT["margin"] < bp.MIN_FIT_MARGIN:
+        return [], {}, diag, (
+            "The rows did not line up clearly (margin %.2f, want %.2f) -- the "
+            "panel was most likely still scrolling. Let it settle and capture "
+            "again." % (bp.LAST_FIT["margin"], bp.MIN_FIT_MARGIN))
 
     # Drop the empty places at the end of the last row before anything
     # counts them as teams.
@@ -522,6 +531,27 @@ def CARD_X_OF(card):
     return bp.CARD_X[card["column"]]
 
 
+def kill_store():
+    """Templates for reading a kill count: the kill store, backed by the
+    slot store for digits it has never seen.
+
+    THE KILL STORE ONLY HAS 0 TO 3. It was seeded from one frame where no
+    squad had more than three kills, so there was no 4 to match against
+    and a 4 quietly became the nearest thing available -- a 3. A squad on
+    /4 /1 /0 /2 was reported with 6 kills instead of 7, and nothing about
+    that number looks wrong on a sheet.
+
+    The slot numbers cover 0 to 9 and are the same face at a different
+    size -- on the reference frame they read its kill digits 34 of 36
+    with nothing wrong. Returned as a FALLBACK LIST rather than merged in:
+    merging puts every slot digit in front of every kill digit as a rival,
+    and two counts the kill store read cleanly became ties and were
+    refused. Tried in order, the close match wins where it exists and the
+    other store is only reached for when there is nothing.
+    """
+    return [templates.get("kill") or {}, templates.get("slot") or {}]
+
+
 def ign_map():
     """slot -> the four names, each the most-voted reading for its seat."""
     out = {}
@@ -780,7 +810,7 @@ def capture_slide(slide, declared_slot, with_preview=True, learn=True):
 
     preview = ""
     if with_preview:
-        page = bp.read_page(rgb, digit_templates=templates.get("kill"))
+        page = bp.read_page(rgb, digit_templates=kill_store())
         cards = page["cards"]
         if cards and declared_slot is not None:
             bp.assign_slots(cards, declared_slot)
