@@ -142,6 +142,13 @@ server_state = {
 
 REFERENCE_SIZE = (1920, 1080)
 
+# Bumped whenever the way geometry is MEASURED changes. A stored scale
+# and origin are only as good as the code that produced them, and an
+# engine that keeps them across an upgrade keeps the old answer -- which
+# is how a capture went on using scale 1.095 after the measurement was
+# improved to give 1.077, with every box a little off and no sign of why.
+GEOM_VERSION = 3
+
 
 def refresh_config():
     """Re-read the config file, so calibrating does not need a restart.
@@ -729,9 +736,13 @@ def capture_slide(slide, declared_slot, with_preview=True, learn=True):
     # frame by the row search, so only this needs remembering -- and only
     # until the capture region changes, which rewrites it.
     settings = config.setdefault("settings", {})
+    if settings.get("geomVersion") != GEOM_VERSION:
+        settings["scale"] = settings["originX"] = None
+        settings["geomVersion"] = GEOM_VERSION
     if settings.get("originX") is None or settings.get("scale") is None:
         found = bp.find_geometry(rgb)
         settings.update(found)
+        settings["geomVersion"] = GEOM_VERSION
         save_config(config)
         print("Measured this capture: scale %.3f, columns %s. Saved."
               % (found["scale"], found.get("columns")))
