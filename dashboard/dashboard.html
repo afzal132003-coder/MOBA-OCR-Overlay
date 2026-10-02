@@ -14344,6 +14344,7 @@ function bgmiRenderDiag(d){
     "you said " + (d.declaredSlot == null ? "-" : d.declaredSlot),
     "screen read " + (d.readSlot == null ? "not checked" : d.readSlot),
   ];
+  if (d.scale) bits.push("scale " + d.scale);
   if (d.region && d.region.w) {
     bits.push("region " + d.region.w + "x" + d.region.h +
               " @" + d.region.x + "," + d.region.y);

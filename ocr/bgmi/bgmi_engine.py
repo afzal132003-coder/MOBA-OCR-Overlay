@@ -70,6 +70,13 @@ def default_config():
             "pollIntervalSeconds": 0.5,
             "lobbySize": 16,
             "firstSlot": 3,          # this lobby numbers its teams 3..18
+            # How this capture compares to the reference frame, and where
+            # its first card column starts. Both are properties of the
+            # capture RECTANGLE, not of any frame, so they are measured
+            # once and kept; recalibrating clears them. null means "work
+            # them out on the next capture".
+            "originX": None,
+            "scale": None,
             # The broadcast sheet. Off until a URL is set, and even then
             # only pushes when the table has actually changed.
             "sheetWebhookUrl": "",      # the LIVE STATUS sheet's deployment
@@ -150,6 +157,11 @@ def refresh_config():
     global config
     fresh = load_config()
     if fresh.get("region"):
+        if fresh["region"] != config.get("region"):
+            # Recalibrated: the origin measured against the old rectangle
+            # means nothing against a new one.
+            st = config.setdefault("settings", {})
+            st["originX"] = st["scale"] = None
         config["region"] = fresh["region"]
     if fresh.get("monitor"):
         config["monitor"] = fresh["monitor"]
@@ -207,6 +219,7 @@ def read_frame(rgb, declared_slot=None, learn=True):
     page = bp.read_page(rgb, digit_templates=templates.get("kill"))
     cards = page["cards"]
     diag = {
+        "scale": round(bp.GEOM["scale"], 3),
         "cards": len(cards),
         "cardRows": page["card_rows"],
         "scroll": round(page["scroll"], 1),
@@ -223,6 +236,22 @@ def read_frame(rgb, declared_slot=None, learn=True):
         return [], {}, diag, ("No team cards found. Is the panel open, and is "
                               "the capture region on the game picture rather "
                               "than the BlueStacks window?")
+
+    # Drop the empty places at the end of the last row before anything
+    # counts them as teams.
+    while cards and not cards[-1].get("present", True):
+        cards.pop()
+    diag["cards"] = len(cards)
+    if not cards:
+        return [], {}, diag, ("The panel is open but no card has a slot number "
+                              "on it -- is this the team panel?")
+    gap = [c["index"] for c in cards if not c.get("present", True)]
+    if gap:
+        return [], {}, diag, (
+            "There is an empty place among the cards (position %s), which "
+            "should not happen -- the panel fills left to right. Re-capture; "
+            "if it persists the grid is being read in the wrong place."
+            % ", ".join(str(g) for g in gap))
 
     if declared_slot is None:
         return [], {}, diag, ("Say which slot this slide starts at. The panel "
@@ -681,6 +710,18 @@ def capture_slide(slide, declared_slot, with_preview=True, learn=True):
     """
     refresh_config()
     rgb = grab_region()
+
+    # The x origin is measured once and kept. The scale is measured every
+    # frame by the row search, so only this needs remembering -- and only
+    # until the capture region changes, which rewrites it.
+    settings = config.setdefault("settings", {})
+    if settings.get("originX") is None or settings.get("scale") is None:
+        found = bp.find_geometry(rgb)
+        settings.update(found)
+        save_config(config)
+        print("Measured this capture: scale %.3f, card origin x=%d. Saved."
+              % (found["scale"], found["originX"]))
+    bp.set_geometry(scale=settings["scale"], origin_x=settings["originX"])
     rows, header, diag, blocked = read_frame(rgb, declared_slot, learn)
     state = server_state["bgmi"]
     diag["region"] = dict(config.get("region") or {})
