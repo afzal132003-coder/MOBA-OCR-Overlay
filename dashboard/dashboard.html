@@ -1859,7 +1859,16 @@
         <input type="checkbox" id="bgmi_withPreview" checked> with preview image
       </label>
       <button class="secondary" id="bgmi_reloadGlyphs">Reload Digit Templates</button>
+      <label style="display:flex;gap:6px;align-items:center;margin:0;" class="hint">
+        lobby <input type="number" id="bgmi_lobbyTeams" min="2" max="25" value="16"
+                     style="width:64px;"> teams from slot
+        <input type="number" id="bgmi_firstSlot" min="1" max="25" value="3" style="width:58px;">
+      </label>
     </div>
+    <p class="hint" style="margin-top:8px;">Those two decide which slot numbers can exist. The panel cannot
+      scroll past its own end, so on a 16-team lobby the last screenful starts at <strong>10</strong>, not 12
+      &mdash; declaring 12 there files every row two slots too high, and the table looks perfectly ordinary
+      afterwards. A capture that would run past the last slot is refused and tells you what to type instead.</p>
 
     <div class="hint" id="bgmi_blocked" style="margin-top:10px;display:none;
          background:#2a1a1a;border:1px solid #6b3030;border-radius:6px;padding:10px;color:#ffc9c9;"></div>
@@ -1868,6 +1877,21 @@
     <div class="hint" id="bgmi_diag" style="margin-top:10px;font-family:monospace;font-size:11px;"></div>
   </div>
 
+  <div class="card">
+    <h2>Preview &mdash; what the reader saw</h2>
+    <p class="hint">Boxes are the cards it located, the dot beside each name is its alive/dead verdict, and the
+      label above each card is what would reach the sheet. This is here to be disagreed with: a picture of the
+      panel alone tells you nothing you cannot see in the game, but a row marked dead that plainly is not is
+      worth catching before it goes out.</p>
+    <img id="bgmi_preview" style="width:100%;max-width:1100px;border-radius:8px;border:1px solid #1b2430;
+         background:#06090c;display:none;">
+    <div class="hint" id="bgmi_previewNote" style="margin-top:8px;">Nothing captured yet — press
+      <strong>Capture Slide 1</strong> above. The picture carries the region it grabbed, how many whole cards
+      it found and the slot you declared, so it can answer what it was looking at.</div>
+  </div>
+  </div>
+
+  
   <div class="card">
     <h2>What it read</h2>
     <p class="hint">The game's own totals sit on the right. They are computed by BGMI independently of the cards,
@@ -1888,20 +1912,7 @@
       <div class="hint" id="bgmi_header" style="min-width:220px;"></div>
     </div>
   </div>
-
-  <div class="card">
-    <h2>Preview &mdash; what the reader saw</h2>
-    <p class="hint">Boxes are the cards it located, the dot beside each name is its alive/dead verdict, and the
-      label above each card is what would reach the sheet. This is here to be disagreed with: a picture of the
-      panel alone tells you nothing you cannot see in the game, but a row marked dead that plainly is not is
-      worth catching before it goes out.</p>
-    <img id="bgmi_preview" style="width:100%;max-width:1100px;border-radius:8px;border:1px solid #1b2430;
-         background:#06090c;display:none;">
-    <div class="hint" id="bgmi_previewNote" style="margin-top:8px;"></div>
-  </div>
-  </div>
-
-  <div class="bgmi-tab-panel" id="bgtab-sheet">
+<div class="bgmi-tab-panel" id="bgtab-sheet">
 
   <div class="card">
     <h2>Push To The Sheet</h2>
@@ -1919,11 +1930,10 @@
         <label for="bgmi_sheetTab">Tab name (blank = first tab)</label>
         <input type="text" id="bgmi_sheetTab" placeholder="e.g. Match Pt">
       </div>
-      <div style="flex:0 0 150px;">
-        <label for="bgmi_lobbySize">Lobby size</label>
-        <input type="number" id="bgmi_lobbySize" min="2" max="25" value="16">
-      </div>
     </div>
+    <p class="hint" style="margin-top:8px;">Lobby size lives on the <strong>Live Capture</strong> tab, beside
+      the slides &mdash; it decides which slot numbers can exist, so it belongs where the slots are declared
+      rather than in two places that could disagree.</p>
     <div class="row" style="gap:8px;align-items:center;margin-top:12px;">
       <button id="bgmi_pushSheet">Push Now</button>
       <button class="secondary" id="bgmi_saveSheet">Save Settings</button>
@@ -14509,7 +14519,8 @@ function bgmiSheetSettings(){
   return {
     sheetWebhookUrl: document.getElementById("bgmi_sheetUrl").value.trim(),
     sheetTab: document.getElementById("bgmi_sheetTab").value.trim(),
-    lobbySize: Number(document.getElementById("bgmi_lobbySize").value) || 16,
+    lobbySize: Number(document.getElementById("bgmi_lobbyTeams").value) || 16,
+    firstSlot: Number(document.getElementById("bgmi_firstSlot").value) || 3,
     liveSheetPush: document.getElementById("bgmi_livePush").checked,
     resultsWebhookUrl: document.getElementById("bgmi_resultsUrl").value.trim(),
     resultsTab: document.getElementById("bgmi_resultsTab").value.trim(),

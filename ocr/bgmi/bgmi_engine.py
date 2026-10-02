@@ -69,6 +69,7 @@ def default_config():
             "continuousPoll": False,
             "pollIntervalSeconds": 0.5,
             "lobbySize": 16,
+            "firstSlot": 3,          # this lobby numbers its teams 3..18
             # The broadcast sheet. Off until a URL is set, and even then
             # only pushes when the table has actually changed.
             "sheetWebhookUrl": "",      # the LIVE STATUS sheet's deployment
@@ -227,6 +228,29 @@ def read_frame(rgb, declared_slot=None, learn=True):
         return [], {}, diag, ("Say which slot this slide starts at. The panel "
                               "can stop anywhere, so nothing on screen says "
                               "which teams these nine are.")
+
+    # THE ARITHMETIC CHECK, which needs no OCR and catches the mistake the
+    # digit check would have caught if a digit were missing.
+    #
+    # The panel cannot scroll past its own end, so the last screenful of a
+    # sixteen-team lobby shows slots 10-18, not 12-20. Declaring 12 there
+    # files every row two slots high -- quietly, and it looks like a
+    # perfectly ordinary table afterwards.
+    settings = config.get("settings") or {}
+    lobby = int(settings.get("lobbySize") or 0)
+    first_slot = int(settings.get("firstSlot") or 3)
+    if lobby:
+        last_slot = first_slot + lobby - 1
+        would_end = declared_slot + len(cards) - 1
+        if declared_slot < first_slot or would_end > last_slot:
+            suggest = max(first_slot, last_slot - len(cards) + 1)
+            return [], {}, diag, (
+                "You said this slide starts at %d, but %d cards from there "
+                "reach slot %d -- and this lobby has %d teams, slots %d to %d. "
+                "The panel cannot scroll past its end, so the last screenful "
+                "starts at %d. Try %d."
+                % (declared_slot, len(cards), would_end, lobby,
+                   first_slot, last_slot, suggest, suggest))
 
     # Learn from what was declared. This is the way out of the deadlock:
     # digit 2 could never be read because digit 2 had never been seen, and
@@ -577,7 +601,7 @@ def push_results_to_sheet(game, rows):
 
 # ----------------------------------------------------------------- preview
 
-def annotate(rgb, cards, rows):
+def annotate(rgb, cards, rows, diag=None, declared=None):
     """Draw what the reader saw onto the frame.
 
     The point of a preview is to be disagreed with. A picture of the panel
@@ -605,6 +629,23 @@ def annotate(rgb, cards, rows):
             alive = c["players"][p]["alive"]
             d.ellipse([cx + 64, y + 8, cx + 74, y + 18],
                       fill=(110, 230, 160) if alive else (230, 90, 90))
+
+    # The facts of the read, ON the picture. "What is it actually looking
+    # at" is the first question whenever a capture comes out wrong, and a
+    # preview that cannot answer it sends you back to the config file.
+    if diag is not None:
+        r = diag.get("region") or {}
+        lines = [
+            "region %sx%s at %s,%s  (scaled to 1920x1080)"
+            % (r.get("w"), r.get("h"), r.get("x"), r.get("y")),
+            "whole cards found: %s      scroll offset %s (fit %s)"
+            % (diag.get("cards"), diag.get("scroll"), diag.get("scrollScore")),
+            "you said this slide starts at slot %s" % declared,
+        ]
+        box_h = 18 * len(lines) + 12
+        d.rectangle([0, 0, im.width, box_h], fill=(6, 9, 12))
+        for i, text in enumerate(lines):
+            d.text((10, 6 + i * 18), text, fill=(154, 167, 181))
     return im
 
 
@@ -676,9 +717,10 @@ def capture_slide(slide, declared_slot, with_preview=True, learn=True):
         cards = page["cards"]
         if cards and declared_slot is not None:
             bp.assign_slots(cards, declared_slot)
-        preview = to_data_url(annotate(rgb, cards, rows if rows else
-                                       bp.team_rows(cards)) if cards
-                              else Image.fromarray(rgb))
+        preview = to_data_url(
+            annotate(rgb, cards, rows if rows else bp.team_rows(cards),
+                     diag, declared_slot)
+            if cards else annotate(rgb, [], [], diag, declared_slot))
     return preview
 
 
