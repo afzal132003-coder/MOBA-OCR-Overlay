@@ -222,10 +222,14 @@ def read_frame(rgb, declared_slot=None, learn=True):
     # replaces it has ranks but no slots.
     if (config.get("settings") or {}).get("readIgns", True):
         try:
-            diag["ignsRead"] = collect_igns(luma, cards)
+            got = collect_igns(luma, cards)
+            if isinstance(got, str):
+                diag["ignsRead"], diag["ignNote"] = 0, got
+            else:
+                diag["ignsRead"] = got
         except Exception as e:
             diag["ignsRead"] = 0
-            diag["ignError"] = str(e)
+            diag["ignNote"] = str(e)
     remaining, teams_alive = bp.read_header(luma, templates.get("slot", {}))
     header = {"remaining": remaining, "teamsAlive": teams_alive}
     return rows, header, diag, ""
@@ -316,6 +320,56 @@ def ocr_text(img):
     return "".join(out.split())
 
 
+IGN_GAP = 26          # white space between stacked names, in the strip
+
+
+def ocr_lines(img, count):
+    """One Tesseract pass over a stack of names, split back into lines.
+
+    THIRTY-SIX NAMES USED TO BE THIRTY-SIX PROCESSES. A Tesseract call is
+    about 150ms here, almost all of it spawning the process rather than
+    reading anything, so a capture spent 3.7 seconds on names alone --
+    past the point where the dashboard gives up waiting and the button
+    sits on "Reading..." forever. Stacked into one tall strip it is a
+    single call.
+
+    Returns None unless exactly `count` lines come back. Tesseract drops a
+    line it finds empty, and a dropped line shifts every name after it
+    onto the wrong player -- which would be far worse than reading none,
+    because names are what the results screen is matched against. Names do
+    not change, so losing one pass costs nothing: the next capture reads
+    them again.
+    """
+    import subprocess
+    import tempfile
+    tess = (config.get("tesseractPath")
+            or r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+    path = tempfile.mktemp(suffix=".png")
+    img.save(path)
+    try:
+        out = subprocess.run(
+            [tess, path, "stdout", "--psm", "6", "-c",
+             "tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+             "abcdefghijklmnopqrstuvwxyz0123456789"],
+            capture_output=True, text=True, timeout=40).stdout
+    except Exception as e:
+        # A missing or wrong tesseractPath lands here, and used to vanish
+        # without trace -- names simply never appeared and nothing said
+        # why. Reported instead.
+        return "Tesseract could not be run (%s). Check tesseractPath." % e
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    lines = [("".join(l.split())) for l in out.splitlines() if l.strip()]
+    if len(lines) != count:
+        return ("Read %d name lines from %d players -- skipped this pass "
+                "rather than risk pairing names to the wrong seats."
+                % (len(lines), count))
+    return lines
+
+
 def collect_igns(luma, cards):
     """Read every name on this page and add it to that seat's tally.
 
@@ -324,22 +378,43 @@ def collect_igns(luma, cards):
     most often is the one to trust, and a single frame caught mid-scroll
     or mid-repaint cannot displace twenty good ones.
     """
-    changed = 0
+    seats, images = [], []
     for c in cards:
         slot = c.get("slot")
         if slot is None:
             continue
         cx = CARD_X_OF(c)
         for p in range(bp.PLAYERS_PER_CARD):
-            img = bp.ign_image(luma, cx, bp.row_y(c["top"], p))
+            img = bp.ign_image(luma, cx, bp.row_y(c["top"], p), scale=3)
             if img is None:
                 continue
-            text = ocr_text(img)
-            if len(text) < 3:
-                continue
-            seat = _ign_votes.setdefault(str(slot), {}).setdefault(str(p), {})
-            seat[text] = seat.get(text, 0) + 1
-            changed += 1
+            seats.append((slot, p))
+            images.append(img)
+    if not images:
+        return 0
+
+    # One strip, names stacked with white between them. The gap has to be
+    # wide enough that Tesseract treats them as separate lines and not as
+    # one wrapped paragraph.
+    width = max(i.width for i in images)
+    height = sum(i.height for i in images) + IGN_GAP * (len(images) + 1)
+    strip = Image.new("L", (width, height), 255)
+    y = IGN_GAP
+    for img in images:
+        strip.paste(img.convert("L"), (0, y))
+        y += img.height + IGN_GAP
+
+    texts = ocr_lines(strip, len(images))
+    if isinstance(texts, str):
+        return texts          # a reason, for the dashboard to show
+
+    changed = 0
+    for (slot, p), text in zip(seats, texts):
+        if len(text) < 3:
+            continue
+        seat = _ign_votes.setdefault(str(slot), {}).setdefault(str(p), {})
+        seat[text] = seat.get(text, 0) + 1
+        changed += 1
     if changed:
         save_igns()
     return changed

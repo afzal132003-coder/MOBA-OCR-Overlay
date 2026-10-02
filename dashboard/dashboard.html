@@ -14205,7 +14205,7 @@ function bgmiCapture(slide, btn){
   if (btn) { btn.disabled = true; btn.textContent = "Reading…"; }
   setTimeout(() => {
     if (btn) { btn.disabled = false; btn.textContent = "Capture Slide " + slide; }
-  }, 8000);
+  }, 25000);
 }
 
 function bgmiRenderDiag(d){
@@ -14216,6 +14216,8 @@ function bgmiRenderDiag(d){
     "you said " + (d.declaredSlot == null ? "-" : d.declaredSlot),
     "screen read " + (d.readSlot == null ? "not checked" : d.readSlot),
   ];
+  if (d.ignsRead != null) bits.push("names " + d.ignsRead);
+  if (d.ignNote) bits.push("NAMES: " + d.ignNote);
   if (d.missingDigits && d.missingDigits.length) {
     bits.push("UNSEEN DIGITS: " + d.missingDigits.join(", "));
   }
