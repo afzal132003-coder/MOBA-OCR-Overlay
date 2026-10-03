@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Free Fire Lobby Status</title>
+<style>
+  /* ROOM CREATE -> LOBBY STATUS
+     ---------------------------------------------------------------
+     A FIXED STRIP, 1918x248, parked below the stream. Not a full-screen
+     overlay: it sits there for the whole of room-create, so it is built
+     to be glanced at repeatedly rather than to make an entrance.
+
+     NOT READ FROM THE GAME. The operator ticks each squad in the
+     dashboard as it joins. The room-create screen is a lobby, not a
+     match -- the list scrolls and re-sorts itself -- and an operator
+     watching names appear is faster and far more reliable than OCR of it.
+
+     Two states, two colours, said in WORDS as well as in colour: JOINED
+     in light green, YET TO JOIN in light red. The words matter -- about
+     one man in twelve cannot separate those two hues, and this graphic
+     exists to be read at a glance by a room full of people.
+
+     One card per squad across the strip, sized from how many there are,
+     so eight squads or sixteen both fill it without being re-laid out by
+     hand. The logo sits above the name because at this width a logo is
+     recognised before a word is read.
+
+     The join is a pick/ban lock-in: the card sweeps once, the logo comes
+     up to full colour, the top edge turns green. It is driven by a class
+     change, so a squad already in when the page loads renders joined
+     WITHOUT animating -- otherwise a refresh mid-show would re-lock all
+     twelve at once, which reads as a bug on air. */
+
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');
+    font-weight: 800; font-style: normal;
+  }
+  @font-face {
+    font-family: 'TT Supermolot Neue Trial';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
+    font-weight: 900; font-style: normal;
+  }
+
+  :root{
+    --joined:#7ee2a8;         /* light green  -- in the lobby */
+    --waiting:#ff8d8d;        /* light red    -- yet to join  */
+    --bar:#0d1118;
+    --plate:#141a24;
+    --edge:#273246;
+    --muted:#6d7d93;
+  }
+
+  html,body{margin:0;padding:0;background:transparent;overflow:hidden;}
+  body{
+    width:1918px;height:248px;
+    font-family:'TT Supermolot Neue Trial',Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  #stage{
+    display:none;
+    width:1918px;height:248px;box-sizing:border-box;
+    background:linear-gradient(180deg,#0f141d 0%, var(--bar) 100%);
+    border-top:3px solid var(--edge);
+    padding:14px 18px;
+    align-items:stretch;
+    gap:14px;
+  }
+  #stage.visible{display:flex;}
+
+  /* ---- the left-hand label ---- */
+  .head{
+    flex:0 0 210px;display:flex;flex-direction:column;justify-content:center;
+    padding-right:16px;border-right:2px solid var(--edge);
+  }
+  .head .kicker{
+    font-weight:800;font-size:15px;letter-spacing:.3em;
+    color:var(--muted);text-transform:uppercase;
+  }
+  .head .title{
+    font-weight:900;font-size:40px;line-height:1.02;letter-spacing:.01em;
+    color:#fff;text-transform:uppercase;margin-top:2px;
+  }
+  .head .count{
+    margin-top:8px;font-weight:900;font-size:40px;line-height:1;
+    color:var(--joined);
+  }
+  .head .count small{font-size:21px;color:var(--muted);font-weight:800;}
+  .head .count span.lbl{
+    display:block;font-size:12px;letter-spacing:.26em;color:var(--muted);
+    font-weight:800;text-transform:uppercase;margin-top:3px;
+  }
+
+  /* ---- the squads ---- */
+  .cards{flex:1;display:flex;gap:8px;min-width:0;}
+
+  .slot{
+    position:relative;flex:1 1 0;min-width:0;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:7px;padding:8px 6px;box-sizing:border-box;
+    background:var(--plate);
+    border:1px solid var(--edge);
+    border-top:4px solid var(--waiting);
+    overflow:hidden;
+    transition:border-top-color .4s ease, background .4s ease;
+  }
+  /* Shallow and slow: "live and waiting", not an alarm. */
+  .slot:not(.joined){animation:breathe 2.8s ease-in-out infinite;}
+  @keyframes breathe{
+    0%,100%{opacity:.74;}
+    50%    {opacity:.96;}
+  }
+  .slot.joined{
+    opacity:1;animation:none;
+    border-top-color:var(--joined);
+    background:linear-gradient(180deg,
+      rgba(126,226,168,.13), rgba(20,26,36,0) 58%), var(--plate);
+  }
+
+  .logo{
+    width:62px;height:62px;flex:0 0 62px;
+    display:flex;align-items:center;justify-content:center;
+    filter:grayscale(1) brightness(.6);
+    transition:filter .45s ease;
+  }
+  .slot.joined .logo{filter:none;}
+  .logo img{max-width:100%;max-height:100%;display:block;}
+  /* A squad with no logo yet still needs something squad-shaped there. */
+  .logo .initials{
+    width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+    background:#0b0f16;border:1px solid var(--edge);
+    font-weight:900;font-size:21px;color:var(--muted);letter-spacing:.04em;
+  }
+
+  .name{
+    width:100%;text-align:center;
+    font-weight:800;font-size:17px;letter-spacing:.03em;
+    color:#93a1b4;text-transform:uppercase;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    transition:color .4s ease;
+  }
+  .slot.joined .name{color:#fff;}
+
+  .state{
+    display:flex;align-items:center;gap:6px;
+    font-weight:800;font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;white-space:nowrap;
+    color:var(--waiting);
+    transition:color .4s ease;
+  }
+  .slot.joined .state{color:var(--joined);}
+  .dot{
+    width:7px;height:7px;border-radius:50%;
+    background:currentColor;box-shadow:0 0 8px currentColor;
+  }
+
+  .sweep{
+    position:absolute;top:0;bottom:0;left:-45%;width:45%;
+    background:linear-gradient(90deg,
+      transparent, rgba(126,226,168,.45), transparent);
+    opacity:0;pointer-events:none;
+  }
+  .slot.justJoined .sweep{animation:sweep .62s ease-out 1;}
+  @keyframes sweep{
+    0%  {left:-45%;opacity:1;}
+    100%{left:115%;opacity:0;}
+  }
+  .slot.justJoined{animation:pop .42s ease-out 1;}
+  @keyframes pop{
+    0%  {transform:scale(1);}
+    38% {transform:scale(1.05);}
+    100%{transform:scale(1);}
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="head">
+    <div class="kicker" id="kicker">Room Create</div>
+    <div class="title" id="title">Lobby Status</div>
+    <div class="count"><span id="joined">0</span><small>/<span id="total">0</span></small>
+      <span class="lbl">Checked In</span></div>
+  </div>
+  <div class="cards" id="cards"></div>
+</div>
+
+<script>
+const _params = new URLSearchParams(location.search);
+const _sameOrigin = (location.protocol === "https:"
+  ? "wss://" : "ws://") + location.host;
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || _sameOrigin;
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_lobby_status&rostercache=1"
+  : "ws://localhost:8765?page=freefire_lobby_status&rostercache=1";
+
+function esc(s){
+  return String(s == null ? "" : s).replace(/[&<>"]/g, function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];
+  });
+}
+
+/* At this width a long registered name is three ellipsised letters and a
+   full stop. The short name is what the rest of the broadcast calls them,
+   so it is preferred wherever one exists. */
+function label(t){
+  return (t.displayName || t.shortName || t.name || "").trim();
+}
+
+function initials(t){
+  const words = (t.name || "").trim().split(/\s+/).filter(Boolean);
+  if(!words.length) return "";
+  return (words.length === 1 ? words[0].slice(0, 3)
+                             : words.map(w => w[0]).join("").slice(0, 3)).toUpperCase();
+}
+
+/* Which squads were already in last time this drew. A squad in here
+   renders joined with no animation; one joined now and NOT in here gets
+   the sweep. That is what stops a refresh -- or any of the several
+   state_syncs a second -- from replaying every lock-in at once. */
+let wasJoined = new Set();
+let lastSignature = "";
+
+function render(ff){
+  const teams = ((ff.roster || {}).teams) || [];
+  const lobby = ff.lobby || {};
+  const joined = lobby.joined || {};
+  const visible = !!(ff.display && ff.display.lobbyStatusVisible) && teams.length > 0;
+
+  document.getElementById("stage").classList.toggle("visible", visible);
+  if(!visible){
+    wasJoined = new Set(teams.filter(function(t){ return joined[t.name]; })
+                             .map(function(t){ return t.name; }));
+    lastSignature = "";
+    return;
+  }
+
+  const signature = JSON.stringify([
+    teams.map(function(t){ return [t.name, label(t), t.logo ? 1 : 0]; }),
+    teams.map(function(t){ return !!joined[t.name]; }),
+    lobby.title || "", lobby.kicker || ""
+  ]);
+  if(signature === lastSignature) return;
+  lastSignature = signature;
+
+  document.getElementById("title").textContent = lobby.title || "Lobby Status";
+  document.getElementById("kicker").textContent = lobby.kicker || "Room Create";
+
+  document.getElementById("cards").innerHTML = teams.map(function(t){
+    const isIn = !!joined[t.name];
+    const fresh = isIn && !wasJoined.has(t.name);
+    return '<div class="slot' + (isIn ? " joined" : "") +
+      (fresh ? " justJoined" : "") + '">' +
+      '<div class="sweep"></div>' +
+      '<div class="logo">' +
+        (t.logo ? '<img src="' + esc(t.logo) + '" alt="">'
+                : '<div class="initials">' + esc(initials(t)) + '</div>') +
+      '</div>' +
+      '<div class="name">' + esc(label(t)) + '</div>' +
+      '<div class="state"><span class="dot"></span>' +
+        (isIn ? "Joined" : "Yet To Join") + '</div>' +
+    '</div>';
+  }).join("");
+
+  const count = teams.filter(function(t){ return joined[t.name]; }).length;
+  document.getElementById("joined").textContent = count;
+  document.getElementById("total").textContent = teams.length;
+
+  wasJoined = new Set(teams.filter(function(t){ return joined[t.name]; })
+                           .map(function(t){ return t.name; }));
+}
+
+let _lastRoster = null;
+let ws;
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = function(evt){
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "state_sync" && msg.data){
+      // The roster is left out of a sync when unchanged -- it is the
+      // biggest thing on the wire. Hold the last one and put it back, or
+      // this strip empties itself between syncs.
+      if(msg.data.roster) _lastRoster = msg.data.roster;
+      else if(_lastRoster) msg.data.roster = _lastRoster;
+      render(msg.data);
+    }
+  };
+  ws.onclose = function(){ setTimeout(connect, 2000); };
+  ws.onerror = function(){ ws.close(); };
+}
+connect();
+</script>
+</body>
+</html>

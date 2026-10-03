@@ -2149,6 +2149,40 @@
       </div>
       <div id="ff_lobbySquads" style="margin-top:10px;"></div>
     </div>
+
+    <div class="card">
+      <h2>Lobby Join Status &mdash; Graphic</h2>
+      <p class="hint">Tick each squad as it turns up in the room. The strip below the stream updates straight
+        away: <strong style="color:#7ee2a8;">JOINED</strong> in light green,
+        <strong style="color:#ff8d8d;">YET TO JOIN</strong> in light red, with the words there too so it reads
+        correctly for anyone who can't separate those hues.</p>
+      <p class="hint">The overlay is <code>overlay/freefire_lobby_status.html</code>, built as a fixed
+        <strong>1918&times;248</strong> strip to sit below the stream &mdash; add it as its own browser source at
+        that size rather than full-screen. Squads come from the roster, so the list is whatever you registered.</p>
+
+      <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;">
+        <button id="ff_lobbyShow">Show Strip</button>
+        <button class="secondary" id="ff_lobbyHide">Hide Strip</button>
+        <button class="secondary" id="ff_lobbyAllIn">Tick All</button>
+        <button class="secondary" id="ff_lobbyNoneIn">Clear All</button>
+        <span class="hint" id="ff_lobbyCount"></span>
+      </div>
+
+      <div class="row" style="gap:16px;margin-top:12px;">
+        <div class="team-form" style="flex:1;max-width:320px;">
+          <label for="ff_lobbyTitle">Strip title</label>
+          <input type="text" id="ff_lobbyTitle" placeholder="Lobby Status">
+        </div>
+        <div class="team-form" style="flex:1;max-width:320px;">
+          <label for="ff_lobbyKicker">Line above it</label>
+          <input type="text" id="ff_lobbyKicker" placeholder="Room Create">
+        </div>
+      </div>
+
+      <div id="ff_lobbyTicks" style="display:grid;
+           grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;margin-top:14px;"></div>
+      <div class="hint" id="ff_lobbyJoinStatus" style="margin-top:10px;"></div>
+    </div>
   </div>
 
   <!-- ===================== LIVE IN-GAME OPS ===================== -->
@@ -7185,6 +7219,9 @@ function ffRenderEvent(ff){
   setIfFree("ff_sheetWebhookUrl", (ff.settings && ff.settings.sheetWebhookUrl) || "");
   setIfFree("ff_arrowWebhookUrl", (ff.settings && ff.settings.arrowWebhookUrl) || "");
   ffDrawArrowGames();
+  ffDrawLobbyTicks(ff);
+  setIfFree("ff_lobbyTitle", (ff.lobby && ff.lobby.title) || "");
+  setIfFree("ff_lobbyKicker", (ff.lobby && ff.lobby.kicker) || "");
   const lsp = document.getElementById("ff_liveSheetPush");
   if(lsp && document.activeElement !== lsp){
     lsp.value = (ff.settings && ff.settings.liveSheetPush) ? "on" : "off";
@@ -9208,6 +9245,98 @@ document.getElementById("ff_liveSheetPush").addEventListener("change", (e) => {
 });
 
 
+/* ---------- Lobby join status: the ticks behind the strip ----------
+   The whole map is sent on every change, never a single toggle. Two
+   quick ticks sent as separate toggles would be applied against two
+   different snapshots and the second would undo the first. */
+function ffLobbyTicked() {
+  const out = {};
+  document.querySelectorAll(".ff-lobby-tick").forEach(el => {
+    if (el.checked) out[el.dataset.team] = true;
+  });
+  return out;
+}
+
+function ffLobbySend() {
+  if (!(ffWs && ffWs.readyState === WebSocket.OPEN)) {
+    document.getElementById("ff_lobbyJoinStatus").textContent =
+      "Not connected to the Free Fire engine.";
+    return;
+  }
+  ffWs.send(JSON.stringify({
+    type: "lobby_set_joined",
+    joined: ffLobbyTicked(),
+    title: document.getElementById("ff_lobbyTitle").value.trim(),
+    kicker: document.getElementById("ff_lobbyKicker").value.trim()
+  }));
+}
+
+function ffDrawLobbyTicks(ff) {
+  const wrap = document.getElementById("ff_lobbyTicks");
+  if (!wrap) return;
+  // Never redraw while someone is clicking in it -- the fault that made
+  // the squad dropdowns unusable.
+  if (document.activeElement && wrap.contains(document.activeElement)) return;
+
+  const teams = ((ff.roster || {}).teams) || [];
+  const joined = ((ff.lobby || {}).joined) || {};
+  if (!teams.length) {
+    wrap.innerHTML = "<span class='hint'>(no teams in the roster yet)</span>";
+    document.getElementById("ff_lobbyCount").textContent = "";
+    return;
+  }
+  wrap.innerHTML = teams.map(t => {
+    const name = t.name || "";
+    const shown = (t.displayName || t.shortName || name);
+    return "<label style='display:flex;align-items:center;gap:9px;margin:0;" +
+      "padding:7px 10px;border:1px solid #1b2430;background:#10151d;'>" +
+      "<input type='checkbox' class='ff-lobby-tick' data-team=\"" +
+        ffEscapeHtml(name).replace(/"/g, "&quot;") + "\"" +
+        (joined[name] ? " checked" : "") + ">" +
+      "<span style='font-weight:600;" +
+        (joined[name] ? "color:#7ee2a8;" : "color:#ff8d8d;") + "'>" +
+        ffEscapeHtml(shown) + "</span></label>";
+  }).join("");
+
+  wrap.querySelectorAll(".ff-lobby-tick").forEach(el => {
+    el.addEventListener("change", ffLobbySend);
+  });
+
+  const n = teams.filter(t => joined[t.name]).length;
+  document.getElementById("ff_lobbyCount").textContent =
+    n + " of " + teams.length + " checked in";
+}
+
+(function ffWireLobbyStatus() {
+  const show = document.getElementById("ff_lobbyShow");
+  if (!show) return;
+  const say = msg => { document.getElementById("ff_lobbyJoinStatus").textContent = msg; };
+
+  show.addEventListener("click", () => {
+    if (ffWs && ffWs.readyState === WebSocket.OPEN) {
+      ffWs.send(JSON.stringify({ type: "lobby_status_show" }));
+      say("Strip is on air.");
+    } else say("Not connected to the Free Fire engine.");
+  });
+  document.getElementById("ff_lobbyHide").addEventListener("click", () => {
+    if (ffWs && ffWs.readyState === WebSocket.OPEN) {
+      ffWs.send(JSON.stringify({ type: "lobby_status_hide" }));
+      say("Strip is off air.");
+    }
+  });
+  document.getElementById("ff_lobbyAllIn").addEventListener("click", () => {
+    document.querySelectorAll(".ff-lobby-tick").forEach(el => { el.checked = true; });
+    ffLobbySend();
+  });
+  document.getElementById("ff_lobbyNoneIn").addEventListener("click", () => {
+    document.querySelectorAll(".ff-lobby-tick").forEach(el => { el.checked = false; });
+    ffLobbySend();
+  });
+  ["ff_lobbyTitle", "ff_lobbyKicker"].forEach(id => {
+    document.getElementById(id).addEventListener("change", ffLobbySend);
+  });
+})();
+
 /* ---------- ARROW sheet: Booyah, match top 5, series totals ----------
    The game checkboxes are drawn from the games actually committed, so a
    box can never offer a game with no match behind it. They are redrawn
@@ -9393,6 +9522,9 @@ const FF_PREVIEWS = [
   { id: "points", label: "Overall Points Table", file: "freefire_scoreboard.html",
     flag: "pointsTableVisible", show: "points_table_show", hide: "points_table_hide",
     note: "Shares its browser source with the scoreboard — pushing this pulls that down." },
+  { id: "lobbyStatus", label: "Lobby Join Status (strip)", file: "freefire_lobby_status.html",
+    flag: "lobbyStatusVisible", show: "lobby_status_show", hide: "lobby_status_hide",
+    note: "A fixed 1918x248 strip for below the stream -- add it at that size, not full screen. Tick the squads in Pre-Match." },
   { id: "alive", label: "Live Alive Status", file: "freefire_alive_status.html",
     flag: "aliveStatusVisible", show: "alive_status_show", hide: "alive_status_hide",
     note: "Fed by the game log. Empty between matches, which is expected." },
@@ -13632,6 +13764,7 @@ const OVERLAY_LINKS = [
   {game:"MOBA", name:"Post Match Recap", file:"overlay/postmatch.html"},
   {game:"MOBA", name:"MVP Stats", file:"overlay/mvp_stats.html"},
   {game:"Dota 2", name:"Post Match", file:"overlay/dota2_postmatch.html"},
+  {game:"Free Fire", name:"Lobby Join Status (1918x248 strip)", file:"overlay/freefire_lobby_status.html"},
   {game:"Free Fire", name:"Scoreboard", file:"overlay/freefire_scoreboard.html"},
   {game:"Free Fire", name:"Points Table", file:"overlay/freefire_points_table.html"},
   {game:"Free Fire", name:"Booyah", file:"overlay/freefire_booyah.html"},

@@ -484,6 +484,10 @@ def default_state():
         "matches": [],
         "standings": [],
         "fraggers": {"rows": [], "games": []},
+        # Who has turned up to the room, ticked by the operator.
+        # Keyed on the ROSTER NAME, which is what the overlay and
+        # the sheet both match on.
+        "lobby": {"joined": {}, "title": "", "kicker": ""},
         "mvp": {"booyah": None, "match": None, "event": None},
         # Row order for the "Export for Sheet" card -- which roster team
         # name goes on which line of the copy/paste output, since an
@@ -554,6 +558,7 @@ def default_state():
                     # The Booyah team stats card. Its own source, so it does
                     # not contend with the scoreboard/points table pair.
                     "booyahStatsVisible": False,
+                    "lobbyStatusVisible": False,
                     # Second Booyah slide: the winning squad's loadout
                     # (character/weapon/pet/equipment) instead of
                     # eliminations/knocks/contribution. Its own toggle since
@@ -9028,6 +9033,27 @@ async def handle_client(websocket, path=None):
             elif payload.get("type") in ("champion_badge_show", "champion_badge_hide"):
                 server_state["display"]["championRushBadgeVisible"] = (
                     payload["type"] == "champion_badge_show")
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") in ("lobby_status_show", "lobby_status_hide"):
+                server_state["display"]["lobbyStatusVisible"] = (
+                    payload["type"] == "lobby_status_show")
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "lobby_set_joined":
+                # The WHOLE map, not a single toggle. A per-team message
+                # would race the state_sync that follows it: two quick
+                # ticks could be applied against two different snapshots
+                # and the second would undo the first.
+                lobby = server_state.setdefault(
+                    "lobby", {"joined": {}, "title": "", "kicker": ""})
+                lobby["joined"] = {str(k): True
+                                   for k, v in (payload.get("joined") or {}).items()
+                                   if v}
+                if payload.get("title") is not None:
+                    lobby["title"] = payload["title"]
+                if payload.get("kicker") is not None:
+                    lobby["kicker"] = payload["kicker"]
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") in ("booyah_stats_show", "booyah_stats_hide"):
