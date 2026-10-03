@@ -6452,6 +6452,7 @@ function ffOpen(url){
         ffShowAliveGameFrame(msg.image);
       }
     } else if(msg.type === "freefire_match_result"){
+      ffReplyArrived("match");
       if(ffRosterFromResultPending){
         ffRosterFromResultPending = false;
         ffFillRosterFromResult(msg);
@@ -6477,6 +6478,7 @@ function ffOpen(url){
     } else if(msg.type === "freefire_results_push_result"){
       ffShowResultsPushResult(msg);
     } else if(msg.type === "freefire_match_files"){
+      ffReplyArrived("matchList");
       ffShowMatchFiles(msg);
     } else if(msg.type === "freefire_live_lobby_result"){
       const el = document.getElementById("ff_lobbyStatus");
@@ -8625,9 +8627,37 @@ function ffSendSettings(){
   document.getElementById(id).addEventListener("change", ffSendSettings);
 });
 
+
+/* A request that nobody answers used to sit on "Fetching..." for ever.
+   The socket is open -- it goes to the RELAY, which accepts it happily --
+   so there is nothing for the dashboard to notice: the engine simply is
+   not on the other end. That is the single most common state at the
+   start of an event, and it looked identical to a slow fetch.
+
+   So every request that expects a reply arms a timer, and whatever
+   answers first wins. ffAwaitReply(key) arms it; ffReplyArrived(key)
+   disarms it from the message handler. */
+const ffPending = {};
+function ffAwaitReply(key, statusId, what, seconds) {
+  if (ffPending[key]) clearTimeout(ffPending[key]);
+  ffPending[key] = setTimeout(() => {
+    delete ffPending[key];
+    const el = document.getElementById(statusId);
+    if (!el) return;
+    el.textContent = "No answer from the engine after " + (seconds || 8) +
+      "s — " + what + ". Is freefire_engine.py running on the capture PC? " +
+      "The dashboard talks to the relay, which accepts the request whether " +
+      "or not the engine is connected to it.";
+  }, (seconds || 8) * 1000);
+}
+function ffReplyArrived(key) {
+  if (ffPending[key]) { clearTimeout(ffPending[key]); delete ffPending[key]; }
+}
+
 document.getElementById("ff_fetchMatch").addEventListener("click", () => {
   const folder = document.getElementById("ff_matchFolder").value;
   document.getElementById("ff_matchStatus").textContent = "Fetching latest match result...";
+  ffAwaitReply("match", "ff_matchStatus", "the latest match result was never sent back");
   ffWs.send(JSON.stringify({type: "freefire_fetch_match", folder}));
 });
 
@@ -8635,6 +8665,7 @@ document.getElementById("ff_matchListRefresh").addEventListener("click", () => {
   if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
   const folder = document.getElementById("ff_matchFolder").value;
   document.getElementById("ff_matchListStatus").textContent = "Listing result files...";
+  ffAwaitReply("matchList", "ff_matchListStatus", "the file list was never sent back");
   ffWs.send(JSON.stringify({ type: "freefire_list_matches", folder }));
 });
 
