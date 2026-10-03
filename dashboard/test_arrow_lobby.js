@@ -43,9 +43,10 @@ function lift(name) {
   return html.slice(start, end);
 }
 
-const SOURCE = ["ffCompletedGames", "ffLatestMatch", "ffLatestSummary",
-                "ffArrowTickedGames", "ffDrawArrowGames", "ffDrawLobbyTicks"]
-  .map(lift).join("\n\n");
+const SOURCE = "let ffArrowFiles = null;\n\n" +
+  ["ffCompletedGames", "ffLatestMatch", "ffLatestSummary",
+   "ffArrowTickedGames", "ffArrowTickedMatchIds", "ffDrawArrowFiles",
+   "ffDrawArrowGames", "ffDrawLobbyTicks"].map(lift).join("\n\n");
 
 let checks = 0; const failures = [];
 function check(label, ok, detail) {
@@ -189,6 +190,44 @@ check("a fetched-but-uncommitted match is what the buttons will push",
       /UNDER REVIEW/.test(n.ff_arrowLatest.textContent) &&
       /S8UL ESPORTS/.test(n.ff_arrowLatest.textContent),
       n.ff_arrowLatest.textContent.slice(0, 80));
+
+console.log("\npicking result files instead of committed games");
+// The operator has 136 result files and no committed matches. Series
+// totals must be buildable from the files, or the feature is unreachable
+// for anyone who does not commit -- which is how this is actually used.
+(function(){
+  const vm = require("vm");
+  const nodes = {};
+  const el = id => (nodes[id] = nodes[id] || { id, innerHTML: "", textContent: "",
+    value: "", checked: false, dataset: {}, contains: () => false,
+    querySelectorAll: () => [], addEventListener: () => {} });
+  ["ff_lobbyTicks","ff_lobbyCount","ff_arrowGames","ff_arrowLatest"].forEach(el);
+  const sandbox = { document: { activeElement: null,
+      getElementById: id => nodes[id] || null, querySelectorAll: () => [] },
+    ffState: { roster: ROSTER, lobby: {}, matches: [] },
+    ffEscapeHtml: x => String(x == null ? "" : x), console };
+  vm.createContext(sandbox);
+  vm.runInContext(SOURCE, sandbox);
+
+  vm.runInContext("ffDrawArrowGames();", sandbox);
+  check("with nothing listed and nothing committed it explains itself",
+        /No committed matches yet/.test(nodes.ff_arrowGames.innerHTML));
+
+  vm.runInContext("ffArrowFiles = [" +
+    "{matchId:'2106394579182532608', timestamp:'2026-10-03-20-29-58', committed:false}," +
+    "{matchId:'2106390149385140224', timestamp:'2026-10-03-20-11-38', committed:true}];" +
+    "ffDrawArrowGames();", sandbox);
+  const html = nodes.ff_arrowGames.innerHTML;
+  check("a box per result file once the folder is listed",
+        (html.match(/ff-arrow-file/g) || []).length === 2,
+        (html.match(/ff-arrow-file/g) || []).length + " found");
+  check("uncommitted files are offered too, which is the whole point",
+        /2106394579182532608/.test(html));
+  check("an already-committed file is marked rather than hidden",
+        /committed/.test(html));
+  check("none are ticked by default -- picking is the operator job",
+        !/checked/.test(html));
+})();
 
 console.log("\n" + checks + " checks, " + failures.length + " failed");
 if (failures.length) console.log("failed: " + failures.join(", "));

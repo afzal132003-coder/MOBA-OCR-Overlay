@@ -2738,8 +2738,16 @@
       <div class="hint" id="ff_arrowLatest" style="margin-top:6px;"></div>
 
       <div style="margin-top:14px;border-top:1px solid #1b2430;padding-top:12px;">
-        <label style="display:block;margin-bottom:6px;">Series totals &mdash; tick the games to include</label>
-        <div id="ff_arrowGames" class="row" style="gap:14px;flex-wrap:wrap;"></div>
+        <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+          <label style="margin:0;">Series totals &mdash; tick the matches to include</label>
+          <button class="secondary" id="ff_arrowListMatches">List Matches From Folder</button>
+          <button class="secondary" id="ff_arrowTickNone">Untick All</button>
+        </div>
+        <p class="hint" style="margin:0 0 8px;">Straight off the result files in the Match Result Folder &mdash;
+          no committing needed. Ticked matches are numbered by the time they were played, so the per-game columns
+          read in playing order whatever order you tick them in.</p>
+        <div id="ff_arrowGames" class="row" style="gap:10px;flex-wrap:wrap;
+             max-height:230px;overflow-y:auto;"></div>
         <div class="row" style="gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;">
           <button id="ff_pushTotals">Push Series Totals</button>
           <button class="secondary" id="ff_clearTotals">Clear Totals Block</button>
@@ -6216,6 +6224,7 @@ function connect(){
         gfxLoadPage(gfxCurrentPage);
       }
     } else if(msg.type === "freefire_arrow_result"){
+      ffReplyArrived("arrow");
       // The script's own answer, not a hopeful "sent". A push that reached
       // the wrong tab, or a spreadsheet the deployment cannot see, says so
       // here rather than looking identical to one that worked.
@@ -6507,6 +6516,7 @@ function ffOpen(url){
          files..." for ever. */
       ffReplyArrived("matchList");
       ffFillMatchListPick(msg.files || []);
+      if (ffArrowFiles !== null) { ffArrowFiles = msg.files || []; ffDrawArrowFiles(); }
     } else if(msg.type === "freefire_match_files"){
       ffReplyArrived("matchList");
       ffShowMatchFiles(msg);
@@ -9477,6 +9487,39 @@ function ffLatestSummary() {
    box can never offer a game with no match behind it. They are redrawn
    on every state sync EXCEPT while someone is using them -- the same
    guard the squad dropdowns needed, for the same reason. */
+/* The result files the operator picks from, newest first. Filled by
+   "List Matches From Folder". Until then the committed games are offered,
+   so the card still works for anyone who does commit. */
+let ffArrowFiles = null;
+
+function ffArrowTickedMatchIds() {
+  return Array.from(document.querySelectorAll(".ff-arrow-file"))
+    .filter(el => el.checked).map(el => el.dataset.matchid);
+}
+
+function ffDrawArrowFiles() {
+  const wrap = document.getElementById("ff_arrowGames");
+  if (!wrap || !ffArrowFiles) return false;
+  if (document.activeElement && wrap.contains(document.activeElement)) return true;
+  if (!ffArrowFiles.length) {
+    wrap.innerHTML = "<span class='hint'>No result files in that folder.</span>";
+    return true;
+  }
+  const ticked = new Set(ffArrowTickedMatchIds());
+  wrap.innerHTML = ffArrowFiles.map(function(f){
+    const when = String(f.timestamp || f.fileName || f.matchId).replace(/_/g, " ");
+    return "<label style='display:flex;align-items:center;gap:7px;margin:0;" +
+      "padding:5px 9px;border:1px solid #1b2430;background:#10151d;'>" +
+      "<input type='checkbox' class='ff-arrow-file' data-matchid='" +
+        ffEscapeHtml(f.matchId) + "'" +
+        (ticked.has(f.matchId) ? " checked" : "") + ">" +
+      "<span>" + ffEscapeHtml(when) +
+        (f.committed ? " <span style='color:#7fd6a0;'>committed</span>" : "") +
+      "</span></label>";
+  }).join("");
+  return true;
+}
+
 function ffDrawArrowGames() {
   // What the Booyah and match-top pushes will actually read if pressed
   // now. Both default to the latest committed match, and "latest" is not
@@ -9499,6 +9542,9 @@ function ffDrawArrowGames() {
         : "Nothing fetched or committed yet — fetch a result in Post-Match first.";
     }
   }
+  // Picked result files win once they have been listed: they are what the
+  // operator actually chooses from, and they need no commit.
+  if (ffDrawArrowFiles()) return;
   const wrap = document.getElementById("ff_arrowGames");
   if (!wrap) return;
   if (document.activeElement && wrap.contains(document.activeElement)) return;
@@ -9508,8 +9554,11 @@ function ffDrawArrowGames() {
   // looks exactly like "no games played" on a day when six were.
   const games = ffCompletedGames();
   if (!games.length) {
-    wrap.innerHTML = "<span class='hint'>No committed matches yet — " +
-      "fetch and commit a result in Post-Match and its game appears here.</span>";
+    wrap.innerHTML = "<span class='hint'>No committed matches yet. The series " +
+      "totals are built from committed games only, so each game appears here " +
+      "once you press <strong>Add This Match to Standings</strong> in " +
+      "Post-Match. Booyah and the match top 5 do not need that — they " +
+      "push the match under review.</span>";
     return;
   }
   const ticked = ffArrowTickedGames();
@@ -9589,7 +9638,29 @@ function ffArrowSend(what, extra) {
     ffArrowSend("matchTop", pending ? {matchId: pending} : {});
   });
 
+  document.getElementById("ff_arrowListMatches").addEventListener("click", () => {
+    if (!(ffWs && ffWs.readyState === WebSocket.OPEN)) {
+      document.getElementById("ff_arrowStatus").textContent =
+        "Not connected to the Free Fire engine."; return;
+    }
+    ffArrowFiles = [];           // switches the box area over to files
+    document.getElementById("ff_arrowGames").innerHTML =
+      "<span class='hint'>Reading the folder…</span>";
+    ffAwaitReply("matchList", "ff_arrowStatus",
+                 "the folder listing was never sent back");
+    ffWs.send(JSON.stringify({type: "freefire_list_matches",
+      folder: document.getElementById("ff_matchFolder").value}));
+  });
+
+  document.getElementById("ff_arrowTickNone").addEventListener("click", () => {
+    document.querySelectorAll(".ff-arrow-file").forEach(el => { el.checked = false; });
+    document.querySelectorAll(".ff-arrow-game").forEach(el => { el.checked = false; });
+  });
+
   document.getElementById("ff_pushTotals").addEventListener("click", () => {
+    // Files if any are ticked; otherwise fall back to committed games.
+    const ids = ffArrowTickedMatchIds();
+    if (ids.length) { ffArrowSend("totals", {matchIds: ids}); return; }
     const games = ffArrowTickedGames();
     if (!games.length) {
       document.getElementById("ff_arrowStatus").textContent =
@@ -15062,6 +15133,14 @@ document.getElementById("bgmi_pushSheet").addEventListener("click", () => {
   }
   bgmiSend({type: "bgmi_push_sheet", force: true});
   el.textContent = "Pushing…";
+  // An engine that predates these pushes ignores the message entirely,
+  // so "Pushing..." sat there for ever and looked exactly like a slow
+  // sheet. It is the likeliest cause, because the engine has to be
+  // restarted to have the handler at all.
+  ffAwaitReply("arrow", "ff_arrowStatus",
+               "the ARROW push was never answered. The most likely reason " +
+               "is an engine started before this feature existed — " +
+               "restart freefire_engine.py", 10);
 });
 
 /* The answer comes back from Apps Script, so it is the only place that

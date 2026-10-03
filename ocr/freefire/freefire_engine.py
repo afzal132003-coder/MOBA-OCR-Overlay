@@ -8777,7 +8777,33 @@ async def handle_client(websocket, path=None):
                         matches, game=payload.get("game"),
                         top=payload.get("top") or 5)
                 elif what == "totals":
-                    rows = total_fragger_rows(matches, games=payload.get("games"))
+                    # Either a set of RESULT FILES picked by the operator,
+                    # or the committed games.
+                    #
+                    # Files, because committing is not part of how this
+                    # gets used: the result files are all sitting in the
+                    # folder and an overall fragger list over "these six"
+                    # should not require six trips through Add To
+                    # Standings first. Each file is read here, and the
+                    # game numbers are assigned by TIMESTAMP across the
+                    # chosen set, so the per-game columns read in the
+                    # order the games were actually played rather than in
+                    # whatever order the boxes were ticked.
+                    ids = payload.get("matchIds") or []
+                    if ids:
+                        folder = (server_state.get("settings", {})
+                                  .get("matchResultFolder", ""))
+                        built = []
+                        for mid in ids:
+                            one = build_match_result_payload(folder, str(mid))
+                            if one.get("teams"):
+                                built.append(one)
+                        built.sort(key=lambda m: m.get("timestamp") or "")
+                        for i, m in enumerate(built, 1):
+                            m["gameNumber"] = i
+                        rows = total_fragger_rows(built)
+                    else:
+                        rows = total_fragger_rows(matches, games=payload.get("games"))
                 elif what == "clearTotals":
                     rows = []
                 else:

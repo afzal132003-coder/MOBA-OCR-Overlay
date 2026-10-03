@@ -6,145 +6,188 @@
 <style>
   /* ROOM CREATE -> LOBBY STATUS
      ---------------------------------------------------------------
-     A FIXED STRIP, 1918x248, parked below the stream. Not a full-screen
-     overlay: it sits there for the whole of room-create, so it is built
-     to be glanced at repeatedly rather than to make an entrance.
+     A FIXED STRIP, 1918x248, parked below the stream for the whole of
+     room-create. Not a full-screen card: it is glanced at repeatedly
+     rather than making an entrance.
+
+     DRESSED FOR ARROW SHOWDOWN, from the Caster Desk frame: deep green
+     ground with the halftone dot field and a vignette, amber headings in
+     heavy italic, cream letterspaced labels, and the angular cut on the
+     name plates. TT Supermolot Black Italic is the closest face in the
+     bundle to the deck's heavy italic, and it is already shipped with
+     the other Free Fire overlays.
 
      NOT READ FROM THE GAME. The operator ticks each squad in the
-     dashboard as it joins. The room-create screen is a lobby, not a
-     match -- the list scrolls and re-sorts itself -- and an operator
-     watching names appear is faster and far more reliable than OCR of it.
+     dashboard as it arrives. The room-create screen scrolls and re-sorts
+     itself; a person watching names appear is faster and far more
+     reliable than OCR of it.
 
-     Two states, two colours, said in WORDS as well as in colour: JOINED
-     in light green, YET TO JOIN in light red. The words matter -- about
-     one man in twelve cannot separate those two hues, and this graphic
-     exists to be read at a glance by a room full of people.
+     COLOUR CANNOT CARRY THIS ALONE, and on a green ground least of all.
+     Joined is mint, yet-to-join is coral, and both say so in words --
+     about one man in twelve cannot separate those hues, and the whole
+     point of this strip is to be read at a glance across a room. The
+     amber is structure only, never state, so it never competes with the
+     two colours that mean something.
 
-     One card per squad across the strip, sized from how many there are,
-     so eight squads or sixteen both fill it without being re-laid out by
-     hand. The logo sits above the name because at this width a logo is
-     recognised before a word is read.
-
-     The join is a pick/ban lock-in: the card sweeps once, the logo comes
-     up to full colour, the top edge turns green. It is driven by a class
-     change, so a squad already in when the page loads renders joined
-     WITHOUT animating -- otherwise a refresh mid-show would re-lock all
-     twelve at once, which reads as a bug on air. */
+     The join plays the pick/ban lock-in -- sweep, logo up to colour, top
+     edge turning mint -- driven by a class change, so a squad already in
+     when the page loads renders joined WITHOUT animating. A refresh
+     mid-show would otherwise re-lock every squad at once. */
 
   @font-face {
-    font-family: 'TT Supermolot Neue Trial';
-    src: url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');
+    font-family: 'Supermolot';
+    src: url('assets/fonts/TT Supermolot Neue Trial Black Italic.ttf') format('truetype');
+    font-weight: 900; font-style: italic;
+  }
+  @font-face {
+    font-family: 'Supermolot';
+    src: url('assets/fonts/TT Supermolot Neue Trial ExtraBold.ttf') format('truetype');
     font-weight: 800; font-style: normal;
   }
   @font-face {
-    font-family: 'TT Supermolot Neue Trial';
-    src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
-    font-weight: 900; font-style: normal;
+    font-family: 'Supermolot';
+    src: url('assets/fonts/TT Supermolot Neue Trial Bold.ttf') format('truetype');
+    font-weight: 700; font-style: normal;
   }
 
   :root{
-    --joined:#7ee2a8;         /* light green  -- in the lobby */
-    --waiting:#ff8d8d;        /* light red    -- yet to join  */
-    --bar:#0d1118;
-    --plate:#141a24;
-    --edge:#273246;
-    --muted:#6d7d93;
+    --amber:#f7941d;          /* headings and structure -- never state */
+    --amber-deep:#d97a08;
+    --joined:#5fe39a;         /* mint  -- in the lobby   */
+    --waiting:#ff7a7a;        /* coral -- yet to join    */
+    --green-0:#0d4733;
+    --green-1:#072a1f;
+    --panel:#0b3326;
+    --panel-lit:#124430;
+    --cream:#f3efe4;
+    --muted:#8fae9f;
   }
 
   html,body{margin:0;padding:0;background:transparent;overflow:hidden;}
   body{
     width:1918px;height:248px;
-    font-family:'TT Supermolot Neue Trial',Arial,sans-serif;
+    font-family:'Supermolot',Arial,sans-serif;
     -webkit-font-smoothing:antialiased;
   }
 
   #stage{
     display:none;
+    position:relative;
     width:1918px;height:248px;box-sizing:border-box;
-    background:linear-gradient(180deg,#0f141d 0%, var(--bar) 100%);
-    border-top:3px solid var(--edge);
-    padding:14px 18px;
+    background:
+      /* vignette, so the ends sit down under the stream */
+      radial-gradient(120% 180% at 50% 0%,
+        rgba(18,90,64,.55) 0%, rgba(7,42,31,0) 68%),
+      /* the deck's halftone dot field */
+      radial-gradient(rgba(95,227,154,.085) 1.1px, transparent 1.2px)
+        0 0 / 9px 9px,
+      linear-gradient(180deg, var(--green-0) 0%, var(--green-1) 100%);
+    border-top:3px solid var(--amber);
+    padding:16px 22px;
     align-items:stretch;
-    gap:14px;
+    gap:16px;
   }
   #stage.visible{display:flex;}
 
+  /* The torn highlight the deck runs along its top edge. */
+  #stage::before{
+    content:"";position:absolute;left:0;right:0;top:0;height:2px;
+    background:linear-gradient(90deg,
+      var(--amber) 0%, rgba(247,148,29,.15) 38%,
+      rgba(247,148,29,.15) 62%, var(--amber) 100%);
+  }
+
   /* ---- the left-hand label ---- */
   .head{
-    flex:0 0 210px;display:flex;flex-direction:column;justify-content:center;
-    padding-right:16px;border-right:2px solid var(--edge);
+    flex:0 0 268px;display:flex;flex-direction:column;justify-content:center;
+    padding-right:20px;position:relative;
+  }
+  .head::after{
+    content:"";position:absolute;right:0;top:8%;bottom:8%;width:3px;
+    background:linear-gradient(180deg,
+      transparent, var(--amber) 22%, var(--amber) 78%, transparent);
   }
   .head .kicker{
-    font-weight:800;font-size:15px;letter-spacing:.3em;
-    color:var(--muted);text-transform:uppercase;
+    font-weight:700;font-size:15px;letter-spacing:.34em;
+    color:var(--cream);opacity:.72;text-transform:uppercase;
   }
   .head .title{
-    font-weight:900;font-size:40px;line-height:1.02;letter-spacing:.01em;
-    color:#fff;text-transform:uppercase;margin-top:2px;
+    font-weight:900;font-style:italic;font-size:47px;line-height:.98;
+    letter-spacing:.005em;text-transform:uppercase;margin-top:3px;
+    color:var(--amber);
+    text-shadow:0 3px 0 rgba(0,0,0,.35);
   }
   .head .count{
-    margin-top:8px;font-weight:900;font-size:40px;line-height:1;
+    margin-top:9px;display:flex;align-items:baseline;gap:9px;
+  }
+  .head .count b{
+    font-weight:900;font-style:italic;font-size:40px;line-height:1;
     color:var(--joined);
   }
-  .head .count small{font-size:21px;color:var(--muted);font-weight:800;}
-  .head .count span.lbl{
-    display:block;font-size:12px;letter-spacing:.26em;color:var(--muted);
-    font-weight:800;text-transform:uppercase;margin-top:3px;
+  .head .count small{
+    font-weight:800;font-size:19px;color:var(--muted);
+  }
+  .head .count span{
+    font-weight:700;font-size:12px;letter-spacing:.24em;
+    color:var(--muted);text-transform:uppercase;
   }
 
   /* ---- the squads ---- */
-  .cards{flex:1;display:flex;gap:8px;min-width:0;}
+  .cards{flex:1;display:flex;gap:9px;min-width:0;}
 
   .slot{
     position:relative;flex:1 1 0;min-width:0;
     display:flex;flex-direction:column;align-items:center;justify-content:center;
-    gap:7px;padding:8px 6px;box-sizing:border-box;
-    background:var(--plate);
-    border:1px solid var(--edge);
+    gap:7px;padding:9px 6px 8px;box-sizing:border-box;
+    background:linear-gradient(180deg, var(--panel-lit), var(--panel));
+    border:1px solid rgba(247,148,29,.26);
     border-top:4px solid var(--waiting);
+    /* the angular cut from the caster name plates */
+    clip-path:polygon(0 0, 100% 0, 100% calc(100% - 13px), calc(100% - 13px) 100%, 0 100%);
     overflow:hidden;
     transition:border-top-color .4s ease, background .4s ease;
   }
-  /* Shallow and slow: "live and waiting", not an alarm. */
   .slot:not(.joined){animation:breathe 2.8s ease-in-out infinite;}
   @keyframes breathe{
-    0%,100%{opacity:.74;}
-    50%    {opacity:.96;}
+    0%,100%{opacity:.78;}
+    50%    {opacity:1;}
   }
   .slot.joined{
     opacity:1;animation:none;
     border-top-color:var(--joined);
-    background:linear-gradient(180deg,
-      rgba(126,226,168,.13), rgba(20,26,36,0) 58%), var(--plate);
+    background:
+      linear-gradient(180deg, rgba(95,227,154,.17), rgba(11,51,38,0) 62%),
+      linear-gradient(180deg, var(--panel-lit), var(--panel));
+    border-color:rgba(95,227,154,.4);
   }
 
   .logo{
-    width:62px;height:62px;flex:0 0 62px;
+    width:60px;height:60px;flex:0 0 60px;
     display:flex;align-items:center;justify-content:center;
-    filter:grayscale(1) brightness(.6);
+    filter:grayscale(1) brightness(.62);
     transition:filter .45s ease;
   }
   .slot.joined .logo{filter:none;}
   .logo img{max-width:100%;max-height:100%;display:block;}
-  /* A squad with no logo yet still needs something squad-shaped there. */
   .logo .initials{
     width:100%;height:100%;display:flex;align-items:center;justify-content:center;
-    background:#0b0f16;border:1px solid var(--edge);
-    font-weight:900;font-size:21px;color:var(--muted);letter-spacing:.04em;
+    background:rgba(0,0,0,.26);border:1px solid rgba(247,148,29,.3);
+    font-weight:900;font-style:italic;font-size:21px;
+    color:var(--muted);letter-spacing:.02em;
   }
 
   .name{
     width:100%;text-align:center;
-    font-weight:800;font-size:17px;letter-spacing:.03em;
-    color:#93a1b4;text-transform:uppercase;
+    font-weight:900;font-style:italic;font-size:18px;letter-spacing:.015em;
+    color:var(--cream);opacity:.74;text-transform:uppercase;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-    transition:color .4s ease;
+    transition:opacity .4s ease;
   }
-  .slot.joined .name{color:#fff;}
+  .slot.joined .name{opacity:1;}
 
   .state{
     display:flex;align-items:center;gap:6px;
-    font-weight:800;font-size:11px;letter-spacing:.14em;
+    font-weight:700;font-size:11px;letter-spacing:.15em;
     text-transform:uppercase;white-space:nowrap;
     color:var(--waiting);
     transition:color .4s ease;
@@ -152,13 +195,13 @@
   .slot.joined .state{color:var(--joined);}
   .dot{
     width:7px;height:7px;border-radius:50%;
-    background:currentColor;box-shadow:0 0 8px currentColor;
+    background:currentColor;box-shadow:0 0 9px currentColor;
   }
 
   .sweep{
     position:absolute;top:0;bottom:0;left:-45%;width:45%;
     background:linear-gradient(90deg,
-      transparent, rgba(126,226,168,.45), transparent);
+      transparent, rgba(95,227,154,.5), transparent);
     opacity:0;pointer-events:none;
   }
   .slot.justJoined .sweep{animation:sweep .62s ease-out 1;}
@@ -179,8 +222,8 @@
   <div class="head">
     <div class="kicker" id="kicker">Room Create</div>
     <div class="title" id="title">Lobby Status</div>
-    <div class="count"><span id="joined">0</span><small>/<span id="total">0</span></small>
-      <span class="lbl">Checked In</span></div>
+    <div class="count"><b id="joined">0</b><small>/<span id="total">0</span></small>
+      <span>Checked In</span></div>
   </div>
   <div class="cards" id="cards"></div>
 </div>
@@ -201,9 +244,8 @@ function esc(s){
   });
 }
 
-/* At this width a long registered name is three ellipsised letters and a
-   full stop. The short name is what the rest of the broadcast calls them,
-   so it is preferred wherever one exists. */
+/* At this width a long registered name is three letters and an ellipsis,
+   so the short name is preferred wherever one exists. */
 function label(t){
   return (t.displayName || t.shortName || t.name || "").trim();
 }
@@ -215,9 +257,9 @@ function initials(t){
                              : words.map(w => w[0]).join("").slice(0, 3)).toUpperCase();
 }
 
-/* Which squads were already in last time this drew. A squad in here
-   renders joined with no animation; one joined now and NOT in here gets
-   the sweep. That is what stops a refresh -- or any of the several
+/* Which squads were already in last time this drew. One in here renders
+   joined with no animation; one joined now and NOT in here gets the
+   sweep. That is what stops a refresh -- or any of the several
    state_syncs a second -- from replaying every lock-in at once. */
 let wasJoined = new Set();
 let lastSignature = "";
