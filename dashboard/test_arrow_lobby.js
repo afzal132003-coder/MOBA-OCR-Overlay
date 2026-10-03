@@ -46,7 +46,7 @@ function lift(name) {
 const SOURCE = "let ffArrowFiles = null;\n\n" +
   ["ffCompletedGames", "ffLatestMatch", "ffLatestSummary",
    "ffArrowTickedGames", "ffArrowTickedMatchIds", "ffDrawArrowFiles",
-   "ffDrawArrowGames", "ffDrawLobbyTicks"].map(lift).join("\n\n");
+   "ffDrawArrowGames", "ffLobbyCount", "ffDrawLobbyTicks"].map(lift).join("\n\n");
 
 let checks = 0; const failures = [];
 function check(label, ok, detail) {
@@ -66,9 +66,25 @@ function makeEnv(state) {
   });
   ["ff_lobbyTicks", "ff_lobbyCount", "ff_arrowGames", "ff_arrowLatest"]
     .forEach(el);
+  /* .ff-lobby-tick is now queried straight off the document -- the count
+     is read from the boxes rather than from the last state received, so
+     it agrees with what the operator sees mid-tick. The stub therefore
+     has to hand back the boxes the grid just rendered, parsed out of its
+     own markup, or the count path is never actually exercised. */
+  const parseTicks = () => {
+    const html = (nodes.ff_lobbyTicks && nodes.ff_lobbyTicks.innerHTML) || "";
+    return (html.match(/<input[^>]*class='ff-lobby-tick'[^>]*>/g) || [])
+      .map(tag => ({
+        checked: / checked/.test(tag),
+        dataset: { team: (tag.match(/data-team="([^"]*)"/) || [])[1] || "" },
+        parentElement: null,
+        addEventListener: () => {},
+      }));
+  };
   const sandbox = {
     document: { activeElement: null, getElementById: id => nodes[id] || null,
-                querySelectorAll: () => [] },
+                querySelectorAll: sel =>
+                  sel === ".ff-lobby-tick" ? parseTicks() : [] },
     ffState: state,
     ffEscapeHtml: s => String(s == null ? "" : s)
       .replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])),
@@ -104,7 +120,8 @@ check("the squad already in is ticked",
       /data-team="TAG"[^>]*checked/.test(n.ff_lobbyTicks.innerHTML));
 check("a squad not in is not ticked",
       !/data-team="RES"[^>]*checked/.test(n.ff_lobbyTicks.innerHTML));
-check("the count reads right", n.ff_lobbyCount.textContent === "1 of 3 checked in",
+check("the count is read off the boxes, so it is right mid-tick",
+      n.ff_lobbyCount.textContent === "1 of 3 checked in",
       n.ff_lobbyCount.textContent);
 
 // The engine omits the roster from a sync when it has not changed. The
