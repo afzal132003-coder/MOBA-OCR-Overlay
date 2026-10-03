@@ -482,6 +482,8 @@ def default_state():
         "currentSafezone": None,
         "matches": [],
         "standings": [],
+        "fraggers": {"rows": [], "games": []},
+        "mvp": {"booyah": None, "match": None, "event": None},
         # Row order for the "Export for Sheet" card -- which roster team
         # name goes on which line of the copy/paste output, since an
         # operator's own spreadsheet has a fixed row per team that rarely
@@ -1539,8 +1541,22 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
                 uid = (id_map.get(pid) or {}).get("uid")
                 if uid:
                     by_uid[str(uid)] = count
+            # Headshots travel the same way, and for the same reason: they
+            # are counted against runtime player ids, which the NEXT match
+            # reuses. Resolved here or not at all.
+            #
+            # They are carried into the committed result so a series-wide
+            # table can use them. Counted only while the engine is
+            # watching the log, so a game it missed contributes zero
+            # rather than nothing -- which is why the consumer is told how
+            # many games actually carried a figure.
+            hs_by_uid = {}
+            for pid, count in (live.get("playerHsKills") or {}).items():
+                uid = (id_map.get(pid) or {}).get("uid")
+                if uid:
+                    hs_by_uid[str(uid)] = count
             signal({"type": "match_end", "matchId": end.group("match_id"),
-                    "knocks": by_uid})
+                    "knocks": by_uid, "headshots": hs_by_uid})
             continue
 
         if DEBUGGER_AIRDROP_REGEX.search(line):
@@ -7480,7 +7496,8 @@ def find_freefire_match_file(folder, match_id):
     return (None, None)
 
 
-def build_match_result_payload(folder, match_id=None, knocks=None):
+def build_match_result_payload(folder, match_id=None, knocks=None,
+                              headshots=None):
     """Reads and resolves a match result into the dashboard's review payload.
 
     Shared by the operator's Fetch button and the automatic fetch that runs
@@ -7506,6 +7523,10 @@ def build_match_result_payload(folder, match_id=None, knocks=None):
         for team in teams:
             for player in team.get("players", []) or []:
                 player["knocks"] = knocks.get(str(player.get("uid") or ""), 0)
+    if headshots:
+        for team in teams:
+            for player in team.get("players", []) or []:
+                player["headshots"] = headshots.get(str(player.get("uid") or ""), 0)
     return {
         "type": "freefire_match_result",
         "matchId": name_match.group("match_id"),
@@ -7712,6 +7733,245 @@ def compute_freefire_standings(matches, roster_teams=None):
         r["teamName"].upper(),
     ))
     return standings
+
+
+def compute_freefire_fraggers(matches, roster_teams=None):
+    """Every player's eliminations, game by game and in total.
+
+    Keyed on UID, not on the IGN. A player who changes their display name
+    between games -- a sponsor tag added, a clan prefix dropped -- is one
+    person with one running total, and keying on the name would split
+    them into two half-rows exactly the way the standings used to split
+    teams committed before and after the roster was filled in.
+
+    The game number comes from the match's own gameNumber rather than
+    from the position of the match in the list. A match re-committed
+    after a correction lands back on the game it belongs to instead of
+    being appended as a seventh.
+
+    Headshots ARE included, but only because they are now resolved to
+    UIDs at match end and carried into the committed result. They are
+    still counted only while the engine is watching the log, so each row
+    reports hsGames: how many of its games actually carried a figure. A
+    total over four of six games is a fine stat and a terrible one to
+    print as if it covered all six, so the count travels with it.
+    """
+    if roster_teams is None:
+        roster_teams = ((server_state.get("roster") or {}).get("teams")) or []
+    agg = {}
+    games = set()
+    for match in matches:
+        game = match.get("gameNumber")
+        if game is None:
+            continue
+        games.add(game)
+        for team in match.get("teams", []):
+            _, team_name, team_short = _standings_identity(team, roster_teams)
+            for player in team.get("players", []) or []:
+                uid = str(player.get("uid") or "").strip()
+                name = (player.get("name") or "").strip()
+                key = uid or ("name:" + (normalize_for_match(name) or ""))
+                if key in ("", "name:"):
+                    continue
+                row = agg.setdefault(key, {
+                    "uid": uid, "ign": name,
+                    "teamName": team_name, "shortName": team_short,
+                    "perGame": {}, "perGameKnocks": {},
+                    "perGameHeadshots": {},
+                })
+                # The LATEST name wins, so the table reads the way the
+                # caster just heard it said on the last game.
+                if name:
+                    row["ign"] = name
+                if team_name:
+                    row["teamName"] = team_name
+                    row["shortName"] = team_short
+                # ASSIGNED, never added to. Committing a game twice --
+                # which happens whenever a result is corrected and pushed
+                # again -- would otherwise count it twice: game 2
+                # re-committed at 9 kills gave a player 4 + 3 + 9 = 16
+                # instead of 13, and the row looked perfectly ordinary.
+                row["perGame"][str(game)] = player.get("kills") or 0
+                row["perGameKnocks"][str(game)] = player.get("knocks") or 0
+                # Absent, not zero, when the engine was not watching that
+                # game's log. A missing key and a genuine nought are
+                # different facts and only one of them belongs in a rate.
+                if player.get("headshots") is not None:
+                    row["perGameHeadshots"][str(game)] = player["headshots"]
+
+    # Totals are DERIVED from the per-game numbers rather than tallied as
+    # the matches are walked, so there is only one place a game's kills
+    # are recorded and the total cannot drift from the columns beside it.
+    rows = []
+    for row in agg.values():
+        row["totalKills"] = sum(row["perGame"].values())
+        row["totalKnocks"] = sum(row["perGameKnocks"].values())
+        row["games"] = len(row["perGame"])
+        row["totalHeadshots"] = sum(row["perGameHeadshots"].values())
+        row["hsGames"] = len(row["perGameHeadshots"])
+        # The rate is over the kills of the games that HAVE a headshot
+        # figure, not over every kill in the series -- dividing by kills
+        # the engine never watched would quietly understate everyone.
+        hs_kills = sum(row["perGame"].get(g, 0) for g in row["perGameHeadshots"])
+        row["hsPct"] = (int(round(100.0 * row["totalHeadshots"] / hs_kills))
+                        if hs_kills else None)
+        rows.append(row)
+    # Eliminations, then knocks, then fewest games to get there -- a
+    # player level on both who did it in five games out-fragged one who
+    # needed six. Name last so a tie never falls back to dict order.
+    rows.sort(key=lambda r: (-r["totalKills"], -r["totalKnocks"],
+                             r["games"], r["ign"].upper()))
+    for i, row in enumerate(rows, 1):
+        row["rank"] = i
+    return {"rows": rows, "games": sorted(games)}
+
+
+# The weight behind both the Booyah contribution bar and the MVP pick:
+# a finish counts for seven, a knockdown for three. Same numbers in both
+# places on purpose -- an MVP chosen by one rule and shown beside a
+# contribution bar drawn by another invites exactly the question nobody
+# wants on air.
+def _mvp_weight(player):
+    return 7 * (player.get("kills") or 0) + 3 * (player.get("knocks") or 0)
+
+
+def _mvp_row(player, team_name, team_short, pool_weight, scope, game):
+    kills = player.get("kills") or 0
+    heads = player.get("headshots")
+    return {
+        "uid": str(player.get("uid") or ""),
+        "ign": (player.get("name") or "").strip(),
+        "teamName": team_name, "shortName": team_short,
+        "kills": kills,
+        "knocks": player.get("knocks"),
+        "headshots": heads,
+        # None, not 0, when the engine never watched this game's log.
+        "hsPct": (int(round(100.0 * heads / kills)) if heads is not None and kills
+                  else (0 if heads is not None else None)),
+        "contribution": (round(100.0 * _mvp_weight(player) / pool_weight, 2)
+                         if pool_weight else None),
+        "scope": scope, "game": game,
+    }
+
+
+def compute_freefire_mvp(matches, scope="booyah", game=None,
+                         override_uid="", roster_teams=None):
+    """Who the MVP is, and the four numbers shown beside them.
+
+    DAMAGE IS NOT THE TIEBREAK, whatever the older note beside
+    mvpOverride says. The client log never emits per-player damage -- the
+    damage report overlay reads a field nothing in this engine has ever
+    set -- so a rule written around it would silently collapse to "first
+    player in file order" on every tie. Finishes decide it, weighted
+    against knockdowns exactly as the Booyah contribution bar is, then
+    headshots, then headshot rate.
+
+    Three scopes, because a broadcast wants three different people:
+
+      booyah  the best player IN THE WINNING SQUAD of one game. This is
+              the one that sits on the Booyah graphic, so its
+              contribution is a share of that squad -- the same bar the
+              four players are already being compared by.
+
+      match   the best player across EVERY team in one game.
+
+      event   the best across every committed game of the day. Its
+              contribution is a share of that player's OWN team over the
+              series, which is the only pool that still means something
+              once six games of eleven squads are added together.
+
+    An override is honoured in any scope, and the row says so, because a
+    graphic that silently ignores the operator's pick is worse than one
+    that has no override at all.
+    """
+    if roster_teams is None:
+        roster_teams = ((server_state.get("roster") or {}).get("teams")) or []
+    if not matches:
+        return None
+
+    if scope == "event":
+        agg = compute_freefire_fraggers(matches, roster_teams)
+        rows = agg["rows"]
+        if not rows:
+            return None
+        # Pool: the player's own team across the series.
+        team_weight = {}
+        for row in rows:
+            key = row["teamName"] or row["uid"]
+            team_weight[key] = team_weight.get(key, 0) + (
+                7 * row["totalKills"] + 3 * row["totalKnocks"])
+        candidates = []
+        for row in rows:
+            pool = team_weight.get(row["teamName"] or row["uid"], 0)
+            weight = 7 * row["totalKills"] + 3 * row["totalKnocks"]
+            candidates.append({
+                "uid": row["uid"], "ign": row["ign"],
+                "teamName": row["teamName"], "shortName": row["shortName"],
+                "kills": row["totalKills"], "knocks": row["totalKnocks"],
+                "headshots": row["totalHeadshots"] if row["hsGames"] else None,
+                "hsPct": row["hsPct"],
+                "hsGames": row["hsGames"], "games": row["games"],
+                "contribution": (round(100.0 * weight / pool, 2) if pool else None),
+                "scope": "event", "game": None,
+                "_w": weight,
+            })
+    else:
+        if game is None:
+            chosen = matches[-1]
+        else:
+            # The LAST match committed for that game number, so a result
+            # corrected and pushed again is the one that counts.
+            later = [m for m in matches if m.get("gameNumber") == game]
+            chosen = later[-1] if later else None
+        if chosen is None:
+            return None
+        teams = chosen.get("teams", []) or []
+        if scope == "booyah":
+            teams = sorted(teams, key=lambda t: (t.get("rank") or 99))[:1]
+        pool = sum(_mvp_weight(p) for t in teams
+                   for p in (t.get("players") or []))
+        candidates = []
+        for t in teams:
+            _, name, short = _standings_identity(t, roster_teams)
+            for p in (t.get("players") or []):
+                row = _mvp_row(p, name, short, pool, scope,
+                               chosen.get("gameNumber"))
+                row["_w"] = _mvp_weight(p)
+                candidates.append(row)
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda r: (
+        -r["_w"], -(r["headshots"] or 0), -(r["hsPct"] or 0), r["ign"].upper()))
+
+    pick = candidates[0]
+    pick["auto"] = True
+    if override_uid:
+        for row in candidates:
+            if row["uid"] and row["uid"] == str(override_uid):
+                pick = row
+                pick["auto"] = False
+                break
+    pick.pop("_w", None)
+    return pick
+
+
+def refresh_freefire_mvps():
+    """The three MVP picks the broadcast asks for, recomputed together.
+
+    Together, because they are read together: the Booyah graphic wants
+    the winning squad's best player of the game just finished, the
+    post-game-six sequence wants that game's MVP and then the day's.
+    Computing them in one place keeps the operator's override applying to
+    all three rather than to whichever one happened to be rebuilt last.
+    """
+    matches = server_state.get("matches", []) or []
+    override = server_state.get("mvpOverride", "") or ""
+    server_state["mvp"] = {
+        "booyah": compute_freefire_mvp(matches, "booyah", override_uid=override),
+        "match": compute_freefire_mvp(matches, "match", override_uid=override),
+        "event": compute_freefire_mvp(matches, "event", override_uid=override),
+    }
 
 
 # How long any one client gets to accept a message before the rest stop
@@ -8098,6 +8358,10 @@ async def handle_client(websocket, path=None):
                     server_state["standings"] = compute_freefire_standings(
                         server_state.get("matches", [])
                     )
+                    server_state["fraggers"] = compute_freefire_fraggers(
+                        server_state.get("matches", [])
+                    )
+                    refresh_freefire_mvps()
                     server_state["championRush"] = compute_champion_rush(
                         server_state.get("matches", []),
                         server_state.get("settings", {}).get("championRushThreshold", 110),
@@ -8446,6 +8710,8 @@ async def handle_client(websocket, path=None):
                 server_state["matches"] = []
                 server_state["currentMatchId"] = None
                 server_state["standings"] = compute_freefire_standings([])
+                server_state["fraggers"] = compute_freefire_fraggers([])
+                refresh_freefire_mvps()
                 server_state["championRush"] = compute_champion_rush(
                     [], server_state.get("settings", {}).get("championRushThreshold", 110))
                 save_state()
@@ -9235,6 +9501,7 @@ _pending_match_tries = 0     # attempts made, for the log line only
 # next match as soon as its first line arrives, and the fetch may still be
 # retrying by then.
 _pending_match_knocks = {}
+_pending_match_headshots = {}
 # A TIME budget, not a tick count. This used to be a fixed 15 polls, which
 # quietly meant 15 real seconds at the old 1-second poll interval -- and
 # silently dropped to 3.75 seconds the moment the loop was sped up to run
@@ -9254,6 +9521,7 @@ async def handle_live_signals(signals, gs_names):
     on air by themselves: an operator who wants to call the elimination
     graphic manually should not have the engine doing it underneath them."""
     global _pending_match_fetch, _pending_match_since, _pending_match_tries, _pending_match_knocks
+    global _pending_match_headshots
     settings = server_state.get("settings", {})
     changed = False
 
@@ -9316,13 +9584,15 @@ async def handle_live_signals(signals, gs_names):
             _pending_match_fetch = signal["matchId"]
             _pending_match_since = time.time()
             _pending_match_knocks = signal.get("knocks") or {}
+            _pending_match_headshots = signal.get("headshots") or {}
             _pending_match_tries = 0
             print(f"[live] match {signal['matchId']} ended")
 
     if _pending_match_fetch and settings.get("autoFetchOnMatchEnd", True):
         folder = settings.get("matchResultFolder", "")
         payload = build_match_result_payload(folder, _pending_match_fetch,
-                                             _pending_match_knocks)
+                                             _pending_match_knocks,
+                                             _pending_match_headshots)
         _pending_match_tries += 1
         if payload.get("teams"):
             payload["auto"] = True
