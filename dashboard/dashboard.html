@@ -2732,8 +2732,10 @@
           <label for="ff_arrowGame">Game (blank = latest)</label>
           <input type="number" id="ff_arrowGame" min="1" max="20" placeholder="latest">
         </div>
+        <button class="secondary" id="ff_arrowUseLatest">Use Latest Finished Game</button>
         <span class="hint">ARROW MVP &mdash; N/P/R/S/T/U/V, rows 2&ndash;6</span>
       </div>
+      <div class="hint" id="ff_arrowLatest" style="margin-top:6px;"></div>
 
       <div style="margin-top:14px;border-top:1px solid #1b2430;padding-top:12px;">
         <label style="display:block;margin-bottom:6px;">Series totals &mdash; tick the games to include</label>
@@ -6391,6 +6393,15 @@ function ffOpen(url){
         else if(ffLastRoster) msg.data.roster = ffLastRoster;
       }
       ffState = msg.data;
+      // DRAWN HERE, FIRST, AND GUARDED. These used to be drawn from
+      // ffRenderEvent, which runs after fourteen other renderers: if any
+      // one of them threw, the handler gave up before reaching it and
+      // these two panels were simply empty -- no ticks, no game boxes,
+      // not even their "nothing yet" line, on a page that otherwise
+      // looked perfectly healthy. Their own try/catch so they cannot do
+      // that to anything downstream either.
+      try { ffDrawLobbyTicks(ffState); } catch(e){ console.error("lobby ticks:", e); }
+      try { ffDrawArrowGames(); } catch(e){ console.error("arrow games:", e); }
       if(!ffHydrated){
         ffHydrate(ffState);
         ffHydrated = true;
@@ -7218,8 +7229,6 @@ function ffRenderEvent(ff){
   setIfFree("ff_resultsTab", (ff.settings && ff.settings.resultsTab) || "");
   setIfFree("ff_sheetWebhookUrl", (ff.settings && ff.settings.sheetWebhookUrl) || "");
   setIfFree("ff_arrowWebhookUrl", (ff.settings && ff.settings.arrowWebhookUrl) || "");
-  ffDrawArrowGames();
-  ffDrawLobbyTicks(ff);
   setIfFree("ff_lobbyTitle", (ff.lobby && ff.lobby.title) || "");
   setIfFree("ff_lobbyKicker", (ff.lobby && ff.lobby.kicker) || "");
   const lsp = document.getElementById("ff_liveSheetPush");
@@ -9278,10 +9287,16 @@ function ffDrawLobbyTicks(ff) {
   // the squad dropdowns unusable.
   if (document.activeElement && wrap.contains(document.activeElement)) return;
 
-  const teams = ((ff.roster || {}).teams) || [];
-  const joined = ((ff.lobby || {}).joined) || {};
+  // ffState, not the argument. The engine LEAVES THE ROSTER OUT of a
+  // state_sync when it has not changed -- it is the biggest thing on the
+  // wire -- so the object handed to a renderer frequently has no roster
+  // at all, and reading it from there emptied this grid between syncs.
+  const st = ffState || ff || {};
+  const teams = ((st.roster || {}).teams) || [];
+  const joined = ((st.lobby || {}).joined) || {};
   if (!teams.length) {
-    wrap.innerHTML = "<span class='hint'>(no teams in the roster yet)</span>";
+    wrap.innerHTML = "<span class='hint'>No teams in the roster yet — " +
+      "add them above (Team Roster) and they appear here to tick.</span>";
     document.getElementById("ff_lobbyCount").textContent = "";
     return;
   }
@@ -9337,18 +9352,65 @@ function ffDrawLobbyTicks(ff) {
   });
 })();
 
+/* Which games actually have a committed result, in order. Read off the
+   matches the dashboard already holds, so it works without waiting for
+   the engine to publish anything new. A game committed twice (a result
+   corrected and pushed again) still counts once. */
+function ffCompletedGames() {
+  const seen = new Set();
+  ((ffState && ffState.matches) || []).forEach(m => {
+    if (m && m.gameNumber != null) seen.add(Number(m.gameNumber));
+  });
+  return Array.from(seen).sort((a, b) => a - b);
+}
+
+/* The most recently committed match, and who won it. "Most recent" is the
+   last one committed, not the highest game number -- re-committing game 3
+   to fix it makes game 3 the one you just finished working on. */
+function ffLatestMatch() {
+  const ms = (ffState && ffState.matches) || [];
+  return ms.length ? ms[ms.length - 1] : null;
+}
+
+function ffLatestSummary() {
+  const m = ffLatestMatch();
+  if (!m) return "";
+  const teams = (m.teams || []).slice()
+    .sort((a, b) => (a.rank || 99) - (b.rank || 99));
+  const winner = teams[0];
+  return "Game " + (m.gameNumber == null ? "?" : m.gameNumber) +
+    (winner ? " — won by " + (winner.teamName || winner.name || "?") : "") +
+    (m.fileName ? " (" + m.fileName + ")" : "");
+}
+
+
 /* ---------- ARROW sheet: Booyah, match top 5, series totals ----------
    The game checkboxes are drawn from the games actually committed, so a
    box can never offer a game with no match behind it. They are redrawn
    on every state sync EXCEPT while someone is using them -- the same
    guard the squad dropdowns needed, for the same reason. */
 function ffDrawArrowGames() {
+  // What the Booyah and match-top pushes will actually read if pressed
+  // now. Both default to the latest committed match, and "latest" is not
+  // something the operator can see anywhere else on this card.
+  const latest = document.getElementById("ff_arrowLatest");
+  if (latest) {
+    const summary = ffLatestSummary();
+    latest.textContent = summary
+      ? "Latest committed: " + summary + " — this is what Booyah and a blank game field use."
+      : "Nothing committed yet, so Booyah and the match top 5 have nothing to push.";
+  }
   const wrap = document.getElementById("ff_arrowGames");
   if (!wrap) return;
   if (document.activeElement && wrap.contains(document.activeElement)) return;
-  const games = ((ffState && ffState.fraggers && ffState.fraggers.games) || []);
+  // Derived from the committed matches themselves, NOT from the engine's
+  // fraggers block. That block only appears after the engine is restarted
+  // with this build, and until then every box silently vanished -- which
+  // looks exactly like "no games played" on a day when six were.
+  const games = ffCompletedGames();
   if (!games.length) {
-    wrap.innerHTML = "<span class='hint'>(no committed matches yet)</span>";
+    wrap.innerHTML = "<span class='hint'>No committed matches yet — " +
+      "fetch and commit a result in Post-Match and its game appears here.</span>";
     return;
   }
   const ticked = ffArrowTickedGames();
@@ -9402,6 +9464,17 @@ function ffArrowSend(what, extra) {
 
   document.getElementById("ff_pushBooyah").addEventListener("click",
     () => ffArrowSend("booyah"));
+
+  document.getElementById("ff_arrowUseLatest").addEventListener("click", () => {
+    const m = ffLatestMatch();
+    const el = document.getElementById("ff_arrowStatus");
+    if (!m || m.gameNumber == null) {
+      el.textContent = "No committed match to take a game number from yet.";
+      return;
+    }
+    document.getElementById("ff_arrowGame").value = m.gameNumber;
+    el.textContent = "Set to game " + m.gameNumber + " — " + ffLatestSummary();
+  });
 
   document.getElementById("ff_pushMatchTop").addEventListener("click", () => {
     const g = Number(document.getElementById("ff_arrowGame").value);
