@@ -164,10 +164,43 @@
     transition:border-top-color .4s ease, background .4s ease,
                box-shadow .4s ease, transform .4s ease;
   }
-  .slot:not(.joined){animation:breathe 2.8s ease-in-out infinite;}
+  /* THE IDLE DRIFT -- the strip is watched for the whole of room-create,
+     so the cards keep a slow life of their own rather than sitting dead.
+     Deliberately small: 3px over four and a half seconds. The phase is
+     offset per card, so the row undulates instead of bobbing in unison,
+     which is what makes it read as alive rather than as a loop. Big
+     enough to notice, small enough to stop noticing. */
+  .slot{
+    animation:idleDrift 4.6s ease-in-out calc(var(--i) * -380ms) infinite;
+  }
+  @keyframes idleDrift{
+    0%,100%{transform:translateY(0);}
+    50%    {transform:translateY(-3px);}
+  }
+  /* Waiting squads breathe their opacity on top of it. Opacity, not
+     transform, so it layers over the drift instead of replacing it. */
+  .slot:not(.joined) .name,
+  .slot:not(.joined) .logo{
+    animation:breathe 2.8s ease-in-out infinite;
+  }
   @keyframes breathe{
-    0%,100%{opacity:.78;}
+    0%,100%{opacity:.74;}
     50%    {opacity:1;}
+  }
+
+  /* A sheen crossing the row every eight seconds, one card after the
+     next. This is the part that is actually visible from the sofa. */
+  .shimmer{
+    position:absolute;top:0;bottom:0;left:-60%;width:55%;
+    background:linear-gradient(90deg,
+      transparent, rgba(255,255,255,.07), rgba(247,148,29,.09), transparent);
+    pointer-events:none;
+    animation:shimmer 8s ease-in-out calc(var(--i) * 190ms) infinite;
+  }
+  @keyframes shimmer{
+    0%      {left:-60%;}
+    22%     {left:115%;}
+    100%    {left:115%;}
   }
   .slot.joined{
     opacity:1;animation:none;
@@ -193,20 +226,20 @@
      cascade rather than a flashbulb. Runs only when the strip goes from
      hidden to shown -- see justShown -- never on the several state syncs
      a second that follow. */
-  .cards.justShown .slot{
+  .cards.justShown .slot,
+  .cards.justShown .slot:not(.joined){
     opacity:0;
-    /* The per-card delay is set inline and already carries the stagger;
-       this animation waits for the strip itself to finish arriving, so
-       the two moves read as one gesture instead of racing each other. */
-    animation:flyIn .52s cubic-bezier(.17,.84,.44,1) both;
+    /* 230ms is the strip's own slide: the cards start cascading as it
+       settles rather than racing it. */
+    animation:flyIn .52s cubic-bezier(.17,.84,.44,1)
+              calc(230ms + var(--i) * 55ms) both;
   }
   @keyframes flyIn{
     0%  {opacity:0;transform:translateY(26px) scale(.93);}
     60% {opacity:1;transform:translateY(-4px) scale(1.012);}
     100%{opacity:1;transform:translateY(0) scale(1);}
   }
-  /* The waiting breath must not fight the entrance it lands on. */
-  .cards.justShown .slot:not(.joined){animation:flyIn .52s cubic-bezier(.17,.84,.44,1) both;}
+
 
   .logo{
     width:66px;height:66px;flex:0 0 66px;
@@ -261,7 +294,7 @@
     0%  {left:-45%;opacity:1;}
     100%{left:115%;opacity:0;}
   }
-  .slot.justJoined{animation:lockIn .66s cubic-bezier(.2,.9,.3,1) 1;}
+  .slot.justJoined{animation:lockIn .66s cubic-bezier(.2,.9,.3,1) 1 !important;}
   @keyframes lockIn{
     0%  {transform:translateY(0) scale(1);
          box-shadow:0 6px 14px rgba(0,0,0,.4);}
@@ -280,6 +313,27 @@
     45% {transform:scale(1.14) rotate(2deg);}
     100%{transform:scale(1) rotate(0);}
   }
+  /* GOING BACK TO WAITING. Clear All, or a squad un-ticked, used to snap
+     from mint to coral with nothing in between -- the only move on the
+     strip that happened instantly, which read as a glitch next to
+     everything else. It is the lock-in conceded: the plate drops, flares
+     coral, and settles. */
+  .slot.justLeft{animation:unlock .52s cubic-bezier(.3,.7,.4,1) 1 !important;}
+  @keyframes unlock{
+    0%  {transform:translateY(-4px) scale(1.03);
+         box-shadow:0 0 30px rgba(95,227,154,.4);}
+    40% {transform:translateY(4px) scale(.978);
+         box-shadow:0 0 26px rgba(255,122,122,.42);}
+    100%{transform:translateY(0) scale(1);
+         box-shadow:inset 0 1px 0 rgba(255,255,255,.05),
+                    0 6px 14px rgba(0,0,0,.4);}
+  }
+  .slot.justLeft .logo{animation:logoLeave .52s ease-out 1;}
+  @keyframes logoLeave{
+    0%  {transform:scale(1.08) rotate(3deg);filter:none;}
+    100%{transform:scale(1) rotate(0);}
+  }
+
   .slot.justJoined .state{animation:stateIn .66s ease-out 1;}
   @keyframes stateIn{
     0%  {opacity:0;transform:translateY(7px);}
@@ -375,12 +429,17 @@ function render(ff){
     // Not on the way in: a card cannot both arrive and lock in, and
     // asking it to do both at once just cancels one of them.
     const fresh = isIn && !wasJoined.has(t.name) && !entering;
+    // And the other direction -- un-ticked, or Clear All.
+    const left = !isIn && wasJoined.has(t.name) && !entering;
     return '<div class="slot' + (isIn ? " joined" : "") +
-      (fresh ? " justJoined" : "") + '"' +
-      // 230ms is the strip's own slide, near enough: the cards start
-      // cascading as it settles rather than while it is still moving.
-      (entering ? ' style="animation-delay:' + (230 + i * 55) + 'ms"' : "") + '>' +
+      (fresh ? " justJoined" : "") + (left ? " justLeft" : "") + '"' +
+      // The card's position, and nothing else. Every delay on it --
+      // the entrance cascade, the idle drift, the shimmer -- is worked
+      // out from this in CSS, so the two never disagree about which card
+      // is third.
+      ' style="--i:' + i + '"' + '>' +
       '<div class="sweep"></div>' +
+      '<div class="shimmer"></div>' +
       '<div class="logo">' +
         (t.logo ? '<img src="' + esc(t.logo) + '" alt="">'
                 : '<div class="initials">' + esc(initials(t)) + '</div>') +
@@ -404,6 +463,20 @@ function render(ff){
     const total = 230 + teams.length * 55 + 620;
     setTimeout(function(){ cards.classList.remove("justShown"); }, total);
   }
+
+  // The one-shot classes come off once their animation is spent, so the
+  // idle drift takes the card back. They live in the markup until the
+  // next redraw otherwise, and a redraw only happens when something
+  // changes -- so a card that had just joined would sit perfectly still
+  // for as long as nobody touched anything, which is the one card the
+  // eye is on.
+  setTimeout(function(){
+    const spent = cards.querySelectorAll(".justJoined, .justLeft");
+    for(let i = 0; i < spent.length; i++){
+      spent[i].classList.remove("justJoined");
+      spent[i].classList.remove("justLeft");
+    }
+  }, 700);
 }
 
 let _lastRoster = null;

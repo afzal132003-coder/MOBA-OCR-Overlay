@@ -99,20 +99,41 @@ let env = mkEnv();
 let n = draw(env, state(true, { TAG: true }));
 check("cards fly in when the strip first appears",
       /justShown/.test(n.cards.className), n.cards.className);
-const delays = (n.cards.innerHTML.match(/animation-delay:(\d+)ms/g) || [])
+const idx = (n.cards.innerHTML.match(/--i:(\d+)/g) || [])
   .map(d => Number(d.replace(/\D/g, "")));
-check("each card is staggered off the one before",
-      delays.length === TEAMS.length &&
-      delays.every((d, i) => i === 0 || d > delays[i - 1]),
-      JSON.stringify(delays));
-check("and the cascade waits for the strip itself to arrive",
-      delays[0] > 0, delays[0] + "ms before the first card");
+check("every card carries its position, in order",
+      idx.length === TEAMS.length && idx.every((v, i) => v === i),
+      JSON.stringify(idx));
+check("the shimmer rides on every card too",
+      (n.cards.innerHTML.match(/class="shimmer"/g) || []).length === TEAMS.length);
 
 // A squad gets ticked. The row is rebuilt -- but the strip never left.
 n = draw(env, state(true, { TAG: true, RES: true }));
 check("ticking a squad does NOT send every card flying again",
       !/justShown/.test(n.cards.className), n.cards.className);
 check("and the squad that just arrived locks in",
+      /justJoined/.test(n.cards.innerHTML));
+
+console.log("\ngoing back to waiting");
+// Clear All, or one squad un-ticked. This used to snap with no
+// animation at all -- the only instant move on the strip.
+n = draw(env, state(true, { TAG: true }));
+check("a squad that drops out plays the un-lock",
+      /justLeft/.test(n.cards.innerHTML));
+
+n = draw(env, state(true, {}));
+check("Clear All un-locks the one still in",
+      (n.cards.innerHTML.match(/justLeft/g) || []).length === 1);
+
+// On the NEXT real change, a card that was already waiting must not be
+// marked as having just left. (Drawing the same state twice is a no-op
+// by design -- the markup simply stays until something changes, and the
+// class is swept by a timer.)
+n = draw(env, state(true, { RES: true }));
+check("a card already waiting is not marked as having just left",
+      (n.cards.innerHTML.match(/justLeft/g) || []).length === 0,
+      "only RES should move, and it is joining");
+check("while the squad that joined on that same redraw locks in",
       /justJoined/.test(n.cards.innerHTML));
 
 console.log("\nwhat must not animate");
