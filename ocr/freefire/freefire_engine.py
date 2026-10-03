@@ -7502,6 +7502,119 @@ def find_freefire_match_file(folder, match_id):
     return (None, None)
 
 
+def debugger_log_folder():
+    """Where the client's debugger logs are, by the same rule the live
+    reader uses: an explicit setting, else a Debugger folder beside the
+    result files."""
+    folder = (server_state.get("settings", {}).get("debuggerFolder") or "").strip()
+    if folder:
+        return Path(folder)
+    results = (server_state.get("settings", {}).get("matchResultFolder") or "").strip()
+    return (Path(results) / "Debugger") if results else None
+
+
+def recover_match_extras(match_id, folder=None, max_logs=12):
+    """Headshots and knockdowns for a match that has already been played.
+
+    THE RESULT FILE DOES NOT CARRY THEM. It holds TeamName, Rank,
+    KillScore, RankScore, TotalScore and, per player, NAME, ID and KILL --
+    and nothing else. Neither does the replay: its HeadShotHighlightEvents
+    list is empty in every player of the reference match.
+
+    They exist in exactly one place, the client's debugger log, which the
+    engine normally reads as it is written. That is why a match played
+    with the engine switched off came back with no headshots and no
+    knocks -- but the client KEEPS those logs, so the numbers are not
+    actually gone, they were only out of reach.
+
+    This reads them back. Events are counted between one 'matchend' line
+    and the next, so a log holding six games yields the one asked for
+    rather than the lot added together. The runtime player ids are
+    resolved to UIDs from the 'Player Join' lines of that same segment,
+    because the ids are reused by the next match.
+
+    Returns {uid: {"kills": n, "headshots": n, "knocks": n}}, empty if the
+    match is in none of the logs. Validated against the result file of a
+    real match: the kills recovered here matched its KILL column for every
+    player.
+    """
+    # The caller may hand over the Debugger folder OR the result folder it
+    # sits inside -- build_match_result_payload only knows the latter, and
+    # passing it straight through silently found no logs at all.
+    bases = []
+    if folder:
+        bases += [Path(folder), Path(folder) / "Debugger"]
+    guess = debugger_log_folder()
+    if guess:
+        bases.append(guess)
+    logs = []
+    for base in bases:
+        if base and base.is_dir():
+            logs = sorted((f for f in base.glob("debugger-*.log") if f.is_file()),
+                          key=lambda f: f.stat().st_mtime, reverse=True)[:max_logs]
+            if logs:
+                break
+    if not logs:
+        return {}
+    want = str(match_id)
+
+    for log in logs:
+        id_map, hs_flag = {}, {}
+        kills, hs_kills, knocks = {}, {}, {}
+
+        def bump(d, key):
+            d[key] = d.get(key, 0) + 1
+
+        try:
+            handle = log.open(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        with handle as fh:
+            for line in fh:
+                join = DEBUGGER_JOIN_REGEX.search(line)
+                if join:
+                    id_map[join.group("pid")] = {
+                        "uid": join.group("uid"),
+                        "ign": join.group("ign").strip()}
+                    continue
+                trace = DEBUGGER_HEADSHOT_REGEX.search(line)
+                if trace:
+                    # Keyed on the PAIR. One line per shot that put someone
+                    # down, and the kill it belongs to names the same two.
+                    hs_flag[(trace.group("killer"), trace.group("victim"))] = (
+                        trace.group("hs") == "True")
+                    continue
+                kill = DEBUGGER_KILL_REGEX.search(line)
+                if kill:
+                    bump(kills, kill.group("killer"))
+                    if hs_flag.get((kill.group("killer"), kill.group("victim"))):
+                        bump(hs_kills, kill.group("killer"))
+                    continue
+                knock = DEBUGGER_KNOCK_REGEX.search(line)
+                if knock:
+                    bump(knocks, knock.group("killer"))
+                    continue
+                end = DEBUGGER_MATCH_END_REGEX.search(line)
+                if end:
+                    if end.group("match_id") == want:
+                        out = {}
+                        for pid in set(kills) | set(knocks):
+                            uid = (id_map.get(pid) or {}).get("uid")
+                            if not uid:
+                                continue
+                            out[str(uid)] = {
+                                "kills": kills.get(pid, 0),
+                                "headshots": hs_kills.get(pid, 0),
+                                "knocks": knocks.get(pid, 0),
+                            }
+                        return out
+                    # A different match in the same log: start again, ids
+                    # and all, because the next match reuses them.
+                    id_map, hs_flag = {}, {}
+                    kills, hs_kills, knocks = {}, {}, {}
+    return {}
+
+
 def build_match_result_payload(folder, match_id=None, knocks=None,
                               headshots=None):
     """Reads and resolves a match result into the dashboard's review payload.
@@ -7533,6 +7646,29 @@ def build_match_result_payload(folder, match_id=None, knocks=None,
         for team in teams:
             for player in team.get("players", []) or []:
                 player["headshots"] = headshots.get(str(player.get("uid") or ""), 0)
+
+    # Nothing live to attach? Read them back out of the debugger log.
+    #
+    # This is the path every match fetched after the fact takes: an event
+    # played with the engine off, a game re-added from the folder, a
+    # result corrected the next morning. The client keeps its logs, so
+    # the headshots and knockdowns were never actually lost -- only the
+    # live reader could reach them, and only while it was running.
+    #
+    # Only fills what is missing. A match the engine did watch keeps the
+    # figures it counted at the time.
+    if not knocks or not headshots:
+        extras = recover_match_extras(name_match.group("match_id"), folder)
+        if extras:
+            for team in teams:
+                for player in team.get("players", []) or []:
+                    got = extras.get(str(player.get("uid") or ""))
+                    if not got:
+                        continue
+                    if player.get("knocks") is None:
+                        player["knocks"] = got["knocks"]
+                    if player.get("headshots") is None:
+                        player["headshots"] = got["headshots"]
     return {
         "type": "freefire_match_result",
         "matchId": name_match.group("match_id"),

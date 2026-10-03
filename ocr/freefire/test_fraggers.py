@@ -227,6 +227,55 @@ def main():
           nohs["headRate"] is None and nohs["headContri"] is None,
           "%s / %s" % (nohs["headRate"], nohs["headContri"]))
 
+    print("\nrecovering headshots and knocks from a past match")
+    # The result file carries only NAME/ID/KILL -- no headshots, no
+    # knocks -- and the replay's headshot list is empty. They live in the
+    # debugger log, which the client keeps, so a match played with the
+    # engine switched off is recoverable rather than lost.
+    import tempfile, pathlib
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    log = tmp / "debugger-2026-10-03T18-49-10.log"
+    lines = [
+        # --- an EARLIER match in the same file, which must not leak ---
+        "Player Join, 111, 70000001, OLD.Player, x",
+        "PlayKnockDownGunTrace killer=70000001 victim=70000002 headshot=True",
+        "Player 70000002 Dead, killed by 70000001",
+        "matchend matchid = 1111111111",
+        # --- the one we want ---
+        "Player Join, 222, 80000001, NEW.Ace, x",
+        "Player Join, 333, 80000002, NEW.Rex, x",
+        "Player '80000002' Knock Down, by '80000001'",
+        "PlayKnockDownGunTrace killer=80000001 victim=80000002 headshot=True",
+        "Player 80000002 Dead, killed by 80000001",
+        "PlayKnockDownGunTrace killer=80000001 victim=80000003 headshot=False",
+        "Player 80000003 Dead, killed by 80000001",
+        "matchend matchid = 2222222222",
+    ]
+    log.write_text("\n".join(lines), encoding="utf-8")
+
+    got = ff.recover_match_extras("2222222222", str(tmp))
+    ace = got.get("222") or {}
+    check("the wanted match is found and its killer resolved to a uid",
+          bool(ace), str(got))
+    check("two kills counted", ace.get("kills") == 2, str(ace))
+    check("only the headshot one counted as a headshot",
+          ace.get("headshots") == 1, str(ace))
+    check("the knockdown counted", ace.get("knocks") == 1, str(ace))
+    check("the EARLIER match in the same log does not leak in",
+          "111" not in got, str(list(got)))
+    check("a match that is in no log returns nothing, not a crash",
+          ff.recover_match_extras("9999999999", str(tmp)) == {})
+
+    # Handed the folder ABOVE the logs it should still find them: the
+    # fetch only knows the result folder, and passing that straight
+    # through silently found nothing at all.
+    parent = tmp.parent / (tmp.name + "_wrap")
+    (parent / "Debugger").mkdir(parents=True, exist_ok=True)
+    (parent / "Debugger" / log.name).write_text(
+        "\n".join(lines), encoding="utf-8")
+    check("the result folder is accepted as well as the Debugger folder",
+          bool(ff.recover_match_extras("2222222222", str(parent))))
+
     print("\n%d checks, %d failed" % (checks, len(failures)))
     if failures:
         print("failed: " + ", ".join(failures))
