@@ -6496,6 +6496,17 @@ function ffOpen(url){
         : "⚠ Failed: " + (msg.error || "unknown error");
     } else if(msg.type === "freefire_results_push_result"){
       ffShowResultsPushResult(msg);
+    } else if(msg.type === "freefire_match_list"){
+      /* The REPLY TO "List Result Files", which nothing was listening for.
+         The engine has two file listings that answer two different
+         requests -- freefire_list_match_files -> freefire_match_files
+         (parses every file, used by the Match Result File tab) and
+         freefire_list_matches -> freefire_match_list (filenames and a
+         committed flag, used by this dropdown). Only the first had a
+         handler, so this button filled nothing and sat on "Listing result
+         files..." for ever. */
+      ffReplyArrived("matchList");
+      ffFillMatchListPick(msg.files || []);
     } else if(msg.type === "freefire_match_files"){
       ffReplyArrived("matchList");
       ffShowMatchFiles(msg);
@@ -8647,6 +8658,33 @@ function ffSendSettings(){
 });
 
 
+/* Fills the "re-add an earlier match" dropdown. Already-committed games
+   are marked rather than hidden: re-fetching one is exactly how a result
+   gets corrected, so removing them would take away the use people
+   actually have for this list. */
+function ffFillMatchListPick(files) {
+  const sel = document.getElementById("ff_matchListPick");
+  const status = document.getElementById("ff_matchListStatus");
+  if (!sel) return;
+  if (!files.length) {
+    sel.innerHTML = "<option value=''>— no result files found —</option>";
+    if (status) status.textContent =
+      "No MatchResult files in that folder. Check the Match Result Folder path above.";
+    return;
+  }
+  sel.innerHTML = "<option value=''>— pick a file —</option>" +
+    files.map(f => {
+      const when = (f.timestamp || "").replace(/_/g, " ");
+      return "<option value='" + ffEscapeHtml(f.matchId) + "'>" +
+        ffEscapeHtml(when || f.fileName || f.matchId) +
+        (f.committed ? "  ✓ already committed" : "") + "</option>";
+    }).join("");
+  const done = files.filter(f => f.committed).length;
+  if (status) status.textContent = files.length + " result file(s) — " +
+    done + " already committed. Pick one and press Fetch Selected.";
+}
+
+
 /* A request that nobody answers used to sit on "Fetching..." for ever.
    The socket is open -- it goes to the RELAY, which accepts it happily --
    so there is nothing for the dashboard to notice: the engine simply is
@@ -9445,10 +9483,21 @@ function ffDrawArrowGames() {
   // something the operator can see anywhere else on this card.
   const latest = document.getElementById("ff_arrowLatest");
   if (latest) {
+    const pending = (typeof ffPendingMatch !== "undefined") && ffPendingMatch;
     const summary = ffLatestSummary();
-    latest.textContent = summary
-      ? "Latest committed: " + summary + " — this is what Booyah and a blank game field use."
-      : "Nothing committed yet, so Booyah and the match top 5 have nothing to push.";
+    if (pending && pending.matchId) {
+      const teams = (pending.teams || []).slice()
+        .sort((a, b) => (a.rank || 99) - (b.rank || 99));
+      latest.textContent = "Will push the match UNDER REVIEW: " +
+        (pending.fileName || pending.matchId) +
+        (teams[0] ? " — won by " + (teams[0].teamName || teams[0].name) : "") +
+        ". Committing it is not needed for Booyah or the top 5; the series " +
+        "totals only ever use committed games.";
+    } else {
+      latest.textContent = summary
+        ? "Latest committed: " + summary + " — this is what Booyah and a blank game field use."
+        : "Nothing fetched or committed yet — fetch a result in Post-Match first.";
+    }
   }
   const wrap = document.getElementById("ff_arrowGames");
   if (!wrap) return;
@@ -9512,8 +9561,15 @@ function ffArrowSend(what, extra) {
       : "Cleared \u2014 ARROW pushes will do nothing until a URL is set.";
   });
 
-  document.getElementById("ff_pushBooyah").addEventListener("click",
-    () => ffArrowSend("booyah"));
+  document.getElementById("ff_pushBooyah").addEventListener("click", () => {
+    // The match under review if there is one, otherwise the latest
+    // committed. Pushing the Booyah graphic happens while the result is
+    // still being reviewed -- long before standings are written -- so
+    // requiring a commit first made this button do nothing at exactly
+    // the moment it is wanted.
+    const pending = ffPendingMatch && ffPendingMatch.matchId;
+    ffArrowSend("booyah", pending ? {matchId: pending} : {});
+  });
 
   document.getElementById("ff_arrowUseLatest").addEventListener("click", () => {
     const m = ffLatestMatch();
@@ -9528,7 +9584,9 @@ function ffArrowSend(what, extra) {
 
   document.getElementById("ff_pushMatchTop").addEventListener("click", () => {
     const g = Number(document.getElementById("ff_arrowGame").value);
-    ffArrowSend("matchTop", g ? {game: g} : {});
+    if (g) { ffArrowSend("matchTop", {game: g}); return; }
+    const pending = ffPendingMatch && ffPendingMatch.matchId;
+    ffArrowSend("matchTop", pending ? {matchId: pending} : {});
   });
 
   document.getElementById("ff_pushTotals").addEventListener("click", () => {

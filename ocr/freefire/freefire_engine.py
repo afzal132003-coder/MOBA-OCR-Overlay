@@ -8608,6 +8608,32 @@ async def handle_client(websocket, path=None):
                 # including a tab left open from the previous match.
                 what = payload.get("what") or ""
                 matches = server_state.get("matches", []) or []
+                # A match that has been FETCHED but not yet committed is
+                # the usual thing to push: the operator reviews the result
+                # and puts the Booyah graphic up long before the standings
+                # are written. The dashboard names it, and the file is
+                # re-read here rather than the browser's copy being
+                # trusted -- same reason the rows are built in the engine
+                # at all.
+                #
+                # Only for the single-match blocks. The series totals are
+                # a property of what has actually been committed, and a
+                # match under review has no business in them.
+                wanted_id = (payload.get("matchId") or "").strip()
+                if wanted_id and what in ("booyah", "matchTop"):
+                    folder = (server_state.get("settings", {})
+                              .get("matchResultFolder", ""))
+                    built = build_match_result_payload(folder, wanted_id)
+                    if built.get("teams"):
+                        matches = [built]
+                    else:
+                        await websocket.send(json.dumps({
+                            "type": "freefire_arrow_result", "what": what,
+                            "rows": 0, "result": {"ok": False, "error":
+                                built.get("error") or
+                                "Could not re-read match %s from the result "
+                                "folder." % wanted_id}}))
+                        continue
                 if what == "booyah":
                     rows = booyah_sheet_rows(matches)
                 elif what == "matchTop":

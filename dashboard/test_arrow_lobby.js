@@ -160,8 +160,35 @@ check("the latest is the last committed, not the highest numbered",
       n.ff_arrowLatest.textContent.slice(0, 60));
 
 n = run({ roster: ROSTER, lobby: {}, matches: [] }, "ffDrawArrowGames()");
-check("with nothing committed it says there is nothing to push",
-      /Nothing committed yet/.test(n.ff_arrowLatest.textContent));
+check("with nothing fetched or committed it says so",
+      /Nothing fetched or committed yet/.test(n.ff_arrowLatest.textContent),
+      n.ff_arrowLatest.textContent.slice(0, 60));
+
+
+// A match fetched but NOT committed is the usual thing to push: the
+// Booyah graphic goes up while the result is still being reviewed.
+n = (function(){
+  const vm = require("vm");
+  const nodes = {};
+  const el = id => (nodes[id] = nodes[id] || { id, innerHTML: "", textContent: "",
+    value: "", checked: false, dataset: {}, contains: () => false,
+    querySelectorAll: () => [], addEventListener: () => {} });
+  ["ff_lobbyTicks","ff_lobbyCount","ff_arrowGames","ff_arrowLatest"].forEach(el);
+  const sandbox = { document: { activeElement: null,
+      getElementById: id => nodes[id] || null, querySelectorAll: () => [] },
+    ffState: { roster: ROSTER, lobby: {}, matches: [] },
+    ffPendingMatch: { matchId: "2106394579182532608",
+      fileName: "MatchResult_2026-10-03-20-29-58.log",
+      teams: [{ teamName: "S8UL ESPORTS", rank: 1 }] },
+    ffEscapeHtml: x => String(x == null ? "" : x), console };
+  vm.createContext(sandbox);
+  vm.runInContext(SOURCE + "\nffDrawArrowGames();", sandbox);
+  return nodes;
+})();
+check("a fetched-but-uncommitted match is what the buttons will push",
+      /UNDER REVIEW/.test(n.ff_arrowLatest.textContent) &&
+      /S8UL ESPORTS/.test(n.ff_arrowLatest.textContent),
+      n.ff_arrowLatest.textContent.slice(0, 80));
 
 console.log("\n" + checks + " checks, " + failures.length + " failed");
 if (failures.length) console.log("failed: " + failures.join(", "));
