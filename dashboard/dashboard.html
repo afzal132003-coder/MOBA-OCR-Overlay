@@ -6374,8 +6374,27 @@ function ffOpen(url){
          right for an overlay and disastrous for a dashboard: it showed
          live data, said CONNECTED, and threw every tick away. Say it out
          loud instead. */
+      /* ONLY "viewer" is read-only. The relay issues three roles -- ocr,
+         admin and viewer -- and drops the sends of exactly one of them
+         (see ocr/relay/server.py). This used to flag anything that was
+         not "admin", so a perfectly good ocr token raised the banner
+         while everything it sent worked; a banner that is wrong half the
+         time is one nobody reads the half it is right. */
       const box = document.getElementById("readOnlyWarning");
-      if(box) box.style.display = (msg.role && msg.role !== "admin") ? "block" : "none";
+      const readOnly = msg.role === "viewer";
+      if(box){
+        box.style.display = readOnly ? "block" : "none";
+        if(readOnly){
+          box.innerHTML = "READ-ONLY &mdash; the relay authenticated this " +
+            "dashboard as <u>viewer</u>, so everything it sends is dropped " +
+            "and nothing you do here is saved. Click <strong>change</strong> " +
+            "beside the relay status and paste the <strong>admin</strong> token.";
+        }
+      }
+      // Said once in the console too, with the role, because this is the
+      // first thing to check when a button appears to do nothing.
+      console.log("[relay] authenticated as role:", msg.role,
+                  readOnly ? "(READ-ONLY -- sends are dropped)" : "(can write)");
       return;
     }
     if(msg.type === "state_sync"){
