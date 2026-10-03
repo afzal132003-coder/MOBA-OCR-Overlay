@@ -8756,6 +8756,20 @@ async def handle_client(websocket, path=None):
                 # a property of what has actually been committed, and a
                 # match under review has no business in them.
                 wanted_id = (payload.get("matchId") or "").strip()
+                # Nothing named and nothing committed? Use the newest
+                # result file in the folder. "The game that just finished"
+                # is what both these buttons mean, and requiring either a
+                # commit or a fetch in this particular browser session to
+                # establish it made them silently write nothing on a rig
+                # with a hundred and thirty-six results sitting on disk.
+                if not wanted_id and not matches and what in ("booyah", "matchTop"):
+                    folder = (server_state.get("settings", {})
+                              .get("matchResultFolder", ""))
+                    newest, _nm = find_freefire_latest_match_file(folder)
+                    if newest:
+                        got = FREEFIRE_MATCH_FILENAME_REGEX.match(newest.name)
+                        if got:
+                            wanted_id = got.group("match_id")
                 if wanted_id and what in ("booyah", "matchTop"):
                     folder = (server_state.get("settings", {})
                               .get("matchResultFolder", ""))
@@ -8812,6 +8826,20 @@ async def handle_client(websocket, path=None):
                         "what": what,
                         "result": {"ok": False,
                                    "error": "Unknown push '%s'." % what}}))
+                    continue
+                # An empty push used to CLEAR the block and report
+                # success -- written: 0, ok: true -- which on a sheet is
+                # indistinguishable from the push having worked and the
+                # data being genuinely blank. Refused instead, with the
+                # reason, and the block is left alone. Clearing is its own
+                # button.
+                if not rows and what != "clearTotals":
+                    await websocket.send(json.dumps({
+                        "type": "freefire_arrow_result", "what": what,
+                        "rows": 0, "result": {"ok": False, "error":
+                            "Nothing to write, so the sheet was left alone. "
+                            "No match was found to read -- fetch one in "
+                            "Post-Match, or check the Match Result Folder."}}))
                     continue
                 result = push_arrow_block(what, rows)
                 await websocket.send(json.dumps({

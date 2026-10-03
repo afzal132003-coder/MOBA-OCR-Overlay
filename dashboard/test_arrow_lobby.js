@@ -161,9 +161,9 @@ check("the latest is the last committed, not the highest numbered",
       n.ff_arrowLatest.textContent.slice(0, 60));
 
 n = run({ roster: ROSTER, lobby: {}, matches: [] }, "ffDrawArrowGames()");
-check("with nothing fetched or committed it says so",
-      /Nothing fetched or committed yet/.test(n.ff_arrowLatest.textContent),
-      n.ff_arrowLatest.textContent.slice(0, 60));
+check("with nothing fetched or committed it names the fallback",
+      /NEWEST result file/.test(n.ff_arrowLatest.textContent),
+      n.ff_arrowLatest.textContent.slice(0, 70));
 
 
 // A match fetched but NOT committed is the usual thing to push: the

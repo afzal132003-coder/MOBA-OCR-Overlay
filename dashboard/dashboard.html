@@ -9539,7 +9539,9 @@ function ffDrawArrowGames() {
     } else {
       latest.textContent = summary
         ? "Latest committed: " + summary + " — this is what Booyah and a blank game field use."
-        : "Nothing fetched or committed yet — fetch a result in Post-Match first.";
+        : "Nothing fetched or committed — Booyah and the match top 5 will " +
+          "read the NEWEST result file in the folder, which is the game that " +
+          "just finished. No commit needed.";
     }
   }
   // Picked result files win once they have been listed: they are what the
@@ -9623,8 +9625,15 @@ function ffArrowSend(what, extra) {
   document.getElementById("ff_arrowUseLatest").addEventListener("click", () => {
     const m = ffLatestMatch();
     const el = document.getElementById("ff_arrowStatus");
+    // Blank already MEANS the newest result file, so with nothing
+    // committed the right move is to empty the box rather than refuse.
+    // It used to say "no committed match" and do nothing, on a rig whose
+    // folder was full of finished games.
     if (!m || m.gameNumber == null) {
-      el.textContent = "No committed match to take a game number from yet.";
+      document.getElementById("ff_arrowGame").value = "";
+      el.textContent = "Nothing committed, so the game box is cleared — " +
+        "blank means the newest result file in the folder, which is the " +
+        "game that just finished.";
       return;
     }
     document.getElementById("ff_arrowGame").value = m.gameNumber;

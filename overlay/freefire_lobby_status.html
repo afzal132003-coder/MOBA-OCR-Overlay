@@ -185,9 +185,14 @@
   }
   .slot.joined .name{opacity:1;}
 
+  /* The same heavy italic as the LOBBY STATUS title and the team names,
+     so the three weights on the strip read as one family rather than as
+     a heading with captions bolted under it. Tracking is pulled in --
+     wide letterspacing fights an italic this heavy -- and the size comes
+     up a little to pay for it. */
   .state{
     display:flex;align-items:center;gap:6px;
-    font-weight:700;font-size:11px;letter-spacing:.15em;
+    font-weight:900;font-style:italic;font-size:13px;letter-spacing:.05em;
     text-transform:uppercase;white-space:nowrap;
     color:var(--waiting);
     transition:color .4s ease;
