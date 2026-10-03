@@ -70,8 +70,19 @@
     -webkit-font-smoothing:antialiased;
   }
 
+  /* ALWAYS LAID OUT, MOVED RATHER THAN HIDDEN.
+     display:none cannot be animated -- it is on or it is off -- so the
+     strip would have flown in on Show and simply vanished on Hide. It is
+     parked below the bottom edge instead and slid up into place, which
+     makes the exit the entrance played backwards and costs nothing: the
+     body is 248px with overflow hidden, so parked is off-screen. */
   #stage{
-    display:none;
+    display:flex;
+    transform:translateY(112%);
+    opacity:0;
+    transition:transform .62s cubic-bezier(.16,.84,.34,1),
+               opacity .34s ease;
+    will-change:transform;
     position:relative;
     width:1918px;height:248px;box-sizing:border-box;
     background:
@@ -87,7 +98,10 @@
     align-items:stretch;
     gap:16px;
   }
-  #stage.visible{display:flex;}
+  #stage.visible{
+    transform:translateY(0);
+    opacity:1;
+  }
 
   /* The torn highlight the deck runs along its top edge. */
   #stage::before{
@@ -140,12 +154,15 @@
     display:flex;flex-direction:column;align-items:center;justify-content:center;
     gap:7px;padding:9px 6px 8px;box-sizing:border-box;
     background:linear-gradient(180deg, var(--panel-lit), var(--panel));
-    border:1px solid rgba(247,148,29,.26);
-    border-top:4px solid var(--waiting);
+    border:1px solid rgba(247,148,29,.3);
+    border-top:6px solid var(--waiting);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.05),
+               0 6px 14px rgba(0,0,0,.4);
     /* the angular cut from the caster name plates */
-    clip-path:polygon(0 0, 100% 0, 100% calc(100% - 13px), calc(100% - 13px) 100%, 0 100%);
+    clip-path:polygon(0 0, 100% 0, 100% calc(100% - 15px), calc(100% - 15px) 100%, 0 100%);
     overflow:hidden;
-    transition:border-top-color .4s ease, background .4s ease;
+    transition:border-top-color .4s ease, background .4s ease,
+               box-shadow .4s ease, transform .4s ease;
   }
   .slot:not(.joined){animation:breathe 2.8s ease-in-out infinite;}
   @keyframes breathe{
@@ -156,13 +173,43 @@
     opacity:1;animation:none;
     border-top-color:var(--joined);
     background:
-      linear-gradient(180deg, rgba(95,227,154,.17), rgba(11,51,38,0) 62%),
+      linear-gradient(180deg, rgba(95,227,154,.2), rgba(11,51,38,0) 62%),
       linear-gradient(180deg, var(--panel-lit), var(--panel));
-    border-color:rgba(95,227,154,.4);
+    border-color:rgba(95,227,154,.48);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.07),
+               0 0 22px rgba(95,227,154,.17),
+               0 6px 16px rgba(0,0,0,.42);
   }
 
+  /* THE ENTRANCE, and the reason it is an entrance rather than a loop.
+     This strip is on air for the whole of room-create -- ten, twenty
+     minutes -- directly under a live game. Anything that runs forever
+     stops being a flourish at about the ninety-second mark and spends
+     the rest of the show competing with the feed above it. So the motion
+     is spent on the two things that are actually events: the strip
+     arriving, and a squad joining. Idle is deliberately still.
+
+     Staggered off the left, 55ms apart, so twelve squads read as a
+     cascade rather than a flashbulb. Runs only when the strip goes from
+     hidden to shown -- see justShown -- never on the several state syncs
+     a second that follow. */
+  .cards.justShown .slot{
+    opacity:0;
+    /* The per-card delay is set inline and already carries the stagger;
+       this animation waits for the strip itself to finish arriving, so
+       the two moves read as one gesture instead of racing each other. */
+    animation:flyIn .52s cubic-bezier(.17,.84,.44,1) both;
+  }
+  @keyframes flyIn{
+    0%  {opacity:0;transform:translateY(26px) scale(.93);}
+    60% {opacity:1;transform:translateY(-4px) scale(1.012);}
+    100%{opacity:1;transform:translateY(0) scale(1);}
+  }
+  /* The waiting breath must not fight the entrance it lands on. */
+  .cards.justShown .slot:not(.joined){animation:flyIn .52s cubic-bezier(.17,.84,.44,1) both;}
+
   .logo{
-    width:60px;height:60px;flex:0 0 60px;
+    width:66px;height:66px;flex:0 0 66px;
     display:flex;align-items:center;justify-content:center;
     filter:grayscale(1) brightness(.62);
     transition:filter .45s ease;
@@ -178,7 +225,7 @@
 
   .name{
     width:100%;text-align:center;
-    font-weight:900;font-style:italic;font-size:18px;letter-spacing:.015em;
+    font-weight:900;font-style:italic;font-size:19px;letter-spacing:.015em;
     color:var(--cream);opacity:.74;text-transform:uppercase;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
     transition:opacity .4s ease;
@@ -214,11 +261,30 @@
     0%  {left:-45%;opacity:1;}
     100%{left:115%;opacity:0;}
   }
-  .slot.justJoined{animation:pop .42s ease-out 1;}
-  @keyframes pop{
-    0%  {transform:scale(1);}
-    38% {transform:scale(1.05);}
-    100%{transform:scale(1);}
+  .slot.justJoined{animation:lockIn .66s cubic-bezier(.2,.9,.3,1) 1;}
+  @keyframes lockIn{
+    0%  {transform:translateY(0) scale(1);
+         box-shadow:0 6px 14px rgba(0,0,0,.4);}
+    30% {transform:translateY(-9px) scale(1.075);
+         box-shadow:0 0 46px rgba(95,227,154,.6), 0 14px 22px rgba(0,0,0,.5);}
+    62% {transform:translateY(2px) scale(.992);}
+    100%{transform:translateY(0) scale(1);
+         box-shadow:inset 0 1px 0 rgba(255,255,255,.07),
+                    0 0 22px rgba(95,227,154,.17),
+                    0 6px 16px rgba(0,0,0,.42);}
+  }
+  /* The logo lands a beat after the plate does. */
+  .slot.justJoined .logo{animation:logoLand .66s cubic-bezier(.2,.9,.3,1) 1;}
+  @keyframes logoLand{
+    0%  {transform:scale(.72) rotate(-7deg);}
+    45% {transform:scale(1.14) rotate(2deg);}
+    100%{transform:scale(1) rotate(0);}
+  }
+  .slot.justJoined .state{animation:stateIn .66s ease-out 1;}
+  @keyframes stateIn{
+    0%  {opacity:0;transform:translateY(7px);}
+    55% {opacity:1;}
+    100%{opacity:1;transform:translateY(0);}
   }
 </style>
 </head>
@@ -268,6 +334,11 @@ function initials(t){
    state_syncs a second -- from replaying every lock-in at once. */
 let wasJoined = new Set();
 let lastSignature = "";
+/* Was the strip on air last time this drew? The entrance plays on the
+   hidden -> shown edge ONLY. Without this it would replay on every
+   redraw -- a squad being ticked rebuilds the row, and that would send
+   all twelve cards flying again in the middle of the show. */
+let wasVisible = false;
 
 function render(ff){
   const teams = ((ff.roster || {}).teams) || [];
@@ -280,8 +351,11 @@ function render(ff){
     wasJoined = new Set(teams.filter(function(t){ return joined[t.name]; })
                              .map(function(t){ return t.name; }));
     lastSignature = "";
+    wasVisible = false;
     return;
   }
+  const entering = !wasVisible;
+  wasVisible = true;
 
   const signature = JSON.stringify([
     teams.map(function(t){ return [t.name, label(t), t.logo ? 1 : 0]; }),
@@ -294,11 +368,18 @@ function render(ff){
   document.getElementById("title").textContent = lobby.title || "Lobby Status";
   document.getElementById("kicker").textContent = lobby.kicker || "Room Create";
 
-  document.getElementById("cards").innerHTML = teams.map(function(t){
+  const cards = document.getElementById("cards");
+  cards.className = "cards" + (entering ? " justShown" : "");
+  cards.innerHTML = teams.map(function(t, i){
     const isIn = !!joined[t.name];
-    const fresh = isIn && !wasJoined.has(t.name);
+    // Not on the way in: a card cannot both arrive and lock in, and
+    // asking it to do both at once just cancels one of them.
+    const fresh = isIn && !wasJoined.has(t.name) && !entering;
     return '<div class="slot' + (isIn ? " joined" : "") +
-      (fresh ? " justJoined" : "") + '">' +
+      (fresh ? " justJoined" : "") + '"' +
+      // 230ms is the strip's own slide, near enough: the cards start
+      // cascading as it settles rather than while it is still moving.
+      (entering ? ' style="animation-delay:' + (230 + i * 55) + 'ms"' : "") + '>' +
       '<div class="sweep"></div>' +
       '<div class="logo">' +
         (t.logo ? '<img src="' + esc(t.logo) + '" alt="">'
@@ -316,6 +397,13 @@ function render(ff){
 
   wasJoined = new Set(teams.filter(function(t){ return joined[t.name]; })
                            .map(function(t){ return t.name; }));
+
+  // Taken off once it has played. Left on, the next redraw would inherit
+  // it and the cards would arrive a second time without ever leaving.
+  if(entering){
+    const total = 230 + teams.length * 55 + 620;
+    setTimeout(function(){ cards.classList.remove("justShown"); }, total);
+  }
 }
 
 let _lastRoster = null;
