@@ -369,10 +369,18 @@ function esc(s){
   });
 }
 
-/* At this width a long registered name is three letters and an ellipsis,
-   so the short name is preferred wherever one exists. */
-function label(t){
-  return (t.displayName || t.shortName || t.name || "").trim();
+/* What goes under the logo. Twelve cards across 1918px leave each about
+   140 pixels, and at that width a long registered name is three letters
+   and an ellipsis -- so short names are the default. The operator can
+   turn them off for a lobby whose names all fit, where the full ones
+   read better.
+
+   displayName always wins: it exists precisely to override what a team
+   is called on air. */
+function label(t, useShort){
+  const full = (t.displayName || t.name || "").trim();
+  if(!useShort) return full;
+  return (t.displayName || t.shortName || t.tagRead || t.name || "").trim();
 }
 
 function initials(t){
@@ -411,8 +419,9 @@ function render(ff){
   const entering = !wasVisible;
   wasVisible = true;
 
+  const useShort = lobby.shortNames !== false;
   const signature = JSON.stringify([
-    teams.map(function(t){ return [t.name, label(t), t.logo ? 1 : 0]; }),
+    teams.map(function(t){ return [t.name, label(t, useShort), t.logo ? 1 : 0]; }),
     teams.map(function(t){ return !!joined[t.name]; }),
     lobby.title || "", lobby.kicker || ""
   ]);
@@ -444,7 +453,7 @@ function render(ff){
         (t.logo ? '<img src="' + esc(t.logo) + '" alt="">'
                 : '<div class="initials">' + esc(initials(t)) + '</div>') +
       '</div>' +
-      '<div class="name">' + esc(label(t)) + '</div>' +
+      '<div class="name">' + esc(label(t, useShort)) + '</div>' +
       '<div class="state"><span class="dot"></span>' +
         (isIn ? "Joined" : "Yet To Join") + '</div>' +
     '</div>';

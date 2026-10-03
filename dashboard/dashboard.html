@@ -2177,7 +2177,14 @@
           <label for="ff_lobbyKicker">Line above it</label>
           <input type="text" id="ff_lobbyKicker" placeholder="Room Create">
         </div>
+        <label style="display:flex;align-items:center;gap:8px;margin:0 0 4px;">
+          <input type="checkbox" id="ff_lobbyShortNames" checked>
+          <span>Short name / tag on the strip</span>
+        </label>
       </div>
+      <p class="hint" style="margin:6px 0 0;">Twelve cards across 1918px give each about 140 pixels, so
+        <code>COSMIC ESPORT</code> gets cut where <code>CE</code> fits. Turn it off for a lobby whose names are
+        all short. A team's <strong>display name</strong>, if you set one, wins either way.</p>
 
       <div id="ff_lobbyTicks" style="display:grid;
            grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;margin-top:14px;"></div>
@@ -7273,6 +7280,10 @@ function ffRenderEvent(ff){
   setIfFree("ff_arrowWebhookUrl", (ff.settings && ff.settings.arrowWebhookUrl) || "");
   setIfFree("ff_lobbyTitle", (ff.lobby && ff.lobby.title) || "");
   setIfFree("ff_lobbyKicker", (ff.lobby && ff.lobby.kicker) || "");
+  const sn = document.getElementById("ff_lobbyShortNames");
+  if (sn && document.activeElement !== sn) {
+    sn.checked = !(ff.lobby && ff.lobby.shortNames === false);
+  }
   const lsp = document.getElementById("ff_liveSheetPush");
   if(lsp && document.activeElement !== lsp){
     lsp.value = (ff.settings && ff.settings.liveSheetPush) ? "on" : "off";
@@ -9374,7 +9385,8 @@ function ffLobbySend() {
     type: "lobby_set_joined",
     joined: ffLobbyTicked(),
     title: document.getElementById("ff_lobbyTitle").value.trim(),
-    kicker: document.getElementById("ff_lobbyKicker").value.trim()
+    kicker: document.getElementById("ff_lobbyKicker").value.trim(),
+    shortNames: document.getElementById("ff_lobbyShortNames").checked
   }));
 }
 
@@ -9412,12 +9424,31 @@ function ffDrawLobbyTicks(ff) {
   }).join("");
 
   wrap.querySelectorAll(".ff-lobby-tick").forEach(el => {
-    el.addEventListener("change", ffLobbySend);
+    el.addEventListener("change", () => {
+      // Recolour THIS label at once, before the round trip. The grid is
+      // not redrawn while the cursor is inside it -- that guard is what
+      // stops a redraw eating a click mid-tick -- so without this the
+      // box went ticked and the name stayed red until the pointer left,
+      // which reads as the tick not having registered.
+      const text = el.parentElement && el.parentElement.querySelector("span");
+      if (text) text.style.color = el.checked ? "#7ee2a8" : "#ff8d8d";
+      ffLobbyCount();
+      ffLobbySend();
+    });
   });
 
-  const n = teams.filter(t => joined[t.name]).length;
-  document.getElementById("ff_lobbyCount").textContent =
-    n + " of " + teams.length + " checked in";
+  ffLobbyCount();
+}
+
+/* Counted off the BOXES, not off the last state the engine sent, so it
+   agrees with what the operator is looking at while they are still
+   ticking. */
+function ffLobbyCount() {
+  const boxes = document.querySelectorAll(".ff-lobby-tick");
+  const el = document.getElementById("ff_lobbyCount");
+  if (!el || !boxes.length) return;
+  const n = Array.from(boxes).filter(b => b.checked).length;
+  el.textContent = n + " of " + boxes.length + " checked in";
 }
 
 (function ffWireLobbyStatus() {
@@ -9437,14 +9468,19 @@ function ffDrawLobbyTicks(ff) {
       say("Strip is off air.");
     }
   });
-  document.getElementById("ff_lobbyAllIn").addEventListener("click", () => {
-    document.querySelectorAll(".ff-lobby-tick").forEach(el => { el.checked = true; });
+  const setAll = on => {
+    document.querySelectorAll(".ff-lobby-tick").forEach(el => {
+      el.checked = on;
+      const text = el.parentElement && el.parentElement.querySelector("span");
+      if (text) text.style.color = on ? "#7ee2a8" : "#ff8d8d";
+    });
+    ffLobbyCount();
     ffLobbySend();
-  });
-  document.getElementById("ff_lobbyNoneIn").addEventListener("click", () => {
-    document.querySelectorAll(".ff-lobby-tick").forEach(el => { el.checked = false; });
-    ffLobbySend();
-  });
+  };
+  document.getElementById("ff_lobbyAllIn").addEventListener("click", () => setAll(true));
+  document.getElementById("ff_lobbyNoneIn").addEventListener("click", () => setAll(false));
+  document.getElementById("ff_lobbyShortNames")
+    .addEventListener("change", ffLobbySend);
   ["ff_lobbyTitle", "ff_lobbyKicker"].forEach(id => {
     document.getElementById(id).addEventListener("change", ffLobbySend);
   });

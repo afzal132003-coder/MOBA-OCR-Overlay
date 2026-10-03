@@ -487,7 +487,12 @@ def default_state():
         # Who has turned up to the room, ticked by the operator.
         # Keyed on the ROSTER NAME, which is what the overlay and
         # the sheet both match on.
-        "lobby": {"joined": {}, "title": "", "kicker": ""},
+        "lobby": {"joined": {}, "title": "", "kicker": "",
+                  # Short name / tag on the strip instead of the
+                  # registered one. Twelve cards across 1918px give
+                  # each about 140, and "COSMIC ESPORT" does not fit
+                  # in that where "CE" would.
+                  "shortNames": True},
         "mvp": {"booyah": None, "match": None, "event": None},
         # Row order for the "Export for Sheet" card -- which roster team
         # name goes on which line of the copy/paste output, since an
@@ -9270,6 +9275,8 @@ async def handle_client(websocket, path=None):
                     lobby["title"] = payload["title"]
                 if payload.get("kicker") is not None:
                     lobby["kicker"] = payload["kicker"]
+                if payload.get("shortNames") is not None:
+                    lobby["shortNames"] = bool(payload["shortNames"])
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") in ("booyah_stats_show", "booyah_stats_hide"):

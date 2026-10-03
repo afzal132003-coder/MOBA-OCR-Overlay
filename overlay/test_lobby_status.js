@@ -171,6 +171,38 @@ n = draw(env, state(false, { TAG: true }));
 check("hidden draws nothing and says nothing",
       !n.stage.classList.contains("visible"));
 
+console.log("\nshort names on the strip");
+// 1918px across twelve cards is about 140 each: a registered name of
+// any length is three letters and an ellipsis there.
+const NAMED = [{ name: "COSMIC ESPORT", shortName: "CE", tagRead: "CSM" },
+               { name: "TAG", shortName: "", tagRead: "" },
+               { name: "RENU GAMING", shortName: "", tagRead: "RG" },
+               { name: "LR7", displayName: "LR SEVEN", shortName: "LR7" }];
+function namedState(visible, shortNames){
+  return { roster: { teams: NAMED }, lobby: { joined: {}, shortNames: shortNames },
+           display: { lobbyStatusVisible: visible } };
+}
+env = mkEnv();
+n = draw(env, namedState(true, true));
+check("short name is used when one exists", /CE/.test(n.cards.innerHTML));
+check("the tag is the next best thing", /RG/.test(n.cards.innerHTML));
+check("a squad with neither keeps its name", /TAG/.test(n.cards.innerHTML));
+check("the long name is NOT shown when short names are on",
+      !/COSMIC ESPORT/.test(n.cards.innerHTML));
+
+env = mkEnv();
+n = draw(env, namedState(true, false));
+check("turning it off shows the registered name in full",
+      /COSMIC ESPORT/.test(n.cards.innerHTML));
+check("and a display name still wins either way",
+      /LR SEVEN/.test(n.cards.innerHTML));
+
+env = mkEnv();
+n = draw(env, { roster: { teams: NAMED }, lobby: { joined: {} },
+                display: { lobbyStatusVisible: true } });
+check("short names are the default when nothing is set",
+      /CE/.test(n.cards.innerHTML) && !/COSMIC ESPORT/.test(n.cards.innerHTML));
+
 console.log("\n" + checks + " checks, " + failures.length + " failed");
 if (failures.length) console.log("failed: " + failures.join(", "));
 process.exit(failures.length ? 1 : 0);
