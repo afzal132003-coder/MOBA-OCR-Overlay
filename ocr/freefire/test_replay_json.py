@@ -105,6 +105,26 @@ def main():
     print("  fights is in the .bin, which this does not read. What is here")
     print("  is every kill, who, when, and where the victim fell.")
 
+    print("\nsquad eliminations -- placement without the result file")
+    el = rj.squad_eliminations(data)
+    places = [e["place"] for e in el]
+    check("every squad gets a place, each one once",
+          sorted(places) == list(range(1, len(el) + 1)), str(sorted(places)))
+    survivors = [e for e in el if e["time"] is None]
+    check("exactly one squad is left standing", len(survivors) == 1,
+          "%d" % len(survivors))
+    check("and it takes first place", survivors[0]["place"] == 1)
+    wipes = [e for e in el if e["time"] is not None]
+    check("the wipes are in time order",
+          all(a["time"] <= b["time"] for a, b in zip(wipes, wipes[1:])))
+    check("first squad wiped finishes last",
+          wipes[0]["place"] == len(el), "%d" % wipes[0]["place"])
+    check("a wipe carries the team name the room used",
+          all(w["teamName"] for w in wipes),
+          str([w["teamName"] for w in wipes[:3]]))
+    check("no squad is wiped twice",
+          len({w["squad"] for w in wipes}) == len(wipes))
+
     print("\n%d checks, %d failed" % (checks, len(failures)))
     if failures:
         print("failed: " + ", ".join(failures))

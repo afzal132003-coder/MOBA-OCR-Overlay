@@ -147,6 +147,62 @@ def kills(data, names=None):
     return out
 
 
+# A squad being wiped out. SParam carries the team's name as the room had
+# it, so this is the one place in the file where a squad id and a team
+# NAME appear together.
+SQUAD_WIPE_EVENT = 1
+
+
+def squad_eliminations(data, names=None):
+    """When each squad was wiped, in the order it happened.
+
+    Eleven of these in a twelve-squad match: everyone except the winner.
+    The squad with no wipe event is the one still standing, and it is
+    returned with place 1 and no time.
+
+    This is where a placement can be checked against something other than
+    the result file, and where "eliminated at 9:44" comes from.
+
+    PLAYER-level survival is NOT offered here, and the reason is worth
+    recording. A player's DeadEvents fire on knockdowns as well as on
+    their last death -- 34 of 41 players in the reference match have more
+    than one -- so the final entry is only an elimination for a player
+    whose squad never picked them up again. Nothing in the file marks a
+    revive: the one event type that looked like it (there are 34, matching
+    the 34 players with repeated deaths) turned out not to be, because the
+    squads were revived 69 times in total and only 19 of those events fall
+    between two of the same player's deaths. Until a revive can be
+    identified, a per-player survival time would be a knockdown time
+    wearing the wrong label, and a squad's wipe is the honest unit.
+    """
+    names = names if names is not None else player_names(data)
+
+    squads_seen = {pid >> SQUAD_SHIFT for pid in names}
+    wipes = []
+    for e in data.get("Events") or []:
+        if e.get("Event") != SQUAD_WIPE_EVENT:
+            continue
+        pid = e.get("PlayerID")
+        wipes.append({
+            "time": e.get("Time"),
+            "squad": (pid >> SQUAD_SHIFT) if pid is not None else None,
+            "teamName": (e.get("SParam") or "").strip(),
+        })
+    wipes.sort(key=lambda w: (w["time"] is None, w["time"]))
+
+    total = max(len(squads_seen), len(wipes) + 1)
+    # First one wiped finishes last.
+    out = []
+    for i, w in enumerate(wipes):
+        w["place"] = total - i
+        out.append(w)
+
+    wiped = {w["squad"] for w in wipes}
+    for squad in sorted(squads_seen - wiped):
+        out.insert(0, {"time": None, "squad": squad, "teamName": "", "place": 1})
+    return out
+
+
 def squads(data, names=None):
     """{squad number: [player names]}, from the ids."""
     names = names if names is not None else player_names(data)
