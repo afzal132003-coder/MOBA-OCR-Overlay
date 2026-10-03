@@ -175,6 +175,58 @@ def main():
     check("no matches means no MVP, not a crash",
           ff.compute_freefire_mvp([], scope="event", roster_teams=[]) is None)
 
+    print("\nthe ARROW sheet blocks")
+    sm = [
+        match(1, [team("NEBULA", 1, [
+            {"name": "Ace", "uid": "1", "kills": 5, "knocks": 2, "headshots": 3},
+            {"name": "Rex", "uid": "2", "kills": 1, "knocks": 0, "headshots": 1}]),
+                  team("4ENDS", 2, [
+            {"name": "Zen", "uid": "5", "kills": 9, "knocks": 1, "headshots": 4}])]),
+    ]
+    b = ff.booyah_sheet_rows(sm, roster_teams=[])
+    check("Booyah rows come from the winning squad only",
+          [r["ign"] for r in b] == ["Ace", "Rex"], str([r["ign"] for r in b]))
+    check("head rate is headshots over that players own finishes",
+          b[0]["headRate"] == 60.0, "3 of 5: got %s" % b[0]["headRate"])
+    check("finish contribution is a share of the squad",
+          b[0]["finContri"] == 85.42, "41 of 48: got %s" % b[0]["finContri"])
+
+    m5 = ff.match_fragger_rows(sm, game=1, top=5, roster_teams=[])
+    check("the match top-5 crosses every team", m5[0]["ign"] == "Zen",
+          m5[0]["ign"])
+    check("it is capped at five rows",
+          len(ff.match_fragger_rows(sm, game=1, top=5, roster_teams=[])) <= 5)
+    check("head contribution is a share of the TEAM headshots, not of kills",
+          m5[1]["headContri"] == 75.0,
+          "Ace 3 of NEBULA 4: got %s" % m5[1]["headContri"])
+
+    # The two percentages are different numbers and must not be the same
+    # field wearing two names.
+    ace = [r for r in m5 if r["ign"] == "Ace"][0]
+    check("head rate and head contribution are not the same figure",
+          ace["headRate"] != ace["headContri"],
+          "rate %s vs contri %s" % (ace["headRate"], ace["headContri"]))
+
+    allg = ff.total_fragger_rows(sm, games=None, roster_teams=[])
+    one = ff.total_fragger_rows(sm, games=[1], roster_teams=[])
+    check("totals with no game filter take everything",
+          len(allg) == 3, "%d" % len(allg))
+    check("ticking only game 1 still works", len(one) == 3, "%d" % len(one))
+    check("ticking a game that has not happened yields nothing",
+          ff.total_fragger_rows(sm, games=[6], roster_teams=[]) == [])
+    check("no matches at all is empty, not a crash",
+          ff.booyah_sheet_rows([], roster_teams=[]) == []
+          and ff.match_fragger_rows([], roster_teams=[]) == [])
+
+    # A game the engine never watched has no headshot figure; a rate of
+    # 0% would read as "never hit one".
+    nohs = ff.match_fragger_rows([match(1, [team("A", 1, [
+        {"name": "NoData", "uid": "9", "kills": 4, "knocks": 0}])])],
+        roster_teams=[])[0]
+    check("no headshot data gives no rate and no contribution",
+          nohs["headRate"] is None and nohs["headContri"] is None,
+          "%s / %s" % (nohs["headRate"], nohs["headContri"]))
+
     print("\n%d checks, %d failed" % (checks, len(failures)))
     if failures:
         print("failed: " + ", ".join(failures))

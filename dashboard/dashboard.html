@@ -2667,6 +2667,52 @@
       </div>
       <div id="ff_championRush" style="margin-top:14px;"></div>
     </div>
+
+    <div class="card">
+      <h2>ARROW Sheet &mdash; Booyah, Match Top 5, Series Totals</h2>
+      <p class="hint">Three blocks on their own spreadsheet. Every push <strong>clears its block first</strong>,
+        so a shorter push can never leave the tail of a longer one behind looking like current data. Rows are
+        built by the engine at the moment you press the button &mdash; not from what this page happens to be
+        showing &mdash; so a tab left open from an earlier match can't be written by mistake.</p>
+      <p class="hint">Deploy <code>ocr/freefire/freefire_arrow_push.gs</code> on that spreadsheet
+        (Extensions &rarr; Apps Script &rarr; Deploy &rarr; Web app, execute as you, access Anyone) and paste the
+        <code>/exec</code> URL here. Nothing in the script needs editing &mdash; the ranges are already set.</p>
+
+      <div class="row" style="gap:12px;align-items:flex-end;">
+        <div class="team-form" style="flex:1;">
+          <label>ARROW Apps Script Web App URL</label>
+          <input type="text" id="ff_arrowWebhookUrl" placeholder="https://script.google.com/macros/s/.../exec">
+        </div>
+        <button id="ff_arrowWebhookSave">Save</button>
+      </div>
+
+      <div class="row" style="gap:8px;align-items:center;margin-top:14px;
+           border-top:1px solid #1b2430;padding-top:12px;flex-wrap:wrap;">
+        <button id="ff_pushBooyah">Push Booyah Stats</button>
+        <span class="hint">BOOYAH-ARROW &mdash; A/C/E/F/G/H, rows 2&ndash;5 (winning squad)</span>
+      </div>
+
+      <div class="row" style="gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;">
+        <button id="ff_pushMatchTop">Push Match Top 5</button>
+        <div class="team-form" style="max-width:150px;margin:0;">
+          <label for="ff_arrowGame">Game (blank = latest)</label>
+          <input type="number" id="ff_arrowGame" min="1" max="20" placeholder="latest">
+        </div>
+        <span class="hint">ARROW MVP &mdash; N/P/R/S/T/U/V, rows 2&ndash;6</span>
+      </div>
+
+      <div style="margin-top:14px;border-top:1px solid #1b2430;padding-top:12px;">
+        <label style="display:block;margin-bottom:6px;">Series totals &mdash; tick the games to include</label>
+        <div id="ff_arrowGames" class="row" style="gap:14px;flex-wrap:wrap;"></div>
+        <div class="row" style="gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;">
+          <button id="ff_pushTotals">Push Series Totals</button>
+          <button class="secondary" id="ff_clearTotals">Clear Totals Block</button>
+          <span class="hint">ARROW MVP &mdash; B/D/F/G/H/I/J, row 2 downwards</span>
+        </div>
+      </div>
+
+      <div class="hint" id="ff_arrowStatus" style="margin-top:12px;"></div>
+    </div>
   </div>
 
   <!-- ===================== MAPPING ===================== -->
@@ -6133,6 +6179,20 @@ function connect(){
       if(!gfxHasUnsavedLocalEdits && document.getElementById("tab-graphics").offsetParent !== null){
         gfxLoadPage(gfxCurrentPage);
       }
+    } else if(msg.type === "freefire_arrow_result"){
+      // The script's own answer, not a hopeful "sent". A push that reached
+      // the wrong tab, or a spreadsheet the deployment cannot see, says so
+      // here rather than looking identical to one that worked.
+      const el = document.getElementById("ff_arrowStatus");
+      const r = msg.result || {};
+      const label = {booyah: "Booyah stats", matchTop: "match top 5",
+                     totals: "series totals",
+                     clearTotals: "totals block"}[msg.what] || msg.what;
+      el.textContent = r.ok
+        ? (msg.what === "clearTotals"
+            ? "Cleared the totals block on '" + r.tab + "'."
+            : "Wrote " + r.written + " row(s) of " + label + " to '" + r.tab + "'.")
+        : "FAILED (" + label + "): " + (r.error || "no answer from the script.");
     } else if(msg.type === "crop_preview"){
       const img = document.getElementById(`crop-${msg.region}`);
       if(img) img.src = msg.image;
@@ -7123,6 +7183,8 @@ function ffRenderEvent(ff){
   setIfFree("ff_debuggerStartAt", (ff.settings && ff.settings.debuggerStartAt) || "");
   setIfFree("ff_resultsTab", (ff.settings && ff.settings.resultsTab) || "");
   setIfFree("ff_sheetWebhookUrl", (ff.settings && ff.settings.sheetWebhookUrl) || "");
+  setIfFree("ff_arrowWebhookUrl", (ff.settings && ff.settings.arrowWebhookUrl) || "");
+  ffDrawArrowGames();
   const lsp = document.getElementById("ff_liveSheetPush");
   if(lsp && document.activeElement !== lsp){
     lsp.value = (ff.settings && ff.settings.liveSheetPush) ? "on" : "off";
@@ -9144,6 +9206,92 @@ document.getElementById("ff_liveSheetPush").addEventListener("change", (e) => {
       ? "Live push ON — the side table is being written to the sheet as it changes."
       : "Live push OFF — post-match results still push normally.";
 });
+
+
+/* ---------- ARROW sheet: Booyah, match top 5, series totals ----------
+   The game checkboxes are drawn from the games actually committed, so a
+   box can never offer a game with no match behind it. They are redrawn
+   on every state sync EXCEPT while someone is using them -- the same
+   guard the squad dropdowns needed, for the same reason. */
+function ffDrawArrowGames() {
+  const wrap = document.getElementById("ff_arrowGames");
+  if (!wrap) return;
+  if (document.activeElement && wrap.contains(document.activeElement)) return;
+  const games = ((ffState && ffState.fraggers && ffState.fraggers.games) || []);
+  if (!games.length) {
+    wrap.innerHTML = "<span class='hint'>(no committed matches yet)</span>";
+    return;
+  }
+  const ticked = ffArrowTickedGames();
+  wrap.innerHTML = games.map(g =>
+    "<label style='display:flex;align-items:center;gap:6px;margin:0;'>" +
+    "<input type='checkbox' class='ff-arrow-game' value='" + g + "'" +
+    // Everything on by default: the usual push is "all six".
+    ((!ticked.length || ticked.indexOf(g) !== -1) ? " checked" : "") +
+    "><span>Game " + g + "</span></label>").join("");
+}
+
+function ffArrowTickedGames() {
+  return Array.from(document.querySelectorAll(".ff-arrow-game"))
+    .filter(el => el.checked).map(el => Number(el.value));
+}
+
+function ffArrowSend(what, extra) {
+  const el = document.getElementById("ff_arrowStatus");
+  if (!(ffWs && ffWs.readyState === WebSocket.OPEN)) {
+    el.textContent = "Not connected to the Free Fire engine.";
+    return;
+  }
+  ffWs.send(JSON.stringify(
+    Object.assign({type: "freefire_push_arrow", what: what}, extra || {})));
+  el.textContent = "Pushing\u2026";
+}
+
+(function ffWireArrow() {
+  const save = document.getElementById("ff_arrowWebhookSave");
+  if (!save) return;
+
+  save.addEventListener("click", () => {
+    if (!ffState) return;
+    const el = document.getElementById("ff_arrowStatus");
+    const url = document.getElementById("ff_arrowWebhookUrl").value.trim();
+    // Refused rather than warned about, for the same reason the live push
+    // URL is: a wrong one saved here fails in the engine's console, which
+    // nobody is reading between games.
+    const complaint = url ? ffWebhookUrlComplaint(url) : "";
+    if (complaint) {
+      el.textContent = "NOT saved \u2014 " + complaint;
+      return;
+    }
+    ffState.settings = Object.assign({}, ffState.settings || {},
+                                     {arrowWebhookUrl: url});
+    ffSendManualUpdate(ffState);
+    el.textContent = url
+      ? "Saved \u2014 the three ARROW pushes will go to this URL."
+      : "Cleared \u2014 ARROW pushes will do nothing until a URL is set.";
+  });
+
+  document.getElementById("ff_pushBooyah").addEventListener("click",
+    () => ffArrowSend("booyah"));
+
+  document.getElementById("ff_pushMatchTop").addEventListener("click", () => {
+    const g = Number(document.getElementById("ff_arrowGame").value);
+    ffArrowSend("matchTop", g ? {game: g} : {});
+  });
+
+  document.getElementById("ff_pushTotals").addEventListener("click", () => {
+    const games = ffArrowTickedGames();
+    if (!games.length) {
+      document.getElementById("ff_arrowStatus").textContent =
+        "No games ticked \u2014 tick at least one, or use Clear to empty the block.";
+      return;
+    }
+    ffArrowSend("totals", {games: games});
+  });
+
+  document.getElementById("ff_clearTotals").addEventListener("click",
+    () => ffArrowSend("clearTotals"));
+})();
 
 document.getElementById("ff_sheetWebhookSave").addEventListener("click", () => {
   if(!ffState) return;

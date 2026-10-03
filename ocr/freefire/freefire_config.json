@@ -11,52 +11,52 @@
   },
   "regions": {
     "freefire_loadout": {
-      "x": -603,
-      "y": 912,
-      "w": 53,
-      "h": 52
+      "x": -1211,
+      "y": 839,
+      "w": 609,
+      "h": 203
     },
     "freefire_loadout_ign": {
-      "x": -1210,
-      "y": 829,
-      "w": 204,
-      "h": 44
+      "x": -1212,
+      "y": 868,
+      "w": 255,
+      "h": 46
     },
     "freefire_loadout_active": {
-      "x": -809,
-      "y": 829,
-      "w": 70,
-      "h": 78
+      "x": -814,
+      "y": 915,
+      "w": 74,
+      "h": 69
     },
     "freefire_loadout_passive1": {
-      "x": -812,
-      "y": 910,
-      "w": 51,
-      "h": 56
+      "x": -814,
+      "y": 988,
+      "w": 53,
+      "h": 53
     },
     "freefire_loadout_passive2": {
       "x": -761,
-      "y": 911,
+      "y": 986,
       "w": 51,
-      "h": 52
+      "h": 54
     },
     "freefire_loadout_passive3": {
-      "x": -707,
-      "y": 912,
-      "w": 53,
-      "h": 54
+      "x": -708,
+      "y": 988,
+      "w": 51,
+      "h": 53
     },
     "freefire_loadout_pet": {
-      "x": -654,
-      "y": 910,
-      "w": 51,
-      "h": 54
+      "x": -602,
+      "y": 989,
+      "w": 50,
+      "h": 50
     },
     "freefire_loadout_equipment": {
-      "x": -603,
-      "y": 914,
-      "w": 55,
-      "h": 47
+      "x": -655,
+      "y": 988,
+      "w": 52,
+      "h": 52
     },
     "freefire_killfeed": {
       "x": -662,
@@ -83,16 +83,16 @@
       "h": 319
     },
     "freefire_alive_r1p1": {
-      "x": -59,
-      "y": 310,
+      "x": -60,
+      "y": 303,
       "w": 9,
-      "h": 30
+      "h": 28
     },
     "freefire_alive_r1p2": {
-      "x": -47,
-      "y": 310,
-      "w": 10,
-      "h": 29
+      "x": -48,
+      "y": 304,
+      "w": 11,
+      "h": 28
     },
     "freefire_alive_r2p1": {
       "x": -59,
@@ -101,16 +101,16 @@
       "h": 28
     },
     "freefire_alive_r1elim": {
-      "x": -132,
-      "y": 304,
-      "w": 52,
-      "h": 41
+      "x": -129,
+      "y": 292,
+      "w": 44,
+      "h": 47
     },
     "freefire_alive_rlastp1": {
-      "x": -59,
-      "y": 930,
-      "w": 10,
-      "h": 28
+      "x": -61,
+      "y": 867,
+      "w": 9,
+      "h": 29
     },
     "freefire_alive_r1p3": {
       "x": -34,
@@ -125,10 +125,10 @@
       "h": 26
     },
     "freefire_alive_r1team": {
-      "x": -232,
-      "y": 309,
-      "w": 93,
-      "h": 29
+      "x": -238,
+      "y": 296,
+      "w": 85,
+      "h": 39
     },
     "freefire_elim_banner": {
       "x": -933,
@@ -147,7 +147,8 @@
       "y": 40,
       "w": 71,
       "h": 56
-    }
+    },
+    "freefire_alive_rlast_row": 11
   },
   "sidetable_colors": {
     "alive": [

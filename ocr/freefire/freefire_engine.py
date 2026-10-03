@@ -448,6 +448,7 @@ def default_state():
             # checkboxes by hand while watching the stream. Blank disables
             # it entirely; nothing is sent anywhere by default.
             "sheetWebhookUrl": "",
+            "arrowWebhookUrl": "",
             # Hold an elimination off air until the operator confirms it.
             # A squad wipe is the one reading where being wrong is most
             # visible -- the graphic fires, the team sinks down the
@@ -7974,6 +7975,172 @@ def refresh_freefire_mvps():
     }
 
 
+# ---------------------------------------------------------------------------
+# The three blocks that go to the ARROW sheet.
+#
+# Two different percentages travel together and are easy to confuse, so
+# they are named apart everywhere:
+#
+#   headRate   this player's headshots as a share of THEIR OWN finishes.
+#              "3 of 5 kills were headshots" -- a marksmanship figure.
+#
+#   headContri this player's headshots as a share of their TEAM's
+#              headshots, exactly as finContri is a share of the team's
+#              weighted finishes. A squad figure, not a personal one.
+#
+# A player with no headshot data at all gets None rather than 0 in both,
+# because the engine not having watched that game is a different fact
+# from a player who never hit one -- see compute_freefire_fraggers.
+
+
+def _pct(part, whole, places=2):
+    if not whole:
+        return None
+    return round(100.0 * part / whole, places)
+
+
+def _sheet_row(team_name, ign, kills, knocks, heads, team_weight,
+               team_heads):
+    weight = 7 * (kills or 0) + 3 * (knocks or 0)
+    return {
+        "team": team_name or "",
+        "ign": ign or "",
+        "elims": kills or 0,
+        "knocks": knocks or 0,
+        "headshots": heads,
+        "headRate": _pct(heads, kills) if heads is not None else None,
+        "headContri": _pct(heads, team_heads) if heads is not None else None,
+        "finContri": _pct(weight, team_weight),
+    }
+
+
+def booyah_sheet_rows(matches, roster_teams=None):
+    """The winning squad of the latest match, four rows.
+
+    finContri is a share of THAT SQUAD, which is the comparison the
+    Booyah graphic already draws between the four of them.
+    """
+    if roster_teams is None:
+        roster_teams = ((server_state.get("roster") or {}).get("teams")) or []
+    if not matches:
+        return []
+    latest = matches[-1]
+    teams = sorted(latest.get("teams", []) or [],
+                   key=lambda t: (t.get("rank") or 99))
+    if not teams:
+        return []
+    winner = teams[0]
+    _, name, _short = _standings_identity(winner, roster_teams)
+    players = (winner.get("players") or [])[:4]
+    weight = sum(7 * (p.get("kills") or 0) + 3 * (p.get("knocks") or 0)
+                 for p in players)
+    heads_total = sum(p["headshots"] for p in players
+                      if p.get("headshots") is not None)
+    return [_sheet_row(name, p.get("name"), p.get("kills"), p.get("knocks"),
+                       p.get("headshots"), weight, heads_total)
+            for p in players]
+
+
+def match_fragger_rows(matches, game=None, top=5, roster_teams=None):
+    """The top fraggers of ONE match, across every team.
+
+    Contributions are measured against the player's OWN team in that
+    match -- the only pool that means anything once the five rows come
+    from five different squads.
+    """
+    if roster_teams is None:
+        roster_teams = ((server_state.get("roster") or {}).get("teams")) or []
+    if not matches:
+        return []
+    if game is None:
+        chosen = matches[-1]
+    else:
+        later = [m for m in matches if m.get("gameNumber") == game]
+        chosen = later[-1] if later else None
+    if chosen is None:
+        return []
+
+    rows = []
+    for team in chosen.get("teams", []) or []:
+        _, name, _short = _standings_identity(team, roster_teams)
+        players = team.get("players") or []
+        weight = sum(7 * (p.get("kills") or 0) + 3 * (p.get("knocks") or 0)
+                     for p in players)
+        heads_total = sum(p["headshots"] for p in players
+                          if p.get("headshots") is not None)
+        for p in players:
+            rows.append(_sheet_row(name, p.get("name"), p.get("kills"),
+                                   p.get("knocks"), p.get("headshots"),
+                                   weight, heads_total))
+    rows.sort(key=lambda r: (-r["elims"], -r["knocks"],
+                             -(r["headshots"] or 0), r["ign"].upper()))
+    return rows[:top] if top else rows
+
+
+def total_fragger_rows(matches, games=None, roster_teams=None):
+    """Every player across the games the operator ticked, rank order.
+
+    games=None means all of them. A game with no committed match simply
+    contributes nothing rather than erroring, so a dashboard offering
+    six boxes before six games have been played still works.
+    """
+    if roster_teams is None:
+        roster_teams = ((server_state.get("roster") or {}).get("teams")) or []
+    if games is not None:
+        wanted = {int(g) for g in games}
+        matches = [m for m in matches if m.get("gameNumber") in wanted]
+    agg = compute_freefire_fraggers(matches, roster_teams)
+    rows = agg["rows"]
+
+    team_weight, team_heads = {}, {}
+    for r in rows:
+        key = r["teamName"] or r["uid"]
+        team_weight[key] = team_weight.get(key, 0) + (
+            7 * r["totalKills"] + 3 * r["totalKnocks"])
+        if r["hsGames"]:
+            team_heads[key] = team_heads.get(key, 0) + r["totalHeadshots"]
+
+    out = []
+    for r in rows:
+        key = r["teamName"] or r["uid"]
+        out.append(_sheet_row(
+            r["teamName"], r["ign"], r["totalKills"], r["totalKnocks"],
+            r["totalHeadshots"] if r["hsGames"] else None,
+            team_weight.get(key, 0), team_heads.get(key, 0)))
+    return out
+
+
+def push_arrow_block(what, rows):
+    """One block to the ARROW sheet, and what the script said back.
+
+    Its own webhook, like every other push here: the ARROW tabs live in
+    their own spreadsheet with their own bound script, and a URL that
+    reaches one spreadsheet cannot reach another.
+
+    The reply is returned rather than swallowed because all three of
+    these are deliberate operator actions -- a button press before a
+    graphic goes up -- and "written 5" is the only confirmation the
+    operator gets that the tab they named was the tab that was written.
+    """
+    url = (server_state.get("settings", {}).get("arrowWebhookUrl") or "").strip()
+    if not url:
+        return {"ok": False, "error":
+                "No ARROW sheet web app URL set. Deploy "
+                "freefire_arrow_push.gs on that spreadsheet and paste its "
+                "/exec URL into the dashboard."}
+    try:
+        answer = _post_sheet_payload(url, {"what": what, "rows": rows})
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    try:
+        return json.loads(answer)
+    except Exception:
+        # Apps Script answers with an HTML error page when the script
+        # itself failed to run -- a missing tab, a permission it was
+        # never granted. Passing the first line back beats "ok".
+        return {"ok": False, "error": (answer or "")[:200]}
+
+
 # How long any one client gets to accept a message before the rest stop
 # waiting for it.
 #
@@ -8426,6 +8593,37 @@ async def handle_client(websocket, path=None):
                     await websocket.send(json.dumps({
                         "type": "freefire_match_result", "teams": [], "matchId": None, "error": str(e),
                     }))
+            elif payload.get("type") == "freefire_push_arrow":
+                # what: "booyah" | "matchTop" | "totals" | "clearTotals"
+                #
+                # The rows are built HERE rather than sent by the
+                # dashboard. The dashboard holds a copy of the state for
+                # drawing, and a push assembled from that copy would
+                # write whatever the browser last happened to receive --
+                # including a tab left open from the previous match.
+                what = payload.get("what") or ""
+                matches = server_state.get("matches", []) or []
+                if what == "booyah":
+                    rows = booyah_sheet_rows(matches)
+                elif what == "matchTop":
+                    rows = match_fragger_rows(
+                        matches, game=payload.get("game"),
+                        top=payload.get("top") or 5)
+                elif what == "totals":
+                    rows = total_fragger_rows(matches, games=payload.get("games"))
+                elif what == "clearTotals":
+                    rows = []
+                else:
+                    await websocket.send(json.dumps({
+                        "type": "freefire_arrow_result",
+                        "what": what,
+                        "result": {"ok": False,
+                                   "error": "Unknown push '%s'." % what}}))
+                    continue
+                result = push_arrow_block(what, rows)
+                await websocket.send(json.dumps({
+                    "type": "freefire_arrow_result",
+                    "what": what, "rows": len(rows), "result": result}))
             elif payload.get("type") == "freefire_fetch_safezone":
                 folder = payload.get("folder") or server_state.get("settings", {}).get("safezoneFolder", "")
                 match_id = payload.get("matchId") or server_state.get("currentMatchId")
