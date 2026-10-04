@@ -80,8 +80,19 @@
     display:flex;
     transform:translateY(112%);
     opacity:0;
+    /* visibility as well as the transform, and it is what actually
+       guarantees the thing is gone. The slide is the nice part, but a
+       transform can be defeated -- a stale stylesheet, a compositor that
+       ignores will-change, a parent that clips differently -- and when
+       that happens the strip simply stays on screen with Hide pressed,
+       which is what went out on air. visibility cannot be half-applied.
+       It is delayed by the length of the slide on the way out so the
+       animation still plays, and applied instantly on the way in. */
+    visibility:hidden;
+    pointer-events:none;
     transition:transform .62s cubic-bezier(.16,.84,.34,1),
-               opacity .34s ease;
+               opacity .34s ease,
+               visibility 0s linear .62s;
     will-change:transform;
     position:relative;
     width:1918px;height:248px;box-sizing:border-box;
@@ -101,6 +112,10 @@
   #stage.visible{
     transform:translateY(0);
     opacity:1;
+    visibility:visible;
+    transition:transform .62s cubic-bezier(.16,.84,.34,1),
+               opacity .34s ease,
+               visibility 0s linear 0s;
   }
 
   /* The torn highlight the deck runs along its top edge. */
