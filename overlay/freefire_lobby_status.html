@@ -136,14 +136,19 @@
      of it is the deck's own accent, and it gives the line something to
      start against instead of floating. */
   .head .kicker{
-    display:flex;align-items:center;gap:10px;
     font-weight:800;font-size:17px;letter-spacing:.2em;
     color:var(--cream);text-transform:uppercase;
     white-space:nowrap;overflow:hidden;
     text-shadow:0 1px 0 rgba(0,0,0,.4);
   }
+  /* The rule sits ABOVE the line, not beside it. Inline, it pushed the
+     kicker 30px right while the title below stayed at zero, and the two
+     lines no longer shared a left edge -- which is the first thing the
+     eye checks on a stacked block like this. Everything in the header
+     now starts at the same x. */
   .head .kicker::before{
-    content:"";flex:0 0 20px;height:3px;background:var(--amber);
+    content:"";display:block;width:26px;height:3px;
+    background:var(--amber);margin:0 0 7px;
   }
   .head .title{
     font-weight:900;font-style:italic;font-size:47px;line-height:.98;
@@ -153,6 +158,10 @@
   }
   .head .count{
     margin-top:9px;display:flex;align-items:baseline;gap:9px;
+    /* Italic overhangs its box on the left, so a big italic numeral set
+       flush reads as if it has drifted inwards. Pulled back by one pixel
+       so the 0 lines up with the L of LOBBY above it. */
+    margin-left:-1px;
   }
   .head .count b{
     font-weight:900;font-style:italic;font-size:40px;line-height:1;
