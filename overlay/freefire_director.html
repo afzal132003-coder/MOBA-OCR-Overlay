@@ -80,6 +80,19 @@
   .note{color:var(--dim);font-size:16px;margin-top:auto;padding-top:14px;
         border-top:1px solid var(--line);line-height:1.5}
   .empty{color:var(--dim);font-size:26px;padding:26px 0}
+
+  /* A team as the board shows it: its SLOT, big, then its SHORT name.
+     Read across a room at a glance, the number is what the eye finds
+     first, so it is the biggest thing on the line. Sized in em so it
+     scales with whichever line it sits in -- the call, a fight, the
+     kill leader. */
+  .tm{display:inline-flex;align-items:center;gap:.28em;white-space:nowrap}
+  .tm .sl{display:inline-flex;align-items:center;justify-content:center;
+          min-width:1.5em;height:1.5em;padding:0 .28em;border-radius:.24em;
+          font-size:1.45em;font-weight:900;line-height:1;
+          background:var(--hot);color:#0b0e15;font-variant-numeric:tabular-nums}
+  .tm .sn{font-weight:800;letter-spacing:.03em}
+  .vs{color:var(--dim);font-weight:400;margin:0 .5em}
 </style>
 </head>
 <body>
@@ -144,6 +157,22 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g,
   (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
 
+/* One team: the slot big, the short name beside it. Falls back to the
+   full name the engine used to send if this board is newer than the
+   engine feeding it, so it never goes blank in between. */
+function tag(info, fallback){
+  if(!info) return esc(fallback || "");
+  return "<span class='tm'>" +
+    (info.slot != null ? "<span class='sl'>" + esc(info.slot) + "</span>" : "") +
+    "<span class='sn'>" + esc(info.short || info.name || fallback || "") + "</span></span>";
+}
+
+function tags(infos, names, joiner){
+  const list = (infos && infos.length) ? infos : (names || []).map(() => null);
+  return list.map((inf, i) => tag(inf, (names || [])[i]))
+             .join("<span class='vs'>" + joiner + "</span>");
+}
+
 function render(d){
   if(!d){
     $("shot").textContent = "—";
@@ -158,8 +187,8 @@ function render(d){
   }
   const call = d.call || {};
   $("shot").textContent = call.shot || "—";
-  $("callTeams").textContent = (call.teams && call.teams.length)
-    ? call.teams.join("   vs   ") : "no engagement";
+  $("callTeams").innerHTML = (call.teams && call.teams.length)
+    ? tags(call.teamInfo, call.teams, "vs") : "no engagement";
   $("callWhy").textContent = call.why || "";
 
   const list = d.engagements || [];
@@ -173,7 +202,7 @@ function render(d){
         e.where[0] + ", " + e.where[1] + " &middot; " + e.whereAgeSeconds + "s old</span>"
       : "<span class='stale'>no position</span>";
     return "<div class='fight" + (i === 1 ? " second" : "") + "'>" +
-      "<div class='fteams'>" + esc(e.teams.join("  vs  ")) + "</div>" +
+      "<div class='fteams'>" + tags(e.teamInfo, e.teams, "vs") + "</div>" +
       "<div class='fmeta'><span>" + e.knocks + " knocks &middot; " + e.kills +
       " kills</span><span>" + e.secondsAgo + "s ago</span>" + where + "</div>" +
       "<div class='bar'><i style='width:" +
@@ -190,7 +219,7 @@ function render(d){
     ? "Closing in — within " + (d.nearRange || 0) + " units" : "Closing in";
   $("closing").innerHTML = near.map(c =>
     "<div class='fight'><div class='fteams' style='font-size:27px'>" +
-    esc(c.teams.join("  +  ")) + "</div>" +
+    tags(c.teamInfo, c.teams, "+") + "</div>" +
     "<div class='fmeta'><span>" + c.apart + " apart</span>" +
     "<span class='" + (c.ageSeconds > 45 ? "stale" : "where") + "'>" +
     c.ageSeconds + "s old</span></div></div>").join("");
@@ -202,7 +231,7 @@ function render(d){
 
   const led = d.killLeader;
   $("leader").innerHTML = led
-    ? esc(led.team) + " <small>" + led.kills + " kills" +
+    ? tag(led.info, led.team) + " <small>" + led.kills + " kills" +
       (led.lead > 0 ? ", +" + led.lead : ", tied") + "</small>"
     : "—";
   $("up").textContent = (d.teamsUp == null) ? "—" : d.teamsUp;

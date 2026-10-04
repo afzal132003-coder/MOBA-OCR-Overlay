@@ -355,6 +355,36 @@ def main():
         ff.server_state["roster"] = keep_roster2
         ff.server_state["liveOps"]["lobbyPlayers"] = keep_lobby2
 
+    print("\nthe director board: slot big, short name")
+    keep_ev3 = dict(ff.server_state.get("event") or {})
+    try:
+        live_d = {"fights": [[1000.0, 3, 9, "kill"], [1001.0, 9, 3, "knock"]],
+                  "gsKills": {3: 5, 9: 1}, "gsIgns": {3: {"a": "x"}, 9: {"b": "y"}},
+                  "wiped": [], "revivePoints": [], "zone": {}}
+        linked_d = {"gsNames": {3: "TEAM APEX", 9: "VASIYO ESP"},
+                    "rows": [{"gsTeam": 3, "teamId": None, "short": "APEX"},
+                             {"gsTeam": 9, "teamId": None, "short": "VE"}]}
+        ff.server_state["event"] = dict(keep_ev3, roomType="normal")
+        feed = ff.director_feed(live_d, linked_d, now=1005.0)
+        inf = feed["engagements"][0]["teamInfo"]
+        check("a normal room shows the squad's own number as its slot",
+              sorted(i["slot"] for i in inf) == [3, 9], str(inf))
+        check("with the short name the alive table uses",
+              sorted(i["short"] for i in inf) == ["APEX", "VE"], str(inf))
+        check("the call carries the same", len(feed["call"]["teamInfo"]) == 2)
+        check("and the kill leader", feed["killLeader"]["info"]["short"] == "APEX")
+        ff.server_state["event"] = dict(keep_ev3, roomType="league")
+        linked_l = {"gsNames": linked_d["gsNames"],
+                    "rows": [{"gsTeam": 3, "teamId": 7, "short": "APEX"},
+                             {"gsTeam": 9, "teamId": None, "short": "VE"}]}
+        inf_l = {i["short"]: i["slot"] for i in
+                 ff.director_feed(live_d, linked_l, now=1005.0)["engagements"][0]["teamInfo"]}
+        check("a league room shows the room's team number", inf_l["APEX"] == 7, str(inf_l))
+        check("and no number it does not have, rather than the log's",
+              inf_l["VE"] is None, str(inf_l))
+    finally:
+        ff.server_state["event"] = keep_ev3
+
     print("\n%d checks, %d failed" % (checks, len(failures)))
     if failures:
         print("failed: " + ", ".join(failures))

@@ -6869,6 +6869,34 @@ def director_feed(live, linked=None, now=None):
     label = lambda gs: ("(%s) %s" % (slot_of[gs], name_of(gs))
                         if gs in slot_of else name_of(gs))
 
+    # Each team as the director board now shows it: its SLOT, big, and
+    # its SHORT name instead of the full one -- what the operator asked
+    # for, because a board read across a room at a glance wants "12 TSG",
+    # not "(12) TSG ARMY ESPORTS".
+    #
+    # The short name is the one the alive table is already using for that
+    # squad (an operator override, then the roster's, then one derived from
+    # the name), so the two boards never call a team two different things.
+    #
+    # The slot is the room's team number where the client publishes one --
+    # a league room's TeamID. A normal room publishes none, so there it is
+    # the squad's own number from the log, the same one Name the Squads
+    # and a "SQUAD n" row use. It is NOT the number on the game's
+    # spectator panel in a normal room: the client writes that nowhere.
+    normal_room = (server_state.get("event") or {}).get("roomType") == "normal"
+    short_of = {}
+    for row in (linked or {}).get("rows") or []:
+        if row.get("gsTeam") is not None and row.get("short"):
+            short_of[row["gsTeam"]] = row["short"]
+
+    def info(gs):
+        slot = slot_of.get(gs)
+        if slot is None and normal_room:
+            slot = gs
+        return {"slot": slot,
+                "short": short_of.get(gs) or derive_short_name(name_of(gs)),
+                "name": name_of(gs)}
+
     # Where each squad was last seen, if recently enough to mean anything.
     seen = {}
     for when, gs, x, z in (live.get("revivePoints") or []):
@@ -6897,6 +6925,7 @@ def director_feed(live, linked=None, now=None):
                 spot = seen[gs]
         engagements.append({
             "teams": [label(a), label(b)],
+            "teamInfo": [info(a), info(b)],
             "squads": [a, b],
             "slots": [slot_of.get(a), slot_of.get(b)],
             "knocks": entry["knocks"], "kills": entry["kills"],
@@ -6916,7 +6945,8 @@ def director_feed(live, linked=None, now=None):
         gs, n = max(kills.items(), key=lambda kv: kv[1])
         if n:
             rest = sorted((v for k, v in kills.items() if k != gs), reverse=True)
-            leader = {"team": label(gs), "squad": gs, "slot": slot_of.get(gs),
+            leader = {"team": label(gs), "info": info(gs),
+                      "squad": gs, "slot": slot_of.get(gs),
                       "kills": n, "lead": n - (rest[0] if rest else 0)}
 
     # Squads whose last known positions are close to each other but who
@@ -6943,6 +6973,7 @@ def director_feed(live, linked=None, now=None):
                 continue
             closing_in.append({
                 "teams": [label(ga), label(gb)],
+                "teamInfo": [info(ga), info(gb)],
                 "squads": [ga, gb],
                 "slots": [slot_of.get(ga), slot_of.get(gb)],
                 "apart": int(gap),
@@ -6966,18 +6997,22 @@ def director_feed(live, linked=None, now=None):
         why = ("circle closing, no fight running" if closing
                else "nothing is happening")
         teams = []
+        call_info = []
     elif len(engagements) >= 2 and             engagements[1]["weight"] >= engagements[0]["weight"] * FREEFIRE_SPLIT_RATIO:
         shot = "SPLIT SCREEN"
         why = "two fights worth watching at once"
         teams = engagements[0]["teams"] + engagements[1]["teams"]
+        call_info = engagements[0]["teamInfo"] + engagements[1]["teamInfo"]
     elif engagements[0]["where"]:
         shot = "MAP + POV"
         why = "one fight, and we know roughly where"
         teams = engagements[0]["teams"]
+        call_info = engagements[0]["teamInfo"]
     else:
         shot = "POV"
         why = "one fight, no position for it"
         teams = engagements[0]["teams"]
+        call_info = engagements[0]["teamInfo"]
 
     return {
         "engagements": engagements[:4],
@@ -6991,7 +7026,7 @@ def director_feed(live, linked=None, now=None):
         "zone": {"stage": zone.get("stage"), "phase": zone.get("phase"),
                  "radius": zone.get("radius")} if zone else None,
         "countdown": zone_countdown(live, now),
-        "call": {"shot": shot, "why": why, "teams": teams},
+        "call": {"shot": shot, "why": why, "teams": teams, "teamInfo": call_info},
         "positionsAre": "from revives, up to 2 minutes old",
     }
 
