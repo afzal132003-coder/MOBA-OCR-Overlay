@@ -509,17 +509,35 @@ function render(ff){
 }
 
 let _lastRoster = null;
+/* The last whole state this page was given. lobby_update carries only
+   what the strip draws, so it is merged into this and re-rendered --
+   the roster, which is the expensive part, is already here. */
+let _lastState = null;
 let ws;
 function connect(){
   ws = new WebSocket(WS_URL);
   ws.onmessage = function(evt){
     const msg = JSON.parse(evt.data);
+    if(msg.type === "lobby_update"){
+      /* A tick, or Show/Hide. Under a kilobyte, sent straight to this
+         page, and it arrives before the full state_sync that follows --
+         which is the difference between a checkbox turning green now and
+         most of a second later. Nothing to do if no whole state has
+         arrived yet; one is always sent on connect. */
+      if(!_lastState) return;
+      _lastState.lobby = msg.lobby || {};
+      _lastState.display = Object.assign({}, _lastState.display,
+                                         {lobbyStatusVisible: !!msg.visible});
+      render(_lastState);
+      return;
+    }
     if(msg.type === "state_sync" && msg.data){
       // The roster is left out of a sync when unchanged -- it is the
       // biggest thing on the wire. Hold the last one and put it back, or
       // this strip empties itself between syncs.
       if(msg.data.roster) _lastRoster = msg.data.roster;
       else if(_lastRoster) msg.data.roster = _lastRoster;
+      _lastState = msg.data;
       render(msg.data);
     }
   };

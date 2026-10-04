@@ -8480,6 +8480,29 @@ async def broadcast_state_sync():
     await asyncio.gather(*sends, return_exceptions=True)
 
 
+async def push_lobby_update():
+    """The lobby strip's own state, on its own message, to its own page.
+
+    A tick used to travel inside the full state_sync. Even leaned that is
+    72 KB, of which 35 KB is liveOps -- which this strip has never read --
+    and on an ordinary upload four to six of those per change is most of
+    a second before a checkbox turns green on air. Measured over the
+    relay: 135ms, 120ms, 610ms, 925ms for four ticks in a row.
+
+    This is under a kilobyte and carries exactly what the strip draws:
+    who is in, what it is called, and whether it is up. It is sent FIRST,
+    so the strip has already moved by the time the full sync arrives for
+    everyone else -- which still happens, because the dashboard and the
+    rest of the state are unaffected by any of this.
+    """
+    await broadcast_to_page("freefire_lobby_status", {
+        "type": "lobby_update",
+        "lobby": server_state.get("lobby") or {},
+        "visible": bool((server_state.get("display") or {})
+                        .get("lobbyStatusVisible")),
+    })
+
+
 async def broadcast(message):
     if not connected_clients:
         return
@@ -9337,6 +9360,11 @@ async def handle_client(websocket, path=None):
             elif payload.get("type") in ("lobby_status_show", "lobby_status_hide"):
                 server_state["display"]["lobbyStatusVisible"] = (
                     payload["type"] == "lobby_status_show")
+                # The strip first, the rest of the world after. Saving
+                # state writes 190 KB to disk and the full sync is 72 KB
+                # on the wire; neither belongs between pressing Show and
+                # the graphic moving.
+                await push_lobby_update()
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") == "lobby_set_joined":
@@ -9355,6 +9383,7 @@ async def handle_client(websocket, path=None):
                     lobby["kicker"] = payload["kicker"]
                 if payload.get("shortNames") is not None:
                     lobby["shortNames"] = bool(payload["shortNames"])
+                await push_lobby_update()
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") in ("booyah_stats_show", "booyah_stats_hide"):
