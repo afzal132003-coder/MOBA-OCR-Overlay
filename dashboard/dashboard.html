@@ -6643,9 +6643,11 @@ function ffOpen(url){
       {
         const st = document.getElementById("ff_nameSquadsStatus");
         if (st && msg.assigned && msg.assigned.length) {
-          st.textContent = (msg.added || msg.teamsCreated)
+          st.textContent = (msg.added || msg.teamsCreated || msg.moved)
             ? "Named. " + (msg.teamsCreated ? msg.teamsCreated + " new team(s), " : "") +
-              (msg.added || 0) + " player(s) saved \u2014 the alive row renames on the next update."
+              (msg.added || 0) + " player(s) saved" +
+              (msg.moved ? ", " + msg.moved + " moved off the team they were wrongly under" : "") +
+              " \u2014 the alive row renames on the next update."
             : (msg.unplaced && msg.unplaced.length
                 ? "Not named \u2014 the engine could not place that squad."
                 : "Already named \u2014 those players were on that team already.");
@@ -9845,7 +9847,12 @@ function ffRenderNameSquads() {
         (r.aliveCount != null ? " &middot; " + r.aliveCount + " alive" : "") +
         (sq.eliminated ? " &middot; out" : "") + "</div>" +
       "<div style='flex:1;min-width:220px;font-size:12px;'>" +
-        (sq.igns || []).map(ffEscapeHtml).join(", ") + "</div>" +
+        (sq.igns || []).map(ffEscapeHtml).join(", ") +
+        (sq.claimedBy
+          ? "<div style='color:#fbbf24;margin-top:2px;'>Its players are saved under <strong>" +
+            ffEscapeHtml(sq.claimedBy) + "</strong>, which another squad already holds. " +
+            "Name it here and they move to the right team.</div>"
+          : "") + "</div>" +
       "<input type='text' class='ff-name-squad' data-gs='" + sq.gsTeam + "' list='ff_rosterTeamNames' " +
         "placeholder='team name' value=\"" + ffEscapeHtml(value).replace(/"/g, "&quot;") + "\" " +
         "style='width:170px;'>" +

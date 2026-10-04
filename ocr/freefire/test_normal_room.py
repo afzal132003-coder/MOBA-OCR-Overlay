@@ -286,6 +286,75 @@ def main():
         ff.server_state["liveOps"]["lobbyPlayers"] = keep_lobby
         ff.server_state["event"] = keep_event
 
+    print("\ntwo squads, one team: tonight's eleven rows")
+    # The TSG squad's four players had been saved under 4ENDS ESP, which
+    # also held one real 4ENDS player. Both squads read as 4ENDS ESP, the
+    # overlay keyed them by name, and twelve squads went out as eleven.
+    import asyncio as _aio, json as _js
+    from types import SimpleNamespace as _NS
+    keep_event2 = dict(ff.server_state.get("event") or {})
+    keep_roster2 = ff.server_state.get("roster")
+    keep_lobby2 = ff.server_state["liveOps"].get("lobbyPlayers")
+    keep_save2 = ff.save_state
+    ff.save_state = lambda *a, **k: None
+    try:
+        ff.server_state["event"] = dict(keep_event2, roomType="normal")
+        tsg = [("TSG-LEGEND2I", "1"), ("TSG-NOVA", "2"), ("TSG-ICONIC30", "3"), ("TSG-ADDYY17", "4")]
+        four = [("Piyushh17!", "5"), ("4ENDS.BELUGA", "6"), ("Anshu26!", "7"), ("HNE-YAGO.18", "8")]
+        roster = {"teams": [
+            {"name": "4ENDS ESP", "players": [{"ign": i, "uid": u} for i, u in tsg + four[:1]]},
+            {"name": "TSG ARMY", "players": []}]}
+        ff.server_state["roster"] = roster
+        live = {"teamNames": {},
+                "gsIgns": {5: {u: i for i, u in four}, 12: {u: i for i, u in tsg}},
+                "gsDown": {}, "gsKills": {5: 15, 12: 0}, "wiped": []}
+        out = ff.link_live_teams(live, roster)
+        names = [r["teamName"] for r in out["rows"]]
+        check("both squads still get a row of their own",
+              len(names) == 2 and len(set(names)) == 2, str(names))
+        check("the squad with more players on the team keeps its name",
+              "4ENDS ESP" in names, str(names))
+        clash = [u for u in out["unresolved"] if u.get("claimedBy")]
+        check("and the other is offered for naming, with the clash spelt out",
+              len(clash) == 1 and clash[0]["claimedBy"] == "4ENDS ESP",
+              str(clash)[:120])
+
+        ff.server_state["liveOps"]["lobbyPlayers"] = (
+            [{"uid": u, "ign": i, "gsTeam": 12, "team": ""} for i, u in tsg] +
+            [{"uid": u, "ign": i, "gsTeam": 5, "team": ""} for i, u in four])
+
+        class _Dash:
+            def __init__(self, m):
+                self.request = _NS(path="/?page=freefire_dashboard"); self._in = [m]; self.sent = []
+            async def send(self, raw): self.sent.append(_js.loads(raw))
+            def __aiter__(self): return self
+            async def __anext__(self):
+                if not self._in: raise StopAsyncIteration
+                return self._in.pop(0)
+        d = _Dash(_js.dumps({"type": "freefire_fill_roster_from_lobby",
+                             "assignments": {"12": "TSG ARMY"}}))
+        _aio.run(ff.handle_client(d))
+        r = [m for m in d.sent if m.get("type") == "freefire_fill_roster_result"][-1]
+        teams = {t["name"]: t for t in ff.server_state["roster"]["teams"]}
+        check("naming the squad moves its players off the wrong team",
+              [p["ign"] for p in teams["4ENDS ESP"]["players"]] == ["Piyushh17!"],
+              str([p["ign"] for p in teams["4ENDS ESP"]["players"]]))
+        check("onto the right one", len(teams["TSG ARMY"]["players"]) == 4)
+        check("and says how many it moved", r.get("moved") == 4, str(r.get("moved")))
+        names = sorted(x["teamName"] for x in ff.link_live_teams(live, ff.server_state["roster"])["rows"])
+        check("after which both squads are named correctly",
+              names == ["4ENDS ESP", "TSG ARMY"], str(names))
+
+        ff.server_state["event"] = dict(keep_event2, roomType="league")
+        live_l = dict(live, teamNames={})
+        check("a league room is not touched by any of it",
+              ff.link_live_teams(live_l, roster)["rows"] == [])
+    finally:
+        ff.save_state = keep_save2
+        ff.server_state["event"] = keep_event2
+        ff.server_state["roster"] = keep_roster2
+        ff.server_state["liveOps"]["lobbyPlayers"] = keep_lobby2
+
     print("\n%d checks, %d failed" % (checks, len(failures)))
     if failures:
         print("failed: " + ", ".join(failures))

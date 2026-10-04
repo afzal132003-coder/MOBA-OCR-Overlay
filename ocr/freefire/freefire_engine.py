@@ -7079,6 +7079,7 @@ def link_live_teams(live, roster):
     name_to_index = {(t.get("name") or "").strip(): i
                      for i, t in enumerate(roster_teams)}
     gs_to_roster = {}
+    gs_votes = {}
     for gs_team, players in live.get("gsIgns", {}).items():
         votes = {}
         for ign in players.values():
@@ -7089,6 +7090,7 @@ def link_live_teams(live, roster):
                 votes[index] = votes.get(index, 0) + 1
         if votes:
             gs_to_roster[gs_team] = max(votes, key=votes.get)
+            gs_votes[gs_team] = votes[gs_to_roster[gs_team]]
 
     roster_to_gs = {}
     for gs_team, index in gs_to_roster.items():
@@ -7249,7 +7251,31 @@ def link_live_teams(live, roster):
     # room a squad that has not been joined to a name yet is simply not a
     # row of its own -- adding one here would put the same team on the
     # table twice, once by name and once by squad.
+    denied = {}
     if (server_state.get("event") or {}).get("roomType") == "normal":
+        # ONE TEAM, ONE ROW. Two squads whose players both point at the same
+        # roster team would otherwise both be published under its name --
+        # and the overlay keys its rows by name, so the two collapse into
+        # one and a squad silently vanishes. Seen live: a squad's four
+        # players saved under the wrong team gave twelve squads and eleven
+        # rows, with nothing on screen to say why.
+        #
+        # The squad with more of its players on that team keeps it; the
+        # other is shown as SQUAD n and listed for naming, with the team
+        # its players are already filed under, so the clash is in front of
+        # the operator instead of a row going missing.
+        owner = {}
+        for gs_team in sorted(gs_to_roster):
+            index = gs_to_roster[gs_team]
+            held = owner.get(index)
+            if held is None or gs_votes.get(gs_team, 0) > gs_votes.get(held, 0):
+                owner[index] = gs_team
+        for gs_team in sorted(gs_to_roster):
+            index = gs_to_roster[gs_team]
+            if owner.get(index) != gs_team:
+                denied[gs_team] = (roster_teams[index] or {}).get("name") or ""
+        for gs_team in denied:
+            gs_to_roster.pop(gs_team, None)
         claimed = {r.get("gsTeam") for r in rows if r.get("gsTeam") is not None}
         squads = live.get("gsIgns", {}) or {}
         overrides = server_state.get("settings", {}).get("shortNames") or {}
@@ -7315,6 +7341,10 @@ def link_live_teams(live, roster):
             "gsTeam": gs_team,
             "igns": sorted(players.values()),
             "eliminated": gs_team in wiped,
+            # The team this squad's players are already filed under but
+            # another squad holds -- see ONE TEAM, ONE ROW. Absent when
+            # it simply has no team yet.
+            "claimedBy": denied.get(gs_team, ""),
         })
     return {"rows": rows, "gsNames": gs_names, "unresolved": unresolved}
 
@@ -10124,6 +10154,7 @@ async def handle_client(websocket, path=None):
                     by_squad.setdefault(str(p.get("gsTeam")), []).append(p)
 
                 teams_created = 0
+                moved = 0
                 for gs_team, players in sorted(by_squad.items()):
                     stated = (assignments.get(gs_team) or "").strip()
                     target = (stated
@@ -10148,6 +10179,25 @@ async def handle_client(websocket, path=None):
                         unplaced.append({"gsTeam": gs_team,
                                          "igns": [p.get("ign") for p in players]})
                         continue
+                    # An operator naming this squad is saying who these
+                    # players ARE, and a player is on one team. So when the
+                    # name is stated outright, they come off any other team
+                    # they had been filed under. Left there, they kept
+                    # pulling the squad back to the wrong team by vote --
+                    # four players saved under 4ENDS ESP made the TSG squad
+                    # read as 4ENDS, whatever it was then called.
+                    if stated:
+                        squad_uids = {str(p.get("uid") or "").strip()
+                                      for p in players} - {""}
+                        for other in roster:
+                            if other is team:
+                                continue
+                            before = other.get("players") or []
+                            kept = [q for q in before
+                                    if str(q.get("uid") or "").strip() not in squad_uids]
+                            if len(kept) != len(before):
+                                moved += len(before) - len(kept)
+                                other["players"] = kept
                     existing = team.setdefault("players", [])
                     known = {str(q.get("uid") or "").strip()
                              for q in existing if str(q.get("uid") or "").strip()}
@@ -10170,7 +10220,7 @@ async def handle_client(websocket, path=None):
                         known.add(uid)
                         added += 1
 
-                if added or teams_created:
+                if added or teams_created or moved:
                     save_state()
                     await broadcast({"type": "state_sync", "data": server_state,
                                      "locked": list(locked_fields)})
@@ -10179,6 +10229,7 @@ async def handle_client(websocket, path=None):
                     "added": added, "alreadyThere": skipped,
                     "noUid": no_uid, "unplaced": unplaced,
                     "lobbySeen": len(lobby), "teamsCreated": teams_created,
+                    "moved": moved,
                     "assigned": sorted(assignments.keys()),
                 }))
             elif payload.get("type") == "freefire_list_match_files":
