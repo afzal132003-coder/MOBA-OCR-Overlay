@@ -113,7 +113,13 @@
 
   /* ---- the left-hand label ---- */
   .head{
-    flex:0 0 268px;display:flex;flex-direction:column;justify-content:center;
+    /* Takes what the longest line needs, within bounds, instead of a
+       fixed width: "ROOM CREATE" and "GRAND FINALS DAY 1" are not the
+       same size, and a fixed box clips the second one mid-word. The
+       cards divide whatever is left, so a wider header costs each of
+       twelve about two pixels. */
+    flex:0 1 auto;min-width:252px;max-width:360px;
+    display:flex;flex-direction:column;justify-content:center;
     padding-right:20px;position:relative;
   }
   .head::after{
@@ -121,9 +127,23 @@
     background:linear-gradient(180deg,
       transparent, var(--amber) 22%, var(--amber) 78%, transparent);
   }
+  /* The line above the title. It was 15px at .34em tracking and 72%
+     opacity, which at this size is thin, cramped and half-lit all at
+     once -- the letters sit so far apart they stop reading as a word and
+     there is not enough weight left to hold them together. Heavier,
+     a little larger, tracking pulled back to where the spacing helps
+     rather than separates, and at full strength. The amber rule in front
+     of it is the deck's own accent, and it gives the line something to
+     start against instead of floating. */
   .head .kicker{
-    font-weight:700;font-size:15px;letter-spacing:.34em;
-    color:var(--cream);opacity:.72;text-transform:uppercase;
+    display:flex;align-items:center;gap:10px;
+    font-weight:800;font-size:17px;letter-spacing:.2em;
+    color:var(--cream);text-transform:uppercase;
+    white-space:nowrap;overflow:hidden;
+    text-shadow:0 1px 0 rgba(0,0,0,.4);
+  }
+  .head .kicker::before{
+    content:"";flex:0 0 20px;height:3px;background:var(--amber);
   }
   .head .title{
     font-weight:900;font-style:italic;font-size:47px;line-height:.98;
