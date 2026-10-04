@@ -44,6 +44,7 @@ peers exactly as before.
 import asyncio
 import json
 import os
+from collections import deque
 from urllib.parse import urlparse, parse_qs
 
 import websockets
@@ -121,29 +122,107 @@ last_roster = None
 roster_cache_peers = {}
 
 
-# How long any one peer may take to accept a message before the relay
-# stops waiting on it. Generous next to a send that normally completes in
-# milliseconds, and far below the point where a stalled peer would be
-# noticeable to everyone else.
-SEND_TIMEOUT_SECONDS = 5
+# websocket -> Outbox. Every byte bound for a peer goes through its own.
+outboxes = {}
 
 
-async def _send_guarded(peer, data):
-    """Returns False when the peer is gone and should be dropped.
+class Outbox:
+    """Everything bound for one peer, written by that peer's own task.
 
-    A slow peer is not dropped -- it simply misses this message and gets
-    the next one. Only a closed connection is cleaned up here.
+    WHY THIS EXISTS. The fan-out used to send each engine message to every
+    peer and wait for all of them -- up to five seconds each -- before it
+    read the engine's NEXT message. So the slowest page on the relay set
+    the pace for every other page, whatever game it belonged to. A
+    backgrounded browser tab is enough: the browser throttles it, its
+    socket stops draining, and the relay sits out the full deadline on it.
+
+    Measured from a subscriber on the live relay: inter-arrival gaps of
+    exactly 5003ms -- the deadline to the millisecond -- five of them over
+    two seconds in 25s, with bursts of messages 0ms apart after each.
+    Holes then bursts is what one blocked writer looks like from the far
+    side. On air it was a lobby strip that took longer than twelve
+    seconds to show a tick, while the round trip to this machine was 18ms.
+
+    Now the reader only ever drops a message into each outbox and moves
+    on, and each peer's own task drains it at whatever speed that peer
+    manages. A slow peer delays nobody but itself.
+
+    STATE IS COALESCED. A state_sync is a whole snapshot, so if one is
+    still waiting when a newer one arrives the old one is never sent: a
+    slow peer catches up by receiving the latest state once, not by
+    working through a backlog of stale ones it would only overwrite.
+    Everything else keeps its order. The superseded snapshot's place is
+    simply skipped, so nothing newer than it is overtaken by anything
+    older.
+
+    THE ONE THING A NEWER STATE MAY NOT DROP is a roster. A peer that
+    keeps rosters is sent states without one, and only gets the roster on
+    the message where it changed -- so if that message is superseded
+    before it is written, the replacement goes out in its full form
+    instead, or the peer would carry the old roster for the rest of the
+    match.
     """
-    try:
-        await asyncio.wait_for(peer.send(data), SEND_TIMEOUT_SECONDS)
-        return True
-    except ConnectionClosed:
-        return False
-    except Exception:
-        # Timed out or otherwise wedged. Left connected: its own handler
-        # tidies up when the connection actually closes, and nothing here
-        # should wait for that.
-        return True
+
+    # Room for a burst of ordinary messages. Only a peer that has stopped
+    # reading entirely ever reaches it, and then the oldest go first.
+    LIMIT = 256
+
+    def __init__(self, ws):
+        self.ws = ws
+        self.items = deque()      # cells: [payload, carries_roster]
+        self.state_cell = None    # the state_sync still waiting, if any
+        self.wake = asyncio.Event()
+        self.task = asyncio.create_task(self._run())
+
+    def put(self, payload):
+        """An ordinary message: kept, and sent in order."""
+        self._append([payload, False])
+
+    def put_state(self, payload, carries_roster, full_payload):
+        cell = self.state_cell
+        if cell is not None:
+            if cell[1] and not carries_roster:
+                payload, carries_roster = full_payload, True
+            cell[0] = None                       # superseded -- skipped
+        self.state_cell = [payload, carries_roster]
+        self._append(self.state_cell)
+
+    def _append(self, cell):
+        if len(self.items) >= self.LIMIT:
+            dropped = self.items.popleft()
+            if dropped is self.state_cell:
+                self.state_cell = None
+        self.items.append(cell)
+        self.wake.set()
+
+    async def _run(self):
+        try:
+            while True:
+                await self.wake.wait()
+                self.wake.clear()
+                while self.items:
+                    cell = self.items.popleft()
+                    if cell is self.state_cell:
+                        self.state_cell = None
+                    if cell[0] is None:
+                        continue
+                    # No deadline here, deliberately. A send waits for the
+                    # socket to drain, and cancelling that wait does not
+                    # un-send anything -- it only lets the next frame pile
+                    # in behind it, so a stuck peer's buffer would grow
+                    # without limit. Waiting holds at most one frame in
+                    # flight, the queue behind it coalesces, and nobody
+                    # else is waiting on this task. A peer that is
+                    # genuinely gone is closed by the keepalive, and the
+                    # send then raises.
+                    await self.ws.send(cell[0])
+        except (ConnectionClosed, asyncio.CancelledError):
+            pass
+        except Exception as e:
+            print("[outbox] writer for a peer stopped: %r" % (e,))
+
+    def close(self):
+        self.task.cancel()
 
 
 def role_for_token(token):
@@ -178,21 +257,16 @@ async def broadcast_presence():
         return
     raw = json.dumps({"type": "presence", "pages": presence_counts(),
                       "roles": role_counts()})
-    stale = []
-    # Iterate a SNAPSHOT, not the live dict. `await peer.send()` yields, and
-    # any client connecting or disconnecting during that yield mutates
-    # `connected` -- iterating it directly then raises "dictionary changed
-    # size during iteration", which kills the handler and drops that client
-    # with a 1011 internal error. It's load-dependent, so it looked fine
-    # with three clients and started biting at eleven.
+    # Into each outbox, never awaited. This runs on every connect and
+    # disconnect, BEFORE a new peer is sent its first state -- and it used
+    # to be a bare send to every peer in turn with no deadline at all, so
+    # one stuck peer held every page that connected after it blank until
+    # it cleared. That was the browser source that "loads late" after a
+    # refresh.
     for peer in list(connected):
-        try:
-            await peer.send(raw)
-        except ConnectionClosed:
-            stale.append(peer)
-    for peer in stale:
-        connected.pop(peer, None)
-        connected_pages.pop(peer, None)
+        box = outboxes.get(peer)
+        if box is not None:
+            box.put(raw)
 
 
 async def handler(websocket):
@@ -211,6 +285,7 @@ async def handler(websocket):
     # A page that says it keeps the last roster it was sent can be given
     # the small payload as it arrived, instead of the re-inflated one.
     roster_cache_peers[websocket] = (query.get("rostercache") or ["0"])[0] == "1"
+    outboxes[websocket] = Outbox(websocket)
     print(f"[connect] role={role} total_connected={len(connected)}")
     await broadcast_presence()
     try:
@@ -223,10 +298,14 @@ async def handler(websocket):
         # whole system being broken, and it cost a live session.
         #
         # Additive: anything that does not know this message ignores it.
-        await websocket.send(json.dumps({"type": "whoami", "role": role}))
+        outboxes[websocket].put(json.dumps({"type": "whoami", "role": role}))
 
+        # The opening snapshot is an ORDINARY message, not a state: it
+        # must never be superseded by the next lean one, because this
+        # peer has no roster yet and a state without one would leave it
+        # with blank logos for the rest of the match.
         if last_state_sync is not None:
-            await websocket.send(last_state_sync)
+            outboxes[websocket].put(last_state_sync)
 
         async for raw in websocket:
             if role == "viewer":
@@ -286,53 +365,31 @@ async def handler(websocket):
                 # DIFFERENT page's benefit.
                 last_state_sync = raw
 
-            # Snapshot for the same reason as broadcast_presence above --
-            # a peer joining or leaving mid-fanout must not blow up the
-            # send loop and disconnect whoever was being broadcast to.
-            targets = []
+            # Into each peer's outbox and straight on to the next message.
+            # Nothing here waits on any peer -- see Outbox.
+            is_state = msg.get("type") == "state_sync"
             for peer in list(connected):
                 if peer is websocket:
                     continue
                 if target_pages is not None and connected_pages.get(peer) not in target_pages:
                     continue
-                targets.append(peer)
-
-            # All at once, and none of them able to hold up the rest.
-            #
-            # This used to be a loop of bare awaits, one peer after
-            # another. A send does not complete until that peer's socket
-            # drains, so the slowest client on the relay decided how fast
-            # EVERY other client was served -- and the next message in
-            # from the engine waited behind all of it, because this is the
-            # same task that reads the socket.
-            #
-            # One tab on a poor connection, or one that has stopped
-            # reading without closing, is enough. Measured from a
-            # subscriber here while it was happening: messages arriving
-            # 112ms apart in bursts with ten to seventeen SECOND holes
-            # between them, while the engine was publishing steadily every
-            # 250ms. Bursts and holes are what a queue behind one blocked
-            # write looks like from the far end.
-            #
-            # The engine already learned this (see _send_guarded and the
-            # note above SEND_TIMEOUT_SECONDS in freefire_engine.py): send
-            # concurrently, give each peer a deadline, and let a peer that
-            # cannot keep up be the only one that suffers for it.
-            results = await asyncio.gather(*[
-                _send_guarded(peer,
-                              lean if (lean is not None
-                                       and roster_cache_peers.get(peer))
-                              else raw)
-                for peer in targets], return_exceptions=True)
-            for peer, ok in zip(targets, results):
-                if ok is False:
-                    connected.pop(peer, None)
-                    connected_pages.pop(peer, None)
-                    roster_cache_peers.pop(peer, None)
+                box = outboxes.get(peer)
+                if box is None:
+                    continue
+                use_lean = lean is not None and roster_cache_peers.get(peer)
+                payload = lean if use_lean else raw
+                if is_state:
+                    box.put_state(payload, carries_roster=not use_lean,
+                                  full_payload=raw)
+                else:
+                    box.put(payload)
     finally:
         connected.pop(websocket, None)
         connected_pages.pop(websocket, None)
         roster_cache_peers.pop(websocket, None)
+        box = outboxes.pop(websocket, None)
+        if box is not None:
+            box.close()
         print(f"[disconnect] role={role} total_connected={len(connected)}")
         await broadcast_presence()
 
