@@ -6884,41 +6884,59 @@ def director_feed(live, linked=None, now=None):
     # the name), so the two boards never call a team two different things.
     #
     # The slot is the room's team number where the client publishes one --
-    # a league room's TeamID. A normal room publishes none, so there it is
-    # the squad's own number from the log, the same one Name the Squads
-    # and a "SQUAD n" row use. It is NOT the number on the game's
-    # spectator panel in a normal room: the client writes that nowhere.
+    # a league room's TeamID. A normal room publishes none; see the room
+    # slot order just below for where its numbers come from instead.
     normal_room = (server_state.get("event") or {}).get("roomType") == "normal"
     short_of = {}
     for row in (linked or {}).get("rows") or []:
         if row.get("gsTeam") is not None and row.get("short"):
             short_of[row["gsTeam"]] = row["short"]
 
-    # The room's own slot order, pasted in Pre-Match (event.roomSlots,
-    # slot -> team, full or short name). A normal room's log never says
-    # which squad sits in which slot, so without this the board falls back
-    # to the log's squad number, which does not match the numbers on the
-    # game's spectator panel. With it, it does.
+    # The room's own slot order. A normal room's log never says which
+    # squad sits in which slot, and the log's own squad number does NOT
+    # match the game's spectator panel -- on air it put the wrong number
+    # beside every team. What does say it is the Pre-Match data: the
+    # roster is entered in slot order, and every squad is already tied to
+    # its roster team by its players' IGNs (gsNames). So:
+    #
+    #   1. a slot order pasted in Pre-Match (event.roomSlots, slot -> team,
+    #      full or short name) -- the operator saying it outright -- and
+    #      when there is one it is the whole answer;
+    #   2. otherwise the team's place in the Pre-Match roster, 1 first.
+    #
+    # Never the log's squad number: a squad no roster team claims gets no
+    # slot at all rather than one that points at a different team.
     room_slot = {}
     if normal_room:
         roster_teams_d = ((server_state.get("roster") or {}).get("teams")) or []
-        for slot_txt, wanted in ((server_state.get("event") or {}).get("roomSlots") or {}).items():
+
+        def keys_of(t):
+            return {k for k in (normalize_for_match(t.get("name")),
+                                normalize_for_match(t.get("displayName")),
+                                normalize_for_match(t.get("shortName"))) if k}
+
+        pasted = (server_state.get("event") or {}).get("roomSlots") or {}
+        for slot_txt, wanted in pasted.items():
             key = normalize_for_match(wanted)
             if not key:
                 continue
             for t in roster_teams_d:
-                if key in (normalize_for_match(t.get("name")),
-                           normalize_for_match(t.get("shortName"))):
+                if key in keys_of(t):
                     try:
                         room_slot[normalize_for_match(t.get("name"))] = int(slot_txt)
                     except (TypeError, ValueError):
                         pass
                     break
+        if not room_slot:
+            for position, t in enumerate(roster_teams_d, start=1):
+                key = normalize_for_match(t.get("name"))
+                if key and key not in room_slot:
+                    room_slot[key] = position
 
     def info(gs):
         slot = slot_of.get(gs)
-        if slot is None and normal_room:
-            slot = room_slot.get(normalize_for_match(name_of(gs)), gs)
+        if slot is None and normal_room and gs in gs_names:
+            slot = room_slot.get(normalize_for_match(name_of(gs)))
         return {"slot": slot,
                 "short": short_of.get(gs) or derive_short_name(name_of(gs)),
                 "name": name_of(gs)}

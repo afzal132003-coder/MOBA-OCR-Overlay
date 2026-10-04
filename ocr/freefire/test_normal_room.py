@@ -364,11 +364,19 @@ def main():
         linked_d = {"gsNames": {3: "TEAM APEX", 9: "VASIYO ESP"},
                     "rows": [{"gsTeam": 3, "teamId": None, "short": "APEX"},
                              {"gsTeam": 9, "teamId": None, "short": "VE"}]}
-        ff.server_state["event"] = dict(keep_ev3, roomType="normal")
+        ff.server_state["event"] = dict(keep_ev3, roomType="normal", roomSlots={})
+        keep_ro3 = ff.server_state.get("roster")
+        ff.server_state["roster"] = {"teams": [
+            {"name": "BFA", "shortName": "BFA"},
+            {"name": "VASIYO ESP", "shortName": "VE"},
+            {"name": "TEAM APEX", "shortName": "APEX"}]}
         feed = ff.director_feed(live_d, linked_d, now=1005.0)
         inf = feed["engagements"][0]["teamInfo"]
-        check("a normal room shows the squad's own number as its slot",
-              sorted(i["slot"] for i in inf) == [3, 9], str(inf))
+        check("nothing pasted: a normal room's slot is the team's place in "
+              "the Pre-Match roster, matched by its players' IGNs",
+              {i["short"]: i["slot"] for i in inf} == {"APEX": 3, "VE": 2}, str(inf))
+        check("never the log's own squad number",
+              not any(i["slot"] in (9,) for i in inf), str(inf))
         check("with the short name the alive table uses",
               sorted(i["short"] for i in inf) == ["APEX", "VE"], str(inf))
         check("the call carries the same", len(feed["call"]["teamInfo"]) == 2)
@@ -382,8 +390,16 @@ def main():
         check("a league room shows the room's team number", inf_l["APEX"] == 7, str(inf_l))
         check("and no number it does not have, rather than the log's",
               inf_l["VE"] is None, str(inf_l))
+        ff.server_state["event"] = dict(keep_ev3, roomType="normal", roomSlots={})
+        linked_u = {"gsNames": {3: "TEAM APEX"},
+                    "rows": [{"gsTeam": 3, "short": "APEX"}, {"gsTeam": 9, "short": "S9"}]}
+        inf_u = {i["short"]: i["slot"] for i in
+                 ff.director_feed(live_d, linked_u, now=1005.0)["engagements"][0]["teamInfo"]}
+        check("a squad no roster team claims gets no slot, not the log's number",
+              inf_u.get("S9") is None and inf_u.get("APEX") == 3, str(inf_u))
     finally:
         ff.server_state["event"] = keep_ev3
+        ff.server_state["roster"] = keep_ro3
 
     print("\nroom slots pasted in Pre-Match")
     keep_ev4 = dict(ff.server_state.get("event") or {})
@@ -406,8 +422,18 @@ def main():
         ff.server_state["event"]["roomSlots"] = {"2": "team apex"}
         got = {i["short"]: i["slot"] for i in
                ff.director_feed(live_s, linked_s, now=1003.0)["engagements"][0]["teamInfo"]}
-        check("a team with no slot pasted falls back to the log's number",
-              got.get("VE") == 9, str(got))
+        check("a paste is the whole answer: a team left out of it gets no "
+              "number, rather than one that could clash",
+              got.get("VE") is None and got.get("APEX") == 2, str(got))
+        ff.server_state["event"]["roomSlots"] = {
+            str(i + 1): n for i, n in enumerate(
+                ["BFA", "RNTX", "ASSASSINS", "NG PROS", "VASIYO ESP", "W SQUAD",
+                 "TSG ARMY", "DESI GAMER", "iQOO OGXTE", "NEBULA ESP",
+                 "TEAM APEX", "4ENDS ESP"])}
+        got = {i["short"]: i["slot"] for i in
+               ff.director_feed(live_s, linked_s, now=1003.0)["engagements"][0]["teamInfo"]}
+        check("tonight's paste: TEAM APEX is slot 11, VASIYO ESP slot 5",
+              got == {"APEX": 11, "VE": 5}, str(got))
         ff.server_state["event"] = dict(keep_ev4, roomType="league",
                                         roomSlots={"2": "TEAM APEX"})
         got = {i["short"]: i["slot"] for i in
