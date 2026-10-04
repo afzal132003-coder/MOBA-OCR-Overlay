@@ -9903,6 +9903,23 @@ function ffRenderNameSquads() {
    written beside Save Event Setup: anything not listed would be lost. */
 const FF_ROOM_SLOTS = 12;
 
+/* UNSAVED EDITS ARE NEVER REDRAWN AWAY. The grid is redrawn from the
+   engine's saved copy on every sync -- several a second -- and the first
+   version did that even while the operator's filled-in, unsaved slots
+   were sitting in it. Fill From Paste wrote twelve names and the next
+   sync put back the saved copy, which was empty, a fraction of a second
+   later; Save then saved nothing. So once anything is typed or filled the
+   grid is the operator's until Save or Clear. */
+let ffRoomSlotsDirty = false;
+
+function ffRoomSlotsFromPaste() {
+  const lines = document.getElementById("ff_roomSlotsPaste").value
+    .split(/\r?\n/).map(l => l.replace(/^\s*\d+\s*[.)\-:]\s*/, "").trim()).filter(Boolean);
+  const out = {};
+  lines.slice(0, FF_ROOM_SLOTS).forEach((name, i) => { out[String(i + 1)] = name; });
+  return { slots: out, lines: lines.length };
+}
+
 function ffRoomSlotsFromInputs() {
   const out = {};
   document.querySelectorAll(".ff-room-slot").forEach(el => {
@@ -9915,6 +9932,8 @@ function ffRoomSlotsFromInputs() {
 function ffDrawRoomSlots(slots) {
   const grid = document.getElementById("ff_roomSlotsGrid");
   if (!grid) return;
+  // A redraw FROM THE ENGINE (no slots passed) leaves unsaved edits alone.
+  if (!slots && ffRoomSlotsDirty) return;
   if (document.activeElement && grid.contains(document.activeElement)) return;
   const held = slots || ((ffState && ffState.event && ffState.event.roomSlots) || {});
   const names = (((ffState && ffState.roster) || {}).teams || []).map(t => t.name).filter(Boolean);
@@ -9944,24 +9963,37 @@ function ffDrawRoomSlots(slots) {
   const say = t => { document.getElementById("ff_roomSlotsStatus").textContent = t; };
 
   document.getElementById("ff_roomSlotsFill").addEventListener("click", () => {
-    const lines = document.getElementById("ff_roomSlotsPaste").value
-      .split(/\r?\n/).map(l => l.replace(/^\s*\d+\s*[.)\-:]\s*/, "").trim()).filter(Boolean);
-    if (!lines.length) { say("Nothing pasted."); return; }
-    const slots = {};
-    lines.slice(0, FF_ROOM_SLOTS).forEach((name, i) => { slots[String(i + 1)] = name; });
-    ffDrawRoomSlots(slots);
-    say("Filled " + Math.min(lines.length, FF_ROOM_SLOTS) + " slot(s)" +
-        (lines.length > FF_ROOM_SLOTS ? " \u2014 " + (lines.length - FF_ROOM_SLOTS) + " extra line(s) ignored" : "") +
+    const got = ffRoomSlotsFromPaste();
+    if (!got.lines) { say("Nothing pasted."); return; }
+    ffRoomSlotsDirty = true;
+    ffDrawRoomSlots(got.slots);
+    say("Filled " + Math.min(got.lines, FF_ROOM_SLOTS) + " slot(s)" +
+        (got.lines > FF_ROOM_SLOTS ? " \u2014 " + (got.lines - FF_ROOM_SLOTS) + " extra line(s) ignored" : "") +
         ". Press Save Slots to keep them.");
+  });
+  // Typing in a slot box makes the grid the operator's too.
+  document.getElementById("ff_roomSlotsGrid").addEventListener("input", () => {
+    ffRoomSlotsDirty = true;
   });
 
   save.addEventListener("click", () => {
     if (!(ffWs && ffWs.readyState === WebSocket.OPEN) || !ffState) {
       say("Not connected to the Free Fire engine."); return;
     }
-    const roomSlots = ffRoomSlotsFromInputs();
+    let roomSlots = ffRoomSlotsFromInputs();
+    // Pasted but never filled? Save the paste -- pressing Save straight
+    // after pasting is the obvious thing to do, and it used to save an
+    // empty grid.
+    if (!Object.keys(roomSlots).length) roomSlots = ffRoomSlotsFromPaste().slots;
+    if (!Object.keys(roomSlots).length) {
+      say("Nothing to save \u2014 paste the slot order (slot 1 first) or type it in the boxes.");
+      return;
+    }
     const event = Object.assign({}, ffState.event || {}, { roomSlots });
     ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { event } } }));
+    ffState.event = event;
+    ffRoomSlotsDirty = false;
+    ffDrawRoomSlots(roomSlots);
     say("Saved " + Object.keys(roomSlots).length + " slot(s) \u2014 the Director uses them from its next update.");
   });
 
@@ -9970,6 +10002,8 @@ function ffDrawRoomSlots(slots) {
     document.getElementById("ff_roomSlotsPaste").value = "";
     const event = Object.assign({}, ffState.event || {}, { roomSlots: {} });
     ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { event } } }));
+    ffState.event = event;
+    ffRoomSlotsDirty = false;
     ffDrawRoomSlots({});
     say("Cleared \u2014 the Director goes back to the log's squad numbers.");
   });

@@ -170,6 +170,33 @@ console.log("\nthe name offered for a squad");
   check("no shared tag, no guess", g(["NebulaPATLU", "NebulaT1GER", "Jarvisx16"]) === "");
 })();
 
+console.log("\nroom slots survive the engine redrawing the page");
+// Fill From Paste wrote twelve names, the next sync redrew the grid
+// from the engine's saved copy -- empty -- and Save then saved nothing.
+(function(){
+  const nodes = { ff_roomSlotsGrid: { innerHTML: "", contains: () => false },
+                  ff_roomSlotsPaste: { value: "1. NG PROS\n2) RNTX\n  TEAM APEX  \n" } };
+  const sb = { document: { activeElement: null, getElementById: id => nodes[id] || null },
+    ffState: { event: { roomSlots: {} }, roster: { teams: [{ name: "NG PROS" }, { name: "RNTX" },
+                                                          { name: "TEAM APEX" }] } },
+    ffEscapeHtml: x => String(x == null ? "" : x), console };
+  vm.createContext(sb);
+  vm.runInContext("const FF_ROOM_SLOTS = 12; let ffRoomSlotsDirty = false;\n" +
+    ["ffRoomSlotsFromPaste", "ffDrawRoomSlots"].map(lift).join("\n"), sb);
+  const got = vm.runInContext("ffRoomSlotsFromPaste()", sb);
+  check("a paste is read slot 1 first, numbering stripped",
+        got.slots["1"] === "NG PROS" && got.slots["2"] === "RNTX" && got.slots["3"] === "TEAM APEX",
+        JSON.stringify(got.slots));
+  vm.runInContext("ffRoomSlotsDirty = true; ffDrawRoomSlots(ffRoomSlotsFromPaste().slots);", sb);
+  const filled = nodes.ff_roomSlotsGrid.innerHTML;
+  vm.runInContext("ffDrawRoomSlots();", sb);           // a sync arrives: saved copy is empty
+  check("an engine redraw does not wipe the unsaved slots",
+        nodes.ff_roomSlotsGrid.innerHTML === filled && /NG PROS/.test(filled));
+  vm.runInContext("ffRoomSlotsDirty = false; ffState.event.roomSlots = {'1': 'RNTX'}; ffDrawRoomSlots();", sb);
+  check("once saved, the engine's copy is shown again",
+        /value="RNTX"/.test(nodes.ff_roomSlotsGrid.innerHTML) && !/NG PROS/.test(nodes.ff_roomSlotsGrid.innerHTML));
+})();
+
 console.log("\n" + checks + " checks, " + failures.length + " failed");
 if (failures.length) console.log("failed: " + failures.join(", "));
 process.exit(failures.length ? 1 : 0);
