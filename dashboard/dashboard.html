@@ -2244,6 +2244,7 @@
         <div class="row" style="gap:8px;margin-bottom:10px;align-items:center;">
         <button id="ff_aliveHereShow">Push Alive Status Up</button>
         <button class="secondary" id="ff_aliveHereHide">Pull Down</button>
+        <button class="danger" id="ff_aliveResetTop" title="All squads alive, 0 kills, finishing positions cleared">New Game: Reset Alive Table</button>
         <span class="hint" id="ff_aliveHereState" style="align-self:center;"></span>
         <label class="hint" id="ff_alivePointsWrap" style="align-self:center;margin-left:8px;display:none;">
           <input type="checkbox" id="ff_alivePoints"> Show the PTS. column
@@ -2359,8 +2360,8 @@
 
             <div class="row" style="gap:8px;align-items:center;margin-top:10px;
                  border-top:1px solid #1b2430;padding-top:9px;">
-              <button class="secondary" id="ff_aliveReset"
-                style="margin-top:0;font-size:11px;padding:4px 10px;">Reset for next game</button>
+              <button class="danger" id="ff_aliveReset"
+                style="margin-top:0;">New Game: Reset Alive Table</button>
               <span class="hint" style="font-size:10px;flex:1;min-width:0;">Clean slate between games —
                 all squads alive, kills back to 0, finishing positions and ticks cleared. The log does this
                 by itself when a game starts; use this when it doesn't.</span>
@@ -7693,7 +7694,10 @@ function ffRenderPendingEliminations(ff){
    finishing positions, the ticks that released each wipe, any card
    waiting to go up, and the kill counts. Confirmed because it cannot be
    undone and the numbers it clears are on air. */
-document.getElementById("ff_aliveReset").addEventListener("click", () => {
+/* Two buttons, one action. The original sat at 11px at the foot of the
+   preview column, where nobody looking at the push/pull buttons above
+   would find it between games -- so the same reset is beside them too. */
+function ffResetAliveForNewGame() {
   if(!(ffWs && ffWs.readyState === WebSocket.OPEN)){
     alert("Not connected to the Free Fire engine.");
     return;
@@ -7703,7 +7707,9 @@ document.getElementById("ff_aliveReset").addEventListener("click", () => {
     + "confirmed eliminations and any pending card are cleared. This is pushed "
     + "live immediately, including to the broadcast sheet.")) return;
   ffWs.send(JSON.stringify({ type: "freefire_reset_alive" }));
-});
+}
+document.getElementById("ff_aliveReset").addEventListener("click", ffResetAliveForNewGame);
+document.getElementById("ff_aliveResetTop").addEventListener("click", ffResetAliveForNewGame);
 
 /* Push/pull right here. Same messages the Graphic tab sends -- this is
    a second way to reach them, not a second source of truth -- because

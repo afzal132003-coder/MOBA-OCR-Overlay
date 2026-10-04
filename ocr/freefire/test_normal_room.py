@@ -95,6 +95,66 @@ def main():
           (not t["matched"]) or t.get("needsUidReview"),
           "matched=%s review=%s" % (t["matched"], t.get("needsUidReview")))
 
+    print("\nthe alive table in a normal room")
+    # Every row used to be built from the client's team-name narration,
+    # with squads only ever joined on as the second half. A normal room
+    # writes no names, so the table came out EMPTY. The squads are in the
+    # log in every room, and the roster names them by their players.
+    live = {
+        "teamNames": {},                      # a normal room: no names at all
+        "gsIgns": {3: {"301": "S8uL.Bunnyy", "302": "S8uL.Jack07",
+                       "303": "S8uL.Noor18", "304": "HENRYY"},
+                   7: {"701": "Daafiqqq", "702": "iQOOGxkrish",
+                       "703": "SiDAK.07", "704": "Ziyann.11"},
+                   9: {"901": "stranger1", "902": "stranger2"}},
+        "gsDown": {3: {"301"}, 7: set()},
+        "gsKills": {3: 6, 7: 2, 9: 1},
+        "wiped": [9],
+    }
+    roster = {"teams": [
+        {"name": "S8UL ESPORTS", "shortName": "S8UL", "players": [
+            {"ign": "S8uL.Bunnyy"}, {"ign": "S8uL.Jack07"},
+            {"ign": "S8uL.Noor18"}, {"ign": "HENRYY"}]},
+        {"name": "RES", "shortName": "RES", "players": [
+            {"ign": "Daafiqqq"}, {"ign": "iQOOGxkrish"},
+            {"ign": "SiDAK.07"}, {"ign": "Ziyann.11"}]}]}
+
+    keep = dict(ff.server_state.get("event") or {})
+    ff.server_state["event"] = dict(keep, roomType="normal")
+    rows = {r["teamName"]: r for r in ff.link_live_teams(live, roster)["rows"]}
+    check("every squad gets a row", len(rows) == 3, str(sorted(rows)))
+    s8 = rows.get("S8UL ESPORTS") or {}
+    check("named from the roster by its players", bool(s8), str(sorted(rows)))
+    check("with its own kills", s8.get("elims") == 6, str(s8.get("elims")))
+    check("and its players down: 3 of 4 alive", s8.get("aliveCount") == 3,
+          str(s8.get("aliveCount")))
+    check("its short name from the roster", s8.get("short") == "S8UL",
+          str(s8.get("short")))
+    res = rows.get("RES") or {}
+    check("a full squad shows four alive", res.get("aliveCount") == 4,
+          str(res.get("aliveCount")))
+    odd = rows.get("SQUAD 9") or {}
+    check("a squad nobody claims still gets its line, plainly unassigned",
+          bool(odd), str(sorted(rows)))
+    check("and a wiped squad is out, with its finishing place",
+          odd.get("eliminated") is True and odd.get("placement") == 3,
+          "%s / %s" % (odd.get("eliminated"), odd.get("placement")))
+
+    print("\na league room is exactly as it was")
+    ff.server_state["event"] = dict(keep, roomType="league")
+    league = ff.link_live_teams(live, roster)["rows"]
+    check("no names in the log means no rows, as before",
+          league == [], "%d rows" % len(league))
+    # Built from the saved event with the field REMOVED, not copied as
+    # is: the operator's own saved event already said "normal" when this
+    # was first run, and a copy of it is not an unset room type.
+    unset_event = {k: v for k, v in keep.items() if k != "roomType"}
+    ff.server_state["event"] = unset_event
+    unset = ff.link_live_teams(live, roster)["rows"]
+    check("and an event with no room type set is a league room",
+          unset == [], "%d rows" % len(unset))
+    ff.server_state["event"] = keep
+
     print("\n%d checks, %d failed" % (checks, len(failures)))
     if failures:
         print("failed: " + ", ".join(failures))

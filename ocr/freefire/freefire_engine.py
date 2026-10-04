@@ -7220,6 +7220,77 @@ def link_live_teams(live, roster):
             "source": "log",
         })
 
+    # NORMAL ROOM: a row for every squad, named from the roster.
+    #
+    # Every row above is built from the client's own team-name narration
+    # -- one row per name it writes into the log -- with the squads only
+    # ever joined on as the second half. A league room writes those names.
+    # A normal room does not, so that loop produced NOTHING and the alive
+    # table would have gone on air empty.
+    #
+    # The squads themselves are in the log in every kind of room: who is
+    # in each, who has gone down, who has been wiped, and every kill. And
+    # gs_to_roster above already names each one by matching its players'
+    # IGNs against the roster -- plus whatever the operator has taught in
+    # the Mapping tab. So in a normal room the rows are built from that
+    # side instead: the roster team's name, the squad's own kills, its
+    # players down and its wipe.
+    #
+    # Only when the operator has said this is a normal room. In a league
+    # room a squad that has not been joined to a name yet is simply not a
+    # row of its own -- adding one here would put the same team on the
+    # table twice, once by name and once by squad.
+    if (server_state.get("event") or {}).get("roomType") == "normal":
+        claimed = {r.get("gsTeam") for r in rows if r.get("gsTeam") is not None}
+        squads = live.get("gsIgns", {}) or {}
+        overrides = server_state.get("settings", {}).get("shortNames") or {}
+        for gs_team in sorted(squads):
+            players = squads.get(gs_team) or {}
+            if gs_team in claimed or not players:
+                continue
+            index = gs_to_roster.get(gs_team)
+            roster_team = roster_teams[index] if index is not None else None
+            down = live.get("gsDown", {}).get(gs_team, set())
+            size = len(players) or 4
+            if gs_team in wiped:
+                bars = ["dead"] * size
+            else:
+                bars = ["dead"] * min(len(down), size)
+                bars += ["alive"] * (size - len(bars))
+            alive_count = sum(1 for b in bars if b == "alive")
+            # A squad no roster team claims still gets its line -- its
+            # players are alive or not whether or not anyone has named
+            # it -- under a name that says plainly it is unassigned, and
+            # it is listed in the Mapping tab to be given a team.
+            display_name = ((roster_team or {}).get("name")
+                            or "SQUAD %d" % gs_team)
+            override = (overrides.get(display_name) or "").strip()
+            short = override or ((roster_team or {}).get("shortName") or "").strip()
+            kills = live.get("gsKills", {}).get(gs_team, 0)
+            rows.append({
+                "teamName": display_name,
+                "short": short or derive_short_name(display_name),
+                "shortSource": ("operator" if override
+                                else ("roster" if short else "derived")),
+                "shortDerived": not short,
+                "elims": kills,
+                # No running score is published in a normal room, so the
+                # score is the kills -- the only number there is.
+                "score": kills,
+                "bars": bars,
+                "barDetail": [{"status": b} for b in bars],
+                "aliveCount": alive_count,
+                "eliminated": alive_count == 0,
+                "placement": (len(squads) - wiped.index(gs_team))
+                             if gs_team in wiped else None,
+                "nameRead": roster_team is not None,
+                "rawText": display_name,
+                "teamId": None,
+                "gsTeam": gs_team,
+                "joinedBy": "roster" if roster_team is not None else None,
+                "source": "log",
+            })
+
     gs_names = {}
     for gs_team, index in gs_to_roster.items():
         gs_names[gs_team] = (roster_teams[index] or {}).get("name") or ""
