@@ -2067,7 +2067,20 @@
           <label>Map for this game</label>
           <input type="text" id="ff_eventMap" placeholder="Bermuda">
         </div>
+        <div class="team-form" style="max-width:220px;">
+          <label for="ff_eventRoomType">Room type</label>
+          <select id="ff_eventRoomType">
+            <option value="league">League room</option>
+            <option value="normal">Normal room</option>
+          </select>
+        </div>
       </div>
+      <p class="hint" style="margin:8px 0 0;">A <strong>league room</strong> writes each team's name into the
+        log and the result file, and everything lines up on its own &mdash; nothing changes there. A
+        <strong>normal room</strong> does not, so squads and results are identified by their
+        <strong>players</strong> against the roster instead: fill the roster from the lobby before the game
+        (Fetch from the lobby &rarr; Add these players), and in Post-Match each result block gets a team picker,
+        pre-filled from its players' IDs, for you to confirm.</p>
       <div class="row" style="gap:16px;margin-top:10px;">
         <div class="team-form" style="max-width:520px;">
           <label>Automatic on-air actions</label>
@@ -7271,6 +7284,7 @@ function ffRenderEvent(ff){
   };
   setIfFree("ff_eventTitle", ev.matchTitle || "");
   setIfFree("ff_eventRound", ev.roundName || "");
+  setIfFree("ff_eventRoomType", ev.roomType === "normal" ? "normal" : "league");
   setIfFree("ff_eventTotalGames", ev.totalGames || 6);
 
   const gameSel = document.getElementById("ff_eventCurrentGame");
@@ -7344,12 +7358,18 @@ document.getElementById("ff_eventSave").addEventListener("click", () => {
     autoFetchOnMatchEnd: document.getElementById("ff_autoFetchOnMatchEnd").checked,
   });
   ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: {
-    event: {
+    /* MERGED into the event already held, not a fresh object. The engine
+       replaces `event` wholesale with whatever arrives, so a field this
+       form does not list was silently dropped on every Save -- the
+       After-Game label set in the Graphic tab was, until now. */
+    event: Object.assign({}, (ffState && ffState.event) || {}, {
       matchTitle: document.getElementById("ff_eventTitle").value.trim(),
       roundName: document.getElementById("ff_eventRound").value.trim(),
       totalGames, currentGame, maps,
       assetFolder: document.getElementById("ff_assetFolder").value.trim() || "CLT",
-    },
+      roomType: document.getElementById("ff_eventRoomType").value === "normal"
+        ? "normal" : "league",
+    }),
     settings,
   }}}));
   const status = document.getElementById("ff_eventStatus");
@@ -8844,7 +8864,8 @@ function ffHandleMatchResult(msg){
     (flagged.length ? `⚠ ${flagged.length} team(s) flagged for review — see below. ` : "") +
     `Loaded ${msg.fileName} — ${msg.teams.length} teams, matchId ${msg.matchId}. Review below, then commit.`;
   document.getElementById("ff_reviewMatchId").textContent = `matchId ${msg.matchId} — ${msg.fileName}`;
-  const rows = msg.teams.map(t => {
+  const normalRoom = ffNormalRoomActive();
+  const rows = msg.teams.map((t, i) => {
     const playerRows = t.players.map(p => `
       <tr style="border-top:none;">
         <td></td>
@@ -8864,7 +8885,9 @@ function ffHandleMatchResult(msg){
     return `
       <tr style="border-top:1px solid #1b2430;${t.needsUidReview ? "background:rgba(217,119,6,0.08);" : ""}">
         <td style="padding:6px;">${t.rank}</td>
-        <td style="padding:6px;font-weight:700;">${t.needsUidReview ? "⚠ " : ""}${ffEscapeHtml(t.teamName)}</td>
+        <td style="padding:6px;font-weight:700;">${normalRoom
+          ? ffReviewTeamPicker(t, i)
+          : (t.needsUidReview ? "⚠ " : "") + ffEscapeHtml(t.teamName)}</td>
         <td style="padding:6px;">${t.killScore}</td>
         <td style="padding:6px;">${t.rankScore}</td>
         <td style="padding:6px;font-weight:700;">${t.totalScore}</td>
@@ -8876,6 +8899,7 @@ function ffHandleMatchResult(msg){
       <label>Match duration (optional)</label>
       <input type="text" id="ff_reviewDuration" placeholder="e.g. 18:42">
     </div>
+    ${normalRoom ? '<div class="hint" id="ff_reviewPickStatus" style="margin-bottom:8px;"></div>' : ""}
     <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#9aa7b5;">
       <th style="padding:6px;">Rank</th><th style="padding:6px;">Team</th>
       <th style="padding:6px;">Kill Pts</th><th style="padding:6px;">Rank Pts</th>
@@ -8887,7 +8911,115 @@ function ffHandleMatchResult(msg){
   document.getElementById("ff_reviewTable").querySelectorAll(".ff-review-damage").forEach(el => {
     el.addEventListener("input", () => { ffReviewDamage[el.dataset.uid] = el.value; });
   });
+  if (normalRoom) {
+    document.getElementById("ff_reviewTable").querySelectorAll(".ff-review-team").forEach(el => {
+      el.addEventListener("change", () => {
+        ffApplyReviewPick(Number(el.dataset.block), el.value);
+        ffReviewPickStatus();
+      });
+    });
+    ffReviewPickStatus();
+  }
   document.getElementById("ff_reviewCard").style.display = "block";
+}
+
+
+/* ---------- Normal room: pick the team behind each result block ----------
+   A normal room writes no team names, so a result block is identified by
+   its players. The engine already matches a block to a roster team by its
+   player UIDs (apply_roster_overrides) -- UID wins once enough of them
+   agree -- and a block it could place arrives pre-picked here. A block it
+   could not, because those players are not in the roster yet, waits for
+   the operator. Nothing in this section runs in a league room. */
+function ffNormalRoomActive() {
+  return !!(ffState && ffState.event && ffState.event.roomType === "normal");
+}
+
+function ffRosterTeams() {
+  return ((ffState && ffState.roster) || {}).teams || [];
+}
+
+function ffRosterLabel(team) {
+  return (team.displayName || team.name || "").trim();
+}
+
+function ffReviewTeamPicker(t, i) {
+  const teams = ffRosterTeams();
+  // Pre-picked only where the engine matched it CONFIDENTLY. An unmatched
+  // block still carries whatever the file called it, which in a normal
+  // room is not a team name at all; and a block flagged for review is a
+  // guess from too few players -- one roster player in a squad of
+  // strangers -- which should be a decision, not a default. Its warning
+  // row says what the guess was.
+  const picked = (t.matched && !t.needsUidReview)
+    ? teams.findIndex(r => ffRosterLabel(r) === t.teamName)
+    : -1;
+  const options = teams.map((r, idx) =>
+    `<option value="${idx}"${idx === picked ? " selected" : ""}>${ffEscapeHtml(ffRosterLabel(r))}</option>`
+  ).join("");
+  const from = t.fileTeamName && t.fileTeamName !== t.teamName
+    ? `<div style="font-weight:400;font-size:11px;color:#7d8b9c;margin-top:2px;">file says: ${ffEscapeHtml(t.fileTeamName)}</div>`
+    : "";
+  return `<select class="ff-review-team" data-block="${i}" style="min-width:170px;">
+      <option value=""${picked < 0 ? " selected" : ""}>&mdash; pick this team &mdash;</option>${options}
+    </select>${from}`;
+}
+
+/* Writes the pick into the block exactly as the engine's own match does --
+   teamName, shortName, logo -- so a hand pick and an automatic one are the
+   same thing to everything downstream: standings, Booyah, fraggers. */
+function ffApplyReviewPick(block, value) {
+  const t = ffPendingMatch && ffPendingMatch.teams[block];
+  if (!t) return;
+  const team = value === "" ? null : ffRosterTeams()[Number(value)];
+  if (!team) {
+    t.matched = false;
+    t.teamName = t.fileTeamName || t.teamName;
+    t.shortName = "";
+    t.logo = "";
+    return;
+  }
+  t.teamName = ffRosterLabel(team);
+  t.shortName = team.shortName || "";
+  t.logo = team.logo || "";
+  t.matched = true;
+  t.needsUidReview = false;
+}
+
+/* The picks as they stand: which blocks have none, which roster team is
+   claimed twice. Returned for the commit check, and shown above the table
+   so the operator does not find out by pressing commit. */
+function ffReviewPickProblems() {
+  const picks = Array.from(document.querySelectorAll(".ff-review-team"));
+  const missing = [], byTeam = {};
+  picks.forEach(sel => {
+    const block = Number(sel.dataset.block);
+    const rank = ffPendingMatch && ffPendingMatch.teams[block]
+      ? ffPendingMatch.teams[block].rank : block + 1;
+    if (sel.value === "") missing.push(rank);
+    else (byTeam[sel.value] = byTeam[sel.value] || []).push(rank);
+  });
+  const twice = Object.keys(byTeam).filter(k => byTeam[k].length > 1).map(k => ({
+    team: ffRosterLabel(ffRosterTeams()[Number(k)] || {}), ranks: byTeam[k] }));
+  return { total: picks.length, missing, twice };
+}
+
+function ffReviewPickStatus() {
+  const el = document.getElementById("ff_reviewPickStatus");
+  if (!el) return;
+  const pr = ffReviewPickProblems();
+  if (!ffRosterTeams().length) {
+    el.innerHTML = "<span style='color:#fbbf24;'>Normal room, but the roster is empty &mdash; " +
+      "fill it from the lobby (Pre-Match) so the blocks can be named.</span>";
+    return;
+  }
+  const parts = [];
+  parts.push((pr.total - pr.missing.length) + " of " + pr.total + " blocks have a team");
+  if (pr.missing.length) parts.push("<span style='color:#fbbf24;'>pick a team for rank " +
+    pr.missing.join(", ") + "</span>");
+  pr.twice.forEach(d => parts.push("<span style='color:#f87171;'>" + ffEscapeHtml(d.team) +
+    " is picked for rank " + d.ranks.join(" and ") + "</span>"));
+  el.innerHTML = "Normal room &mdash; " + parts.join(" &middot; ");
 }
 
 function ffHandleSafezoneResult(msg){
@@ -8902,6 +9034,21 @@ function ffHandleSafezoneResult(msg){
 
 document.getElementById("ff_commitMatch").addEventListener("click", () => {
   if(!ffPendingMatch || !ffState) return;
+  // A normal room's blocks are named only by the picks above. Committing
+  // with one missing would file that squad's points under whatever the
+  // result file called it, which in a normal room is not a team -- and
+  // a team picked twice would put two squads' scores on one line.
+  if (ffNormalRoomActive()) {
+    const pr = ffReviewPickProblems();
+    if (pr.missing.length || pr.twice.length) {
+      document.getElementById("ff_matchStatus").textContent =
+        "Not committed \u2014 normal room: " +
+        (pr.missing.length ? "pick a team for rank " + pr.missing.join(", ") : "") +
+        (pr.missing.length && pr.twice.length ? "; " : "") +
+        pr.twice.map(d => d.team + " is picked twice").join("; ") + ".";
+      return;
+    }
+  }
   const context = document.getElementById("ff_context").value;
   const already = ffState.matches.some(m => m.matchId === ffPendingMatch.matchId);
   if(already){
