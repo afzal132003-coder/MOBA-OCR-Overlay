@@ -9505,8 +9505,24 @@ function ffLobbyCount() {
   document.getElementById("ff_lobbyNoneIn").addEventListener("click", () => setAll(false));
   document.getElementById("ff_lobbyShortNames")
     .addEventListener("change", ffLobbySend);
+  /* ON "input", NOT JUST "change".
+     change fires when the field loses focus. Typing a title and watching
+     the strip -- which is exactly how this is used, both on the same
+     screen -- never blurs anything, so nothing was ever sent and the
+     graphic sat on whatever it last had. Debounced, so a word is one
+     message rather than one per keystroke, and change is kept as well so
+     a paste-and-click-away still lands immediately. */
+  let lobbyTypingTimer = null;
   ["ff_lobbyTitle", "ff_lobbyKicker"].forEach(id => {
-    document.getElementById(id).addEventListener("change", ffLobbySend);
+    const el = document.getElementById(id);
+    el.addEventListener("input", () => {
+      clearTimeout(lobbyTypingTimer);
+      lobbyTypingTimer = setTimeout(ffLobbySend, 350);
+    });
+    el.addEventListener("change", () => {
+      clearTimeout(lobbyTypingTimer);
+      ffLobbySend();
+    });
   });
 })();
 
