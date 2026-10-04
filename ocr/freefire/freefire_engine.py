@@ -6926,7 +6926,9 @@ def director_feed(live, linked=None, now=None):
     # Where each squad was last seen, if recently enough to mean anything.
     seen = {}
     for when, gs, x, z in (live.get("revivePoints") or []):
-        if now - when <= FREEFIRE_POSITION_STALE:
+        # -5 for the same reason as the fights below: a position stamped
+        # ahead of now has not happened yet, and read as "-85s old".
+        if -5 <= now - when <= FREEFIRE_POSITION_STALE:
             seen[gs] = (when, x, z)
 
     pairs = {}
@@ -6961,7 +6963,7 @@ def director_feed(live, linked=None, now=None):
             "weight": weight,
             "secondsAgo": max(0, int(now - entry["last"])),
             "where": [round(spot[1]), round(spot[2])] if spot else None,
-            "whereAgeSeconds": int(now - spot[0]) if spot else None,
+            "whereAgeSeconds": max(0, int(now - spot[0])) if spot else None,
             "alive": [gs not in wiped for gs in (a, b)],
         })
     # LIVE FIRST. Ranked by size alone, a big fight from thirty-five
@@ -7025,7 +7027,7 @@ def director_feed(live, linked=None, now=None):
                 "apart": int(gap),
                 # The OLDER of the two fixes, because the pair is only as
                 # current as its stalest half.
-                "ageSeconds": int(now - min(ta, tb)),
+                "ageSeconds": max(0, int(now - min(ta, tb))),
             })
     closing_in.sort(key=lambda c: (c["apart"], c["ageSeconds"]))
 

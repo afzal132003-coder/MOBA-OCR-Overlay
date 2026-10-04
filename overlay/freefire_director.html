@@ -54,9 +54,13 @@
              text-overflow:ellipsis}
   .callwhy{font-size:21px;color:var(--dim);margin-top:6px}
 
-  .grid{display:grid;grid-template-columns:1fr 520px;gap:26px;flex:1;min-height:0}
+  /* Three tables side by side -- fights going on, squads closing in, the
+     match -- each its own panel, so neither list can push the other off
+     the bottom of the screen. Stacked, "closing in" ran out of room under
+     a busy fight list and was cut off mid-team. */
+  .grid{display:grid;grid-template-columns:1fr 1fr 440px;gap:26px;flex:1;min-height:0}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;
-         padding:22px 26px;min-height:0;display:flex;flex-direction:column}
+         padding:22px 26px;min-height:0;display:flex;flex-direction:column;overflow:hidden}
   .panel h2{font-size:17px;letter-spacing:.2em;color:var(--dim);
             text-transform:uppercase;font-weight:600;margin-bottom:16px}
 
@@ -111,22 +115,16 @@
   <span id="conn">connecting</span>
 </header>
 
-<div class="call">
-  <div class="shot" id="shot">—</div>
-  <div class="callbody">
-    <div class="callteams" id="callTeams">waiting for a match</div>
-    <div class="callwhy" id="callWhy"></div>
-  </div>
-</div>
-
 <div class="grid">
   <div class="panel">
     <h2>Fights right now</h2>
     <div id="fights"></div>
-    <h2 id="closingHead" style="margin-top:22px" hidden>Closing in</h2>
-    <div id="closing"></div>
     <h2 id="overHead" style="margin-top:22px" hidden>Just ended</h2>
     <div id="over"></div>
+  </div>
+  <div class="panel">
+    <h2 id="closingHead">Closing in</h2>
+    <div id="closing"></div>
     <div class="note" id="posNote"></div>
   </div>
   <div class="panel">
@@ -139,12 +137,6 @@
       <span class="v" id="zone">—</span></div>
     <div class="stat"><span class="k">Next change</span>
       <span class="v" id="countdown">—</span></div>
-    <div class="note">
-      <b>MAP SCREEN</b> nothing running, or the circle is the story.<br>
-      <b>MAP + POV</b> one fight, and roughly where it is.<br>
-      <b>SPLIT SCREEN</b> two fights worth watching at once.<br>
-      <b>POV</b> one fight, no position for it.
-    </div>
   </div>
 </div>
 
@@ -185,21 +177,15 @@ function tags(infos, names, joiner){
 
 function render(d){
   if(!d){
-    $("shot").textContent = "—";
     $("countdown").innerHTML = "—";
-    $("callTeams").textContent = "waiting for a match";
-    $("callWhy").textContent = "";
-    $("fights").innerHTML = "<div class='empty'>no fights yet</div>";
-    $("closing").innerHTML = "";
-    $("closingHead").hidden = true;
+    $("fights").innerHTML = "<div class='empty'>waiting for a match</div>";
+    $("closing").innerHTML = "<div class='empty'>nobody closing in</div>";
+    $("closingHead").textContent = "Closing in";
+    $("over").innerHTML = "";
+    $("overHead").hidden = true;
     $("posNote").textContent = "";
     return;
   }
-  const call = d.call || {};
-  $("shot").textContent = call.shot || "—";
-  $("callTeams").innerHTML = (call.teams && call.teams.length)
-    ? tags(call.teamInfo, call.teams, "vs") : "no engagement";
-  $("callWhy").textContent = call.why || "";
 
   /* Live fights at the top, then what is about to start, then what has
      just ended -- in that order down the board, because that is the
@@ -241,15 +227,15 @@ function render(d){
      without the scale it is judged against, which changes with the
      circle, so the heading carries it. */
   const near = d.closingIn || [];
-  $("closingHead").hidden = !near.length;
-  $("closingHead").textContent = near.length
-    ? "Closing in — within " + (d.nearRange || 0) + " units" : "Closing in";
-  $("closing").innerHTML = near.map(c =>
+  $("closingHead").textContent = "Closing in" +
+    (d.nearRange ? " — within " + d.nearRange + " units" : "");
+  $("closing").innerHTML = near.length ? near.map(c =>
     "<div class='fight'><div class='fteams' style='font-size:27px'>" +
     tags(c.teamInfo, c.teams, "+") + "</div>" +
     "<div class='fmeta'><span>" + c.apart + " apart</span>" +
     "<span class='" + (c.ageSeconds > 45 ? "stale" : "where") + "'>" +
-    c.ageSeconds + "s old</span></div></div>").join("");
+    c.ageSeconds + "s old</span></div></div>").join("")
+    : "<div class='empty'>nobody closing in</div>";
 
   $("posNote").innerHTML = d.positionsAre
     ? "Positions are " + esc(d.positionsAre) + " — the game publishes no live " +
