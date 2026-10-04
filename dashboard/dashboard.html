@@ -6230,6 +6230,14 @@ function connect(){
       if(!gfxHasUnsavedLocalEdits && document.getElementById("tab-graphics").offsetParent !== null){
         gfxLoadPage(gfxCurrentPage);
       }
+    } else if(msg.type === "freefire_dashboard_extras"){
+      // The mapping queue and friends, which no overlay reads and which
+      // are therefore no longer carried on every state_sync.
+      Object.assign(ffLastExtras, msg.data || {});
+      if(ffState){
+        Object.assign(ffState, msg.data || {});
+        try { ffRenderMapping(ffState); } catch(e){ console.error("mapping:", e); }
+      }
     } else if(msg.type === "freefire_arrow_result"){
       ffReplyArrived("arrow");
       // The script's own answer, not a hopeful "sent". A push that reached
@@ -6297,6 +6305,11 @@ function connect(){
    `sendManualUpdate`, all MOBA-specific). ---------- */
 let ffWs;
 let ffLastRoster = null;
+/* Kept out of state_sync by the engine and sent on their own message --
+   see the note where they are put back. */
+const FF_DASHBOARD_ONLY_KEYS =
+  ["pending", "qmeRowOrder", "aliases", "knownContexts", "assetCatalogue"];
+let ffLastExtras = {};
 let ffState = null; // this IS the flat freefire state object -- freefire_engine.py's
                      // server_state has no wrapper, unlike MOBA's data.freefire used to be
 let ffHydrated = false;
@@ -6426,6 +6439,17 @@ function ffOpen(url){
       if(msg.data){
         if(msg.data.roster) ffLastRoster = msg.data.roster;
         else if(ffLastRoster) msg.data.roster = ffLastRoster;
+        /* The engine now leaves the dashboard-only keys out of every
+           state_sync -- the mapping queue alone was 55.8 KB of 192, and
+           no overlay has ever read it, so it was being pushed to every
+           OBS source several times a second. They arrive on their own
+           message instead, when they change. Same trick as the roster
+           above: hold the last set and put it back, so everything below
+           keeps working on a whole state. */
+        for(const k of FF_DASHBOARD_ONLY_KEYS){
+          if(msg.data[k] !== undefined) ffLastExtras[k] = msg.data[k];
+          else if(ffLastExtras[k] !== undefined) msg.data[k] = ffLastExtras[k];
+        }
       }
       ffState = msg.data;
       // DRAWN HERE, FIRST, AND GUARDED. These used to be drawn from

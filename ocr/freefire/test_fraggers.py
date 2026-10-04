@@ -276,6 +276,44 @@ def main():
     check("the result folder is accepted as well as the Debugger folder",
           bool(ff.recover_match_extras("2222222222", str(parent))))
 
+    print("\nwhat goes out on the wire")
+    # A state_sync is 192 KB on the event rig and `pending` -- the
+    # mapping queue -- is 55.8 KB of it. Every handler broadcasts the
+    # whole state, so that went to every OBS source several times a
+    # second, and none of them has ever read it. Measured cost: four
+    # attempts to tick a squad produced 23, 13 and 29 messages of
+    # 105-134 KB, the change never arrived within twelve seconds, and the
+    # connection died on a keepalive timeout.
+    probe = {"roster": {"teams": [1, 2]}, "lobby": {"joined": {}},
+             "display": {}, "matches": [], "liveOps": {"zone": 1},
+             "pending": {"teams": list(range(500))},
+             "aliases": {"teams": {}}, "assetCatalogue": {"a": 1},
+             "qmeRowOrder": [1], "knownContexts": ["x"]}
+    lean = ff.lean_state(probe)
+    check("the mapping queue is not sent to overlays",
+          "pending" not in lean)
+    check("nor the other dashboard-only keys",
+          not any(k in lean for k in
+                  ("aliases", "assetCatalogue", "qmeRowOrder", "knownContexts")),
+          str([k for k in lean]))
+    # Three overlays DO read liveOps, so cutting it would blank them.
+    check("liveOps is kept -- three overlays read it",
+          "liveOps" in lean)
+    check("and so is everything the strip needs",
+          all(k in lean for k in ("roster", "lobby", "display", "matches")))
+    check("the original is not mutated", "pending" in probe)
+    check("a state with none of them is passed straight through",
+          ff.lean_state({"roster": 1}) == {"roster": 1})
+
+    # They move rarely -- a mapping resolved, an alias taught -- so
+    # sending them on every sync would put back exactly this weight.
+    ff.server_state["pending"] = {"teams": [1]}
+    ff._last_extras_fp = None
+    check("the extras are sent when they change", ff.extras_changed())
+    check("and not when they have not", not ff.extras_changed())
+    ff.server_state["pending"] = {"teams": [1, 2]}
+    check("a real change is noticed", ff.extras_changed())
+
     print("\n%d checks, %d failed" % (checks, len(failures)))
     if failures:
         print("failed: " + ", ".join(failures))

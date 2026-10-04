@@ -8324,6 +8324,60 @@ _last_broadcast_roster_fp = None
 _roster_cache_clients = set()
 
 
+# State the DASHBOARD needs and no overlay has ever read.
+#
+# Measured on this rig: a state_sync is 192 KB, and `pending` alone --
+# the mapping queue, every unresolved team, player and squad -- is 55.8
+# KB of it. Every handler in this engine broadcasts the whole state, so
+# during an event that went out several times a second to every OBS
+# browser source, none of which has a line of code that looks at it.
+#
+# What that costs is not theoretical. With a lobby strip and a dashboard
+# both on the relay, a measured four attempts to tick a squad produced
+# 23, 13 and 29 messages of 105-134 KB and the change never arrived
+# inside twelve seconds; the connection then died on a keepalive timeout.
+# The overlay was not slow, it was buried.
+#
+# Checked key by key against overlay/*.html before cutting any of them:
+# the only hits for "pending" in that folder are local variables called
+# pendingElimCards. liveOps is NOT here -- three overlays do read it.
+DASHBOARD_ONLY_KEYS = ("pending", "qmeRowOrder", "aliases",
+                       "knownContexts", "assetCatalogue")
+
+_last_extras_fp = None
+
+
+def lean_state(data):
+    """`data` without the keys only the dashboard reads."""
+    if not isinstance(data, dict):
+        return data
+    if not any(k in data for k in DASHBOARD_ONLY_KEYS):
+        return data
+    out = dict(data)
+    for key in DASHBOARD_ONLY_KEYS:
+        out.pop(key, None)
+    return out
+
+
+def dashboard_extras():
+    return {k: server_state[k] for k in DASHBOARD_ONLY_KEYS if k in server_state}
+
+
+def extras_changed():
+    """True when the dashboard-only keys differ from the last time they
+    were sent. They move rarely -- a mapping gets resolved, an alias is
+    taught -- so sending them on every state_sync would put back exactly
+    the weight this removes."""
+    global _last_extras_fp
+    digest = hashlib.blake2b(
+        json.dumps(dashboard_extras(), sort_keys=True, default=str).encode(),
+        digest_size=16).digest()
+    if digest == _last_extras_fp:
+        return False
+    _last_extras_fp = digest
+    return True
+
+
 def state_for_broadcast():
     """server_state, minus the roster when the roster has not changed.
 
@@ -8381,15 +8435,18 @@ async def broadcast_state_sync():
     """
     if not connected_clients:
         return
-    full = json.dumps({"type": "state_sync", "data": server_state,
+    full = json.dumps({"type": "state_sync", "data": lean_state(server_state),
                        "locked": list(locked_fields)})
     slim = None
     cachers = _roster_cache_clients & connected_clients
     if cachers:
         trimmed = state_for_broadcast()
         if "roster" not in trimmed:
-            slim = json.dumps({"type": "state_sync", "data": trimmed,
+            slim = json.dumps({"type": "state_sync", "data": lean_state(trimmed),
                                "locked": list(locked_fields)})
+    if extras_changed():
+        await broadcast_to_page("freefire_dashboard", {
+            "type": "freefire_dashboard_extras", "data": dashboard_extras()})
     # The connection out to the cloud relay is rationed separately from
     # the ones on this machine.
     #
@@ -8426,6 +8483,16 @@ async def broadcast_state_sync():
 async def broadcast(message):
     if not connected_clients:
         return
+    # EVERY state_sync, from any of the three dozen handlers that send
+    # one, is leaned here rather than at each call site. Doing it in one
+    # place is the only way it stays true: a handler added next month
+    # gets it for nothing, and none of them has to remember.
+    if isinstance(message, dict) and message.get("type") == "state_sync":
+        message = dict(message)
+        message["data"] = lean_state(message.get("data"))
+        if extras_changed():
+            await broadcast_to_page("freefire_dashboard", {
+                "type": "freefire_dashboard_extras", "data": dashboard_extras()})
     data = json.dumps(message)
     # A snapshot: a client connecting or disconnecting mid-fanout must not
     # change the set being iterated.
@@ -8654,8 +8721,19 @@ async def handle_client(websocket, path=None):
     # connected and mute. A first snapshot that cannot be delivered is no
     # reason to never listen to that client again -- the next state change
     # sends another one anyway.
+    # The dashboard gets everything; anything else gets the lean state.
+    #
+    # This is the snapshot a page waits on before it can draw a single
+    # pixel, so its size is exactly how long a refresh spends blank. The
+    # mapping queue alone is 55.8 KB of 192, and an overlay has never
+    # read it. The relay socket is NOT a page and stands in for whatever
+    # is on the far side, so it keeps the whole thing.
+    first_page = connected_pages.get(websocket, "unknown")
+    first_state = (server_state
+                   if first_page in ("freefire_dashboard", "unknown")
+                   else lean_state(server_state))
     await _send_guarded(websocket, json.dumps({
-        "type": "state_sync", "data": server_state, "locked": list(locked_fields),
+        "type": "state_sync", "data": first_state, "locked": list(locked_fields),
     }))
     try:
         async for message in websocket:
