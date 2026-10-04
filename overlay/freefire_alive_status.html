@@ -490,6 +490,40 @@ const LAYOUTS = {
     originY: 576,          // centre of y 247..905
   },
 
+  // JAGUAR: the CLT template recoloured red. Its Alive Status.png has
+  // EXACTLY the same alpha mask as CLT's -- checked pixel for pixel -- so
+  // every box, row top and column carries over unchanged. What differs is
+  // what the designer left empty: CLT prints the row numbers into the
+  // artwork, JAGUAR leaves the left notch (x 1512..1556) blank for a
+  // "#1".."#12" to be drawn, and the logo and name move right of it.
+  //
+  // Measured: notch x 1512..1556 (a bright red gradient ending in a hard
+  // drop); team block 1556..1722 (a hard edge at 1722); KILLS header
+  // centred on 1757 and STATUS on 1855, which is where kills and the pip
+  // are centred here. The five pip icons all share ONE content box,
+  // x 15..485 / y 130..368 of their 500 canvas, so one crop serves all
+  // five and a squad dropping a player cannot make the icon jump. Shown
+  // 27px tall -- the bars' height against the row in the reference
+  // render -- which is 53px wide at the icons' own proportions.
+  JAGUAR: {
+    bg: "Alive Status.png",
+    pipBase: "",
+    rowTops: [286, 335, 384, 434, 483, 532, 582, 631, 680, 730, 779, 828],
+    row: { x: 1512, w: 408, h: 44 },
+    ink: "#ffffff",
+    face: "'Gotham'",
+    // The package's own red, so an elimination alert belongs to it.
+    accent: "#e10600", accentGlow: "rgba(225, 6, 0, 0.9)",
+    accentFlash: ["rgba(225, 6, 0, 0)", "rgba(225, 6, 0, 0.5)"],
+    rank: { x: 0, w: 44, size: 17, prefix: "#" },
+    logo: { x: 48, w: 40, img: 32 },
+    name: { x: 92, w: 124, size: 16, align: "flex-start" },
+    points: null,
+    kills: { x: 208, w: 74, size: 18 },
+    pip: { x: 316.4, y: 8.5, w: 53.2, h: 27, size: 56.49, px: -1.69, py: -14.69 },
+    originY: 576,
+  },
+
   // The # / TEAM / ALIVE / PTS. / ELIMS. design. Panel x 1455..1920,
   // y 254..818; header 254..288; twelve 43px rows from 291 on a 44px
   // pitch. The slot number is NOT printed in this artwork, so this one
@@ -629,6 +663,9 @@ function applyLayout(L, showPoints){
 // wears is cropped from row 1's own box, so it travels with its contents.
 let ROW_TOPS = LAYOUTS.CLT.rowTops;
 let ROW_BLOCK = { x: LAYOUTS.CLT.row.x, y: ROW_TOPS[0] };
+// What goes before the slot number: "#" for a package whose reference
+// render reads "#1", nothing for one that prints a bare "01".
+let RANK_PREFIX = "";
 
 let _lastRoster = null;
 let ws;
@@ -1318,6 +1355,7 @@ function apply(state){
   applyLayout(L, showPoints);
   ROW_TOPS = L.rowTops;
   ROW_BLOCK = { x: L.row.x, y: L.rowTops[0] };
+  RANK_PREFIX = (L.rank && L.rank.prefix) || "";
 
   const backdrop = document.getElementById("backdrop");
   const bgSrc = base + ((showPoints && L.bgPoints) ? L.bgPoints : L.bg);
@@ -1583,7 +1621,7 @@ function apply(state){
     // because it belongs to the SLOT, not the team -- a squad that
     // climbs the table takes its neighbour's number, not its own.
     const rankEl = el.querySelector(".rank");
-    const rank = String(slot + 1);
+    const rank = RANK_PREFIX + String(slot + 1);
     if(rankEl && rankEl.textContent !== rank) rankEl.textContent = rank;
     slot++;
     // First placement lands instantly; every move after that animates.
