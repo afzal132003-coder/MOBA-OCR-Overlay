@@ -23,6 +23,7 @@ that's the first thing to check.
 """
 
 import asyncio
+import collections
 import base64
 import datetime as _datetime
 import difflib
@@ -8304,14 +8305,119 @@ def push_arrow_block(what, rows):
 SEND_TIMEOUT_SECONDS = 5
 
 
-async def _send_guarded(client, data):
-    """One client's problem stays one client's problem."""
-    try:
-        await asyncio.wait_for(client.send(data), SEND_TIMEOUT_SECONDS)
-    except Exception:
-        # Slow, wedged, or gone. Its own handler tidies it up when the
-        # connection actually closes; nothing here should wait for that.
-        pass
+class _Outbox:
+    """Everything bound for one client, written by that client's own task.
+
+    The engine used to send to its clients with asyncio.gather and a
+    five-second deadline each, and the poll loop waited for the gather.
+    So one client that stopped reading -- a dashboard tab the browser had
+    put to sleep, or the relay link while the relay itself was stalled --
+    held the whole engine for up to five seconds a broadcast, and the
+    deadline did not even free the socket: a send cancelled while it
+    waits to drain has already written its frame, so the next one piled
+    in behind it and the backlog grew without limit.
+
+    Now a send is a drop into this client's box, which returns at once,
+    and the box's own task writes it out at whatever speed the client
+    manages. Nothing the engine does ever waits on a client.
+
+    A state_sync still waiting when a newer one arrives is never sent --
+    the client catches up with the latest state once rather than a queue
+    of stale ones -- EXCEPT that a superseded state carrying the roster
+    is replaced by the full form of the newer one, because a client that
+    keeps rosters is only told the roster on the message where it
+    changed. Everything else is kept and sent in order. This is the same
+    structure as the relay's own outboxes (ocr/relay/server.py).
+    """
+
+    LIMIT = 256
+
+    def __init__(self, client):
+        self.client = client
+        self.items = collections.deque()   # cells: [payload, carries_roster]
+        self.state_cell = None
+        self.wake = asyncio.Event()
+        self.task = asyncio.ensure_future(self._run())
+
+    def put(self, payload):
+        self._append([payload, False])
+
+    def put_state(self, payload, carries_roster, full_payload):
+        cell = self.state_cell
+        if cell is not None:
+            if cell[1] and not carries_roster:
+                payload, carries_roster = full_payload, True
+            cell[0] = None
+        self.state_cell = [payload, carries_roster]
+        self._append(self.state_cell)
+
+    def _append(self, cell):
+        if len(self.items) >= self.LIMIT:
+            dropped = self.items.popleft()
+            if dropped is self.state_cell:
+                self.state_cell = None
+        self.items.append(cell)
+        self.wake.set()
+
+    async def _run(self):
+        try:
+            while True:
+                await self.wake.wait()
+                self.wake.clear()
+                while self.items:
+                    cell = self.items.popleft()
+                    if cell is self.state_cell:
+                        self.state_cell = None
+                    if cell[0] is None:
+                        continue
+                    # No deadline: see the note on the relay's Outbox. A
+                    # cancelled drain does not un-send, it only lets the
+                    # next frame pile in behind it. One frame in flight,
+                    # the rest coalescing, nobody else waiting.
+                    await self.client.send(cell[0])
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            # Gone. Its own handler tidies up when the connection closes.
+            pass
+
+    def close(self):
+        self.task.cancel()
+
+
+_outboxes = {}
+
+
+def _outbox_for(client):
+    box = _outboxes.get(client)
+    if box is None:
+        box = _outboxes[client] = _Outbox(client)
+    return box
+
+
+def _drop_outbox(client):
+    box = _outboxes.pop(client, None)
+    if box is not None:
+        box.close()
+
+
+_STATE_SYNC_PREFIX = '{"type": "state_sync"'
+
+
+async def _send_guarded(client, data, full=None, opening=False):
+    """One client's problem stays one client's problem.
+
+    Never waits on the client -- see _Outbox. `full` is the roster-carrying
+    form of a state, when `data` may be the slim one; `opening` marks the
+    snapshot sent on connect, which must reach the client whatever follows
+    it, so it is queued as an ordinary message and never superseded.
+    """
+    box = _outbox_for(client)
+    if opening or not data.startswith(_STATE_SYNC_PREFIX):
+        box.put(data)
+    else:
+        box.put_state(data, carries_roster=(full is None or data is full),
+                      full_payload=full if full is not None else data)
 
 
 # Fingerprint of the roster as it was last put on the wire, so a roster
@@ -8476,8 +8582,25 @@ async def broadcast_state_sync():
     for c in list(connected_clients):
         if c is relay_websocket and not relay_due:
             continue
-        sends.append(_send_guarded(c, slim if (slim and c in cachers) else full))
+        sends.append(_send_guarded(c, slim if (slim and c in cachers) else full,
+                                   full=full))
     await asyncio.gather(*sends, return_exceptions=True)
+
+
+def _bump_lobby_rev():
+    """Number every change to the lobby, ticks and Show/Hide alike.
+
+    The strip is told about a change twice -- the small lobby_update at
+    once, then the full state -- and a full state can be built just
+    BEFORE a tick and delivered just AFTER it: a broadcast serialises the
+    state, yields, and enqueues it later. Delivered in that order, the
+    snapshot carries the old lobby and the strip flicks back to YET TO
+    JOIN for a beat before the next sync puts it right. The revision lets
+    the strip tell an older picture from a newer one and keep the newer.
+    """
+    lobby = server_state.setdefault(
+        "lobby", {"joined": {}, "title": "", "kicker": "", "shortNames": True})
+    lobby["rev"] = int(lobby.get("rev") or 0) + 1
 
 
 async def push_lobby_update():
@@ -8757,7 +8880,7 @@ async def handle_client(websocket, path=None):
                    else lean_state(server_state))
     await _send_guarded(websocket, json.dumps({
         "type": "state_sync", "data": first_state, "locked": list(locked_fields),
-    }))
+    }), opening=True)
     try:
         async for message in websocket:
             try:
@@ -9360,6 +9483,7 @@ async def handle_client(websocket, path=None):
             elif payload.get("type") in ("lobby_status_show", "lobby_status_hide"):
                 server_state["display"]["lobbyStatusVisible"] = (
                     payload["type"] == "lobby_status_show")
+                _bump_lobby_rev()
                 # The strip first, the rest of the world after. Saving
                 # state writes 190 KB to disk and the full sync is 72 KB
                 # on the wire; neither belongs between pressing Show and
@@ -9383,6 +9507,7 @@ async def handle_client(websocket, path=None):
                     lobby["kicker"] = payload["kicker"]
                 if payload.get("shortNames") is not None:
                     lobby["shortNames"] = bool(payload["shortNames"])
+                _bump_lobby_rev()
                 await push_lobby_update()
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
@@ -10040,6 +10165,7 @@ async def handle_client(websocket, path=None):
         connected_clients.discard(websocket)
         connected_pages.pop(websocket, None)
         _roster_cache_clients.discard(websocket)
+        _drop_outbox(websocket)
         await broadcast_presence()
 
 

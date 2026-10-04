@@ -9399,7 +9399,15 @@ function ffLobbyTicked() {
   return out;
 }
 
+/* After a tick, the boxes are the truth for a moment. The engine's reply
+   is on its way, but a state built just before the tick can still land
+   after it -- and redrawing the grid from that would untick the box the
+   operator just ticked, and the NEXT tick would then send the unticked
+   map back and undo it for real. */
+let ffLobbyHoldUntil = 0;
+
 function ffLobbySend() {
+  ffLobbyHoldUntil = Date.now() + 2500;
   if (!(ffWs && ffWs.readyState === WebSocket.OPEN)) {
     document.getElementById("ff_lobbyJoinStatus").textContent =
       "Not connected to the Free Fire engine.";
@@ -9420,6 +9428,8 @@ function ffDrawLobbyTicks(ff) {
   // Never redraw while someone is clicking in it -- the fault that made
   // the squad dropdowns unusable.
   if (document.activeElement && wrap.contains(document.activeElement)) return;
+  // Nor in the moment after a tick -- see ffLobbyHoldUntil.
+  if (Date.now() < ffLobbyHoldUntil && wrap.querySelector(".ff-lobby-tick")) return;
 
   // ffState, not the argument. The engine LEAVES THE ROSTER OUT of a
   // state_sync when it has not changed -- it is the biggest thing on the

@@ -43,7 +43,7 @@ function lift(name) {
   return html.slice(start, end);
 }
 
-const SOURCE = "let ffArrowFiles = null;\n\n" +
+const SOURCE = "let ffArrowFiles = null;\nlet ffLobbyHoldUntil = 0;\n\n" +
   ["ffCompletedGames", "ffLatestMatch", "ffLatestSummary",
    "ffArrowTickedGames", "ffArrowTickedMatchIds", "ffDrawArrowFiles",
    "ffDrawArrowGames", "ffLobbyCount", "ffDrawLobbyTicks"].map(lift).join("\n\n");
@@ -244,6 +244,37 @@ console.log("\npicking result files instead of committed games");
         /committed/.test(html));
   check("none are ticked by default -- picking is the operator job",
         !/checked/.test(html));
+})();
+
+console.log("\na stale sync cannot untick a box");
+// After a tick the boxes are the truth for a moment. A state built just
+// before the tick can still land after it; redrawing from that would
+// untick the box just ticked, and the NEXT tick would send the unticked
+// map back and undo it for real.
+(function(){
+  const vm = require("vm");
+  const nodes = {};
+  const el = id => (nodes[id] = nodes[id] || { id, innerHTML: "", textContent: "",
+    value: "", checked: false, dataset: {}, contains: () => false,
+    querySelector: () => null, querySelectorAll: () => [], addEventListener: () => {} });
+  ["ff_lobbyTicks","ff_lobbyCount","ff_arrowGames","ff_arrowLatest"].forEach(el);
+  const sandbox = { document: { activeElement: null,
+      getElementById: id => nodes[id] || null, querySelectorAll: () => [] },
+    ffState: { roster: ROSTER, lobby: { joined: { TAG: true } }, matches: [] },
+    ffEscapeHtml: x => String(x == null ? "" : x), console, Date };
+  vm.createContext(sandbox);
+  vm.runInContext(SOURCE, sandbox);
+  vm.runInContext("ffDrawLobbyTicks(ffState);", sandbox);
+  const before = nodes.ff_lobbyTicks.innerHTML;
+  nodes.ff_lobbyTicks.querySelector = () => ({});   // boxes are on screen
+  vm.runInContext("ffLobbyHoldUntil = Date.now() + 2500;" +
+    "ffState.lobby.joined = {};" +                    // a STALE state arrives
+    "ffDrawLobbyTicks(ffState);", sandbox);
+  check("a stale state just after a tick does not redraw the boxes",
+        nodes.ff_lobbyTicks.innerHTML === before);
+  vm.runInContext("ffLobbyHoldUntil = 0; ffDrawLobbyTicks(ffState);", sandbox);
+  check("once the moment has passed, the engine is the truth again",
+        nodes.ff_lobbyTicks.innerHTML !== before);
 })();
 
 console.log("\n" + checks + " checks, " + failures.length + " failed");

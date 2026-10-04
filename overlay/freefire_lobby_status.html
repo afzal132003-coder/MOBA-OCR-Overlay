@@ -550,6 +550,25 @@ let _lastRoster = null;
    what the strip draws, so it is merged into this and re-rendered --
    the roster, which is the expensive part, is already here. */
 let _lastState = null;
+/* The newest lobby this page has been told about, from either message.
+   A full state can be built just before a tick and arrive just after it
+   -- see _bump_lobby_rev in the engine -- and without this the strip
+   flicks back to the old picture for a beat. Only trusted for a few
+   seconds: if the engine is restarted and its count begins again, the
+   strip must not ignore it for the rest of the show. */
+let _newestLobby = null;
+const NEWEST_LOBBY_TRUST_MS = 4000;
+
+function _lobbyRev(lobby){ return Number((lobby && lobby.rev) || 0); }
+
+function _keepNewestLobby(data){
+  const n = _newestLobby;
+  if(!n || Date.now() - n.at > NEWEST_LOBBY_TRUST_MS) return data;
+  if(_lobbyRev(data.lobby) >= n.rev) return data;
+  data.lobby = n.lobby;
+  data.display = Object.assign({}, data.display, {lobbyStatusVisible: n.visible});
+  return data;
+}
 let ws;
 function connect(){
   ws = new WebSocket(WS_URL);
@@ -562,7 +581,13 @@ function connect(){
          most of a second later. Nothing to do if no whole state has
          arrived yet; one is always sent on connect. */
       if(!_lastState) return;
-      _lastState.lobby = msg.lobby || {};
+      const lobby = msg.lobby || {};
+      // Out of order? An older update is simply ignored.
+      if(_newestLobby && _lobbyRev(lobby) < _newestLobby.rev &&
+         Date.now() - _newestLobby.at <= NEWEST_LOBBY_TRUST_MS) return;
+      _newestLobby = {rev: _lobbyRev(lobby), lobby: lobby,
+                      visible: !!msg.visible, at: Date.now()};
+      _lastState.lobby = lobby;
       _lastState.display = Object.assign({}, _lastState.display,
                                          {lobbyStatusVisible: !!msg.visible});
       render(_lastState);
@@ -574,8 +599,8 @@ function connect(){
       // this strip empties itself between syncs.
       if(msg.data.roster) _lastRoster = msg.data.roster;
       else if(_lastRoster) msg.data.roster = _lastRoster;
-      _lastState = msg.data;
-      render(msg.data);
+      _lastState = _keepNewestLobby(msg.data);
+      render(_lastState);
     }
   };
   ws.onclose = function(){ setTimeout(connect, 2000); };

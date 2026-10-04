@@ -226,6 +226,37 @@ check("a squad joining still rebuilds them",
 check("and the count keeps up without a rebuild",
       n.joined.textContent === 2, String(n.joined.textContent));
 
+console.log("\na stale state never undoes a newer tick");
+// A full state can be built just before a tick and arrive just after it.
+// Applied in that order it flicks the strip back to the old picture.
+(function(){
+  const vm = require("vm");
+  const src = "let _newestLobby = null;\nconst NEWEST_LOBBY_TRUST_MS = 4000;\n" +
+    ["_lobbyRev", "_keepNewestLobby"].map(lift).join("\n\n");
+  const sb = { Date, Number, Object, console };
+  vm.createContext(sb);
+  vm.runInContext(src, sb);
+  vm.runInContext("_newestLobby = {rev: 5, lobby: {rev: 5, joined: {TAG: true}}," +
+                  " visible: true, at: Date.now()};", sb);
+  sb.__stale = { lobby: { rev: 4, joined: {} }, display: { lobbyStatusVisible: false } };
+  const kept = vm.runInContext("_keepNewestLobby(__stale)", sb);
+  check("an older state keeps the newer tick",
+        !!kept.lobby.joined.TAG, JSON.stringify(kept.lobby.joined));
+  check("and the newer visibility",
+        kept.display.lobbyStatusVisible === true);
+  sb.__newer = { lobby: { rev: 6, joined: {} }, display: { lobbyStatusVisible: false } };
+  const fresh = vm.runInContext("_keepNewestLobby(__newer)", sb);
+  check("a NEWER state is taken as it is",
+        !fresh.lobby.joined.TAG && fresh.display.lobbyStatusVisible === false);
+  // An engine restarted mid-show counts from wherever its saved state
+  // left off -- or from nothing. The strip must not ignore it for ever.
+  vm.runInContext("_newestLobby.at = Date.now() - 10000;", sb);
+  sb.__restart = { lobby: { rev: 1, joined: {} }, display: { lobbyStatusVisible: true } };
+  const later = vm.runInContext("_keepNewestLobby(__restart)", sb);
+  check("an old guard expires, so a restarted engine is believed",
+        !later.lobby.joined.TAG);
+})();
+
 console.log("\n" + checks + " checks, " + failures.length + " failed");
 if (failures.length) console.log("failed: " + failures.join(", "));
 process.exit(failures.length ? 1 : 0);
