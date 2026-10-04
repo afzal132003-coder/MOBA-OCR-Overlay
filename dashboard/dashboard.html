@@ -8937,6 +8937,8 @@ function ffHandleMatchResult(msg){
    agree -- and a block it could place arrives pre-picked here. A block it
    could not, because those players are not in the roster yet, waits for
    the operator. Nothing in this section runs in a league room. */
+let ffLearnedThisCommit = 0;
+
 function ffNormalRoomActive() {
   return !!(ffState && ffState.event && ffState.event.roomType === "normal");
 }
@@ -9010,6 +9012,39 @@ function ffReviewPickProblems() {
   return { total: picks.length, missing, twice };
 }
 
+
+/* Picking a team for a normal-room block is done ONCE, not once a game.
+   On commit, the block's players -- IGN and UID, straight off the result
+   file -- are added to the roster team they were picked as. From the next
+   game the roster already knows them, so the alive table names each squad
+   by its players and the next result arrives matched by UID, with nothing
+   to pick. Additive only: a player the team already has, by UID or by
+   name, is left exactly as the operator entered them. */
+function ffLearnPickedPlayers() {
+  const teams = ffRosterTeams();
+  let added = 0;
+  document.querySelectorAll(".ff-review-team").forEach(sel => {
+    if (sel.value === "") return;
+    const team = teams[Number(sel.value)];
+    const block = ffPendingMatch && ffPendingMatch.teams[Number(sel.dataset.block)];
+    if (!team || !block) return;
+    team.players = team.players || [];
+    const knownUid = new Set(team.players.map(pl => String(pl.uid || "")).filter(Boolean));
+    const knownIgn = new Set(team.players.map(pl => String(pl.ign || "").toLowerCase()));
+    (block.players || []).forEach(pl => {
+      const uid = String(pl.uid || "");
+      const ign = String(pl.fileName || pl.name || "").trim();
+      if (!ign && !uid) return;
+      if ((uid && knownUid.has(uid)) || knownIgn.has(ign.toLowerCase())) return;
+      team.players.push({ ign: ign, displayIgn: "", uid: uid, photo: "" });
+      if (uid) knownUid.add(uid);
+      knownIgn.add(ign.toLowerCase());
+      added++;
+    });
+  });
+  return added;
+}
+
 function ffReviewPickStatus() {
   const el = document.getElementById("ff_reviewPickStatus");
   if (!el) return;
@@ -9054,6 +9089,7 @@ document.getElementById("ff_commitMatch").addEventListener("click", () => {
         pr.twice.map(d => d.team + " is picked twice").join("; ") + ".";
       return;
     }
+    ffLearnedThisCommit = ffLearnPickedPlayers();
   }
   const context = document.getElementById("ff_context").value;
   const already = ffState.matches.some(m => m.matchId === ffPendingMatch.matchId);
@@ -9079,7 +9115,11 @@ document.getElementById("ff_commitMatch").addEventListener("click", () => {
   ffState.currentMatchId = ffPendingMatch.matchId;
   if(context && !ffState.knownContexts.includes(context)) ffState.knownContexts.push(context);
   ffSendManualUpdate(ffState);
-  document.getElementById("ff_matchStatus").textContent = `Match ${ffPendingMatch.matchId} added to standings.`;
+  document.getElementById("ff_matchStatus").textContent = `Match ${ffPendingMatch.matchId} added to standings.` +
+    (ffLearnedThisCommit
+      ? ` ${ffLearnedThisCommit} player(s) saved to the roster, so the next game lines up by itself.`
+      : "");
+  ffLearnedThisCommit = 0;
   document.getElementById("ff_reviewCard").style.display = "none";
   ffPendingMatch = null;
   ffReviewDamage = {};

@@ -155,6 +155,59 @@ def main():
           unset == [], "%d rows" % len(unset))
     ff.server_state["event"] = keep
 
+    print("\na normal room's result is scored here, because the client does not")
+    # Read off a real one: every block nameless, KillScore, RankScore and
+    # TotalScore all 0 -- only the rank and the players' KILL are real.
+    fixture = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "fixtures", "normal_room_result.log")
+    raw = ff.parse_freefire_match_result(open(fixture, encoding="utf-8-sig").read())
+    check("the real file really is nameless and unscored",
+          all(not t["teamName"] and t["killScore"] == t["rankScore"] == t["totalScore"] == 0
+              for t in raw))
+    scored = ff.score_unscored_blocks(raw)
+    first = scored[0]
+    check("kills are its players' kills added up",
+          first["killScore"] == sum(pl["kills"] for pl in first["players"]) == 18,
+          str(first["killScore"]))
+    check("placement from the table: first is 12", first["rankScore"] == 12)
+    check("and the total is the two together -- TSG on 30",
+          first["totalScore"] == 30, str(first["totalScore"]))
+    last = scored[-1]
+    check("twelfth with no kills is a real nought", last["totalScore"] == 0)
+    check("each is marked as scored here", all(t.get("scoredBy") == "engine" for t in scored))
+
+    league = [{"teamName": "S8UL ESPORTS", "rank": 1, "killScore": 24,
+               "rankScore": 12, "totalScore": 36,
+               "players": [{"kills": 99}]}]
+    ff.score_unscored_blocks(league)
+    check("a league result keeps the client's own scores, untouched",
+          league[0]["totalScore"] == 36 and "scoredBy" not in league[0])
+    named_nil = [{"teamName": "TAG", "rank": 12, "killScore": 0, "rankScore": 0,
+                  "totalScore": 0, "players": [{"kills": 5}]}]
+    ff.score_unscored_blocks(named_nil)
+    check("a NAMED block on nought is left as the client wrote it",
+          named_nil[0]["totalScore"] == 0 and "scoredBy" not in named_nil[0])
+
+    print("\na nameless block named from the Mapping tab")
+    aliases = ff.server_state.setdefault("aliases", {"teams": {}, "players": {}, "squads": {}})
+    keep_sq = dict(aliases.get("squads") or {})
+    aliases["squads"] = {ff._ign_key("Daafiqqq"): "RES",
+                         ff._ign_key("iQOOGxkrish"): "RES"}
+    bare = {"teams": [{"name": "RES", "players": []}]}
+    t = ff.apply_roster_overrides([block("", 2, [("Daafiqqq", "1"), ("iQOOGxkrish", "2"),
+                                                  ("x", "3")])], bare)[0]
+    check("players named as a squad during the match name the result",
+          t["matched"] and t["teamName"] == "RES", "%s / %s" % (t["teamName"], t["matched"]))
+    one = ff.apply_roster_overrides([block("", 3, [("Daafiqqq", "1"), ("y", "4"),
+                                                    ("z", "5")])], bare)[0]
+    check("one named player is not enough to settle it", not one["matched"])
+    league_t = ff.apply_roster_overrides([block("SOMEBODY", 1, [("Daafiqqq", "1"),
+                                                               ("iQOOGxkrish", "2")])], bare)[0]
+    check("and a NAMED (league) block never consults it",
+          league_t["teamName"] != "RES" or league_t.get("fileTeamName") == "RES",
+          league_t["teamName"])
+    aliases["squads"] = keep_sq
+
     print("\n%d checks, %d failed" % (checks, len(failures)))
     if failures:
         print("failed: " + ", ".join(failures))

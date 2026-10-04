@@ -6186,6 +6186,15 @@ def apply_roster_overrides(teams, roster):
         team_players = team.get("players", []) or []
         uid_team, uid_votes = match_roster_team_by_uid(team_players, roster_teams)
         uid_confident = uid_votes >= FREEFIRE_TEAM_UID_MIN_VOTES
+        # A NAMELESS block -- a normal room -- that the roster's UIDs could
+        # not place may still have been named in the Mapping tab during the
+        # match, player by player. Same threshold as UID, and only for a
+        # block with no team name, so a league result is never touched.
+        if not file_team_name.strip() and not uid_confident:
+            taught_team, taught_votes = match_roster_team_by_taught_squads(
+                team_players, roster_teams)
+            if taught_votes >= FREEFIRE_TEAM_UID_MIN_VOTES:
+                uid_team, uid_votes, uid_confident = taught_team, taught_votes, True
 
         # UID wins outright once it clears the vote threshold, exactly like
         # match_roster_player already does for individual players -- it
@@ -7692,6 +7701,66 @@ def recover_match_extras(match_id, folder=None, max_logs=12):
     return {}
 
 
+def score_unscored_blocks(teams):
+    """Points for a normal room's result, which the client does not score.
+
+    Read off a real normal-room result (MatchResult_2106778308581249024):
+    every block has a blank TeamName and KillScore, RankScore and
+    TotalScore all 0 -- only the rank and each player's KILL are real. Fed
+    in as it stands, a whole game went into the standings as twelve teams
+    on nought.
+
+    So such a block is scored here the way the client scores a league
+    room: kills are the sum of its players' kills, placement comes from
+    FREEFIRE_PLACEMENT_POINTS, and the total is the two added. That table
+    was checked against every scored result on the event rig -- the same
+    twelve values in 154 matches, and total = kills + placement in all
+    1,663 team results.
+
+    Only a block that is BOTH nameless and unscored is touched. Every
+    league result carries a name and its own scores, so a league room
+    never reaches this. Marked scoredBy so the review can say where the
+    numbers came from.
+    """
+    for team in teams:
+        if (team.get("teamName") or "").strip():
+            continue
+        if team.get("killScore") or team.get("rankScore") or team.get("totalScore"):
+            continue
+        kills = sum(int(pl.get("kills") or 0) for pl in team.get("players", []) or [])
+        placement = FREEFIRE_PLACEMENT_POINTS.get(team.get("rank"), 0)
+        team["killScore"] = kills
+        team["rankScore"] = placement
+        team["totalScore"] = kills + placement
+        team["scoredBy"] = "engine"
+    return teams
+
+
+def match_roster_team_by_taught_squads(team_players, roster_teams):
+    """The roster team most of these players were named as in the Mapping
+    tab, and how many said so.
+
+    A normal room's squads are named there during the match, by the
+    operator, player by player. A result block is the same four players,
+    so it can be named from the same teaching instead of asked about
+    again after the whistle."""
+    taught = squad_aliases()
+    if not taught:
+        return None, 0
+    by_name = {(t.get("name") or "").strip(): t for t in roster_teams}
+    votes = {}
+    for player in team_players:
+        name = taught.get(_ign_key(player.get("name")))
+        team = by_name.get((name or "").strip())
+        if team is not None:
+            votes[id(team)] = votes.get(id(team), 0) + 1
+    if not votes:
+        return None, 0
+    best = max(votes, key=votes.get)
+    team = next(t for t in roster_teams if id(t) == best)
+    return team, votes[best]
+
+
 def build_match_result_payload(folder, match_id=None, knocks=None,
                               headshots=None):
     """Reads and resolves a match result into the dashboard's review payload.
@@ -7710,6 +7779,9 @@ def build_match_result_payload(folder, match_id=None, knocks=None,
             "error": f"No result file {which} found in '{folder}'.",
         }
     teams = parse_freefire_match_result(file_path.read_text(encoding="utf-8-sig"))
+    # A normal room's result arrives nameless and unscored -- see
+    # score_unscored_blocks. Scored before anything reads the points.
+    teams = score_unscored_blocks(teams)
     # Resolve against the configured roster before the dashboard ever sees
     # it -- see apply_roster_overrides.
     teams = apply_roster_overrides(teams, server_state.get("roster", {}))

@@ -40,7 +40,8 @@ function lift(name) {
 }
 
 const SOURCE = ["ffNormalRoomActive", "ffRosterTeams", "ffRosterLabel",
-                "ffReviewTeamPicker", "ffApplyReviewPick", "ffReviewPickProblems"]
+                "ffReviewTeamPicker", "ffApplyReviewPick", "ffReviewPickProblems",
+                "ffLearnPickedPlayers"]
   .map(lift).join("\n\n");
 
 let checks = 0; const failures = [];
@@ -124,6 +125,37 @@ pr = env("normal", blocks, [
 ]).ffReviewPickProblems();
 check("a complete set of picks has nothing to report",
       !pr.missing.length && !pr.twice.length);
+
+console.log("\na pick is made once, not once a game");
+// Committing saves each picked block's players to the roster team, so
+// the next game's squads and result line up with nothing to pick.
+(function(){
+  const roster = { teams: [
+    { name: "TSG", players: [] },
+    { name: "NG", players: [{ ign: "NG.ANUBHAV", uid: "2878141764", displayIgn: "Anubhav" }] }]};
+  const pending = { teams: [
+    { rank: 1, players: [{ name: "TSG-ICONIC30", fileName: "TSG-ICONIC30", uid: 832623998 },
+                         { name: "TSG-NOVA", fileName: "TSG-NOVA", uid: 7903668365 }] },
+    { rank: 3, players: [{ name: "Anubhav", fileName: "NG.ANUBHAV", uid: 2878141764 },
+                         { name: "NG.GOPUUU!", fileName: "NG.GOPUUU!", uid: 1256696063 }] }]};
+  const sb = { ffState: { event: { roomType: "normal" }, roster },
+    ffPendingMatch: pending, ffEscapeHtml: x => String(x),
+    document: { querySelectorAll: () => [
+      { dataset: { block: "0" }, value: "0" },
+      { dataset: { block: "1" }, value: "1" }] }, console };
+  vm.createContext(sb); vm.runInContext(SOURCE, sb);
+  const added = sb.ffLearnPickedPlayers();
+  check("the picked players are saved to their team",
+        roster.teams[0].players.map(p => p.uid).join() === "832623998,7903668365",
+        JSON.stringify(roster.teams[0].players.map(p => p.ign)));
+  check("by their real in-game name, with the UID",
+        roster.teams[0].players[0].ign === "TSG-ICONIC30");
+  check("a player the team already has is not added twice",
+        roster.teams[1].players.length === 2, String(roster.teams[1].players.length));
+  check("and what the operator typed for them is left alone",
+        roster.teams[1].players[0].displayIgn === "Anubhav");
+  check("it reports how many it saved", added === 3, String(added));
+})();
 
 console.log("\n" + checks + " checks, " + failures.length + " failed");
 if (failures.length) console.log("failed: " + failures.join(", "));
