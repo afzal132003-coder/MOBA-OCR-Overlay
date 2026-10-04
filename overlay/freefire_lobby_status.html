@@ -157,7 +157,7 @@
     text-shadow:0 3px 0 rgba(0,0,0,.35);
   }
   .head .count{
-    margin-top:9px;display:flex;align-items:baseline;gap:9px;
+    margin-top:9px;display:flex;align-items:baseline;gap:0;
     /* Italic overhangs its box on the left, so a big italic numeral set
        flush reads as if it has drifted inwards. Pulled back by one pixel
        so the 0 lines up with the L of LOBBY above it. */
@@ -167,8 +167,15 @@
     font-weight:900;font-style:italic;font-size:40px;line-height:1;
     color:var(--joined);
   }
+  /* "0" and "/12" are one number and belong tight together; the label
+     is a separate thought and needs the air. One gap for all three set
+     them equally far apart, which read as three unrelated items. */
   .head .count small{
     font-weight:800;font-size:19px;color:var(--muted);
+    margin:0 0 0 3px;
+  }
+  .head .count span{
+    margin-left:11px;
   }
   .head .count span{
     font-weight:700;font-size:12px;letter-spacing:.24em;
@@ -449,16 +456,26 @@ function render(ff){
   wasVisible = true;
 
   const useShort = lobby.shortNames !== false;
+  /* THE HEADER IS SET EVERY TIME; THE CARDS ARE REBUILT ONLY WHEN THEY
+     CHANGE. Both used to share one signature, so typing a title tore the
+     whole row down and built it again -- and rebuilding an element
+     restarts every CSS animation on it, which is a visible flicker
+     across twelve cards for a change that never touched them. Setting
+     two strings costs nothing; rebuilding the row is the expensive part
+     and now happens only when a squad actually moves. */
+  document.getElementById("title").textContent = lobby.title || "Lobby Status";
+  document.getElementById("kicker").textContent = lobby.kicker || "Room Create";
+
+  const count = teams.filter(function(t){ return joined[t.name]; }).length;
+  document.getElementById("joined").textContent = count;
+  document.getElementById("total").textContent = teams.length;
+
   const signature = JSON.stringify([
     teams.map(function(t){ return [t.name, label(t, useShort), t.logo ? 1 : 0]; }),
-    teams.map(function(t){ return !!joined[t.name]; }),
-    lobby.title || "", lobby.kicker || ""
+    teams.map(function(t){ return !!joined[t.name]; })
   ]);
   if(signature === lastSignature) return;
   lastSignature = signature;
-
-  document.getElementById("title").textContent = lobby.title || "Lobby Status";
-  document.getElementById("kicker").textContent = lobby.kicker || "Room Create";
 
   const cards = document.getElementById("cards");
   cards.className = "cards" + (entering ? " justShown" : "");
@@ -487,10 +504,6 @@ function render(ff){
         (isIn ? "Joined" : "Yet To Join") + '</div>' +
     '</div>';
   }).join("");
-
-  const count = teams.filter(function(t){ return joined[t.name]; }).length;
-  document.getElementById("joined").textContent = count;
-  document.getElementById("total").textContent = teams.length;
 
   wasJoined = new Set(teams.filter(function(t){ return joined[t.name]; })
                            .map(function(t){ return t.name; }));

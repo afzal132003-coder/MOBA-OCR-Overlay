@@ -203,6 +203,29 @@ n = draw(env, { roster: { teams: NAMED }, lobby: { joined: {} },
 check("short names are the default when nothing is set",
       /CE/.test(n.cards.innerHTML) && !/COSMIC ESPORT/.test(n.cards.innerHTML));
 
+console.log("\ntyping a title must not disturb the cards");
+// Both used to share one signature, so a title change tore the row down
+// and rebuilt it -- and rebuilding an element restarts every CSS
+// animation on it, which is a visible flicker across twelve cards for a
+// change that never touched them.
+env = mkEnv();
+draw(env, state(true, { TAG: true }));
+env.nodes.cards.innerHTML = "REBUILT-MARKER";
+let st2 = state(true, { TAG: true }); st2.lobby.kicker = "ARROW SHOWDOWN";
+n = draw(env, st2);
+check("the header text follows", n.kicker.textContent === "ARROW SHOWDOWN",
+      n.kicker.textContent);
+check("but the cards are NOT rebuilt",
+      n.cards.innerHTML === "REBUILT-MARKER");
+
+env.nodes.cards.innerHTML = "REBUILT-MARKER";
+let st3 = state(true, { TAG: true, RES: true }); st3.lobby.kicker = "ARROW SHOWDOWN";
+n = draw(env, st3);
+check("a squad joining still rebuilds them",
+      n.cards.innerHTML !== "REBUILT-MARKER");
+check("and the count keeps up without a rebuild",
+      n.joined.textContent === 2, String(n.joined.textContent));
+
 console.log("\n" + checks + " checks, " + failures.length + " failed");
 if (failures.length) console.log("failed: " + failures.join(", "));
 process.exit(failures.length ? 1 : 0);
