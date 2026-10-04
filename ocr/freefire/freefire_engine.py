@@ -6894,10 +6894,31 @@ def director_feed(live, linked=None, now=None):
         if row.get("gsTeam") is not None and row.get("short"):
             short_of[row["gsTeam"]] = row["short"]
 
+    # The room's own slot order, pasted in Pre-Match (event.roomSlots,
+    # slot -> team, full or short name). A normal room's log never says
+    # which squad sits in which slot, so without this the board falls back
+    # to the log's squad number, which does not match the numbers on the
+    # game's spectator panel. With it, it does.
+    room_slot = {}
+    if normal_room:
+        roster_teams_d = ((server_state.get("roster") or {}).get("teams")) or []
+        for slot_txt, wanted in ((server_state.get("event") or {}).get("roomSlots") or {}).items():
+            key = normalize_for_match(wanted)
+            if not key:
+                continue
+            for t in roster_teams_d:
+                if key in (normalize_for_match(t.get("name")),
+                           normalize_for_match(t.get("shortName"))):
+                    try:
+                        room_slot[normalize_for_match(t.get("name"))] = int(slot_txt)
+                    except (TypeError, ValueError):
+                        pass
+                    break
+
     def info(gs):
         slot = slot_of.get(gs)
         if slot is None and normal_room:
-            slot = gs
+            slot = room_slot.get(normalize_for_match(name_of(gs)), gs)
         return {"slot": slot,
                 "short": short_of.get(gs) or derive_short_name(name_of(gs)),
                 "name": name_of(gs)}

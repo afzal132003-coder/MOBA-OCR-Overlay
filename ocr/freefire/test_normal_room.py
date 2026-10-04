@@ -385,6 +385,38 @@ def main():
     finally:
         ff.server_state["event"] = keep_ev3
 
+    print("\nroom slots pasted in Pre-Match")
+    keep_ev4 = dict(ff.server_state.get("event") or {})
+    keep_ro4 = ff.server_state.get("roster")
+    try:
+        ff.server_state["roster"] = {"teams": [
+            {"name": "TEAM APEX", "shortName": "APEX"},
+            {"name": "VASIYO ESP", "shortName": "VE"}]}
+        live_s = {"fights": [[1000.0, 3, 9, "kill"]], "gsKills": {3: 1},
+                  "gsIgns": {3: {"a": "x"}, 9: {"b": "y"}, 4: {"c": "z"}},
+                  "wiped": [], "revivePoints": [], "zone": {}}
+        linked_s = {"gsNames": {3: "TEAM APEX", 9: "VASIYO ESP"},
+                    "rows": [{"gsTeam": 3, "short": "APEX"}, {"gsTeam": 9, "short": "VE"}]}
+        ff.server_state["event"] = dict(keep_ev4, roomType="normal",
+                                        roomSlots={"2": "team apex", "11": "VE"})
+        got = {i["short"]: i["slot"] for i in
+               ff.director_feed(live_s, linked_s, now=1003.0)["engagements"][0]["teamInfo"]}
+        check("a pasted full name gives the panel's slot", got.get("APEX") == 2, str(got))
+        check("so does a short name", got.get("VE") == 11, str(got))
+        ff.server_state["event"]["roomSlots"] = {"2": "team apex"}
+        got = {i["short"]: i["slot"] for i in
+               ff.director_feed(live_s, linked_s, now=1003.0)["engagements"][0]["teamInfo"]}
+        check("a team with no slot pasted falls back to the log's number",
+              got.get("VE") == 9, str(got))
+        ff.server_state["event"] = dict(keep_ev4, roomType="league",
+                                        roomSlots={"2": "TEAM APEX"})
+        got = {i["short"]: i["slot"] for i in
+               ff.director_feed(live_s, linked_s, now=1003.0)["engagements"][0]["teamInfo"]}
+        check("a league room ignores pasted slots", got.get("APEX") is None, str(got))
+    finally:
+        ff.server_state["event"] = keep_ev4
+        ff.server_state["roster"] = keep_ro4
+
     print("\n%d checks, %d failed" % (checks, len(failures)))
     if failures:
         print("failed: " + ", ".join(failures))

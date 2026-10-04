@@ -2114,6 +2114,25 @@
       <span class="hint" id="ff_eventStatus" style="margin-left:10px;"></span>
     </div>
 
+    <div class="card" id="ff_roomSlotsCard">
+      <h2>Room Slots &mdash; Normal Room</h2>
+      <p class="hint">Which team sits in which slot of the room, as the game's spectator panel numbers them.
+        A normal room's log never says, so without this the Director falls back to the log's own squad numbers,
+        which do <strong>not</strong> match the panel. Paste one team per line, <strong>slot 1 first</strong>
+        &mdash; full or short names both work &mdash; then Save. A league room takes its slots from the game and
+        ignores this.</p>
+      <textarea id="ff_roomSlotsPaste" rows="5" style="width:100%;max-width:520px;"
+        placeholder="NG PROS&#10;RNTX&#10;TEAM APEX&#10;4ENDS ESP&#10;..."></textarea>
+      <div class="row" style="gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+        <button id="ff_roomSlotsFill">Fill From Paste</button>
+        <button id="ff_roomSlotsSave">Save Slots</button>
+        <button class="secondary" id="ff_roomSlotsClear">Clear</button>
+        <span class="hint" id="ff_roomSlotsStatus"></span>
+      </div>
+      <div id="ff_roomSlotsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));
+           gap:8px;margin-top:12px;"></div>
+    </div>
+
     <div class="card">
       <h2>Roster Import</h2>
       <p class="hint">Upload a CSV with one row per player: <code>team,ign,uid</code> (a header row is fine, it's
@@ -6265,6 +6284,7 @@ function connect(){
         Object.assign(ffState, msg.data || {});
         try { ffRenderMapping(ffState); } catch(e){ console.error("mapping:", e); }
         try { ffRenderNameSquads(); } catch(e){ console.error("name squads:", e); }
+      try { ffDrawRoomSlots(); } catch(e){ console.error("room slots:", e); }
       }
     } else if(msg.type === "freefire_arrow_result"){
       ffReplyArrived("arrow");
@@ -9875,6 +9895,85 @@ function ffRenderNameSquads() {
     });
   });
 }
+
+/* ---------- Room slots (normal room) ----------
+   Slot -> team, saved on the event as roomSlots. Twelve boxes, one per
+   slot, each offering the roster's teams; a paste fills them in order.
+   Saved MERGED into the event, never as a fresh one, for the reason
+   written beside Save Event Setup: anything not listed would be lost. */
+const FF_ROOM_SLOTS = 12;
+
+function ffRoomSlotsFromInputs() {
+  const out = {};
+  document.querySelectorAll(".ff-room-slot").forEach(el => {
+    const v = el.value.trim();
+    if (v) out[el.dataset.slot] = v;
+  });
+  return out;
+}
+
+function ffDrawRoomSlots(slots) {
+  const grid = document.getElementById("ff_roomSlotsGrid");
+  if (!grid) return;
+  if (document.activeElement && grid.contains(document.activeElement)) return;
+  const held = slots || ((ffState && ffState.event && ffState.event.roomSlots) || {});
+  const names = (((ffState && ffState.roster) || {}).teams || []).map(t => t.name).filter(Boolean);
+  const known = new Set(names.map(n => n.toUpperCase()));
+  const shorts = new Set((((ffState && ffState.roster) || {}).teams || [])
+    .map(t => (t.shortName || "").toUpperCase()).filter(Boolean));
+  let html = "";
+  for (let i = 1; i <= FF_ROOM_SLOTS; i++) {
+    const v = held[String(i)] || "";
+    // Said beside the box, not discovered on air: a name the roster does
+    // not know cannot be matched to a squad, so its slot would never show.
+    const unknown = v && !known.has(v.toUpperCase()) && !shorts.has(v.toUpperCase());
+    html += "<label style='display:flex;align-items:center;gap:8px;margin:0;'>" +
+      "<span style='min-width:58px;font-weight:800;color:#ff9f45;'>SLOT " + i + "</span>" +
+      "<input type='text' class='ff-room-slot' data-slot='" + i + "' list='ff_rosterTeamNames' " +
+      "value=\"" + ffEscapeHtml(v).replace(/"/g, "&quot;") + "\" placeholder='team' style='flex:1;" +
+      (unknown ? "border-color:#d97706;" : "") + "'" +
+      (unknown ? " title='Not a team in the roster -- it will not be matched'" : "") + ">" +
+      "</label>";
+  }
+  if (grid.innerHTML !== html) grid.innerHTML = html;
+}
+
+(function ffWireRoomSlots() {
+  const save = document.getElementById("ff_roomSlotsSave");
+  if (!save) return;
+  const say = t => { document.getElementById("ff_roomSlotsStatus").textContent = t; };
+
+  document.getElementById("ff_roomSlotsFill").addEventListener("click", () => {
+    const lines = document.getElementById("ff_roomSlotsPaste").value
+      .split(/\r?\n/).map(l => l.replace(/^\s*\d+\s*[.)\-:]\s*/, "").trim()).filter(Boolean);
+    if (!lines.length) { say("Nothing pasted."); return; }
+    const slots = {};
+    lines.slice(0, FF_ROOM_SLOTS).forEach((name, i) => { slots[String(i + 1)] = name; });
+    ffDrawRoomSlots(slots);
+    say("Filled " + Math.min(lines.length, FF_ROOM_SLOTS) + " slot(s)" +
+        (lines.length > FF_ROOM_SLOTS ? " \u2014 " + (lines.length - FF_ROOM_SLOTS) + " extra line(s) ignored" : "") +
+        ". Press Save Slots to keep them.");
+  });
+
+  save.addEventListener("click", () => {
+    if (!(ffWs && ffWs.readyState === WebSocket.OPEN) || !ffState) {
+      say("Not connected to the Free Fire engine."); return;
+    }
+    const roomSlots = ffRoomSlotsFromInputs();
+    const event = Object.assign({}, ffState.event || {}, { roomSlots });
+    ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { event } } }));
+    say("Saved " + Object.keys(roomSlots).length + " slot(s) \u2014 the Director uses them from its next update.");
+  });
+
+  document.getElementById("ff_roomSlotsClear").addEventListener("click", () => {
+    if (!(ffWs && ffWs.readyState === WebSocket.OPEN) || !ffState) return;
+    document.getElementById("ff_roomSlotsPaste").value = "";
+    const event = Object.assign({}, ffState.event || {}, { roomSlots: {} });
+    ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { event } } }));
+    ffDrawRoomSlots({});
+    say("Cleared \u2014 the Director goes back to the log's squad numbers.");
+  });
+})();
 
 /* ---------- ARROW sheet: Booyah, match top 5, series totals ----------
    The game checkboxes are drawn from the games actually committed, so a
