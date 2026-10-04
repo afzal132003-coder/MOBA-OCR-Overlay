@@ -1331,6 +1331,35 @@ function playFlyby(el){
   setTimeout(() => fly.classList.remove("on"), FLYBY_MS + 60);
 }
 
+/* FULL OR SHORT, as the operator chose under "Team names shown as".
+   That dropdown used to change only the dashboard's own table, so picking
+   Full left the graphic on short names with nothing to say why. It now
+   sets settings.aliveNameStyle, and this follows it. No setting means
+   short, which is what this graphic has always shown. */
+function teamLabel(team, row, state){
+  const style = (state && state.settings && state.settings.aliveNameStyle) === "full"
+    ? "full" : "short";
+  if(style === "full"){
+    return (team && (team.displayName || team.name)) || row.teamName || row.short || "";
+  }
+  return (team && team.shortName) || row.short || row.teamName || "";
+}
+
+/* A full team name is wider than the column was drawn for, and the cell
+   clips -- "MENTALIST ESP" went out as "MENTALIST". So a name that does
+   not fit is stepped down in size until it does, to no less than 60% of
+   the package's own size; a short name never needs it and is untouched. */
+function fitName(el){
+  el.style.fontSize = "";
+  if(!el.clientWidth) return;
+  const base = parseFloat(getComputedStyle(el).fontSize) || 16;
+  let size = base;
+  while(el.scrollWidth > el.clientWidth + 1 && size > base * 0.6){
+    size -= 0.5;
+    el.style.fontSize = size + "px";
+  }
+}
+
 function apply(state){
   lastState = state;
   const live = state.liveOps || {};
@@ -1395,7 +1424,7 @@ function apply(state){
        arrived on air as "MENTALIST". The client publishes no short name
        of its own, so the derived one is a starting point to overwrite,
        not an answer. */
-    const label = (team && team.shortName) || row.short || row.teamName || "";
+    const label = teamLabel(team, row, state);
     /* aliveCount is null when nothing has been able to link this squad
        to a team -- no roster entry, no kill to match on, no tag to read.
        That is NOT the same as the squad being dead, and it used to draw
@@ -1416,7 +1445,10 @@ function apply(state){
     const art = L.pipBase + artName;
 
     const nameEl = el.querySelector(".name");
-    if(nameEl.textContent !== label) nameEl.textContent = label;
+    if(nameEl.textContent !== label){
+      nameEl.textContent = label;
+      fitName(nameEl);
+    }
     // Shows the last count actually seen when this frame has none, so the
     // number doesn't blink out and back on every redraw. A team nothing
     // has ever been read for shows 0 rather than an empty cell: every

@@ -2317,10 +2317,10 @@
         screen. Recalibrating one box only redraws that box; the others keep their current values, so fixing a
         single misaligned crop doesn't mean redoing them all. Restart the engine afterwards to pick it up.</p>
       <p class="hint" id="ff_aliveCalibWhere" style="margin-top:2px;"></p>
-      <p class="hint" style="margin-top:2px;">"Team names shown as" only changes what the Team column reads on
-        this screen -- yours, not your partner's. The assignment itself is always the full roster name, so
-        switching to short names changes nothing about what goes on air, what the sheet push writes, or what is
-        already set. A team with no short name in the roster keeps its full one either way.</p>
+      <p class="hint" style="margin-top:2px;">"Team names shown as" sets the names on the <strong>on-air alive
+        table</strong> as well as the Team column here -- live, no restart. It changes nothing about which team
+        is assigned to which row or what the sheet push writes. A team with no short name in the roster keeps its
+        full one either way; a full name too wide for its box is shrunk to fit.</p>
       <p class="hint" style="margin-top:2px;">Players 3 and 4 are normally <em>derived</em> from the spacing
         between players 1 and 2, so they have no box of their own and usually need none. Pin one only if that
         column's crop actually sits off-centre while the others look right — once drawn, it's used exactly where
@@ -6284,7 +6284,7 @@ function connect(){
         Object.assign(ffState, msg.data || {});
         try { ffRenderMapping(ffState); } catch(e){ console.error("mapping:", e); }
         try { ffRenderNameSquads(); } catch(e){ console.error("name squads:", e); }
-      try { ffDrawRoomSlots(); } catch(e){ console.error("room slots:", e); }
+        try { ffDrawRoomSlots(); } catch(e){ console.error("room slots:", e); }
       }
     } else if(msg.type === "freefire_arrow_result"){
       ffReplyArrived("arrow");
@@ -6510,6 +6510,8 @@ function ffOpen(url){
       try { ffDrawLobbyTicks(ffState); } catch(e){ console.error("lobby ticks:", e); }
       try { ffDrawArrowGames(); } catch(e){ console.error("arrow games:", e); }
       try { ffRenderNameSquads(); } catch(e){ console.error("name squads:", e); }
+      try { ffDrawRoomSlots(); } catch(e){ console.error("room slots:", e); }
+      try { ffSyncAliveNameStyle(); } catch(e){ console.error("name style:", e); }
       if(!ffHydrated){
         ffHydrate(ffState);
         ffHydrated = true;
@@ -7467,9 +7469,11 @@ let ffLastAliveGridKey = "";
    push -- matches on. Showing the short name must not change what is
    assigned, only what the operator reads while assigning it.
 
-   Kept in this browser rather than in engine state, because it is a
-   preference of the person looking at the screen. Two admins on two
-   machines can each have their own without one changing the other's. */
+   It is ALSO what the on-air alive table shows. It began as a preference
+   of the person looking at this screen only, and an operator who picked
+   Full and saw the graphic stay on short names had every reason to think
+   it was broken -- so it is saved in the engine's settings too, and the
+   dropdown is set from there, so every screen shows what is going out. */
 let ffAliveNameStyle = "full";
 try { ffAliveNameStyle = localStorage.getItem("moba_alive_name_style") || "full"; } catch(e) {}
 
@@ -8322,6 +8326,15 @@ ffRenderAliveCalibCmd();
   box.addEventListener("change", () => {
     ffAliveNameStyle = box.value === "short" ? "short" : "full";
     try { localStorage.setItem("moba_alive_name_style", ffAliveNameStyle); } catch(e) {}
+    // ON AIR TOO. Merged into the settings already held -- the engine
+    // replaces settings wholesale with whatever arrives, so sending only
+    // this key would wipe every other setting.
+    if(ffWs && ffWs.readyState === WebSocket.OPEN && ffState){
+      const settings = Object.assign({}, ffState.settings || {},
+                                     { aliveNameStyle: ffAliveNameStyle });
+      ffState.settings = settings;
+      ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { settings } } }));
+    }
     // Relabel now rather than waiting for the next state_sync -- the
     // renderer's key has the style in it, so this rebuilds the Team
     // column and reapplies every current assignment from state.
@@ -8330,8 +8343,8 @@ ffRenderAliveCalibCmd();
     const missing = ffAliveNameStyle === "short"
       ? roster.filter(t => !(t.shortName || "").trim()).length : 0;
     document.getElementById("ff_aliveGridStatus").textContent = missing
-      ? `Showing short names — ${missing} of ${roster.length} squads have none set, so those still read in full.`
-      : (ffAliveNameStyle === "short" ? "Showing short names." : "Showing full team names.");
+      ? `Short names on air — ${missing} of ${roster.length} squads have none set, so those still read in full.`
+      : (ffAliveNameStyle === "short" ? "Short names on air." : "Full team names on air.");
   });
 })();
 
@@ -10008,6 +10021,20 @@ function ffDrawRoomSlots(slots) {
     say("Cleared \u2014 the Director goes back to the log's squad numbers.");
   });
 })();
+
+/* The dropdown shows what is ON AIR, read back from the engine, so two
+   operators on two screens cannot each believe a different thing is
+   going out. Left alone while it has focus. */
+function ffSyncAliveNameStyle(){
+  const box = document.getElementById("ff_aliveNameStyle");
+  if(!box || !ffState || document.activeElement === box) return;
+  const onAir = (ffState.settings && ffState.settings.aliveNameStyle) === "full" ? "full" : "short";
+  if(box.value !== onAir || ffAliveNameStyle !== onAir){
+    box.value = onAir;
+    ffAliveNameStyle = onAir;
+    try { ffRenderAliveGridRows(ffState); } catch(e) {}
+  }
+}
 
 /* ---------- ARROW sheet: Booyah, match top 5, series totals ----------
    The game checkboxes are drawn from the games actually committed, so a
