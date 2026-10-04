@@ -208,6 +208,84 @@ def main():
           league_t["teamName"])
     aliases["squads"] = keep_sq
 
+    print("\nnaming a squad, with nothing in the roster yet")
+    # The live case: twelve squads on the table as SQUAD n, a roster with
+    # no teams at all, and the only way to name a squad refused every
+    # name the roster did not already have. Naming one now creates it.
+    import asyncio, json as _json
+    from types import SimpleNamespace
+
+    class FakeDash:
+        def __init__(self, messages):
+            self.request = SimpleNamespace(path="/?page=freefire_dashboard")
+            self._in = list(messages)
+            self.sent = []
+        async def send(self, raw):
+            self.sent.append(_json.loads(raw))
+        def __aiter__(self):
+            return self
+        async def __anext__(self):
+            if not self._in:
+                raise StopAsyncIteration
+            return self._in.pop(0)
+
+    keep_roster = ff.server_state.get("roster")
+    keep_lobby = ff.server_state["liveOps"].get("lobbyPlayers")
+    keep_event = dict(ff.server_state.get("event") or {})
+    keep_save = ff.save_state
+    ff.save_state = lambda *a, **k: None          # never touch the real file
+    try:
+        ff.server_state["roster"] = {"teams": []}
+        ff.server_state["liveOps"]["lobbyPlayers"] = [
+            {"pid": "16777217", "uid": "503039951", "ign": "CTZ\u00d7STEVE19", "gsTeam": 1, "team": ""},
+            {"pid": "16777257", "uid": "2323297341", "ign": "CTZ\u00d7S4IF24", "gsTeam": 1, "team": ""},
+            {"pid": "16777247", "uid": "2104644627", "ign": "SAKSHMM GOD", "gsTeam": 1, "team": ""},
+            {"pid": "16777226", "uid": "3573182434", "ign": "RAGHAVv.01!", "gsTeam": 1, "team": ""}]
+        dash = FakeDash([_json.dumps({"type": "freefire_fill_roster_from_lobby",
+                                      "assignments": {"1": "CTZ"}})])
+
+        async def go():
+            await ff.handle_client(dash)
+            await asyncio.sleep(0.05)
+        asyncio.run(go())
+        reply = [m for m in dash.sent if m.get("type") == "freefire_fill_roster_result"]
+        reply = reply[-1] if reply else {}
+        teams = ff.server_state["roster"]["teams"]
+        check("an empty roster gains the team that was typed",
+              [t["name"] for t in teams] == ["CTZ"], str([t["name"] for t in teams]))
+        check("with the squad's four players and their IDs",
+              sorted(p["uid"] for p in teams[0]["players"]) ==
+              sorted(["503039951", "2323297341", "2104644627", "3573182434"]))
+        check("and the reply says a team was made",
+              reply.get("teamsCreated") == 1 and reply.get("added") == 4, str(reply)[:120])
+
+        ff.server_state["event"] = dict(keep_event, roomType="normal")
+        live = {"teamNames": {},
+                "gsIgns": {1: {"16777217": "CTZ\u00d7STEVE19", "16777257": "CTZ\u00d7S4IF24",
+                               "16777247": "SAKSHMM GOD", "16777226": "RAGHAVv.01!"}},
+                "gsDown": {1: set()}, "gsKills": {1: 3}, "wiped": []}
+        rows = ff.link_live_teams(live, ff.server_state["roster"])["rows"]
+        check("and the alive row is named CTZ from then on",
+              [r["teamName"] for r in rows] == ["CTZ"], str([r["teamName"] for r in rows]))
+
+        dash2 = FakeDash([_json.dumps({"type": "freefire_fill_roster_from_lobby",
+                                       "assignments": {"1": "ctz"}})])
+        asyncio.run(ff.handle_client(dash2))
+        check("naming it again, in any case, joins the team rather than twinning it",
+              len(ff.server_state["roster"]["teams"]) == 1)
+
+        dash3 = FakeDash([_json.dumps({"type": "freefire_fill_roster_from_lobby",
+                                       "assignments": {}})])
+        ff.server_state["roster"] = {"teams": []}
+        asyncio.run(ff.handle_client(dash3))
+        check("and a squad nobody named never invents a team",
+              ff.server_state["roster"]["teams"] == [])
+    finally:
+        ff.save_state = keep_save
+        ff.server_state["roster"] = keep_roster
+        ff.server_state["liveOps"]["lobbyPlayers"] = keep_lobby
+        ff.server_state["event"] = keep_event
+
     print("\n%d checks, %d failed" % (checks, len(failures)))
     if failures:
         print("failed: " + ", ".join(failures))

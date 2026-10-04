@@ -10123,10 +10123,27 @@ async def handle_client(websocket, path=None):
                 for p in lobby:
                     by_squad.setdefault(str(p.get("gsTeam")), []).append(p)
 
+                teams_created = 0
                 for gs_team, players in sorted(by_squad.items()):
-                    target = (assignments.get(gs_team)
+                    stated = (assignments.get(gs_team) or "").strip()
+                    target = (stated
                               or (players[0].get("team") if players else "") or "").strip()
                     team = by_name.get(target.upper()) if target else None
+                    # A team the OPERATOR named that the roster does not
+                    # have yet is created, not refused. A normal room is
+                    # exactly the case: the log names no team, so the first
+                    # time a squad can be called anything is when someone
+                    # types it -- and refusing every name not already in the
+                    # roster left a roster with no teams in it unable to
+                    # name a single squad. Only an explicit assignment
+                    # creates one; a guess off the log never does.
+                    if team is None and stated:
+                        team = {"name": stated, "displayName": "", "shortName": "",
+                                "tagRead": "", "logo": "", "groupPhoto": "",
+                                "players": []}
+                        roster.append(team)
+                        by_name[stated.upper()] = team
+                        teams_created += 1
                     if team is None:
                         unplaced.append({"gsTeam": gs_team,
                                          "igns": [p.get("ign") for p in players]})
@@ -10153,7 +10170,7 @@ async def handle_client(websocket, path=None):
                         known.add(uid)
                         added += 1
 
-                if added:
+                if added or teams_created:
                     save_state()
                     await broadcast({"type": "state_sync", "data": server_state,
                                      "locked": list(locked_fields)})
@@ -10161,7 +10178,8 @@ async def handle_client(websocket, path=None):
                     "type": "freefire_fill_roster_result",
                     "added": added, "alreadyThere": skipped,
                     "noUid": no_uid, "unplaced": unplaced,
-                    "lobbySeen": len(lobby),
+                    "lobbySeen": len(lobby), "teamsCreated": teams_created,
+                    "assigned": sorted(assignments.keys()),
                 }))
             elif payload.get("type") == "freefire_list_match_files":
                 # Every result file on disk, oldest first, parsed and

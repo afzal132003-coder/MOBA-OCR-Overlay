@@ -157,6 +157,19 @@ console.log("\na pick is made once, not once a game");
   check("it reports how many it saved", added === 3, String(added));
 })();
 
+console.log("\nthe name offered for a squad");
+(function(){
+  const sb = { console };
+  vm.createContext(sb); vm.runInContext(lift("ffSquadTagGuess"), sb);
+  const g = igns => sb.ffSquadTagGuess(igns);
+  check("a shared tag is offered: CTZ", g(["CTZ\u00d7STEVE19", "CTZ\u00d7S4IF24", "SAKSHMM GOD"]) === "CTZ");
+  check("dot and dash tags too: NG, TSG",
+        g(["NG.ANUBHAV", "NG.GOPUUU!", "Wildfox17"]) === "NG" &&
+        g(["TSG-NOVA", "TSG-ICONIC30"]) === "TSG");
+  check("one player's tag is not a squad's", g(["CTZ\u00d7STEVE19", "RAGHAVv.01!"]) === "");
+  check("no shared tag, no guess", g(["NebulaPATLU", "NebulaT1GER", "Jarvisx16"]) === "");
+})();
+
 console.log("\n" + checks + " checks, " + failures.length + " failed");
 if (failures.length) console.log("failed: " + failures.join(", "));
 process.exit(failures.length ? 1 : 0);
