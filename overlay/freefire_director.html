@@ -69,6 +69,14 @@
   .bar > i{display:block;height:100%;background:var(--hot);border-radius:99px}
   .fight.second .bar > i{background:var(--cool)}
   .where{color:var(--cool)}
+  /* A fight that is over keeps its line, underneath, faded -- context,
+     not a shot. */
+  .fight.over{opacity:.42}
+  .fight.over .bar > i{background:#4a5470}
+  .tagover{font-size:15px;letter-spacing:.14em;color:var(--dim);
+           border:1px solid var(--line);border-radius:6px;padding:1px 8px}
+  .taglive{font-size:15px;letter-spacing:.14em;color:#0b0e15;background:var(--good);
+           border-radius:6px;padding:1px 8px;font-weight:800}
   .stale{color:var(--warn)}
 
   .stat{display:flex;align-items:baseline;gap:14px;margin-bottom:18px}
@@ -117,6 +125,8 @@
     <div id="fights"></div>
     <h2 id="closingHead" style="margin-top:22px" hidden>Closing in</h2>
     <div id="closing"></div>
+    <h2 id="overHead" style="margin-top:22px" hidden>Just ended</h2>
+    <div id="over"></div>
     <div class="note" id="posNote"></div>
   </div>
   <div class="panel">
@@ -191,7 +201,13 @@ function render(d){
     ? tags(call.teamInfo, call.teams, "vs") : "no engagement";
   $("callWhy").textContent = call.why || "";
 
-  const list = d.engagements || [];
+  /* Live fights at the top, then what is about to start, then what has
+     just ended -- in that order down the board, because that is the
+     order a director needs them in. An engine older than this board
+     sends no status, and its fights are all treated as live. */
+  const all = d.engagements || [];
+  const list = all.filter(e => e.status !== "over");
+  const ended = all.filter(e => e.status === "over");
   const top = list.length ? list[0].weight : 1;
   $("fights").innerHTML = list.length ? list.map((e, i) => {
     /* The position's AGE is shown beside it, always. A director acting
@@ -203,11 +219,22 @@ function render(d){
       : "<span class='stale'>no position</span>";
     return "<div class='fight" + (i === 1 ? " second" : "") + "'>" +
       "<div class='fteams'>" + tags(e.teamInfo, e.teams, "vs") + "</div>" +
-      "<div class='fmeta'><span>" + e.knocks + " knocks &middot; " + e.kills +
+      "<div class='fmeta'>" + (e.status === "live" ? "<span class='taglive'>LIVE</span>" : "") +
+      "<span>" + e.knocks + " knocks &middot; " + e.kills +
       " kills</span><span>" + e.secondsAgo + "s ago</span>" + where + "</div>" +
       "<div class='bar'><i style='width:" +
       Math.max(6, Math.round(100 * e.weight / (top || 1))) + "%'></i></div></div>";
-  }).join("") : "<div class='empty'>no fights in the last 45 seconds</div>";
+  }).join("") : "<div class='empty'>no fight going on right now</div>";
+
+  $("overHead").hidden = !ended.length;
+  $("over").innerHTML = ended.map(e => {
+    const out = (e.alive || []).some(a => a === false);
+    return "<div class='fight over'><div class='fteams' style='font-size:26px'>" +
+      tags(e.teamInfo, e.teams, "vs") + "</div>" +
+      "<div class='fmeta'><span class='tagover'>" + (out ? "SQUAD OUT" : "WENT QUIET") +
+      "</span><span>" + e.knocks + " knocks &middot; " + e.kills + " kills</span>" +
+      "<span>" + e.secondsAgo + "s ago</span></div></div>";
+  }).join("");
 
   /* Squads near each other that are not fighting yet -- the shot to be
      ready for rather than the one to cut to. Distance is meaningless

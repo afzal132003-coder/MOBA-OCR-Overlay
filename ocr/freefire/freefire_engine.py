@@ -6769,6 +6769,11 @@ FREEFIRE_POSITION_STALE = 120.0
 # Two engagements this close in weight are both worth watching, which is
 # what a split screen is for.
 FREEFIRE_SPLIT_RATIO = 0.6
+
+# A fight with no exchange for this long, or with either side wiped, is
+# OVER as far as the director is concerned: still listed, so the board
+# keeps its context, but under the live ones and never the shot called.
+FREEFIRE_FIGHT_LIVE_SECONDS = 15.0
 # How close two squads count as converging, as a multiple of the circle's
 # current radius, with a floor and a ceiling.
 #
@@ -6906,7 +6911,10 @@ def director_feed(live, linked=None, now=None):
     pairs = {}
     for when, attacker, defender, kind in (live.get("fights") or []):
         age = now - when
-        if age > FREEFIRE_FIGHT_WINDOW:
+        # A fight stamped AHEAD of now is not one that has happened: only
+        # a replay asked about a moment mid-match can produce it, and it
+        # read on the board as "-7s ago" at the top of the list.
+        if age > FREEFIRE_FIGHT_WINDOW or age < -5:
             continue
         key = tuple(sorted((attacker, defender)))
         entry = pairs.setdefault(key, {"knocks": 0, "kills": 0, "last": 0.0})
@@ -6930,12 +6938,29 @@ def director_feed(live, linked=None, now=None):
             "slots": [slot_of.get(a), slot_of.get(b)],
             "knocks": entry["knocks"], "kills": entry["kills"],
             "weight": weight,
-            "secondsAgo": int(now - entry["last"]),
+            "secondsAgo": max(0, int(now - entry["last"])),
             "where": [round(spot[1]), round(spot[2])] if spot else None,
             "whereAgeSeconds": int(now - spot[0]) if spot else None,
             "alive": [gs not in wiped for gs in (a, b)],
         })
-    engagements.sort(key=lambda e: (-e["weight"], e["secondsAgo"]))
+    # LIVE FIRST. Ranked by size alone, a big fight from thirty-five
+    # seconds ago sat above one happening now, and the shot was called on
+    # it -- a director cutting to a fight that is already over. A fight is
+    # live while both squads are standing and it has traded inside
+    # FREEFIRE_FIGHT_LIVE_SECONDS; live ones rank by HEAT, their size
+    # discounted by how long since the last exchange, so a small fight
+    # going on now beats a bigger one that has gone quiet. Over ones go
+    # underneath, most recent first, and are never what the shot is
+    # called on.
+    for e in engagements:
+        both_up = all(e["alive"])
+        e["status"] = ("live" if both_up and e["secondsAgo"] <= FREEFIRE_FIGHT_LIVE_SECONDS
+                       else "over")
+        e["heat"] = round(e["weight"] / (1.0 + e["secondsAgo"] / 10.0), 2)
+    engagements.sort(key=lambda e: (
+        e["status"] != "live",
+        -e["heat"] if e["status"] == "live" else e["secondsAgo"]))
+    live_fights = [e for e in engagements if e["status"] == "live"]
 
     # Which squad is ahead on kills. Not a badge the client publishes --
     # it publishes the numbers, and this is the top of them.
@@ -6992,30 +7017,34 @@ def director_feed(live, linked=None, now=None):
     # The call. Deliberately a suggestion with its reason attached, never
     # an instruction: a director can see things this cannot, and a line
     # that says WHY can be overruled in a second.
-    if not engagements:
+    lf = live_fights
+    if not lf:
         shot = "MAP SCREEN"
-        why = ("circle closing, no fight running" if closing
+        why = ("squads closing in -- be ready" if closing_in
+               else "circle closing, no fight running" if closing
                else "nothing is happening")
         teams = []
         call_info = []
-    elif len(engagements) >= 2 and             engagements[1]["weight"] >= engagements[0]["weight"] * FREEFIRE_SPLIT_RATIO:
+    elif len(lf) >= 2 and lf[1]["heat"] >= lf[0]["heat"] * FREEFIRE_SPLIT_RATIO:
         shot = "SPLIT SCREEN"
-        why = "two fights worth watching at once"
-        teams = engagements[0]["teams"] + engagements[1]["teams"]
-        call_info = engagements[0]["teamInfo"] + engagements[1]["teamInfo"]
-    elif engagements[0]["where"]:
+        why = "two fights going on at once"
+        teams = lf[0]["teams"] + lf[1]["teams"]
+        call_info = lf[0]["teamInfo"] + lf[1]["teamInfo"]
+    elif lf[0]["where"]:
         shot = "MAP + POV"
-        why = "one fight, and we know roughly where"
-        teams = engagements[0]["teams"]
-        call_info = engagements[0]["teamInfo"]
+        why = "one fight going on, and we know roughly where"
+        teams = lf[0]["teams"]
+        call_info = lf[0]["teamInfo"]
     else:
         shot = "POV"
-        why = "one fight, no position for it"
-        teams = engagements[0]["teams"]
-        call_info = engagements[0]["teamInfo"]
+        why = "one fight going on, no position for it"
+        teams = lf[0]["teams"]
+        call_info = lf[0]["teamInfo"]
 
     return {
-        "engagements": engagements[:4],
+        # Every live fight, then up to two that have just ended.
+        "engagements": live_fights[:4] + [e for e in engagements
+                                          if e["status"] != "live"][:2],
         "closingIn": closing_in[:3],
         # Published so the board can say what "close" currently means --
         # it changes with the circle, and a distance with no scale beside
