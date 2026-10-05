@@ -974,6 +974,61 @@ def fit_slot_run(cards, digit_templates, min_margin=0.015):
     return ranked[0][0], margin
 
 
+def read_card_slots(cards, store, lo=1, hi=MAX_SLOT):
+    """Each card's OWN slot number, for a page that may skip slots.
+
+    A slot can be empty -- a squad that never joined -- and the panel then
+    simply goes 16, 18. Fitting a page as one consecutive run filed the
+    "18" card as 17, which puts a team's kills on another team's row, the
+    one thing this module must never do. So every card is read on its own.
+
+    Certain only when the numbers prove themselves: every readable card
+    reads a whole number in [lo, hi], strictly increasing left to right,
+    top to bottom. A card that cannot be read is filled in only when its
+    neighbours leave exactly one possibility (16, ?, 18 -> 17); otherwise
+    the page is not certain.
+
+    Returns (slots or None, reads) -- reads being what each card said,
+    "" where it could not be read."""
+    reads = []
+    for c in cards:
+        bms = c.get("slot_bitmaps") or []
+        if len(bms) != 2 or any(b is None for b in bms):
+            reads.append("")
+            continue
+        got = [best_match(b, store, sim=slot_similarity) for b in bms]
+        reads.append("" if None in got else "".join(got))
+    nums = [int(r) if r else None for r in reads]
+    known = [(i, v) for i, v in enumerate(nums) if v is not None]
+    if len(known) < 2:
+        return None, reads
+    if any(not lo <= v <= hi for _, v in known):
+        return None, reads
+    if any(b[1] <= a[1] or b[1] - a[1] < b[0] - a[0] for a, b in zip(known, known[1:])):
+        return None, reads
+    slots = list(nums)
+    # Unread cards between two read ones: determined only when the gap
+    # holds exactly as many slots as there are unread cards.
+    for (ia, va), (ib, vb) in zip(known, known[1:]):
+        missing = ib - ia - 1
+        if missing == 0:
+            continue
+        if vb - va - 1 != missing:
+            return None, reads
+        for k in range(1, missing + 1):
+            slots[ia + k] = va + k
+    # Unread cards at either end: only the next slot along, and only when
+    # that does not leave the lobby.
+    first_i, last_i = known[0][0], known[-1][0]
+    for k in range(first_i - 1, -1, -1):
+        slots[k] = slots[k + 1] - 1
+    for k in range(last_i + 1, len(slots)):
+        slots[k] = slots[k - 1] + 1
+    if slots[0] < lo or slots[-1] > hi:
+        return None, reads
+    return slots, reads
+
+
 def assign_slots(cards, first_slot):
     for i, c in enumerate(cards):
         c["slot"] = first_slot + i
@@ -1192,7 +1247,7 @@ def remember(stores, store, digit, bitmap, near=0.97):
     return True
 
 
-def learn_slot_digits(cards, first_slot, stores, contradiction=0.90):
+def learn_slot_digits(cards, first_slot, stores, contradiction=0.90, slots=None):
     """Learn slot digits from a page the OPERATOR has labelled.
 
     The operator scrolls the panel and says where the page starts, so the
@@ -1210,7 +1265,9 @@ def learn_slot_digits(cards, first_slot, stores, contradiction=0.90):
     """
     learned, refused = [], []
     for i, c in enumerate(cards):
-        label = "%02d" % (first_slot + i)
+        # Per-card slots when the page skips one (16, 18): a run from the
+        # first slot would teach the "18" card's digits as 17.
+        label = "%02d" % (slots[i] if slots else first_slot + i)
         for cell, bm in enumerate(c.get("slot_bitmaps") or []):
             if bm is None:
                 continue

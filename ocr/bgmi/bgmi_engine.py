@@ -323,24 +323,32 @@ def read_frame(rgb, declared_slot=None, learn=True, settled=False):
             "if it persists the grid is being read in the wrong place."
             % ", ".join(str(g) for g in gap))
 
-    # READ THE SCREEN FIRST. When the numbers on it are certain, they decide
-    # which slots these are -- not the button that was pressed. The game
-    # reopens the panel where it was last scrolled, so "Capture Slide 1"
-    # pressed with 12-18 still showing was refused as a typo ("you said 3,
-    # the screen reads 12") although the reader was right on every card.
-    # Certain means: the whole page fits one start clearly, AND each card's
-    # own number reads as exactly the slot that start gives it.
+    # READ THE SCREEN FIRST, CARD BY CARD. Each card's own number decides
+    # its slot -- not the button pressed, and not a run counted on from the
+    # first card. The game reopens the panel where it was last scrolled
+    # ("Capture Slide 1" with 12-18 still up), and a slot can be EMPTY: a
+    # squad that never joined leaves the panel going 16, 18. A consecutive
+    # run would have filed the "18" card as 17 and put LIMITLESS's kills on
+    # another team's row. Certain means every card reads its own number,
+    # rising left to right, top to bottom, inside the lobby.
     settings = config.get("settings") or {}
     lobby = int(settings.get("lobbySize") or 0)
     first_slot = int(settings.get("firstSlot") or 3)
+    last_slot = first_slot + lobby - 1 if lobby else bp.MAX_SLOT
     store = templates.get("slot", {})
-    read_first, certain = None, False
+    slots, read_first, certain = None, None, False
     if not diag["missingDigits"]:
-        read_first, margin = bp.fit_slot_run(cards, store)
-        diag["readSlot"], diag["slotMargin"] = read_first, round(margin, 3)
-        if read_first is not None:
-            certain = screen_is_certain(cards, read_first, margin, store,
-                                        lobby, first_slot)
+        slots, reads = bp.read_card_slots(cards, store, first_slot if lobby else 1, last_slot)
+        diag["cardReads"] = reads
+        if slots is None:
+            # Not every card could be told on its own: the page fit, which
+            # assumes no gap, is still a check on what was typed.
+            read_first, margin = bp.fit_slot_run(cards, store)
+            diag["slotMargin"] = round(margin, 3)
+    if slots:
+        read_first, certain = slots[0], True
+        diag["gaps"] = [s for s in range(slots[0], slots[-1] + 1) if s not in slots]
+    diag["readSlot"] = read_first
     diag["screenCertain"] = certain
     if certain and read_first != declared_slot:
         diag["correctedFrom"] = declared_slot
@@ -352,48 +360,47 @@ def read_frame(rgb, declared_slot=None, learn=True, settled=False):
                               "can stop anywhere, and the numbers on this one "
                               "could not be read with certainty.")
 
-    # THE ARITHMETIC CHECK, which needs no OCR and catches the mistake the
-    # digit check would have caught if a digit were missing.
-    #
-    # The panel cannot scroll past its own end, so the last screenful of a
-    # sixteen-team lobby shows slots 10-18, not 12-20. Declaring 12 there
-    # files every row two slots high -- quietly, and it looks like a
-    # perfectly ordinary table afterwards.
-    if lobby:
-        last_slot = first_slot + lobby - 1
-        would_end = declared_slot + len(cards) - 1
-        if declared_slot < first_slot or would_end > last_slot:
-            suggest = max(first_slot, last_slot - len(cards) + 1)
+    if not certain:
+        # THE ARITHMETIC CHECK, for a page whose numbers could not all be
+        # read. The panel cannot scroll past its own end, so the last
+        # screenful of a sixteen-team lobby shows slots 10-18, not 12-20.
+        if lobby:
+            would_end = declared_slot + len(cards) - 1
+            if declared_slot < first_slot or would_end > last_slot:
+                suggest = max(first_slot, last_slot - len(cards) + 1)
+                return [], {}, diag, (
+                    "You said this slide starts at %d, but %d cards from there "
+                    "reach slot %d -- and this lobby has %d teams, slots %d to %d. "
+                    "The panel cannot scroll past its end, so the last screenful "
+                    "starts at %d. Try %d."
+                    % (declared_slot, len(cards), would_end, lobby,
+                       first_slot, last_slot, suggest, suggest))
+        # A disagreement the screen could NOT settle is refused: one of the
+        # two is wrong and there is no telling which.
+        if read_first is not None and read_first != declared_slot:
             return [], {}, diag, (
-                "You said this slide starts at %d, but %d cards from there "
-                "reach slot %d -- and this lobby has %d teams, slots %d to %d. "
-                "The panel cannot scroll past its end, so the last screenful "
-                "starts at %d. Try %d."
-                % (declared_slot, len(cards), would_end, lobby,
-                   first_slot, last_slot, suggest, suggest))
+                "You said this slide starts at %d, but the numbers on screen "
+                "read %d -- and not clearly enough to go by. One of those is "
+                "wrong, and publishing either would put a team's kills on "
+                "another team's row. Scroll to where you meant, or correct the "
+                "number." % (declared_slot, read_first))
+        slots = [declared_slot + i for i in range(len(cards))]
 
-    # A disagreement the screen could NOT settle is still refused: then one
-    # of the two is wrong and there is no telling which.
-    if read_first is not None and read_first != declared_slot:
-        return [], {}, diag, (
-            "You said this slide starts at %d, but the numbers on screen "
-            "read %d -- and not clearly enough to go by. One of those is "
-            "wrong, and publishing either would put a team's kills on "
-            "another team's row. Scroll to where you meant, or correct the "
-            "number." % (declared_slot, read_first))
-
-    # Learn from the slot now settled on. This is the way out of the
-    # deadlock: digit 2 could never be read because digit 2 had never been
-    # seen, and a labelled page needs no templates to teach from.
+    # Learn from the slots now settled on, card by card. This is the way
+    # out of the deadlock: digit 2 could never be read because digit 2 had
+    # never been seen, and a labelled page needs no templates to teach from.
     if learn:
-        got, refused = bp.learn_slot_digits(cards, declared_slot, templates)
+        got, refused = bp.learn_slot_digits(cards, declared_slot, templates,
+                                            slots=slots)
         diag["learned"] = sorted(set(got))
         diag["refusedToLearn"] = refused
         if got:
             bp.save_templates(templates)
         diag["missingDigits"] = bp.missing_digits(templates.get("slot", {}))
 
-    bp.assign_slots(cards, declared_slot)
+    for c, slot in zip(cards, slots):
+        c["slot"] = slot
+    diag["slots"] = slots
     rows = bp.team_rows(cards)
 
     # Names, while the panel is still up. This is the only chance: the
@@ -987,6 +994,11 @@ def read_results():
     if lobby and len(unresolved) == 1:
         taken = {m["slot"] for m in matched.values()}
         left = [s for s in range(first, first + lobby) if s not in taken]
+        # Only slots the panel actually showed a squad in this game: an
+        # empty slot (16, 18 with no 17) is not a place a squad can be.
+        seen = {r.get("slot") for r in server_state["bgmi"].get("rows") or []}
+        if seen:
+            left = [s for s in left if s in seen]
         if len(left) == 1:
             matched[unresolved[0]] = {"slot": left[0], "score": None,
                                       "byElimination": True}
@@ -1106,7 +1118,10 @@ def capture_slide(slide, declared_slot, with_preview=True, learn=True):
             key = same[0]
         diag["filedAs"] = int(key)
         diag["ignNote"] = ("screen showed slots %d-%d, not %s -- saved as Slide %s"
-                           % (used, used + len(rows) - 1, declared_slot, key))
+                           % (used, rows[-1]["slot"] if rows else used, declared_slot, key))
+    if not blocked and diag.get("gaps"):
+        diag["ignNote"] = ((diag["ignNote"] + "; ") if diag.get("ignNote") else "") + (
+            "no squad in slot %s" % ", ".join(str(g) for g in diag["gaps"]))
     if not blocked:
         state["slides"][key] = {
             "slide": int(key),
@@ -1138,7 +1153,10 @@ def capture_slide(slide, declared_slot, with_preview=True, learn=True):
     if with_preview:
         page = bp.read_page(rgb, digit_templates=kill_store())
         cards = page["cards"]
-        if cards and declared_slot is not None:
+        if cards and diag.get("slots"):
+            for c, slot in zip(cards, diag["slots"]):
+                c["slot"] = slot
+        elif cards and declared_slot is not None:
             bp.assign_slots(cards, declared_slot)
         preview = to_data_url(
             annotate(rgb, cards, rows if rows else bp.team_rows(cards),

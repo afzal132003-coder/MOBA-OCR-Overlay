@@ -461,6 +461,32 @@ def test_slot_digits_found():
               "at the first whole card", len(cards) == 4 and got == 15,
               "%d cards, read %s" % (len(cards), got))
 
+        # AN EMPTY SLOT. A squad that never joined leaves the panel going
+        # 16, 18 -- seen live with 17 absent. Each card is read on its own,
+        # so the "18" card stays 18 instead of being counted on as 17.
+        bp.set_geometry(scale=SECOND_GEOM[0], origin_x=SECOND_GEOM[1])
+        bp.GEOM["columns"] = None
+        gap = [c for i, c in enumerate(second) if i != 5]          # drop 17
+        slots, reads = bp.read_card_slots(gap, both["slot"], 3, 18)
+        check("a page with an empty slot keeps every card's own number",
+              slots == [12, 13, 14, 15, 16, 18], "%s from %s" % (slots, reads))
+        holed = [dict(c) for c in second]
+        holed[2] = dict(holed[2], slot_bitmaps=[None, None])       # 14 unreadable
+        slots, _ = bp.read_card_slots(holed, both["slot"], 3, 18)
+        check("an unreadable card between two read ones is filled when "
+              "only one slot fits", slots == [12, 13, 14, 15, 16, 17, 18], str(slots))
+        holed = [dict(c) for i, c in enumerate(second) if i != 5]
+        holed[4] = dict(holed[4], slot_bitmaps=[None, None])       # 16?, then 18
+        slots, _ = bp.read_card_slots(holed, both["slot"], 3, 18)
+        check("but not when the gap leaves two possibilities", slots is None, str(slots))
+        slots, _ = bp.read_card_slots(second, both["slot"], 3, 16)
+        check("and never past the end of the lobby", slots is None, str(slots))
+        real = _cards(os.path.join(os.path.dirname(SECOND),
+                                   "panel_9cards_slots9-18_no17_1920x1080.png"), *SECOND_GEOM)
+        slots, reads = bp.read_card_slots(real, both["slot"], 3, 18)
+        check("the event rig's real page with slot 17 empty reads 9-16, 18",
+              slots == [9, 10, 11, 12, 13, 14, 15, 16, 18], "%s from %s" % (slots, reads))
+
         poisoned = {"slot": {k: list(v) for k, v in both["slot"].items()}, "kill": {}}
         got, refused = bp.learn_slot_digits(second, 3, poisoned)
         check("a mistyped start on the event rig's page is still refused",
