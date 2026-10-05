@@ -749,6 +749,35 @@ def _slot_pair(mask):
     return [(gx0, gy0, gx0 + cut_a, gy1), (gx0 + cut_b, gy0, gx1, gy1)]
 
 
+# Where a slot number's top sits below its card's top, when the rows are
+# placed right: measured +10 on the reference frame, +11 at scale 1.075.
+SLOT_TOP_BELOW_CARD = 10.0
+SLOT_TOP_TOLERANCE = 6.0
+
+
+def slots_confirm_rows(cards):
+    """True when every card on the page has its slot number found exactly
+    where its card top says it should be -- independent proof the row
+    phase is right, for when the row rhythm alone is too weak to say."""
+    present = [c for c in cards if c.get("present", True)]
+    if len(present) < 2:
+        return False
+    for c in present:
+        boxes = c.get("slot_boxes") or []
+        if len(boxes) != 2:
+            return False
+        top = min(b[1] for b in boxes)
+        # The card pitch at this capture's scale is a few pixels short of
+        # the real one, so each row down sits ~3.5px lower than predicted
+        # (measured 11, 15, 18 on the event rig). Allowed for per row; a
+        # frame misplaced by half a row (29px) is still nowhere near.
+        row = c.get("index", 0) // 3
+        allowed = (SLOT_TOP_TOLERANCE + 4.0 * row) * GEOM["scale"]
+        if abs(top - c["top"] - SLOT_TOP_BELOW_CARD * GEOM["scale"]) > allowed:
+            return False
+    return True
+
+
 def slot_bitmaps(luma, card_x, card_top, boxes=None):
     """The slot number's two digits, each trimmed to its own ink.
 

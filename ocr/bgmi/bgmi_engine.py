@@ -248,7 +248,15 @@ def read_frame(rgb, declared_slot=None, learn=True):
 
     # A panel caught mid-scroll fits two phases about equally well, and
     # the wrong one puts every row in a gap. Refused rather than read.
-    if bp.LAST_FIT["margin"] < bp.MIN_FIT_MARGIN:
+    # Unless the slot numbers themselves say the rows are right. The last
+    # screenful of a lobby has one card on its bottom row, which weakens
+    # the row rhythm until a settled frame scored 0.093 and was refused
+    # as "still scrolling". A frame that really is mid-scroll puts every
+    # card's number off where its card says it should be; one where every
+    # number sits exactly in place is aligned, whatever the rhythm scored.
+    anchored = bp.slots_confirm_rows(cards)
+    diag["anchoredBySlots"] = anchored
+    if bp.LAST_FIT["margin"] < bp.MIN_FIT_MARGIN and not anchored:
         return [], {}, diag, (
             "The rows did not line up clearly (margin %.2f, want %.2f) -- the "
             "panel was most likely still scrolling. Let it settle and capture "
