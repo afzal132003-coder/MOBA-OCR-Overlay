@@ -48,6 +48,7 @@ ocr/freefire/freefire_banner_flag.png
 
 # Per-match player-name tallies, rebuilt from the panel each event.
 ocr/bgmi/bgmi_igns.json
+ocr/bgmi/bgmi_igns.*.json
 
 # Holds the Apps Script webhook URLs, which are write credentials for the
 # sheets -- this repo is public. The engine writes its own on first run;

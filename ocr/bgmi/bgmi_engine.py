@@ -895,6 +895,25 @@ def capture_result():
 
 
 RESULT_WINDOW = 600   # seconds: captures this recent belong to one results screen
+_results_since = 0.0  # set by New Game: older result captures are another game's
+
+
+def new_game_names():
+    """Set this game's names aside and start an empty set. Returns where
+    the old ones were kept, or "" when there were none."""
+    global _ign_votes
+    kept = ""
+    if _ign_votes:
+        try:
+            dest = IGN_VOTE_PATH.with_name(
+                "bgmi_igns.%s.json" % time.strftime("%Y-%m-%d-%H-%M-%S"))
+            dest.write_text(json.dumps(_ign_votes, indent=1), encoding="utf-8")
+            kept = str(dest)
+        except OSError:
+            pass
+    _ign_votes = {}
+    save_igns()
+    return kept
 
 
 def _ocr_lines_any(img, count, digits=False):
@@ -935,8 +954,9 @@ def read_results():
     unresolved -- listed with its names for the operator -- never guessed."""
     import bgmi_results as br
     now = time.time()
+    since = max(now - RESULT_WINDOW, _results_since)
     shots = sorted(p for p in RESULT_DIR.glob("result_*.png")
-                   if now - p.stat().st_mtime <= RESULT_WINDOW)
+                   if p.stat().st_mtime >= since)
     readings, notes, seen = [], [], set()
     for p in shots:
         raw = p.read_bytes()
@@ -1186,6 +1206,29 @@ async def handle_message(websocket, kind, payload):
         recombine()
         server_state["bgmi"]["blockedBy"] = ""
         await broadcast({"type": "state_sync", "data": server_state})
+
+    elif kind == "bgmi_new_game":
+        # NEW GAME: everything Clear All does, and the player names too.
+        # Squads sub players in and out between games, and a name voted in
+        # over the last game would outvote the substitute for a while --
+        # the results screen would then carry a name the slot never had.
+        # So names start again from this game's captures. The old file is
+        # set aside, never deleted, and result captures taken before this
+        # press are no longer read.
+        global _results_since
+        moved = new_game_names()
+        _results_since = time.time()
+        server_state["bgmi"]["slides"] = {}
+        server_state["bgmi"]["header"] = {
+            "remaining": None, "teamsAlive": None}
+        server_state["bgmi"]["result"] = {}
+        server_state["bgmi"]["resultShot"] = None
+        recombine()
+        server_state["bgmi"]["igns"] = ign_map()
+        server_state["bgmi"]["blockedBy"] = ""
+        await broadcast({"type": "state_sync", "data": server_state})
+        await websocket.send(json.dumps({"type": "bgmi_new_game_done",
+                                         "namesKeptAt": moved}))
 
     elif kind == "bgmi_push_sheet":
         loop = asyncio.get_running_loop()

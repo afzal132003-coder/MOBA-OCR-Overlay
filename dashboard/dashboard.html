@@ -1854,6 +1854,7 @@
 
     <div class="row" style="gap:8px;align-items:center;margin-top:12px;">
       <button class="secondary" id="bgmi_addSlide">Add Another Slide</button>
+      <button id="bgmi_newGame" title="Clears the slides AND the player names, so this game's names -- subs in and out -- are read fresh from Slide 1 and Slide 2">New Game</button>
       <button class="secondary" id="bgmi_clearSlides">Clear All (New Match)</button>
       <label style="display:flex;gap:6px;align-items:center;" class="hint">
         <input type="checkbox" id="bgmi_withPreview" checked> with preview image
@@ -15639,6 +15640,25 @@ document.getElementById("bgmi_addSlide").addEventListener("click", () => {
 document.getElementById("bgmi_clearSlides").addEventListener("click", () => {
   if (!bgmiSend({type: "bgmi_clear_slides"})) return;
   document.getElementById("bgmi_previewNote").textContent = "Cleared — ready for a new match.";
+});
+
+/* NEW GAME: the slides AND the player names. Squads sub players in and
+   out between games, so names are read fresh from this game's Slide 1
+   and Slide 2 -- which is what the results screen is matched against.
+   The old names are kept on disk, not deleted. */
+document.getElementById("bgmi_newGame").addEventListener("click", () => {
+  if (!confirm("New game: clear the slides, the last result and the player names?\n\n" +
+               "Then capture Slide 1 and Slide 2 at least once this game so the names are read again."))
+    return;
+  if (!bgmiSend({type: "bgmi_new_game"})) return;
+  bgmiResultRanks = {};
+  bgmiDrawResultRows([]);
+  const img = document.getElementById("bgmi_resultShot");
+  if (img) img.style.display = "none";
+  const note = document.getElementById("bgmi_resultShotNote");
+  if (note) note.textContent = "";
+  document.getElementById("bgmi_previewNote").textContent =
+    "New game — names cleared. Capture Slide 1 and Slide 2 so this game's players are read.";
 });
 
 document.getElementById("bgmi_reloadGlyphs").addEventListener("click", () => {
