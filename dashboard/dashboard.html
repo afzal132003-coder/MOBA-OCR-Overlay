@@ -16352,6 +16352,12 @@ function bgmiDrawResultRows(rows) {
     body.innerHTML = "<tr><td colspan='4' class='hint'>(capture the panel first)</td></tr>";
     return;
   }
+  // Ranks READ off the results screen and matched to a slot by player
+  // names fill in here; anything typed afterwards still wins until the
+  // next capture.
+  rows.forEach(r => {
+    if (r.fromResults && r.rank != null) bgmiResultRanks[r.slot] = r.rank;
+  });
   body.innerHTML = rows.map(r => {
     const team = (typeof bgmiTeamName === "function" ? bgmiTeamName(r.slot) : "") || "";
     const kills = (r.kills == null) ? "<span class='hint'>unread</span>" : r.kills;

@@ -531,7 +531,26 @@ def collect_igns(luma, cards):
 
     texts = ocr_lines(strip, len(images))
     if isinstance(texts, str):
-        return texts          # a reason, for the dashboard to show
+        # One line dropped anywhere voids the whole page -- 35 lines for 36
+        # names lost all nine squads on the event rig. Read card by card
+        # instead: slower, but a bad line then costs that one card only.
+        texts = []
+        i = 0
+        while i < len(seats):
+            j = i
+            while j < len(seats) and seats[j][0] == seats[i][0]:
+                j += 1
+            card = images[i:j]
+            w = max(im.width for im in card)
+            h = sum(im.height for im in card) + IGN_GAP * (len(card) + 1)
+            sub = Image.new("L", (w, h), 255)
+            y = IGN_GAP
+            for im in card:
+                sub.paste(im.convert("L"), (0, y))
+                y += im.height + IGN_GAP
+            got = ocr_lines(sub, len(card))
+            texts.extend(got if isinstance(got, list) else [""] * len(card))
+            i = j
 
     changed = 0
     for (slot, p), text in zip(seats, texts):
@@ -546,7 +565,14 @@ def collect_igns(luma, cards):
 
 
 def CARD_X_OF(card):
-    return bp.CARD_X[card["column"]]
+    """Where this card's column actually is in THIS capture.
+
+    Was bp.CARD_X -- the reference frame's columns, ignoring this
+    capture's scale and origin. On the event rig that sat ~50px right of
+    the names, so every name was read with its first letters missing
+    ("enNizhal7k" for "WRavenNizhal7k") and the results screen could not
+    be matched against any of them."""
+    return bp.card_columns()[card["column"]]
 
 
 def kill_store():
@@ -797,7 +823,96 @@ def capture_result():
         saved = "could not save: %s" % e
     state = server_state["bgmi"]
     state["resultShot"] = saved
+    try:
+        state["result"] = read_results()
+    except Exception as e:
+        state["result"] = {"error": str(e), "rows": [], "unresolved": []}
     return to_data_url(Image.fromarray(rgb)), saved
+
+
+RESULT_WINDOW = 600   # seconds: captures this recent belong to one results screen
+
+
+def _ocr_lines_any(img, count, digits=False):
+    """ocr_lines, optionally restricted to what "N finishes" can contain."""
+    if not digits:
+        return ocr_lines(img, count)
+    import subprocess
+    import tempfile
+    tess = (config.get("tesseractPath")
+            or r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+    path = tempfile.mktemp(suffix=".png")
+    img.save(path)
+    try:
+        out = subprocess.run(
+            [tess, path, "stdout", "--psm", "6", "-c",
+             "tessedit_char_whitelist=0123456789finshe"],
+            capture_output=True, text=True, timeout=40).stdout
+    except Exception as e:
+        return "Tesseract could not be run (%s)." % e
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    lines = ["".join(l.split()) for l in out.splitlines() if l.strip()]
+    if len(lines) != count:
+        return "Read %d lines for %d." % (len(lines), count)
+    return lines
+
+
+def read_results():
+    """Every results capture of the last RESULT_WINDOW seconds, read,
+    merged by rank, and matched to slots by player names.
+
+    The results screen prints rank, names and finishes but no slot. The
+    slot comes from the names collected off the alive panel during the
+    match (ign_map). A rank whose names match no slot clearly is left
+    unresolved -- listed with its names for the operator -- never guessed."""
+    import bgmi_results as br
+    now = time.time()
+    shots = sorted(p for p in RESULT_DIR.glob("result_*.png")
+                   if now - p.stat().st_mtime <= RESULT_WINDOW)
+    readings, notes, seen = [], [], set()
+    for p in shots:
+        raw = p.read_bytes()
+        key = hash(raw)
+        if key in seen:
+            continue
+        seen.add(key)
+        rgb = np.asarray(Image.open(p).convert("RGB"))
+        entries, note = br.read_screen(rgb, _ocr_lines_any, templates.get("slot") or {})
+        if note:
+            notes.append("%s: %s" % (p.name, note))
+        readings.append(entries)
+    merged = br.merge(readings)
+    matched, unresolved, free = bp.match_squads(
+        {rank: e["names"] for rank, e in merged.items()}, ign_map())
+    # THE LAST ONE LEFT. When every other rank is matched by name and
+    # exactly one rank and one lobby slot remain, they are each other --
+    # that is arithmetic, not a guess. Seen on the event rig: one card's
+    # names failed to read, and its squad was the only one unplaced.
+    settings = config.get("settings") or {}
+    lobby, first = int(settings.get("lobbySize") or 0), int(settings.get("firstSlot") or 3)
+    if lobby and len(unresolved) == 1:
+        taken = {m["slot"] for m in matched.values()}
+        left = [s for s in range(first, first + lobby) if s not in taken]
+        if len(left) == 1:
+            matched[unresolved[0]] = {"slot": left[0], "score": None,
+                                      "byElimination": True}
+            unresolved = []
+    rows = []
+    for rank, e in merged.items():
+        fin = e["finishes"]
+        total = None if any(f is None for f in fin) else sum(fin)
+        m = matched.get(rank)
+        rows.append({"rank": rank, "slot": m["slot"] if m else None,
+                     "score": m.get("score") if m else None,
+                     "byElimination": bool(m and m.get("byElimination")),
+                     "finishes": total, "players": fin, "names": e["names"]})
+    return {"rows": rows, "captures": len(readings), "notes": notes,
+            "unresolved": [{"rank": r, "names": merged[r]["names"]} for r in unresolved],
+            "freeSlots": free, "readAt": now}
 
 
 SETTLE_TRIES = 9        # first look plus eight re-grabs...
@@ -1005,10 +1120,33 @@ async def handle_message(websocket, kind, payload):
     elif kind == "bgmi_capture_result":
         loop = asyncio.get_running_loop()
         preview, saved = await loop.run_in_executor(None, capture_result)
+        result = server_state["bgmi"].get("result") or {}
+        by_slot = {r["slot"]: r for r in result.get("rows") or [] if r.get("slot") is not None}
+        rows = []
+        for r in server_state["bgmi"].get("rows") or []:
+            hit = by_slot.get(r["slot"])
+            rows.append({"slot": r["slot"],
+                         "kills": hit["finishes"] if hit else r.get("kills"),
+                         "rank": hit["rank"] if hit else None,
+                         "fromResults": bool(hit)})
+        for slot, hit in by_slot.items():
+            if not any(x["slot"] == slot for x in rows):
+                rows.append({"slot": slot, "kills": hit["finishes"],
+                             "rank": hit["rank"], "fromResults": True})
+        rows.sort(key=lambda x: x["slot"])
+        matched = len(by_slot)
+        summary = ("read %d rank(s) from %d capture(s), matched %d to slots"
+                   % (len(result.get("rows") or []), result.get("captures", 0), matched))
+        if result.get("unresolved"):
+            summary += "; NOT matched: " + "; ".join(
+                "#%d %s" % (u["rank"], "/".join(u["names"][:2]))
+                for u in result["unresolved"])
+        if result.get("error"):
+            summary = "results reader failed: " + result["error"]
         await websocket.send(json.dumps({
-            "type": "bgmi_result_shot", "preview": preview, "saved": saved,
-            "rows": [{"slot": r["slot"], "kills": r.get("kills")}
-                     for r in server_state["bgmi"].get("rows") or []]}))
+            "type": "bgmi_result_shot", "preview": preview,
+            "saved": (saved + " -- " + summary) if saved else summary,
+            "rows": rows, "result": result}))
 
     elif kind == "bgmi_push_results":
         loop = asyncio.get_running_loop()
