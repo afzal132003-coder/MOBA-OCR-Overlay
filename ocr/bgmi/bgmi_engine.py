@@ -206,6 +206,35 @@ def grab_region():
 
 ANCHOR_FLOOR = 0.07
 
+# How clearly the page must fit one starting slot before the screen is
+# trusted over the button. Settled pages measured 0.19-0.26.
+CERTAIN_MARGIN = 0.10
+
+
+def screen_is_certain(cards, first, margin, store, lobby, first_slot):
+    """Do the numbers on screen say, beyond doubt, that this page starts at
+    `first`? The page fit must be clear, the run must lie inside the lobby,
+    and every card whose number can be read on its own must read exactly
+    the slot the run gives it -- at most one card unreadable, none wrong."""
+    if first is None or margin < CERTAIN_MARGIN or not cards:
+        return False
+    if lobby and (first < first_slot or first + len(cards) - 1 > first_slot + lobby - 1):
+        return False
+    unread = 0
+    for i, c in enumerate(cards):
+        want = "%02d" % (first + i)
+        bms = c.get("slot_bitmaps") or []
+        if len(bms) != 2 or any(b is None for b in bms):
+            unread += 1
+            continue
+        got = [bp.best_match(b, store, sim=bp.slot_similarity) for b in bms]
+        if None in got:
+            unread += 1
+        elif "".join(got) != want:
+            return False
+    return unread <= 1 and len(cards) - unread >= 2
+
+
 
 def read_frame(rgb, declared_slot=None, learn=True):
     """One slide of the panel, read against the slot the operator declared.
@@ -288,10 +317,34 @@ def read_frame(rgb, declared_slot=None, learn=True):
             "if it persists the grid is being read in the wrong place."
             % ", ".join(str(g) for g in gap))
 
+    # READ THE SCREEN FIRST. When the numbers on it are certain, they decide
+    # which slots these are -- not the button that was pressed. The game
+    # reopens the panel where it was last scrolled, so "Capture Slide 1"
+    # pressed with 12-18 still showing was refused as a typo ("you said 3,
+    # the screen reads 12") although the reader was right on every card.
+    # Certain means: the whole page fits one start clearly, AND each card's
+    # own number reads as exactly the slot that start gives it.
+    settings = config.get("settings") or {}
+    lobby = int(settings.get("lobbySize") or 0)
+    first_slot = int(settings.get("firstSlot") or 3)
+    store = templates.get("slot", {})
+    read_first, certain = None, False
+    if not diag["missingDigits"]:
+        read_first, margin = bp.fit_slot_run(cards, store)
+        diag["readSlot"], diag["slotMargin"] = read_first, round(margin, 3)
+        if read_first is not None:
+            certain = screen_is_certain(cards, read_first, margin, store,
+                                        lobby, first_slot)
+    diag["screenCertain"] = certain
+    if certain and read_first != declared_slot:
+        diag["correctedFrom"] = declared_slot
+        declared_slot = read_first
+    diag["usedSlot"] = declared_slot
+
     if declared_slot is None:
         return [], {}, diag, ("Say which slot this slide starts at. The panel "
-                              "can stop anywhere, so nothing on screen says "
-                              "which teams these nine are.")
+                              "can stop anywhere, and the numbers on this one "
+                              "could not be read with certainty.")
 
     # THE ARITHMETIC CHECK, which needs no OCR and catches the mistake the
     # digit check would have caught if a digit were missing.
@@ -300,9 +353,6 @@ def read_frame(rgb, declared_slot=None, learn=True):
     # sixteen-team lobby shows slots 10-18, not 12-20. Declaring 12 there
     # files every row two slots high -- quietly, and it looks like a
     # perfectly ordinary table afterwards.
-    settings = config.get("settings") or {}
-    lobby = int(settings.get("lobbySize") or 0)
-    first_slot = int(settings.get("firstSlot") or 3)
     if lobby:
         last_slot = first_slot + lobby - 1
         would_end = declared_slot + len(cards) - 1
@@ -316,9 +366,19 @@ def read_frame(rgb, declared_slot=None, learn=True):
                 % (declared_slot, len(cards), would_end, lobby,
                    first_slot, last_slot, suggest, suggest))
 
-    # Learn from what was declared. This is the way out of the deadlock:
-    # digit 2 could never be read because digit 2 had never been seen, and
-    # a labelled page needs no templates to teach from.
+    # A disagreement the screen could NOT settle is still refused: then one
+    # of the two is wrong and there is no telling which.
+    if read_first is not None and read_first != declared_slot:
+        return [], {}, diag, (
+            "You said this slide starts at %d, but the numbers on screen "
+            "read %d -- and not clearly enough to go by. One of those is "
+            "wrong, and publishing either would put a team's kills on "
+            "another team's row. Scroll to where you meant, or correct the "
+            "number." % (declared_slot, read_first))
+
+    # Learn from the slot now settled on. This is the way out of the
+    # deadlock: digit 2 could never be read because digit 2 had never been
+    # seen, and a labelled page needs no templates to teach from.
     if learn:
         got, refused = bp.learn_slot_digits(cards, declared_slot, templates)
         diag["learned"] = sorted(set(got))
@@ -326,18 +386,6 @@ def read_frame(rgb, declared_slot=None, learn=True):
         if got:
             bp.save_templates(templates)
         diag["missingDigits"] = bp.missing_digits(templates.get("slot", {}))
-
-    # Now the check, but only once the store can actually read a number.
-    if not diag["missingDigits"]:
-        read_first, margin = bp.fit_slot_run(cards, templates.get("slot", {}))
-        diag["readSlot"], diag["slotMargin"] = read_first, round(margin, 3)
-        if read_first is not None and read_first != declared_slot:
-            return [], {}, diag, (
-                "You said this slide starts at %d, but the numbers on screen "
-                "read %d. One of those is wrong, and publishing either would "
-                "put a team's kills on another team's row — scroll to where "
-                "you meant, or correct the number."
-                % (declared_slot, read_first))
 
     bp.assign_slots(cards, declared_slot)
     rows = bp.team_rows(cards)
@@ -407,8 +455,24 @@ IGN_VOTE_PATH = Path(__file__).parent / "bgmi_igns.json"
 _ign_votes = {}
 
 
+# Names are per LOBBY, and a lobby is one event day: the same slot holds a
+# different squad tomorrow. Kept forever, the votes mixed days together --
+# slot 9 carried two teams' players at once -- and results stopped
+# matching. A file untouched this long is a previous day's, and is set
+# aside (renamed, never deleted) for a fresh start.
+IGN_STALE_HOURS = 10
+
+
 def load_igns():
     global _ign_votes
+    try:
+        age = time.time() - IGN_VOTE_PATH.stat().st_mtime
+        if age > IGN_STALE_HOURS * 3600:
+            IGN_VOTE_PATH.rename(IGN_VOTE_PATH.with_name(
+                "bgmi_igns.%s.json" % time.strftime(
+                    "%Y-%m-%d", time.localtime(IGN_VOTE_PATH.stat().st_mtime))))
+    except OSError:
+        pass
     try:
         _ign_votes = json.loads(IGN_VOTE_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -989,10 +1053,22 @@ def capture_slide(slide, declared_slot, with_preview=True, learn=True):
     state = server_state["bgmi"]
     diag["region"] = dict(config.get("region") or {})
 
+    # Filed as what the screen SHOWED. When the screen corrected the
+    # button -- Slide 1 pressed with 12-18 up -- it refreshes the slide that
+    # already holds 12-18 and leaves slide 1's 3-11 alone.
+    used = diag.get("usedSlot", declared_slot)
+    key = str(slide)
+    if not blocked and used != declared_slot:
+        same = [k for k, v in state["slides"].items() if v.get("firstSlot") == used]
+        if same:
+            key = same[0]
+        diag["filedAs"] = int(key)
+        diag["ignNote"] = ("screen showed slots %d-%d, not %s -- saved as Slide %s"
+                           % (used, used + len(rows) - 1, declared_slot, key))
     if not blocked:
-        state["slides"][str(slide)] = {
-            "slide": slide,
-            "firstSlot": declared_slot,
+        state["slides"][key] = {
+            "slide": int(key),
+            "firstSlot": used,
             "rows": rows,
             "readAt": time.time(),
         }
@@ -1000,7 +1076,7 @@ def capture_slide(slide, declared_slot, with_preview=True, learn=True):
             state["header"].update(header)
         # What the poll loop will keep refreshing: the panel is presumed
         # to still be where the operator last pointed it.
-        state["activeSlide"] = slide
+        state["activeSlide"] = int(key)
         state["igns"] = ign_map()
         recombine()
         # Straight on to the sheet when asked for, and only when the table
@@ -1010,6 +1086,7 @@ def capture_slide(slide, declared_slot, with_preview=True, learn=True):
                 state["sheet"] = push_alive_to_sheet(force=False)
             except Exception as e:
                 state["sheet"] = {"ok": False, "error": str(e)}
+    declared_slot = used
 
     state["readAt"] = time.time()
     state["blockedBy"] = blocked
