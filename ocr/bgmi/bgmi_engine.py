@@ -236,7 +236,7 @@ def screen_is_certain(cards, first, margin, store, lobby, first_slot):
 
 
 
-def read_frame(rgb, declared_slot=None, learn=True):
+def read_frame(rgb, declared_slot=None, learn=True, settled=False):
     """One slide of the panel, read against the slot the operator declared.
 
     THE DECLARED SLOT IS THE MECHANISM; the numbers on screen are the
@@ -292,8 +292,14 @@ def read_frame(rgb, declared_slot=None, learn=True):
     # numbers in place, but its names are half-bright and would read as
     # dead. Measured: a settled last slide 0.093, such a blend 0.060, the
     # frame actually caught moving on the event rig 0.01.
-    anchored = (bp.LAST_FIT["margin"] >= ANCHOR_FLOOR
-                and bp.slots_confirm_rows(cards))
+    # The floor is waived only when the panel is MEASURED still -- the
+    # caller saw every slot number at the same height a quarter second
+    # earlier (settled=True), which a blended or moving frame cannot show.
+    confirm = bp.slots_confirm_rows(cards)
+    diag["slotsConfirm"] = confirm
+    diag["slotTops"] = [min(b[1] for b in c["slot_boxes"]) if c.get("slot_boxes") else -1
+                        for c in cards if c.get("present", True)]
+    anchored = confirm and (settled or bp.LAST_FIT["margin"] >= ANCHOR_FLOOR)
     diag["anchoredBySlots"] = anchored
     if bp.LAST_FIT["margin"] < bp.MIN_FIT_MARGIN and not anchored:
         return [], {}, diag, (
@@ -1060,13 +1066,29 @@ def capture_slide(slide, declared_slot, with_preview=True, learn=True):
     # moment it looks still can catch it moving (margin 0.01 on the event
     # rig). Re-grab every quarter second until a frame settles; a refused
     # frame teaches nothing, since learning comes after this check.
+    #
+    # And STILL is measured, not inferred. The row rhythm also scores low on
+    # a panel that is perfectly settled -- most squads wiped and greyed,
+    # "Finishes" stamps across the cards, one card on the last row: 0.03 on
+    # the event rig, refused for the full two seconds. So each re-grab is
+    # compared with the one before: if every card's slot number sits at
+    # the same height in both, a quarter second apart, nothing is moving.
     tries = 1
     while (blocked and blocked.startswith("The rows did not line up")
            and tries < SETTLE_TRIES):
+        before = diag.get("slotTops")
         time.sleep(SETTLE_WAIT)
         rgb = grab_region()
         rows, header, diag, blocked = read_frame(rgb, declared_slot, learn)
         tries += 1
+        now_tops = diag.get("slotTops")
+        if (blocked and blocked.startswith("The rows did not line up")
+                and diag.get("slotsConfirm") and before and now_tops
+                and len(before) == len(now_tops)
+                and all(abs(a - b) <= 1 for a, b in zip(before, now_tops))):
+            rows, header, diag, blocked = read_frame(rgb, declared_slot, learn,
+                                                     settled=True)
+            diag["settledBy"] = "slot numbers unmoved between grabs"
     diag["settleTries"] = tries
     if blocked and blocked.startswith("The rows did not line up"):
         blocked += (" (Waited %.1f s for it to settle.)" % ((tries - 1) * SETTLE_WAIT))
