@@ -204,6 +204,9 @@ def grab_region():
     return np.asarray(img)
 
 
+ANCHOR_FLOOR = 0.07
+
+
 def read_frame(rgb, declared_slot=None, learn=True):
     """One slide of the panel, read against the slot the operator declared.
 
@@ -254,7 +257,14 @@ def read_frame(rgb, declared_slot=None, learn=True):
     # as "still scrolling". A frame that really is mid-scroll puts every
     # card's number off where its card says it should be; one where every
     # number sits exactly in place is aligned, whatever the rhythm scored.
-    anchored = bp.slots_confirm_rows(cards)
+    #
+    # Never below ANCHOR_FLOOR, though. A frame blurred by the scroll -- two
+    # positions half a row apart blended together -- still shows its slot
+    # numbers in place, but its names are half-bright and would read as
+    # dead. Measured: a settled last slide 0.093, such a blend 0.060, the
+    # frame actually caught moving on the event rig 0.01.
+    anchored = (bp.LAST_FIT["margin"] >= ANCHOR_FLOOR
+                and bp.slots_confirm_rows(cards))
     diag["anchoredBySlots"] = anchored
     if bp.LAST_FIT["margin"] < bp.MIN_FIT_MARGIN and not anchored:
         return [], {}, diag, (
@@ -790,6 +800,10 @@ def capture_result():
     return to_data_url(Image.fromarray(rgb)), saved
 
 
+SETTLE_TRIES = 9        # first look plus eight re-grabs...
+SETTLE_WAIT = 0.25      # ...a quarter second apart: two seconds at most
+
+
 def capture_slide(slide, declared_slot, with_preview=True, learn=True):
     """Capture one slide: read it, keep it, re-merge every slide.
 
@@ -842,6 +856,21 @@ def capture_slide(slide, declared_slot, with_preview=True, learn=True):
     bp.set_geometry(scale=settings["scale"], origin_x=settings["originX"],
                     columns=settings.get("columns"))
     rows, header, diag, blocked = read_frame(rgb, declared_slot, learn)
+    # STILL SCROLLING? Wait for it instead of sending the operator back to
+    # press again. The panel coasts after a swipe, so a press made the
+    # moment it looks still can catch it moving (margin 0.01 on the event
+    # rig). Re-grab every quarter second until a frame settles; a refused
+    # frame teaches nothing, since learning comes after this check.
+    tries = 1
+    while (blocked and blocked.startswith("The rows did not line up")
+           and tries < SETTLE_TRIES):
+        time.sleep(SETTLE_WAIT)
+        rgb = grab_region()
+        rows, header, diag, blocked = read_frame(rgb, declared_slot, learn)
+        tries += 1
+    diag["settleTries"] = tries
+    if blocked and blocked.startswith("The rows did not line up"):
+        blocked += (" (Waited %.1f s for it to settle.)" % ((tries - 1) * SETTLE_WAIT))
     state = server_state["bgmi"]
     diag["region"] = dict(config.get("region") or {})
 
