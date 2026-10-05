@@ -216,6 +216,48 @@ def similarity(a, b):
     return 1.0 - float(np.abs(a - b).mean())
 
 
+# THE HOLES IN A DIGIT, for the slot and header numbers. In this condensed
+# stencil-like face 0, 6 and 8 differ only in one short stroke, and pixel
+# agreement alone put a wiped squad's dim "6" closer to an "8" (0.901)
+# than the closest pair of real 0s were to each other (0.871). Their holes
+# never vary: 0 has one in the middle, 6 one low, 8 two, 9 one high, and
+# every other digit none -- measured identical across two matches' frames.
+# A pair whose holes differ is marked down by HOLE_PENALTY, which opened
+# the gap to +0.084 the right way round.
+HOLE_PENALTY = 0.15
+_HOLE_CACHE = {}
+
+
+def holes(bm):
+    """The bitmap's enclosed holes, as a sorted string of U/M/L by height."""
+    key = bm.tobytes()
+    hit = _HOLE_CACHE.get(key)
+    if hit is not None:
+        return hit
+    from scipy import ndimage
+    ink = bm > 0.5
+    lab, n = ndimage.label(~ink)
+    h = ink.shape[0]
+    out = []
+    for i in range(1, n + 1):
+        ys, xs = np.where(lab == i)
+        if (len(ys) < 3 or ys.min() == 0 or xs.min() == 0
+                or ys.max() == h - 1 or xs.max() == ink.shape[1] - 1):
+            continue
+        out.append("U" if ys.mean() < h * 0.42 else ("L" if ys.mean() > h * 0.58 else "M"))
+    sig = "".join(sorted(out))
+    if len(_HOLE_CACHE) > 4096:
+        _HOLE_CACHE.clear()
+    _HOLE_CACHE[key] = sig
+    return sig
+
+
+def slot_similarity(a, b):
+    """similarity(), marked down when the two digits' holes differ."""
+    s = similarity(a, b)
+    return s - HOLE_PENALTY if holes(a) != holes(b) else s
+
+
 def match_digit(bitmap, stores):
     """Read a digit from several template stores, tried IN ORDER.
 
@@ -237,7 +279,7 @@ def match_digit(bitmap, stores):
     return None
 
 
-def best_match(bitmap, templates, min_score=0.70, min_margin=0.04):
+def best_match(bitmap, templates, min_score=0.70, min_margin=0.04, sim=None):
     """Nearest template, but only when it is clearly nearest.
 
     Both guards matter. A low score means the crop is not a digit at all
@@ -246,7 +288,8 @@ def best_match(bitmap, templates, min_score=0.70, min_margin=0.04):
     coin flip -- better to return nothing and let the caller keep the
     value it already trusts.
     """
-    scored = sorted(((similarity(bitmap, ref), name)
+    sim = sim or similarity
+    scored = sorted(((sim(bitmap, ref), name)
                      for name, refs in templates.items()
                      for ref in refs), reverse=True)
     if not scored:
@@ -583,18 +626,173 @@ def kill_bitmap(luma, card_x, y):
     return _bitmap(mask[:, a:b])
 
 
-def slot_bitmaps(luma, card_x, card_top):
-    """The slot number's two digits, each trimmed inside its own cell."""
-    out = []
-    for a, b in SLOT_CELLS:
-        crop = luma[card_top + sx(SLOT_DY):card_top + sx(SLOT_DY) + sx(SLOT_H),
-                    card_x + sx(a):card_x + sx(b)]
-        if crop.size == 0:
-            out.append(None)
+# WHERE THE SLOT NUMBER IS, found rather than assumed.
+#
+# The digits used to be cut from two fixed boxes, card-relative 20-46 and
+# 46-74. That only works while the card column is known to the pixel, and
+# it was not: the saved origin sat ~30px left of the cards on the event
+# rig, both boxes landed on the "1" of "12", and every page read as
+# "11, 11, 11...". Names and kills never noticed -- the name strip is wide
+# and the kill box is anchored on the "/" -- so nothing else looked wrong.
+# Worse, labelled pages then TAUGHT the store from those boxes: half of it
+# filled with slices of names, slashes and empty card.
+#
+# So the number is located by what it is. It is the only TALL thing at the
+# left of a card -- about 46px against the names' 25 -- so the tall ink
+# shapes in a wide window around where it should be are the digits,
+# wherever the column or the scroll actually put them. The pair is split
+# at the widest gap between them.
+SLOT_SEARCH_X = (-70, 150)    # card-relative, deliberately generous
+SLOT_SEARCH_PAD = 16          # above and below the expected band
+SLOT_DIGIT_H = 46.0           # a slot digit's height, reference units
+
+
+def to_value(rgb):
+    """Each pixel's BRIGHTEST channel.
+
+    The slot numbers are coloured -- orange, teal, purple, magenta, green,
+    grey -- and an average of three channels puts a saturated purple or
+    teal digit barely above the panel, where it breaks into fragments too
+    short to be a digit. Its strongest channel is as bright as a white
+    name's."""
+    return rgb.max(axis=2).astype(np.float32)
+
+
+# Tried strict first: a crisp shape where the number is bright, and only
+# as loose as a dim one (a wiped squad, a grey badge) actually needs.
+SLOT_LEVELS = (0.5, 0.4, 0.3, 0.22, 0.15)
+
+
+def locate_slot_digits(img, card_x, card_top):
+    """The two slot digits' boxes, as [(x0, y0, x1, y1), (x0, y0, x1, y1)]
+    in frame pixels -- or [] when no slot number can be found here.
+
+    `img` is one channel; read_page hands it to_value(), the brightest
+    channel, for the reason given there."""
+    H, W = img.shape[:2]
+    x0 = max(0, card_x + sx(SLOT_SEARCH_X[0]))
+    x1 = min(W, card_x + sx(SLOT_SEARCH_X[1]))
+    y0 = max(0, card_top + sx(SLOT_DY) - sx(SLOT_SEARCH_PAD))
+    y1 = min(H, card_top + sx(SLOT_DY + SLOT_H) + sx(SLOT_SEARCH_PAD))
+    crop = img[y0:y1, x0:x1]
+    if crop.size == 0:
+        return []
+    floor, peak = np.percentile(crop, 15), np.percentile(crop, 99.5)
+    if peak - floor < 25:
+        return []
+    for level in SLOT_LEVELS:
+        found = _slot_pair((crop - floor) / (peak - floor) > level)
+        if found:
+            return [(x0 + a, y0 + b, x0 + c, y0 + d) for a, b, c, d in found]
+    return []
+
+
+def _slot_pair(mask):
+    """The two digit boxes within one search window's mask, or None."""
+    from scipy import ndimage
+    lab, _ = ndimage.label(mask)
+    want = SLOT_DIGIT_H * GEOM["scale"]
+    tall = []
+    for sl in ndimage.find_objects(lab):
+        if sl is None:
             continue
-        mask = _relative_mask(crop, level=0.5, lo=15, hi=99, floor_gap=10)
-        out.append(None if mask is None else _bitmap(mask, min_ink=20))
+        h = sl[0].stop - sl[0].start
+        w = sl[1].stop - sl[1].start
+        if 0.65 * want <= h <= 1.4 * want and w <= 1.3 * want:
+            tall.append((sl[1].start, sl[1].stop, sl[0].start, sl[0].stop))
+    if not tall:
+        return None
+
+    # Chain tall shapes that sit on the same line and close together: the
+    # digits of one number (or the pieces of one broken digit).
+    tall.sort()
+    groups = [[tall[0]]]
+    for t in tall[1:]:
+        g = groups[-1]
+        gx1 = max(p[1] for p in g)
+        gy0, gy1 = min(p[2] for p in g), max(p[3] for p in g)
+        overlap = min(gy1, t[3]) - max(gy0, t[2])
+        if t[0] - gx1 <= 0.8 * want and overlap >= 0.6 * min(gy1 - gy0, t[3] - t[2]):
+            g.append(t)
+        else:
+            groups.append([t])
+    plausible = [g for g in groups
+                 if 0.35 * want <= max(p[1] for p in g) - min(p[0] for p in g) <= 2.6 * want]
+    if not plausible:
+        return None
+    # The number is the leftmost such group: the card's own badge comes
+    # before anything else on its first line.
+    g = plausible[0]
+    gx0, gx1 = min(p[0] for p in g), max(p[1] for p in g)
+    gy0, gy1 = min(p[2] for p in g), max(p[3] for p in g)
+
+    # Split into the two digits at the widest empty run of columns; when
+    # the two touch, at the faintest column of the middle stretch.
+    cols = mask[gy0:gy1, gx0:gx1].sum(axis=0)
+    width = gx1 - gx0
+    best, run_start = None, None
+    for i in range(width + 1):
+        empty = i < width and cols[i] == 0
+        if empty and run_start is None:
+            run_start = i
+        elif not empty and run_start is not None:
+            if run_start > 0 and (best is None or i - run_start > best[1] - best[0]):
+                best = (run_start, i)
+            run_start = None
+    if best is not None and best[1] < width:
+        cut_a, cut_b = best
+    else:
+        lo, hi = int(width * 0.3), max(int(width * 0.3) + 1, int(width * 0.7))
+        cut_a = cut_b = lo + int(np.argmin(cols[lo:hi]))
+    if cut_a < 2 or width - cut_b < 2:
+        return None
+    return [(gx0, gy0, gx0 + cut_a, gy1), (gx0 + cut_b, gy0, gx1, gy1)]
+
+
+def slot_bitmaps(luma, card_x, card_top, boxes=None):
+    """The slot number's two digits, each trimmed to its own ink.
+
+    Thresholded against the floor and peak of the whole number plus a
+    margin of card around it -- not each digit's own tight box, where a
+    "1" is nearly all ink and its own floor would be the stroke."""
+    if boxes is None:
+        boxes = locate_slot_digits(luma, card_x, card_top)
+    if len(boxes) != 2:
+        return [None, None]
+    pad = sx(6)
+    ax0 = max(0, boxes[0][0] - pad)
+    ax1 = min(luma.shape[1], boxes[1][2] + pad)
+    ay0 = max(0, min(b[1] for b in boxes) - pad)
+    ay1 = min(luma.shape[0], max(b[3] for b in boxes) + pad)
+    around = luma[ay0:ay1, ax0:ax1]
+    floor, peak = np.percentile(around, 15), np.percentile(around, 99)
+    if peak - floor < 10:
+        return [None, None]
+    # The cut is taken from this number's own histogram (Otsu), not a
+    # fixed fraction of its range, so a bright badge and a wiped squad's
+    # dim one are cut at the same place on their own ink.
+    cut = _otsu(around)
+    out = []
+    for bx0, by0, bx1, by1 in boxes:
+        out.append(_bitmap(luma[by0:by1, bx0:bx1] > cut, min_ink=20))
     return out
+
+
+def _otsu(values):
+    """The threshold that best separates ink from card in `values`."""
+    hist, edges = np.histogram(values, bins=64)
+    hist = hist.astype(np.float64)
+    mids = (edges[:-1] + edges[1:]) / 2.0
+    total = hist.sum()
+    if total == 0:
+        return float(np.mean(values))
+    w0 = np.cumsum(hist)
+    w1 = total - w0
+    m0 = np.cumsum(hist * mids)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        between = (m0[-1] * w0 / total - m0) ** 2 / (w0 * w1 / total)
+    between[~np.isfinite(between)] = -1
+    return float(edges[int(np.argmax(between)) + 1])
 
 
 def origin_score(rgb, digit_templates=None):
@@ -653,6 +851,7 @@ def read_page(rgb, digit_templates=None, viewport=(VIEWPORT_TOP, VIEWPORT_BOTTOM
     there for why they are not decided one card at a time.
     """
     luma = to_luma(rgb)
+    value = to_value(rgb)
     tops, offset, score = detect_card_tops(luma, viewport, full=full_phase)
     cards = []
     for row_i, card_top in enumerate(tops):
@@ -668,7 +867,8 @@ def read_page(rgb, digit_templates=None, viewport=(VIEWPORT_TOP, VIEWPORT_BOTTOM
                         if hit is not None:
                             kills = int(hit)
                 players.append({"alive": row_is_alive(luma, cx, y), "kills": kills})
-            slots = slot_bitmaps(luma, cx, card_top)
+            slot_boxes = locate_slot_digits(value, cx, card_top)
+            slots = slot_bitmaps(value, cx, card_top, slot_boxes)
             # Is there a card here at all? Judged on the names, which a
             # wiped squad still has and an empty place does not.
             lit = max((float(np.percentile(
@@ -684,6 +884,8 @@ def read_page(rgb, digit_templates=None, viewport=(VIEWPORT_TOP, VIEWPORT_BOTTOM
                 "column": col_i,
                 "players": players,
                 "slot_bitmaps": slots,
+                # Where the digits were actually found, for the preview.
+                "slot_boxes": slot_boxes,
                 # A grid position with no card on it at all. The last row
                 # of a 16-team lobby has one card and two empty places,
                 # and an empty place reads as four dead players -- which
@@ -728,7 +930,7 @@ def fit_slot_run(cards, digit_templates, min_margin=0.015):
                 refs = digit_templates.get(label[cell])
                 if not refs:
                     continue
-                total += max(similarity(bm, r) for r in refs)
+                total += max(slot_similarity(bm, r) for r in refs)
                 seen += 1
         if seen:
             scores[start] = total / seen
@@ -989,7 +1191,7 @@ def learn_slot_digits(cards, first_slot, stores, contradiction=0.90):
                 if digit == want:
                     continue
                 for ref in refs:
-                    s = similarity(bm, ref)
+                    s = slot_similarity(bm, ref)
                     if s > rival_score:
                         rival, rival_score = digit, s
             if rival is not None and rival_score >= contradiction:
@@ -1102,7 +1304,8 @@ def read_header(luma, templates, box=HEADER_BOX,
         for a, b in digits:
             sub = mask[:, a:b]
             bm = _bitmap(sub, min_ink=20)
-            hit = (best_match(bm, templates, min_score, min_margin)
+            hit = (best_match(bm, templates, min_score, min_margin,
+                              sim=slot_similarity)
                    if bm is not None else None)
             if hit is None:
                 text = ""
