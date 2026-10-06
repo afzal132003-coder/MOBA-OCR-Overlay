@@ -6003,12 +6003,16 @@ def match_roster_team(file_team_name, roster_teams, min_ratio=None,
                 return team
 
     candidates = []
+    raw_of = {}
     for team in roster_teams:
         for candidate_name in (team.get("name"), team.get("shortName"),
                                team.get("tagRead")):
             norm = normalize_for_match(candidate_name)
             if norm:
                 candidates.append((norm, team))
+                # The name as written, spaces and all, for the
+                # distinctive-part check below -- see there.
+                raw_of.setdefault((norm, id(team)), candidate_name)
 
     for norm, team in candidates:
         if norm == target:
@@ -6083,7 +6087,13 @@ def match_roster_team(file_team_name, roster_teams, min_ratio=None,
         if len(norm) < min_containment:
             continue
         ratio = difflib.SequenceMatcher(None, target, norm).ratio()
-        bare = distinctive_team_part(norm)
+        # From the name AS WRITTEN, not the normalised one. Normalising
+        # strips the spaces, so "LR7 ESP" became the single word "LR7ESP",
+        # the generic ESP could no longer be dropped, and the distinctive
+        # check compared whole strings: an old lobby's "RES" scored 0.67
+        # against it and was put on LR7 ESP's row, kills and all. On
+        # "LR7" it scores 0.33 and matches nothing, as it should.
+        bare = distinctive_team_part(raw_of.get((norm, id(team)), norm))
         if bare and bare_target:
             # The weaker of the two views wins, so a strong whole-string
             # score cannot carry a pair whose identifying parts disagree.
