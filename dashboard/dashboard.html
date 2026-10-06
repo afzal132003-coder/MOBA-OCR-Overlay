@@ -2772,6 +2772,35 @@
     </div>
 
     <div class="card">
+      <h2>Booyah Team Stats (SS3, two slides)</h2>
+      <p class="hint">Its own browser source: <code>overlay/freefire_booyah_stats.html</code>. The game's winning squad.
+        <strong>Slide 1</strong>: each player's elims, knocks, headshot rate (headshots / kills) and finish contribution
+        (their share of the team's kills), with the team's total elims and points. <strong>Slide 2</strong>: their
+        characters (active + three passive), pet and loadout from the <strong>Num5 capture</strong> -- capture the
+        winners' cards before putting slide 2 up. Photos from the Player Photo Folder, else the roster, else the default.</p>
+      <div class="row" style="gap:10px;align-items:flex-end;flex-wrap:wrap;">
+        <div class="team-form" style="max-width:340px;margin:0;"><label for="ff_bsGame">Game</label>
+          <select id="ff_bsGame"><option value="">Latest finished game</option></select></div>
+        <button class="secondary" id="ff_bsRefresh" title="Read the result file and the captures again">Refresh</button>
+        <div class="team-form" style="max-width:240px;margin:0;"><label for="ff_bsRound">Round text</label>
+          <input type="text" id="ff_bsRound" placeholder="Round name"></div>
+        <label class="hint" style="display:flex;gap:6px;align-items:center;margin:0 0 8px;"><input type="checkbox" id="ff_bsAnim" checked> Animation in &amp; out</label>
+      </div>
+      <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;">
+        <button id="ff_bsSlide1">Slide 1: Stats</button>
+        <button id="ff_bsSlide2">Slide 2: Characters &amp; Loadout</button>
+        <label class="hint" style="display:flex;gap:6px;align-items:center;margin:0 0 0 10px;"><input type="checkbox" id="ff_bsAuto"> Switch by itself every</label>
+        <input type="number" id="ff_bsAutoSecs" min="3" max="60" value="8" style="width:56px;"><span class="hint" style="margin:0;">s</span>
+      </div>
+      <div class="hint" id="ff_bsPreview" style="margin-top:8px;"></div>
+      <div class="row" style="gap:8px;margin-top:10px;">
+        <button id="ff_bsShow">Push Booyah Stats Up</button>
+        <button class="secondary" id="ff_bsHide">Pull Down</button>
+        <span class="hint" id="ff_bsStatus" style="align-self:center;"></span>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>File &amp; OCR Management</h2>
       <p class="hint">Free Fire's own game client writes these files directly to disk — no screenshots, no OCR
         involved. Point each path at the folder the client saves into, then fetch. Match result is one file per
@@ -6802,6 +6831,7 @@ function ffOpen(url){
       try { ffSyncTeamGraphs(); } catch(e){ console.error("team graphs:", e); }
       try { ffSyncMapView(); } catch(e){ console.error("map view:", e); }
       try { ffSyncPlayerH2H(); } catch(e){ console.error("player h2h:", e); }
+      try { ffSyncBooyahStats(); } catch(e){ console.error("booyah stats:", e); }
       try { ffDrawProfiles(); } catch(e){ console.error("event profiles:", e); }
       try { ffSyncTgGamesStatus(); } catch(e){ console.error("team graph games:", e); }
       if(!ffHydrated){
@@ -6887,6 +6917,10 @@ function ffOpen(url){
       if(el) el.textContent = msg.ok
         ? "Loaded: " + msg.mapName + " · " + msg.playedAt + " · " + msg.zones + " zones · " + msg.kills + " kills"
         : "⚠ " + (msg.error || "could not load that game");
+    } else if(msg.type === "booyah_stats_result"){
+      ffReplyArrived("booyahStats");
+      const st = document.getElementById("ff_bsStatus");
+      if(st && st.textContent === "Reading...") st.textContent = "";
     } else if(msg.type === "player_h2h_result"){
       ffReplyArrived("h2h");
     } else if(msg.type === "map_drops_result"){
@@ -10463,6 +10497,78 @@ function ffSyncLobbyTimerControls(){
   if(lab && document.activeElement !== lab && lab.value !== (t.label || "")) lab.value = t.label || "";
 }
 
+/* ---------- Booyah team stats (two slides) ---------- */
+function ffBsSend(extra){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return false;
+  ffWs.send(JSON.stringify(Object.assign({
+    type: "booyah_stats",
+    auto: document.getElementById("ff_bsAuto").checked,
+    autoSeconds: Math.max(3, Math.min(60, Number(document.getElementById("ff_bsAutoSecs").value) || 8)),
+    roundLabel: document.getElementById("ff_bsRound").value.trim(),
+    animate: document.getElementById("ff_bsAnim").checked,
+  }, extra || {})));
+  return true;
+}
+let ffBsGamesKey = "";
+function ffSyncBooyahStats(){
+  if(!ffState || !document.getElementById("ff_bsGame")) return;
+  const b = ffState.booyahStats || {};
+  // The game list: the result files the dashboard already listed, newest first.
+  const files = (typeof ffMatchFiles !== "undefined" ? ffMatchFiles : []) || [];
+  const key = files.map(f => f.matchId).join(",");
+  const sel = document.getElementById("ff_bsGame");
+  if(key !== ffBsGamesKey && sel !== document.activeElement){
+    ffBsGamesKey = key;
+    const keep = sel.value;
+    sel.innerHTML = `<option value="">Latest finished game</option>` + files.slice().reverse().map(f => {
+      const when = String(f.timestamp || "").replace(/^(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2}).*$/, "$3/$2 $4:$5");
+      const win = (f.teams || []).find(t => t.rank === 1);
+      return `<option value="${f.matchId}">${when} · Booyah: ${String((win && win.teamName) || "?").replace(/</g, "&lt;")}</option>`;
+    }).join("");
+    if(Array.from(sel.options).some(o => o.value === keep)) sel.value = keep;
+  }
+  const set = (id, v, prop) => {
+    const el = document.getElementById(id);
+    if(el && document.activeElement !== el && v != null && el[prop || "value"] !== v) el[prop || "value"] = v;
+  };
+  set("ff_bsGame", b.matchId || "");
+  set("ff_bsRound", b.roundLabel || "");
+  set("ff_bsAnim", b.animate !== false, "checked");
+  set("ff_bsAuto", !!b.auto, "checked");
+  set("ff_bsAutoSecs", String(b.autoSeconds || 8));
+  document.getElementById("ff_bsRound").placeholder = (ffState.event || {}).roundName || "Round name";
+  ["ff_bsSlide1", "ff_bsSlide2"].forEach((id, i) => {
+    const on = !b.auto && Number(b.slide || 1) === i + 1;
+    const el = document.getElementById(id);
+    el.style.background = on ? "#4d9fff" : ""; el.style.color = on ? "#06090c" : "";
+  });
+  const r = b.rows || {};
+  const captured = (r.players || []).filter(p => p.loadout).length;
+  document.getElementById("ff_bsPreview").textContent = r.error ? "⚠ " + r.error :
+    (r.teamName ? `${r.teamName} · ${r.totalElims} elims · ${r.totalPoints} pts · players: ` +
+      (r.players || []).map(p => `${p.ign} ${p.kills}K`).join(", ") +
+      ` · loadouts captured: ${captured}/${(r.players || []).length}` : "Pick a game (or leave it on the latest) and press Refresh.");
+  const st = document.getElementById("ff_bsStatus");
+  if(st && !st.textContent) st.textContent = b.visible ? "On air." : "";
+}
+(function ffWireBooyahStats(){
+  if(!document.getElementById("ff_bsGame")) return;
+  const busy = () => { document.getElementById("ff_bsStatus").textContent = "Reading...";
+                       ffAwaitReply("booyahStats", "ff_bsStatus", "the Booyah stats were never sent back", 25); };
+  document.getElementById("ff_bsGame").addEventListener("change", e => { busy(); ffBsSend({ matchId: e.target.value }); });
+  document.getElementById("ff_bsRefresh").addEventListener("click", () => { busy(); ffBsSend({ refresh: true }); });
+  ["ff_bsRound", "ff_bsAnim", "ff_bsAuto", "ff_bsAutoSecs"].forEach(id =>
+    document.getElementById(id).addEventListener("change", () => ffBsSend()));
+  document.getElementById("ff_bsSlide1").addEventListener("click", () => ffBsSend({ slide: 1, auto: false }));
+  document.getElementById("ff_bsSlide2").addEventListener("click", () => ffBsSend({ slide: 2, auto: false }));
+  document.getElementById("ff_bsShow").addEventListener("click", () => {
+    if(ffBsSend({ visible: true, refresh: true })) document.getElementById("ff_bsStatus").textContent = "Pushed up.";
+  });
+  document.getElementById("ff_bsHide").addEventListener("click", () => {
+    if(ffBsSend({ visible: false })) document.getElementById("ff_bsStatus").textContent = "Pulled down.";
+  });
+})();
+
 /* ---------- Player head to head ----------
    The two pickers list the roster's players under their teams; each
    option carries the player's UID and IGN, which is what the engine
@@ -11893,6 +11999,8 @@ function ffRequestMatchFiles(){
 function ffShowMatchFiles(msg){
   clearTimeout(ffMatchFilesTimer);
   ffMatchFiles = (msg.files || []).filter(f => f.teams && f.teams.length);
+  // The Booyah stats card lists these games too.
+  try { ffSyncBooyahStats(); } catch(e){ console.error("booyah stats:", e); }
   const el = document.getElementById("ff_resultsPushTarget");
   if(msg.error && el){
     el.style.color = "#fbbf24";

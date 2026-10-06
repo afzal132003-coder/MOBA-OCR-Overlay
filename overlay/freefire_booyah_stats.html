@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Free Fire Booyah Team Stats</title>
+<style>
+  /* BOOYAH TEAM STATS -- the SS3 two-slide graphic for the winning squad.
+     Slide 1: each player's ELIMS / KNOCKS / HEADSHOT RATE / FINISH CONTRI.
+     Slide 2: their characters (active + three passive), pet and loadout,
+     from the Num5 capture. The team card and every player's photo and
+     name stay put between slides -- the two artworks are identical left
+     of x 762 in every card -- so only each card's right half changes.
+
+     Measured from "booyah team stats R - BLANK1" and "... character R -
+     BLANK": team card x 176..443 (logo 337..612, name bar 613..652, totals
+     at y 702..744 and 804..846, centred on x 310); player cards at x 502 /
+     1181, y 336 / 629 (stride 679 x 293), each a 260x204 photo, a name bar
+     at y +204..+242, and the right half from x +261. Positions below are
+     relative to a card's corner. */
+  @font-face { font-family:'SMBlack'; src:url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype'); font-weight:900; }
+  @font-face { font-family:'SMXB'; src:url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype'); font-weight:800; }
+  @font-face { font-family:'TacticSans'; src:url('assets/freefire/ss3/TacticSans-BldIt.otf') format('opentype'); font-weight:100 900; }
+
+  html,body{margin:0;padding:0;background:transparent;overflow:hidden;}
+  body{width:1920px;height:1080px;-webkit-font-smoothing:antialiased;}
+  body.still *{animation:none !important;transition:none !important;}
+  #stage{position:absolute;inset:0;opacity:0;transform:scale(.985);
+         transition:opacity .4s ease, transform .5s cubic-bezier(.16,.84,.34,1);}
+  #stage.on{opacity:1;transform:none;}
+  .art{position:absolute;left:0;top:0;width:1920px;height:1080px;}
+  #art2{display:none;}
+  .sprite{position:absolute;background-repeat:no-repeat;background-size:1920px 1080px;}
+  .abs{position:absolute;}
+  .ctr{display:flex;align-items:center;justify-content:center;white-space:nowrap;}
+
+  /* team card */
+  #tLogo{left:206px;top:352px;width:208px;height:240px;object-fit:contain;}
+  #tName{left:176px;top:613px;width:268px;height:40px;font-family:'SMXB',Arial,sans-serif;font-size:25px;color:#111;text-transform:uppercase;}
+  .big{font-family:'SMBlack',Arial,sans-serif;font-size:60px;color:#fff;line-height:1;font-variant-numeric:tabular-nums;}
+  #round{left:743px;top:240px;width:278px;height:36px;font-family:'TacticSans',Arial,sans-serif;font-size:24px;color:#171717;text-transform:uppercase;}
+
+  /* player cards */
+  .card{position:absolute;width:620px;height:243px;}
+  .pclip{position:absolute;left:0;top:0;width:260px;height:242px;overflow:hidden;}
+  .pclip img{position:absolute;left:0;bottom:0;width:260px;height:236px;object-fit:contain;object-position:center bottom;}
+  .pname{left:0;top:204px;width:260px;height:38px;font-family:'SMXB',Arial,sans-serif;font-size:21px;color:#111;text-transform:uppercase;}
+  .val{width:170px;height:52px;font-family:'SMBlack',Arial,sans-serif;font-size:56px;color:#fff;line-height:1;font-variant-numeric:tabular-nums;}
+  .val small{font-size:30px;margin-left:2px;}
+  /* Each portrait sits in its own clipped box, sized and placed in JS
+     from where the head actually is in that icon (see placePortrait). */
+  .cbox{position:absolute;overflow:hidden;}
+  .cimg{position:absolute;}
+  .clab{position:absolute;display:flex;align-items:center;justify-content:center;font-family:'SMXB',Arial,sans-serif;
+        font-size:11.5px;color:#fff;text-transform:uppercase;white-space:nowrap;overflow:hidden;letter-spacing:.02em;}
+  .clab.pet{color:#e3141b;}
+  .lo-icon{position:absolute;left:304px;top:204px;width:28px;height:28px;object-fit:contain;}
+  .lo-text{position:absolute;left:340px;top:204px;width:270px;height:28px;display:flex;align-items:center;justify-content:center;
+           font-family:'SMBlack',Arial,sans-serif;font-size:23px;color:#fff;text-transform:uppercase;white-space:nowrap;}
+
+  /* Slide swap: the right half of each card trades its contents, card
+     by card, both ways -- a transition rather than a one-shot animation,
+     so going 2 -> 1 is as smooth as 1 -> 2. */
+  /* The leaving half goes first, the arriving one follows 0.2s later,
+     each card 0.1s after the one before (--d). Each half carries its own
+     slice of its artwork, so a card's background changes with its
+     contents rather than all four at once. */
+  .s1, .s2{transition:opacity .3s ease, transform .4s cubic-bezier(.2,.8,.3,1);transition-delay:var(--d, 0s);}
+  body[data-slide="1"] .s1, body[data-slide="2"] .s2{transition-delay:calc(var(--d, 0s) + .2s);}
+  body[data-slide="1"] .s2, body[data-slide="2"] .s1{opacity:0;transform:translateY(10px);pointer-events:none;}
+  .half{position:absolute;left:260px;top:0;width:362px;height:243px;background-repeat:no-repeat;background-size:1920px 1080px;}
+  body[data-slide="2"] .s2 .cimg{animation:cin .55s cubic-bezier(.2,.9,.3,1.15) both;}
+  /* The second artwork is only ever seen through each card's .half, so
+     it is preloaded here rather than shown. */
+  @keyframes cin{from{opacity:0;transform:scale(.86);}to{opacity:1;transform:none;}}
+
+  /* Entrance: team card first, then the four players. */
+  #stage.on .rise{animation:rise .65s cubic-bezier(.2,.85,.25,1.05) both;}
+  @keyframes rise{from{opacity:0;transform:translateY(70px);}to{opacity:1;transform:none;}}
+  #stage.on .pop{animation:pop .5s cubic-bezier(.2,.9,.3,1.25) both;}
+  @keyframes pop{from{opacity:0;transform:scale(.6);}to{opacity:1;transform:none;}}
+  #stage.on .fromL{animation:fromL .5s cubic-bezier(.2,.8,.3,1) both;}
+  @keyframes fromL{from{opacity:0;transform:translateX(-36px);}to{opacity:1;transform:none;}}
+  #stage.on .fade{animation:fade .5s ease both;}
+  @keyframes fade{from{opacity:0;}to{opacity:1;}}
+</style>
+</head>
+<body data-slide="1">
+<div id="stage">
+  <img class="art" id="art1" alt="">
+  <img class="art" id="art2" alt="">
+  <img class="abs pop" id="tLogo" alt="" style="animation-delay:.25s">
+  <div class="abs ctr fromL" id="tName" style="animation-delay:.35s"></div>
+  <div class="abs ctr big fade" id="tElims" style="left:226px;top:698px;width:168px;height:50px;animation-delay:.45s"></div>
+  <div class="abs ctr big fade" id="tPoints" style="left:226px;top:800px;width:168px;height:50px;animation-delay:.55s"></div>
+  <div class="abs ctr fade" id="round" style="animation-delay:.2s"></div>
+  <div id="cards"></div>
+</div>
+
+<script>
+const _params = new URLSearchParams(location.search);
+const _sameOrigin = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || _sameOrigin;
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_booyah_stats&rostercache=1"
+  : "ws://localhost:8765?page=freefire_booyah_stats&rostercache=1";
+const PREVIEW = _params.get("preview") === "1";
+const ART1 = "assets/freefire/ss3/" + encodeURI("booyah team stats R - BLANK1.png");
+const ART2 = "assets/freefire/ss3/" + encodeURI("booyah team stats character R - BLANK.png");
+const CARD_X = [502, 1181], CARD_Y = [336, 629];
+
+// Slide 2 boxes, relative to a card's corner.
+const CHAR_BOXES = [
+  { slot: "active",   img: [270, 9, 108, 163], lab: [270, 173, 108, 21], word: "CHARACTER 1" },
+  { slot: "passive1", img: [388, 9, 109, 75],  lab: [388, 84, 109, 16],  word: "CHARACTER 2" },
+  { slot: "passive2", img: [504, 9, 108, 75],  lab: [504, 84, 108, 16],  word: "CHARACTER 3" },
+  { slot: "passive3", img: [387, 111, 109, 67], lab: [387, 178, 109, 16], word: "CHARACTER 4" },
+  { slot: "pet",      img: [504, 110, 108, 68], lab: [504, 179, 108, 15], word: "PET", pet: true },
+];
+/* Portraits, all framed by one rule so every head lines up:
+     small boxes -- the icon fills the box's width (the same face size in
+     all of them), its top hair 3px below the box top, the shoulders cut
+     by the label strip as the demo has it;
+     the tall CHARACTER 1 box -- larger (1.25x the small boxes' scale),
+     standing on its label strip with the whole head in view.
+   Centred on the head itself (meta cx, measured by the engine), not on
+   the icon's frame, since the icons are not all framed alike. */
+function placePortrait(im, v, b){
+  const [, , w, h] = b.img;
+  const tall = b.slot === "active";
+  const size = tall ? Math.round(109 * 1.25 * 1.0) : w;     // rendered icon edge (square icons)
+  const cx = v.cx != null ? v.cx : 0.5;
+  const top = v.top != null ? v.top : 0;
+  // An icon whose hair already runs off its top edge would show that
+  // flat cut under any gap, so it is pinned to the box top instead -- and
+  // in the tall box drawn to the box's full height, so its shoulders
+  // still reach the label strip.
+  const cutTop = top <= 0.01;
+  const edge = tall && cutTop ? h : size;
+  const left = Math.round(w / 2 - cx * edge);
+  const y = cutTop ? 0 : (tall ? (h - edge) : Math.round(3 - top * edge));
+  Object.assign(im.style, { width: edge + "px", height: edge + "px", left: left + "px", top: y + "px" });
+}
+
+// Slide 1 values: centre x, centre y.
+const STAT_SPOTS = [["kills", 354, 78], ["knocks", 524, 78], ["hsRate", 354, 193], ["finish", 524, 193]];
+
+// Photos from the engine's UID - IGN folder, on their own message.
+const photoCache = {};
+let lastState = null, lastSig = "", _lastRoster = null, autoTimer = null, shownSlide = 0;
+
+const two = v => v == null ? "--" : String(v).padStart(2, "0");
+function el(tag, cls, css, parent){
+  const e = document.createElement(tag);
+  if(cls) e.className = cls;
+  Object.assign(e.style, css || {});
+  if(parent) parent.appendChild(e);
+  return e;
+}
+const box = (b) => ({ left: b[0] + "px", top: b[1] + "px", width: b[2] + "px", height: b[3] + "px" });
+function teamFor(name, roster){
+  const key = String(name || "").trim().toUpperCase();
+  return ((roster && roster.teams) || []).find(t =>
+    [t.name, t.displayName, t.shortName].some(n => String(n || "").trim().toUpperCase() === key)) || null;
+}
+function fitSpan(node, max, min){
+  node.style.fontSize = "";
+  const s = node.firstChild;
+  let size = parseFloat(getComputedStyle(node).fontSize);
+  while(s && s.offsetWidth > max && size > min){ size -= 0.5; node.style.fontSize = size + "px"; }
+}
+function setText(node, text, max, min){
+  node.innerHTML = "";
+  const s = document.createElement("span"); s.textContent = text; node.appendChild(s);
+  if(max) fitSpan(node, max, min || 10);
+}
+function countUp(node, to, suffix, delay){
+  const out = v => { node.innerHTML = ""; node.append(two(v)); if(suffix){ const sm = document.createElement("small"); sm.textContent = suffix; node.appendChild(sm); } };
+  if(to == null){ node.textContent = "--"; return; }
+  if(document.body.classList.contains("still")){ out(to); return; }
+  out(0);
+  const start = performance.now() + Math.max(0, delay) * 1000, dur = 700;
+  const step = now => {
+    const f = Math.max(0, Math.min(1, (now - start) / dur));
+    out(Math.round(to * (1 - Math.pow(1 - f, 3))));
+    if(f < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+function buildCards(rows, roster, team){
+  const host = document.getElementById("cards");
+  host.innerHTML = "";
+  (rows.players || []).slice(0, 4).forEach((p, i) => {
+    const c = i % 2, r = Math.floor(i / 2);
+    const card = el("div", "card", { left: CARD_X[c] + "px", top: CARD_Y[r] + "px" }, host);
+    const d0 = 0.5 + i * 0.12;
+    // The photo, under the name bar (put back on top from the artwork).
+    const clip = el("div", "pclip rise", { animationDelay: d0 + "s" }, card);
+    const img = el("img", "", {}, clip);
+    img.dataset.key = p.uid || p.ign || "";
+    const rp = ((team && team.players) || []).find(x => (p.uid && String(x.uid || "") === p.uid) ||
+                                                    String(x.ign || "").toUpperCase() === String(p.ign || "").toUpperCase());
+    img.dataset.fallback = (rp && rp.photo) || roster.defaultPlayerPhoto || "";
+    const photo = photoCache[img.dataset.key] || img.dataset.fallback;
+    if(photo) img.src = photo; else img.style.visibility = "hidden";
+    el("div", "sprite", { left: "0px", top: "204px", width: "260px", height: "38px",
+      backgroundImage: `url("${ART1}")`, backgroundPosition: `-${CARD_X[c]}px -${CARD_Y[r] + 204}px` }, card);
+    const nm = el("div", "abs ctr pname fromL", { animationDelay: (d0 + .1) + "s" }, card);
+    setText(nm, p.ign || "", 240, 12);
+
+    // Slide 1: the four numbers.
+    const s1 = el("div", "s1", { position: "absolute", inset: "0" }, card);
+    s1.style.setProperty("--d", (i * .1) + "s");
+    el("div", "half", { backgroundImage: `url("${ART1}")`, backgroundPosition: `-${CARD_X[c] + 260}px -${CARD_Y[r]}px` }, s1);
+    STAT_SPOTS.forEach(([key, x, y], k) => {
+      const v = el("div", "abs ctr val", { left: (x - 85) + "px", top: (y - 26) + "px" }, s1);
+      v.dataset.key = key; v.dataset.delay = (d0 + .35 + k * .08).toFixed(2);
+      v.dataset.value = p[key] == null ? "" : p[key];
+    });
+
+    // Slide 2: characters, pet, loadout.
+    const s2 = el("div", "s2", { position: "absolute", inset: "0" }, card);
+    s2.style.setProperty("--d", (i * .1) + "s");
+    el("div", "half", { backgroundImage: `url("${ART2}")`, backgroundPosition: `-${CARD_X[c] + 260}px -${CARD_Y[r]}px` }, s2);
+    const lo = p.loadout || {};
+    CHAR_BOXES.forEach((b, k) => {
+      const v = lo[b.slot];
+      const cb = el("div", "cbox", box(b.img), s2);
+      const im = el("img", "cimg", { animationDelay: (i * .1 + k * .06).toFixed(2) + "s" }, cb);
+      const src = v ? v.src : "";
+      if(src){ placePortrait(im, v, b); im.src = src; im.onerror = () => { im.style.visibility = "hidden"; }; }
+      else im.style.visibility = "hidden";
+      const lab = el("div", "clab" + (b.pet ? " pet" : ""), box(b.lab), s2);
+      lab.textContent = (v && v.name) || b.word;
+    });
+    const eq = lo.equipment;
+    const ic = el("img", "lo-icon", {}, s2);
+    if(eq && eq.src){ ic.src = eq.src; ic.onerror = () => { ic.style.visibility = "hidden"; }; } else ic.style.visibility = "hidden";
+    const lt = el("div", "lo-text", {}, s2);
+    setText(lt, (eq && eq.name) || "PLAYER LOADOUT", 262, 12);
+  });
+}
+
+// Numbers count up each time slide 1 comes in, not only the first time.
+function runCounts(entering){
+  document.querySelectorAll("#cards .s1 .val").forEach(v => {
+    const key = v.dataset.key, raw = v.dataset.value;
+    const val = raw === "" ? null : Number(raw);
+    const pct = (key === "hsRate" || key === "finish") && val != null;
+    countUp(v, val, pct ? "%" : "", entering ? Number(v.dataset.delay) : Number(v.dataset.delay) - 0.35);
+  });
+}
+
+function currentSlide(b){
+  if(b.auto){
+    const secs = Math.max(3, Number(b.autoSeconds) || 8);
+    const t0 = b.shownAt || b.slideAt || 0;
+    return 1 + (Math.floor((Date.now() - t0) / (secs * 1000)) % 2);
+  }
+  return Number(b.slide) === 2 ? 2 : 1;
+}
+function applySlide(b){
+  const sl = currentSlide(b);
+  if(sl !== shownSlide){
+    const first = !shownSlide;
+    document.body.dataset.slide = String(sl);
+    shownSlide = sl;
+    if(sl === 1 && !first) runCounts(false);
+  }
+  clearTimeout(autoTimer);
+  if(b.auto) autoTimer = setTimeout(() => applySlide(b), 500);
+}
+
+function render(state){
+  lastState = state;
+  const b = Object.assign({ visible: false, slide: 1, auto: false, autoSeconds: 8, animate: true, roundLabel: "", rows: null },
+                          state.booyahStats || {});
+  if(_params.get("slide")) b.slide = Number(_params.get("slide"));
+  const visible = PREVIEW || !!b.visible;
+  document.body.classList.toggle("still", b.animate === false || _params.get("anim") === "0");
+  const stage = document.getElementById("stage");
+  stage.classList.toggle("on", visible);
+  if(!visible){ lastSig = ""; shownSlide = 0; clearTimeout(autoTimer); return; }
+
+  const roster = state.roster || {};
+  const rows = b.rows || {};
+  const ev = state.event || {};
+  const sig = JSON.stringify([rows, b.roundLabel, ev.roundName, b.shownAt,
+                              ((roster.teams) || []).map(t => [t.name, !!t.logo])]);
+  if(sig !== lastSig){
+    const replay = !lastSig || JSON.parse(lastSig)[3] !== b.shownAt;
+    lastSig = sig;
+    for(const [id, src] of [["art1", ART1], ["art2", ART2]]){
+      const a = document.getElementById(id); if(a.getAttribute("src") !== src) a.src = src;
+    }
+    const team = teamFor(rows.teamName, roster);
+    const logo = document.getElementById("tLogo");
+    if(team && team.logo){ logo.src = team.logo; logo.style.visibility = ""; } else logo.style.visibility = "hidden";
+    setText(document.getElementById("tName"), (team && (team.displayName || team.name)) || rows.teamName || "", 250, 12);
+    setText(document.getElementById("round"), b.roundLabel || ev.roundName || "", 250, 12);
+    buildCards(rows, roster, team);
+    if(replay){ stage.classList.remove("on"); void stage.offsetWidth; stage.classList.add("on"); shownSlide = 0; }
+    countUp(document.getElementById("tElims"), rows.totalElims, "", .5);
+    countUp(document.getElementById("tPoints"), rows.totalPoints, "", .6);
+    runCounts(true);
+  }
+  applySlide(b);
+}
+
+let ws;
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = evt => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "booyah_photos"){
+      // Dropped into place: rebuilding the cards would replay their entrance.
+      Object.assign(photoCache, msg.photos || {});
+      document.querySelectorAll("#cards img[data-key]").forEach(im => {
+        const p = photoCache[im.dataset.key];
+        if(p && im.getAttribute("src") !== p){ im.src = p; im.style.visibility = ""; }
+      });
+      return;
+    }
+    if(msg.type !== "state_sync" || !msg.data) return;
+    if(msg.data.roster) _lastRoster = msg.data.roster;
+    else if(_lastRoster) msg.data.roster = _lastRoster;
+    render(msg.data);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+connect();
+</script>
+</body>
+</html>

@@ -8599,6 +8599,156 @@ def h2h_photos():
     return out
 
 
+# ---------------------------------------------------------------------------
+# BOOYAH TEAM STATS (SS3, two slides): the winning squad of a game --
+# slide 1 each player's elims, knocks, headshot rate and share of the
+# team's kills; slide 2 their characters, pet and loadout from the Num5
+# capture. Numbers from the game's result file, like every other graphic.
+# ---------------------------------------------------------------------------
+BOOYAH_STATS_DEFAULTS = {
+    "visible": False,
+    "slide": 1,                 # 1 = stats, 2 = characters & loadout
+    "auto": False,              # alternate the two slides by itself
+    "autoSeconds": 8,
+    "matchId": "",              # "" = the newest result file
+    "animate": True,
+    "roundLabel": "",
+    "rows": None,
+}
+_SLOT_DIRS = {"active": "", "passive1": "", "passive2": "", "passive3": "",
+              "pet": "pets/", "equipment": "equipment/"}
+
+
+def booyah_stats_state():
+    b = server_state.setdefault("booyahStats", {})
+    for k, v in BOOYAH_STATS_DEFAULTS.items():
+        b.setdefault(k, v)
+    return b
+
+
+def _latest_loadout(roster_player):
+    """The player's most recent Num5 capture, whichever game it was for --
+    the operator captures the winners' cards when the Booyah is called."""
+    entries = list(((roster_player or {}).get("loadouts") or {}).values())
+    entries = [e for e in entries if isinstance(e, dict) and e.get("slots")]
+    return max(entries, key=lambda e: e.get("capturedAt") or 0) if entries else None
+
+
+_icon_meta_cache = {}
+
+
+def _icon_meta(rel_src):
+    """Where the character actually is in an icon: the horizontal centre
+    of the head (the top half's opaque pixels) and the first opaque row,
+    as fractions. The icons are not all framed alike -- one sits 6px right
+    of another -- and the graphic lines every head up on these."""
+    if rel_src in _icon_meta_cache:
+        return _icon_meta_cache[rel_src]
+    meta = None
+    try:
+        from PIL import Image as _Img
+        path = Path(__file__).parent.parent.parent / "overlay" / rel_src
+        im = _Img.open(path).convert("RGBA")
+        a = np.asarray(im)[..., 3] > 40
+        h, w = a.shape
+        rows = np.where(a.any(axis=1))[0]
+        head = a[: max(1, h // 2)]
+        cols = np.where(head)[1]
+        if len(rows) and len(cols):
+            meta = {"cx": round(float(cols.mean()) / w, 3), "top": round(float(rows[0]) / h, 3)}
+    except Exception:
+        meta = None
+    _icon_meta_cache[rel_src] = meta
+    return meta
+
+
+def _slot_view(slot, result):
+    if not result or not result.get("label"):
+        return None
+    label = str(result["label"])
+    name = result.get("name") or (server_state.get("assetNames") or {}).get(label) or ""
+    out = {"label": label, "name": name if name and name != label else "",
+           "src": "assets/FFM/" + _SLOT_DIRS.get(slot, "") + label + ".png"}
+    meta = _icon_meta(out["src"])
+    if meta:
+        out.update(meta)
+    # The tall first box suits the full-size render, where one is named
+    # for this character (the same lookup the Booyah card uses).
+    if slot == "active" and out["name"]:
+        for fid, fname in (server_state.get("fullSizeNames") or {}).items():
+            if (fname or "").strip().upper() == out["name"].strip().upper():
+                out["full"] = "assets/FFM/Full Size Character/" + fid + ".png"
+                break
+    return out
+
+
+def compute_booyah_stats(match, roster_teams=None):
+    roster_teams = roster_teams if roster_teams is not None else (
+        (server_state.get("roster") or {}).get("teams") or [])
+    teams = (match or {}).get("teams") or []
+    winner = next((t for t in teams if t.get("rank") == 1), None)
+    if not winner:
+        return {"error": "No Booyah team in that result file.", "matchId": (match or {}).get("matchId")}
+    _key, name, short = _standings_identity(winner, roster_teams)
+    roster_team = match_roster_team(name, roster_teams) if roster_teams else None
+    players = list(winner.get("players") or [])
+    # Four cards: a squad that used a sub lists five, so the four who
+    # actually did the most go up.
+    if len(players) > 4:
+        players = sorted(players, key=lambda p: -(p.get("kills") or 0))[:4]
+    team_kills = sum(int(p.get("kills") or 0) for p in winner.get("players") or [])
+    rows = []
+    for pl in players:
+        kills = int(pl.get("kills") or 0)
+        hs = pl.get("headshots")
+        rp = None
+        for rpl in (roster_team or {}).get("players") or []:
+            if (pl.get("uid") and str(rpl.get("uid") or "") == str(pl.get("uid"))) or \
+               _ign_key(rpl.get("ign")) == _ign_key(pl.get("name")):
+                rp = rpl
+                break
+        lo = _latest_loadout(rp)
+        slots = (lo or {}).get("slots") or {}
+        rows.append({
+            "uid": str(pl.get("uid") or ""), "ign": (rp or {}).get("displayIgn") or pl.get("name") or "",
+            "kills": kills, "knocks": pl.get("knocks"),
+            "headshots": hs,
+            "hsRate": (round(100.0 * hs / kills) if (hs is not None and kills) else (0 if hs is not None else None)),
+            "finish": round(100.0 * kills / team_kills) if team_kills else 0,
+            "loadout": {slot: _slot_view(slot, slots.get(slot)) for slot in _SLOT_DIRS} if lo else None,
+        })
+    return {"matchId": match.get("matchId"), "timestamp": match.get("timestamp"),
+            "teamName": name, "shortName": short,
+            "totalElims": int(winner.get("killScore") or team_kills),
+            "totalPoints": int(winner.get("totalScore") or 0),
+            "players": rows}
+
+
+def refresh_booyah_stats():
+    b = booyah_stats_state()
+    folder = (server_state.get("settings", {}) or {}).get("matchResultFolder", "")
+    try:
+        mid = (b.get("matchId") or "").strip()
+        if not mid:
+            newest, nm = find_freefire_latest_match_file(folder)
+            mid = nm.group("match_id") if nm else ""
+        match = _h2h_result(mid) if mid else {}
+        b["rows"] = compute_booyah_stats(match)
+    except Exception as e:
+        print("[booyah stats] could not build: %s" % e)
+        b["rows"] = {"error": str(e)}
+    return b["rows"]
+
+
+def booyah_photos():
+    out = {}
+    for pl in ((booyah_stats_state().get("rows") or {}).get("players") or []):
+        key = pl.get("uid") or pl.get("ign")
+        if key:
+            out[key] = _photo_lookup(pl.get("uid"), pl.get("ign"))
+    return {"photos": {k: v for k, v in out.items() if v}}
+
+
 async def h2h_photo_heartbeat():
     """The photos again every 10s while the graphic is up, so a browser
     source that reloads -- over the relay this engine never hears about
@@ -8608,6 +8758,8 @@ async def h2h_photo_heartbeat():
         try:
             if player_h2h_state().get("visible"):
                 await broadcast_to_page("freefire_player_h2h", {"type": "h2h_photos", **h2h_photos()})
+            if booyah_stats_state().get("visible"):
+                await broadcast_to_page("freefire_booyah_stats", {"type": "booyah_photos", **booyah_photos()})
         except Exception as e:
             print("[h2h] photo resend failed: %s" % e)
 
@@ -10401,6 +10553,23 @@ async def handle_client(websocket, path=None):
                     mv["shownAt"] = int(time.time() * 1000)
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "booyah_stats":
+                b = booyah_stats_state()
+                rebuild = "matchId" in payload or payload.get("refresh") or not b.get("rows")
+                for k in ("visible", "slide", "auto", "autoSeconds", "matchId", "animate", "roundLabel"):
+                    if k in payload:
+                        b[k] = payload[k]
+                if payload.get("visible"):
+                    b["shownAt"] = int(time.time() * 1000)
+                if "slide" in payload:
+                    b["slideAt"] = int(time.time() * 1000)
+                loop = asyncio.get_running_loop()
+                rows = (await loop.run_in_executor(None, refresh_booyah_stats)) if rebuild else b.get("rows")
+                photos = await loop.run_in_executor(None, booyah_photos)
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+                await broadcast_to_page("freefire_booyah_stats", {"type": "booyah_photos", **photos})
+                await websocket.send(json.dumps({"type": "booyah_stats_result", "rows": rows}))
             elif payload.get("type") == "player_h2h":
                 h = player_h2h_state()
                 for k in ("visible", "a", "b", "games", "latest", "scope", "game", "total", "animate", "roundLabel"):
@@ -12305,6 +12474,7 @@ async def main():
     server_state["ffMaps"] = {str(k): dict(v) for k, v in map_analysis.MAPS.items()}
     map_view_state()
     player_h2h_state()
+    booyah_stats_state()
     try:
         keyboard.add_hotkey(NUM5_HOTKEY, on_num5_pressed)
         print(f"Loadout capture armed on '{NUM5_HOTKEY}' (only fires while loadoutCapture.active is true)")
