@@ -3096,6 +3096,46 @@
       </div>
       <div class="hint" id="ff_aliveStatusStatus" style="margin-top:6px;"></div>
 
+      <h3 style="margin-top:18px;">Team Graphs</h3>
+      <p class="hint">Its own full-screen browser source (overlay/freefire_team_graphs.html), drawn from the
+        committed games -- the same numbers as the points table. Four graphs: <strong>Points Race</strong>
+        (cumulative points after each game), <strong>Points Breakdown</strong> (placement vs kill points, overall
+        or the last game), <strong>Kills By Game</strong> (every team, every game) and <strong>Head To
+        Head</strong> (two teams you pick). Background off makes it transparent for your designer's frame.</p>
+      <div class="row" style="gap:10px;align-items:flex-end;flex-wrap:wrap;">
+        <div class="team-form" style="max-width:200px;margin:0;">
+          <label for="ff_tgGraph">Graph</label>
+          <select id="ff_tgGraph">
+            <option value="race">Points Race</option>
+            <option value="breakdown">Points Breakdown</option>
+            <option value="kills">Kills By Game</option>
+            <option value="h2h">Head To Head</option>
+          </select>
+        </div>
+        <div class="team-form" style="max-width:160px;margin:0;" id="ff_tgScopeWrap">
+          <label for="ff_tgScope">Games</label>
+          <select id="ff_tgScope"><option value="overall">All games</option><option value="last">Last game only</option></select>
+        </div>
+        <div class="team-form" style="max-width:110px;margin:0;" id="ff_tgTopWrap">
+          <label for="ff_tgTop">Teams shown</label>
+          <input type="number" id="ff_tgTop" min="2" max="8" value="5">
+        </div>
+        <div class="team-form" style="max-width:200px;margin:0;" id="ff_tgAWrap">
+          <label for="ff_tgA">Team A</label><select id="ff_tgA"></select>
+        </div>
+        <div class="team-form" style="max-width:200px;margin:0;" id="ff_tgBWrap">
+          <label for="ff_tgB">Team B</label><select id="ff_tgB"></select>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;margin:0 0 4px;">
+          <input type="checkbox" id="ff_tgBg" checked><span>Background</span>
+        </label>
+      </div>
+      <div class="row" style="gap:8px;margin-top:10px;">
+        <button id="ff_tgShow">Push Graph Up</button>
+        <button class="secondary" id="ff_tgHide">Pull Graph Down</button>
+        <span class="hint" id="ff_tgStatus" style="align-self:center;"></span>
+      </div>
+
       <h3 style="margin-top:18px;">Booyah Team Stats</h3>
       <p class="hint">Its own browser source (overlay/freefire_booyah.html) — the winning squad of the last
         committed match, four cards with eliminations, knockdowns and contribution. Knockdowns come from the game
@@ -6546,6 +6586,7 @@ function ffOpen(url){
       try { ffSyncAliveNameStyle(); } catch(e){ console.error("name style:", e); }
       try { ffDrawAlivePackages(); } catch(e){ console.error("alive packages:", e); }
       try { ffSyncLobbyTimerControls(); } catch(e){ console.error("lobby timer:", e); }
+      try { ffSyncTeamGraphs(); } catch(e){ console.error("team graphs:", e); }
       if(!ffHydrated){
         ffHydrate(ffState);
         ffHydrated = true;
@@ -10153,6 +10194,66 @@ function ffSyncLobbyTimerControls(){
   if(lab && document.activeElement !== lab && lab.value !== (t.label || "")) lab.value = t.label || "";
 }
 
+/* ---------- Team graphs ----------
+   Every control sends the WHOLE choice as one team_graph message; the
+   engine merges it, so nothing set here can drop something set before. */
+function ffTgSend(extra){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return false;
+  const msg = Object.assign({
+    type: "team_graph",
+    graph: document.getElementById("ff_tgGraph").value,
+    scope: document.getElementById("ff_tgScope").value,
+    top: Math.max(2, Math.min(8, Number(document.getElementById("ff_tgTop").value) || 5)),
+    teams: [document.getElementById("ff_tgA").value, document.getElementById("ff_tgB").value].filter(Boolean),
+    bg: document.getElementById("ff_tgBg").checked,
+  }, extra || {});
+  ffWs.send(JSON.stringify(msg));
+  return true;
+}
+function ffTgShowFields(){
+  const g = document.getElementById("ff_tgGraph").value;
+  document.getElementById("ff_tgScopeWrap").style.display = g === "breakdown" ? "" : "none";
+  document.getElementById("ff_tgTopWrap").style.display = g === "race" ? "" : "none";
+  document.getElementById("ff_tgAWrap").style.display = g === "h2h" ? "" : "none";
+  document.getElementById("ff_tgBWrap").style.display = g === "h2h" ? "" : "none";
+}
+(function ffWireTeamGraphs(){
+  if(!document.getElementById("ff_tgGraph")) return;
+  ["ff_tgGraph", "ff_tgScope", "ff_tgTop", "ff_tgA", "ff_tgB", "ff_tgBg"].forEach(id =>
+    document.getElementById(id).addEventListener("change", () => { ffTgShowFields(); ffTgSend(); }));
+  document.getElementById("ff_tgShow").addEventListener("click", () => {
+    if(ffTgSend({ visible: true })) document.getElementById("ff_tgStatus").textContent = "Graph pushed up.";
+  });
+  document.getElementById("ff_tgHide").addEventListener("click", () => {
+    if(ffTgSend({ visible: false })) document.getElementById("ff_tgStatus").textContent = "Graph pulled down.";
+  });
+  ffTgShowFields();
+})();
+function ffSyncTeamGraphs(){
+  if(!ffState || !document.getElementById("ff_tgGraph")) return;
+  const cfg = (ffState.display && ffState.display.teamGraph) || {};
+  const set = (id, v, prop) => {
+    const el = document.getElementById(id);
+    if(el && document.activeElement !== el && v != null && el[prop || "value"] !== v) el[prop || "value"] = v;
+  };
+  // Team pickers list the teams the graphs know, else the roster.
+  const names = (((ffState.teamGraphs || {}).teams) || []).map(t => t.name);
+  const pool = names.length ? names : (((ffState.roster || {}).teams) || []).map(t => t.name);
+  ["ff_tgA", "ff_tgB"].forEach((id, i) => {
+    const el = document.getElementById(id);
+    const want = "<option value=''>(top of the table)</option>" + pool.map(n =>
+      "<option value=\"" + ffEscapeHtml(n).replace(/"/g, "&quot;") + "\">" + ffEscapeHtml(n) + "</option>").join("");
+    if(el.dataset.sig !== want && document.activeElement !== el){ el.innerHTML = want; el.dataset.sig = want; }
+    set(id, (cfg.teams || [])[i] || "");
+  });
+  set("ff_tgGraph", cfg.graph);
+  set("ff_tgScope", cfg.scope);
+  set("ff_tgTop", cfg.top != null ? String(cfg.top) : null);
+  set("ff_tgBg", cfg.bg != null ? !!cfg.bg : null, "checked");
+  ffTgShowFields();
+  document.getElementById("ff_tgStatus").textContent = cfg.visible ? "On air." : "";
+}
+
 /* ---------- ARROW sheet: Booyah, match top 5, series totals ----------
    The game checkboxes are drawn from the games actually committed, so a
    box can never offer a game with no match behind it. They are redrawn
@@ -10454,6 +10555,9 @@ const FF_PREVIEWS = [
   { id: "points", label: "Overall Points Table", file: "freefire_scoreboard.html",
     flag: "pointsTableVisible", show: "points_table_show", hide: "points_table_hide",
     note: "Shares its browser source with the scoreboard — pushing this pulls that down." },
+  { id: "teamGraphs", label: "Team Graphs", file: "freefire_team_graphs.html",
+    flag: "teamGraphVisible", show: "team_graph_show", hide: "team_graph_hide",
+    note: "Full screen. Pick the graph and background in Graphic > Team Graphs. With no committed games the preview shows labelled SAMPLE DATA." },
   { id: "lobbyStatus", label: "Lobby Join Status (strip)", file: "freefire_lobby_status.html",
     flag: "lobbyStatusVisible", show: "lobby_status_show", hide: "lobby_status_hide",
     note: "A fixed 1918x248 strip for below the stream -- add it at that size, not full screen. Tick the squads in Pre-Match." },
@@ -14697,6 +14801,7 @@ const OVERLAY_LINKS = [
   {game:"MOBA", name:"MVP Stats", file:"overlay/mvp_stats.html"},
   {game:"Dota 2", name:"Post Match", file:"overlay/dota2_postmatch.html"},
   {game:"Free Fire", name:"Lobby Join Status (1918x248 strip)", file:"overlay/freefire_lobby_status.html"},
+  {game:"Free Fire", name:"Team Graphs (1920x1080)", file:"overlay/freefire_team_graphs.html"},
   {game:"Free Fire", name:"Scoreboard", file:"overlay/freefire_scoreboard.html"},
   {game:"Free Fire", name:"Points Table", file:"overlay/freefire_points_table.html"},
   {game:"Free Fire", name:"Booyah", file:"overlay/freefire_booyah.html"},

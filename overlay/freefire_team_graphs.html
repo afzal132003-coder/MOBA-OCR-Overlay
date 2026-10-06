@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Free Fire Team Graphs</title>
+<style>
+  /* TEAM GRAPHS -- one full-screen browser source, four graphs:
+
+       race       points race: cumulative points after each game, top N
+       breakdown  each team's points split into placement and kills,
+                  overall or for the last game alone
+       kills      kills by game: teams x games, one hue light->dark
+       h2h        head to head: two chosen teams across their numbers
+
+     Drawn from the engine's teamGraphs table, which is keyed exactly as
+     the standings are, so a graph and the points table cannot disagree.
+
+     BACKGROUND ON or OFF. On, the graph sits on its own panel -- a stand-in
+     until the designer's frame arrives. Off, it is transparent for that
+     frame to go underneath, and the text carries a shadow so it still
+     reads over whatever is behind it.
+
+     Colours: the validated dark categorical palette, checked on this
+     panel's surface (#0f1a17) -- every adjacent pair clears CVD and
+     normal-vision separation and 3:1 contrast. Colour follows the TEAM
+     (its place in the roster), never its rank, so a team keeps its colour
+     when the graph changes or the top-N shrinks. Text never wears a team
+     colour; identity rides on the swatch, line or bar beside it.
+
+     This is a broadcast graphic, not an interactive chart: there is no
+     hover layer to reach in OBS, so every value that matters is printed. */
+  @font-face {
+    font-family: 'Supermolot';
+    src: url('assets/fonts/TT Supermolot Neue Trial Black Italic.ttf') format('truetype');
+    font-weight: 900; font-style: italic;
+  }
+  @font-face {
+    font-family: 'Supermolot';
+    src: url('assets/fonts/TT Supermolot Neue Trial ExtraBold.ttf') format('truetype');
+    font-weight: 800; font-style: normal;
+  }
+  @font-face {
+    font-family: 'Supermolot';
+    src: url('assets/fonts/TT Supermolot Neue Trial Bold.ttf') format('truetype');
+    font-weight: 700; font-style: normal;
+  }
+
+  :root{
+    --surface:#0f1a17;
+    --text-1:#ffffff;
+    --text-2:#c3c2b7;
+    --text-3:#8fa39a;
+    --grid:#26332e;
+    --amber:#f7941d;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+    --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+  }
+  html,body{margin:0;padding:0;background:transparent;overflow:hidden;}
+  body{width:1920px;height:1080px;font-family:'Supermolot',Arial,sans-serif;
+       color:var(--text-1);-webkit-font-smoothing:antialiased;}
+
+  #panel{
+    position:absolute;left:160px;top:96px;width:1600px;height:888px;
+    box-sizing:border-box;padding:40px 56px 44px;
+    opacity:0;transform:translateY(28px);
+    transition:opacity .45s ease, transform .55s cubic-bezier(.16,.84,.34,1);
+  }
+  #panel.on{opacity:1;transform:translateY(0);}
+  /* The stand-in background: the surface the palette was validated on,
+     the deck's dot field, and an amber rule along the top. */
+  #panel.bg{
+    background:
+      radial-gradient(120% 90% at 50% 0%, rgba(18,90,64,.35) 0%, rgba(15,26,23,0) 60%),
+      radial-gradient(rgba(95,227,154,.06) 1.1px, transparent 1.2px) 0 0 / 10px 10px,
+      var(--surface);
+    border-top:4px solid var(--amber);
+    box-shadow:0 24px 60px rgba(0,0,0,.55);
+    clip-path:polygon(0 0, 100% 0, 100% calc(100% - 28px), calc(100% - 28px) 100%, 0 100%);
+  }
+  /* No background: the text must hold up over anything. */
+  #panel:not(.bg) text, #panel:not(.bg) .head{
+    text-shadow:0 2px 6px rgba(0,0,0,.85);
+  }
+  #panel:not(.bg) svg text{paint-order:stroke;stroke:rgba(0,0,0,.65);stroke-width:4px;}
+
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;}
+  .kicker{font-weight:800;font-size:18px;letter-spacing:.22em;text-transform:uppercase;
+          color:var(--text-2);}
+  .kicker::before{content:"";display:block;width:30px;height:4px;background:var(--amber);margin:0 0 9px;}
+  .title{font-weight:900;font-style:italic;font-size:58px;line-height:1;margin-top:4px;
+         text-transform:uppercase;color:var(--amber);}
+  .sub{font-weight:700;font-size:17px;color:var(--text-3);margin-top:8px;letter-spacing:.04em;}
+  .legend{display:flex;gap:22px;flex-wrap:wrap;justify-content:flex-end;max-width:760px;
+          font-weight:800;font-size:17px;color:var(--text-2);text-transform:uppercase;}
+  .legend span{display:flex;align-items:center;gap:8px;white-space:nowrap;}
+  .legend i{display:inline-block;width:18px;height:18px;border-radius:4px;}
+  .legend i.line{height:4px;border-radius:2px;width:24px;}
+  .sample{position:absolute;right:56px;top:14px;font-weight:800;font-size:13px;letter-spacing:.2em;
+          color:#0b0b0b;background:var(--amber);padding:3px 10px;border-radius:3px;display:none;}
+  .sample.on{display:block;}
+  svg{display:block;margin-top:26px;overflow:visible;}
+  .empty{font-weight:800;font-size:24px;color:var(--text-2);margin-top:120px;text-align:center;}
+
+  /* Entrances, played once per new graph. */
+  .grow{transform-box:fill-box;transform-origin:left center;animation:grow .7s cubic-bezier(.2,.8,.3,1) both;}
+  @keyframes grow{from{transform:scaleX(0);}to{transform:scaleX(1);}}
+  .growL{transform-box:fill-box;transform-origin:right center;animation:grow .7s cubic-bezier(.2,.8,.3,1) both;}
+  .fade{animation:fade .5s ease both;}
+  @keyframes fade{from{opacity:0;}to{opacity:1;}}
+  .draw{animation:draw 1.3s cubic-bezier(.3,.6,.3,1) both;}
+  @keyframes draw{from{stroke-dashoffset:var(--len);}to{stroke-dashoffset:0;}}
+</style>
+</head>
+<body>
+<div id="panel">
+  <div class="sample" id="sample">SAMPLE DATA</div>
+  <div class="head">
+    <div>
+      <div class="kicker" id="kicker"></div>
+      <div class="title" id="title"></div>
+      <div class="sub" id="sub"></div>
+    </div>
+    <div class="legend" id="legend"></div>
+  </div>
+  <div id="body"></div>
+</div>
+
+<script>
+const _params = new URLSearchParams(location.search);
+const _sameOrigin = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || _sameOrigin;
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_team_graphs&rostercache=1"
+  : "ws://localhost:8765?page=freefire_team_graphs&rostercache=1";
+// ?preview=1 draws whether or not the graph is on air (the dashboard's
+// preview frame); with no committed games it shows labelled sample data.
+// ?graph= and ?bg= override the dashboard's choice, for checking a link.
+const PREVIEW = _params.get("preview") === "1";
+const FORCE_DEMO = _params.get("demo") === "1";
+
+const SERIES = ["--s1","--s2","--s3","--s4","--s5","--s6","--s7","--s8"]
+  .map(v => getComputedStyle(document.documentElement).getPropertyValue(v).trim());
+const SURFACE = "#0f1a17";
+const NS = "http://www.w3.org/2000/svg";
+
+function esc(s){
+  return String(s == null ? "" : s).replace(/[&<>"]/g, c =>
+    ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+}
+function norm(s){ return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
+
+/* ---- data ---------------------------------------------------------- */
+
+function sampleData(roster){
+  const names = (roster.length ? roster.map(t => [t.name, t.shortName || ""])
+                               : [["ALPHA ESPORTS","ALP"],["BRAVO GAMING","BRV"],["CYCLONE","CYC"],
+                                  ["DELTA SQUAD","DLT"],["ECLIPSE","ECL"],["FALCONS","FLC"],
+                                  ["GRIZZLY","GRZ"],["HAVOC","HVC"],["INFERNO","INF"],
+                                  ["JAGUARS","JGR"],["KRAKEN","KRK"],["LEGION","LGN"]]).slice(0, 12);
+  let seed = 7;
+  const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+  const PLACE = {1:12,2:9,3:8,4:7,5:6,6:5,7:4,8:3,9:2,10:1,11:0,12:0};
+  const G = 4;
+  const teams = names.map(([name, short]) => ({ key: norm(name), name, short: short || name.slice(0, 3).toUpperCase(),
+                                                 games: [] }));
+  for(let g = 0; g < G; g++){
+    const order = teams.map((t, i) => [rnd() + (i < 4 ? 0.25 : 0), t]).sort((a, b) => b[0] - a[0]);
+    order.forEach(([, t], i) => {
+      const rank = i + 1, kills = Math.max(0, Math.round(rnd() * 12 - i * 0.6));
+      t.games.push({ rank, kills, place: PLACE[rank] || 0, total: kills + (PLACE[rank] || 0) });
+    });
+  }
+  return { games: Array.from({length: G}, (_, i) => "G" + (i + 1)), teams };
+}
+
+function sum(team, field, last){
+  const gs = last ? [team.games[team.games.length - 1]] : team.games;
+  return gs.reduce((a, g) => a + (g ? (g[field] || 0) : 0), 0);
+}
+
+/* Colour by TEAM, never by rank: each team's preferred slot is its place
+   in the roster, taken in that order, so who is shown can change without
+   repainting anyone who stays. */
+function colourMap(teams, roster){
+  const idx = new Map(roster.map((t, i) => [norm(t.name), i]));
+  const ordered = teams.slice().sort((a, b) =>
+    (idx.has(norm(a.name)) ? idx.get(norm(a.name)) : 999) -
+    (idx.has(norm(b.name)) ? idx.get(norm(b.name)) : 999));
+  const used = new Set(), out = new Map();
+  ordered.forEach(t => {
+    let slot = (idx.has(norm(t.name)) ? idx.get(norm(t.name)) : out.size) % SERIES.length;
+    while(used.has(slot) && used.size < SERIES.length) slot = (slot + 1) % SERIES.length;
+    used.add(slot);
+    out.set(t.key, SERIES[slot]);
+  });
+  return out;
+}
+
+function logoOf(team, roster){
+  const r = roster.find(t => norm(t.name) === norm(team.name));
+  return (r && r.logo) || "";
+}
+
+function niceMax(v){
+  if(v <= 0) return 10;
+  const step = v <= 20 ? 5 : v <= 60 ? 10 : v <= 150 ? 25 : v <= 300 ? 50 : 100;
+  return Math.ceil(v / step) * step;
+}
+
+/* ---- svg helpers --------------------------------------------------- */
+
+function el(tag, attrs, parent){
+  const n = document.createElementNS(NS, tag);
+  for(const k in attrs) n.setAttribute(k, attrs[k]);
+  if(parent) parent.appendChild(n);
+  return n;
+}
+function txt(parent, x, y, s, attrs){
+  const t = el("text", Object.assign({x, y, fill: "var(--text-1)",
+    "font-family": "Supermolot", "font-weight": 800, "font-size": 18}, attrs || {}), parent);
+  t.textContent = s;
+  return t;
+}
+function luminance(hex){
+  const n = parseInt(hex.slice(1), 16);
+  const c = [n >> 16 & 255, n >> 8 & 255, n & 255].map(v => {
+    v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+function inkOn(hex){ return luminance(hex) > 0.28 ? "#0b0b0b" : "#ffffff"; }
+function bar(parent, x, y, w, h, fill, cls, delay, roundRight){
+  // 4px rounded data end, square at the baseline.
+  if(w <= 0) return null;
+  const r = Math.min(4, w / 2, h / 2);
+  const d = roundRight
+    ? `M${x},${y} H${x + w - r} Q${x + w},${y} ${x + w},${y + r} V${y + h - r} Q${x + w},${y + h} ${x + w - r},${y + h} H${x} Z`
+    : `M${x},${y} H${x + w} V${y + h} H${x} Z`;
+  return el("path", {d, fill, class: cls || "", style: "animation-delay:" + (delay || 0) + "ms"}, parent);
+}
+
+/* ---- graphs -------------------------------------------------------- */
+
+const W = 1488;   // inner width of the panel
+const H = 640;    // chart height under the header
+
+function drawRace(svg, data, cfg, roster, head){
+  const top = Math.max(2, Math.min(8, Number(cfg.top) || 5));
+  const teams = data.teams.map(t => {
+    let acc = 0;
+    const cum = t.games.map(g => (acc += g ? g.total : 0));
+    return Object.assign({}, t, { cum, final: acc, kills: sum(t, "kills") });
+  }).sort((a, b) => b.final - a.final || b.kills - a.kills).slice(0, top);
+  const colour = colourMap(teams, roster);
+  const n = data.games.length;
+  head("Points Race", "Cumulative points after each game · top " + teams.length,
+       teams.map(t => ({ label: t.short, colour: colour.get(t.key), line: true })));
+  const L = 70, R = 210, T = 16, B = 46;
+  const pw = W - L - R, ph = H - T - B;
+  const max = niceMax(Math.max(1, ...teams.map(t => t.final)));
+  const x = i => L + (n <= 1 ? pw / 2 : (i * pw) / (n - 1));
+  const y = v => T + ph - (v / max) * ph;
+  // recessive grid: hairlines, solid
+  const step = max / 5;
+  for(let k = 0; k <= 5; k++){
+    const yy = y(k * step);
+    el("line", {x1: L, x2: L + pw, y1: yy, y2: yy, stroke: "var(--grid)", "stroke-width": 1}, svg);
+    txt(svg, L - 14, yy + 6, String(Math.round(k * step)),
+        {"text-anchor": "end", fill: "var(--text-3)", "font-size": 16, "font-weight": 700});
+  }
+  data.games.forEach((g, i) => txt(svg, x(i), H - 12, g,
+    {"text-anchor": "middle", fill: "var(--text-2)", "font-size": 18}));
+  // lines, then end markers with a surface ring
+  teams.forEach((t, ti) => {
+    const pts = t.cum.map((v, i) => [x(i), y(v)]);
+    if(pts.length > 1){
+      const d = "M" + pts.map(p => p.join(",")).join(" L");
+      const path = el("path", {d, fill: "none", stroke: colour.get(t.key), "stroke-width": 3,
+                               "stroke-linejoin": "round", "stroke-linecap": "round", class: "draw"}, svg);
+      const len = path.getTotalLength ? path.getTotalLength() : 2000;
+      path.style.strokeDasharray = len;
+      path.style.setProperty("--len", len);
+      path.style.animationDelay = (ti * 90) + "ms";
+    }
+  });
+  // end labels: sorted by height, kept 30px apart, with a leader line to
+  // their marker when they had to move -- never stacked loose.
+  const ends = teams.map(t => ({ t, x: x(n - 1), y: y(t.final) })).sort((a, b) => a.y - b.y);
+  let last = -1e9;
+  ends.forEach(e => { e.ly = Math.max(e.y, last + 30); last = e.ly; });
+  const over = last - (T + ph);
+  if(over > 0) ends.forEach(e => { e.ly -= over; });
+  ends.forEach((e, i) => {
+    const c = colour.get(e.t.key);
+    if(Math.abs(e.ly - e.y) > 2){
+      el("path", {d: `M${e.x + 8},${e.y} L${e.x + 22},${e.ly}`, stroke: "var(--text-3)",
+                  "stroke-width": 1, fill: "none", class: "fade",
+                  style: "animation-delay:" + (900 + i * 60) + "ms"}, svg);
+    }
+    el("circle", {cx: e.x, cy: e.y, r: 7, fill: c, stroke: SURFACE, "stroke-width": 2, class: "fade",
+                  style: "animation-delay:" + (900 + i * 60) + "ms"}, svg);
+    const label = txt(svg, e.x + 28, e.ly + 6, e.t.short,
+                      {"font-size": 20, class: "fade", style: "animation-delay:" + (950 + i * 60) + "ms"});
+    const v = el("tspan", {fill: "var(--text-2)", dx: 10}, label);
+    v.textContent = e.t.final;
+  });
+}
+
+function drawBreakdown(svg, data, cfg, roster, head){
+  const last = cfg.scope === "last" && data.games.length > 0;
+  const rows = data.teams.map(t => ({ t, place: sum(t, "place", last), kills: sum(t, "kills", last),
+                                      played: last ? !!t.games[t.games.length - 1] : true }))
+    .filter(r => r.played)
+    .map(r => Object.assign(r, { total: r.place + r.kills }))
+    .sort((a, b) => b.total - a.total || b.kills - a.kills);
+  head("Points Breakdown",
+       (last ? data.games[data.games.length - 1] + " only" : "All " + data.games.length + " game(s)") +
+       " · where each team's points came from",
+       [{label: "Placement points", colour: SERIES[0]}, {label: "Kill points", colour: SERIES[1]}]);
+  const L = 250, R = 80;
+  const pitch = Math.min(56, H / Math.max(1, rows.length));
+  const bh = Math.min(24, pitch * 0.6);
+  const max = Math.max(1, ...rows.map(r => r.total));
+  const pw = W - L - R;
+  const sx = v => (v / max) * pw;
+  rows.forEach((r, i) => {
+    const yc = i * pitch + pitch / 2;
+    const delay = 120 + i * 45;
+    txt(svg, 6, yc + 7, String(i + 1), {"font-size": 20, fill: "var(--text-3)", "font-weight": 900,
+                                        "font-style": "italic"});
+    const logo = logoOf(r.t, roster);
+    if(logo) el("image", {href: logo, x: 46, y: yc - 18, width: 36, height: 36,
+                          preserveAspectRatio: "xMidYMid meet"}, svg);
+    txt(svg, 94, yc + 7, r.t.short, {"font-size": 21});
+    const y0 = yc - bh / 2;
+    const wp = sx(r.place), wk = sx(r.kills);
+    const g = el("g", {class: "grow", style: "animation-delay:" + delay + "ms"}, svg);
+    bar(g, L, y0, wk > 0 ? Math.max(0, wp - 1) : wp, bh, SERIES[0], "", 0, wk <= 0);
+    if(wk > 0) bar(g, L + wp + 1, y0, Math.max(0, wk - 1), bh, SERIES[1], "", 0, true);
+    // A value goes inside its segment only when it fits with room.
+    [[r.place, L, wp, SERIES[0]], [r.kills, L + wp + 1, wk, SERIES[1]]].forEach(([v, x0, w, c]) => {
+      if(v > 0 && w >= 40) txt(g, x0 + w / 2, yc + 6, String(v),
+        {"text-anchor": "middle", "font-size": 16, fill: inkOn(c), stroke: "none"});
+    });
+    txt(svg, L + wp + wk + 14, yc + 7, String(r.total),
+        {"font-size": 22, "font-weight": 900, class: "fade", style: "animation-delay:" + (delay + 500) + "ms"});
+  });
+}
+
+// Sequential: one hue, more is further from the surface. Five steps of
+// the blue ramp, the dark surface's "near zero" at the deep end.
+const RAMP = ["#104281", "#1c5cab", "#2a78d6", "#5598e7", "#86b6ef"];
+
+function drawKills(svg, data, cfg, roster, head){
+  const rows = data.teams.map(t => ({ t, total: sum(t, "kills") }))
+    .sort((a, b) => b.total - a.total);
+  const n = data.games.length;
+  const cells = rows.flatMap(r => r.t.games.map(g => g ? g.kills : 0));
+  const max = Math.max(1, ...cells);
+  head("Kills By Game", "Each team's kills in every game · darker = fewer, lighter = more", []);
+  const L = 250, colW = Math.min(150, (W - L - 170) / Math.max(1, n));
+  const pitch = Math.min(52, (H - 40) / Math.max(1, rows.length));
+  const ch = pitch - 2;
+  data.games.forEach((g, gi) => txt(svg, L + gi * colW + colW / 2, 18, g,
+    {"text-anchor": "middle", fill: "var(--text-2)", "font-size": 18}));
+  txt(svg, L + n * colW + 80, 18, "TOTAL", {"text-anchor": "middle", fill: "var(--text-2)", "font-size": 18});
+  rows.forEach((r, i) => {
+    const y0 = 34 + i * pitch;
+    const logo = logoOf(r.t, roster);
+    if(logo) el("image", {href: logo, x: 46, y: y0 + ch / 2 - 17, width: 34, height: 34,
+                          preserveAspectRatio: "xMidYMid meet"}, svg);
+    txt(svg, 94, y0 + ch / 2 + 7, r.t.short, {"font-size": 21});
+    r.t.games.forEach((g, gi) => {
+      const x0 = L + gi * colW;
+      const delay = 100 + (i * n + gi) * 14;
+      if(!g){
+        txt(svg, x0 + colW / 2, y0 + ch / 2 + 6, "–", {"text-anchor": "middle", fill: "var(--text-3)",
+                                                         class: "fade", style: "animation-delay:" + delay + "ms"});
+        return;
+      }
+      const bin = Math.min(RAMP.length - 1, Math.floor((g.kills / max) * RAMP.length));
+      const c = RAMP[g.kills === 0 ? 0 : Math.max(0, bin)];
+      el("rect", {x: x0 + 1, y: y0, width: colW - 2, height: ch, rx: 4, fill: c, class: "fade",
+                  style: "animation-delay:" + delay + "ms"}, svg);
+      txt(svg, x0 + colW / 2, y0 + ch / 2 + 7, String(g.kills),
+          {"text-anchor": "middle", "font-size": 20, fill: inkOn(c), stroke: "none", class: "fade",
+           style: "animation-delay:" + delay + "ms"});
+    });
+    txt(svg, L + n * colW + 80, y0 + ch / 2 + 8, String(r.total),
+        {"text-anchor": "middle", "font-size": 24, "font-weight": 900, class: "fade",
+         style: "animation-delay:" + (300 + i * 40) + "ms"});
+  });
+  // the scale, so the colour is never the only way to read a cell
+  const lx = W - 330, ly = H + 10;
+  txt(svg, lx - 12, ly + 15, "0", {"text-anchor": "end", fill: "var(--text-3)", "font-size": 15});
+  RAMP.forEach((c, k) => el("rect", {x: lx + k * 46, y: ly, width: 44, height: 18, rx: 3, fill: c}, svg));
+  txt(svg, lx + RAMP.length * 46 + 8, ly + 15, max + " kills", {fill: "var(--text-3)", "font-size": 15});
+}
+
+function drawH2H(svg, data, cfg, roster, head){
+  const pick = (cfg.teams || []).map(norm);
+  let a = data.teams.find(t => norm(t.name) === pick[0]);
+  let b = data.teams.find(t => norm(t.name) === pick[1] && t !== a);
+  const byTotal = data.teams.slice().sort((x, y) => sum(y, "total") - sum(x, "total"));
+  if(!a) a = byTotal.find(t => t !== b);
+  if(!b) b = byTotal.find(t => t !== a);
+  if(!a || !b){ head("Head To Head", "Needs two teams with results", []); return; }
+  const stats = t => {
+    const played = t.games.filter(Boolean);
+    const ranks = played.map(g => g.rank).filter(r => r != null);
+    return {
+      total: sum(t, "total"), kills: sum(t, "kills"), place: sum(t, "place"),
+      booyahs: played.filter(g => g.rank === 1).length,
+      avg: played.length ? sum(t, "total") / played.length : 0,
+      best: ranks.length ? Math.min(...ranks) : null,
+    };
+  };
+  const sa = stats(a), sb = stats(b);
+  const ca = SERIES[0], cb = SERIES[1];
+  head("Head To Head", a.short + " vs " + b.short + " · " + data.games.length + " game(s)",
+       [{label: a.short, colour: ca}, {label: b.short, colour: cb}]);
+  const mid = W / 2;
+  // names and logos
+  [[a, mid - 120, "end", -1], [b, mid + 120, "start", 1]].forEach(([t, x, anchor, dir]) => {
+    const logo = logoOf(t, roster);
+    if(logo) el("image", {href: logo, x: dir < 0 ? x - 96 : x, y: 0, width: 96, height: 96,
+                          preserveAspectRatio: "xMidYMid meet"}, svg);
+    txt(svg, dir < 0 ? x - 116 : x + 116, 60, t.name, {"text-anchor": anchor, "font-size": 30,
+                                                       "font-weight": 900, "font-style": "italic"});
+  });
+  txt(svg, mid, 62, "VS", {"text-anchor": "middle", "font-size": 34, fill: "var(--amber)",
+                           "font-weight": 900, "font-style": "italic"});
+  const metrics = [
+    ["Total points", sa.total, sb.total, String],
+    ["Placement points", sa.place, sb.place, String],
+    ["Kill points", sa.kills, sb.kills, String],
+    ["Booyahs", sa.booyahs, sb.booyahs, String],
+    ["Points per game", sa.avg, sb.avg, v => v.toFixed(1)],
+  ];
+  const top = 150, pitch = 86, gap = 150, half = mid - gap - 120;
+  metrics.forEach(([label, va, vb, fmt], i) => {
+    const yc = top + i * pitch;
+    const m = Math.max(1e-9, va, vb);
+    txt(svg, mid, yc + 7, label.toUpperCase(), {"text-anchor": "middle", "font-size": 17,
+                                                fill: "var(--text-2)"});
+    const wa = (va / m) * half, wb = (vb / m) * half;
+    const ga = el("g", {class: "growL", style: "animation-delay:" + (200 + i * 80) + "ms"}, svg);
+    if(wa > 0){
+      const r = Math.min(4, wa / 2);
+      el("path", {d: `M${mid - gap},${yc - 12} H${mid - gap - wa + r} Q${mid - gap - wa},${yc - 12} ${mid - gap - wa},${yc - 12 + r} V${yc + 12 - r} Q${mid - gap - wa},${yc + 12} ${mid - gap - wa + r},${yc + 12} H${mid - gap} Z`,
+                  fill: ca}, ga);
+    }
+    const gb = el("g", {class: "grow", style: "animation-delay:" + (200 + i * 80) + "ms"}, svg);
+    bar(gb, mid + gap, yc - 12, wb, 24, cb, "", 0, true);
+    // values at the bar ends; the leader in each row is the brighter text
+    txt(svg, mid - gap - wa - 14, yc + 8, fmt(va), {"text-anchor": "end", "font-size": 24,
+        "font-weight": 900, fill: va >= vb ? "var(--text-1)" : "var(--text-3)"});
+    txt(svg, mid + gap + wb + 14, yc + 8, fmt(vb), {"font-size": 24, "font-weight": 900,
+        fill: vb >= va ? "var(--text-1)" : "var(--text-3)"});
+  });
+  const yb = top + metrics.length * pitch;
+  txt(svg, mid, yb + 7, "BEST FINISH", {"text-anchor": "middle", "font-size": 17, fill: "var(--text-2)"});
+  txt(svg, mid - gap - 14, yb + 8, sa.best ? "#" + sa.best : "–", {"text-anchor": "end", "font-size": 24,
+      "font-weight": 900});
+  txt(svg, mid + gap + 14, yb + 8, sb.best ? "#" + sb.best : "–", {"font-size": 24, "font-weight": 900});
+}
+
+const GRAPHS = { race: drawRace, breakdown: drawBreakdown, kills: drawKills, h2h: drawH2H };
+
+/* ---- render -------------------------------------------------------- */
+
+let lastSig = "";
+let _lastRoster = null;
+
+function render(state){
+  const display = state.display || {};
+  const cfg = Object.assign({ graph: "race", bg: true, scope: "overall", top: 5, teams: [] },
+                            display.teamGraph || {});
+  if(_params.get("graph")) cfg.graph = _params.get("graph");
+  if(_params.get("bg") != null) cfg.bg = _params.get("bg") !== "0";
+  const visible = PREVIEW || !!cfg.visible;
+  const roster = ((state.roster || {}).teams) || [];
+  let data = state.teamGraphs || { games: [], teams: [] };
+  const demo = FORCE_DEMO || (PREVIEW && !(data.games || []).length);
+  if(demo) data = sampleData(roster);
+
+  const panel = document.getElementById("panel");
+  panel.classList.toggle("bg", !!cfg.bg);
+  panel.classList.toggle("on", visible);
+  document.getElementById("sample").classList.toggle("on", demo);
+  if(!visible){ lastSig = ""; return; }
+
+  // Redrawn only when what it shows changes -- a redraw replays the
+  // entrance, and state arrives several times a second.
+  const sig = JSON.stringify([cfg.graph, cfg.scope, cfg.top, cfg.teams, demo, data,
+                              roster.map(t => [t.name, t.shortName, !!t.logo])]);
+  if(sig === lastSig) return;
+  lastSig = sig;
+
+  const draw = GRAPHS[cfg.graph] || drawRace;
+  const body = document.getElementById("body");
+  body.innerHTML = "";
+  const kicker = state.event && state.event.matchTitle ? state.event.matchTitle : "Team Stats";
+  const head = (title, sub, legend) => {
+    document.getElementById("kicker").textContent = kicker;
+    document.getElementById("title").textContent = title;
+    document.getElementById("sub").textContent = sub;
+    document.getElementById("legend").innerHTML = (legend || []).length < 2 ? "" :
+      legend.map(l => "<span><i class='" + (l.line ? "line" : "") + "' style='background:" + l.colour +
+                      "'></i>" + esc(l.label) + "</span>").join("");
+  };
+  if(!(data.teams || []).length){
+    head("Team Graphs", "", []);
+    body.innerHTML = "<div class='empty'>No committed games yet.</div>";
+    return;
+  }
+  const svg = el("svg", { width: W, height: H + 40, viewBox: `0 0 ${W} ${H + 40}` });
+  body.appendChild(svg);
+  draw(svg, data, cfg, roster, head);
+}
+
+let ws;
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = evt => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type !== "state_sync" || !msg.data) return;
+    if(msg.data.roster) _lastRoster = msg.data.roster;
+    else if(_lastRoster) msg.data.roster = _lastRoster;
+    render(msg.data);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+connect();
+</script>
+</body>
+</html>

@@ -8061,6 +8061,41 @@ def _last_match_of_series(matches):
     return matches[-1]
 
 
+def compute_team_graphs(matches, roster_teams=None):
+    """Per team, per game: what the team graphs draw.
+
+    Keyed exactly as the standings are (_standings_identity), so a graph
+    and the points table can never disagree about who a team is or what
+    it scored. Games in series order -- by timestamp when every match has
+    one, else commit order, as _last_match_of_series decides "last".
+    A team absent from a game gets None for it, not zeros: a squad that
+    did not play is not a squad that scored nothing."""
+    if roster_teams is None:
+        roster_teams = ((server_state.get("roster") or {}).get("teams")) or []
+    if matches and all(m.get("timestamp") for m in matches):
+        ordered = sorted(matches, key=lambda m: m["timestamp"])
+    else:
+        ordered = list(matches or [])
+    teams = {}
+    for gi, match in enumerate(ordered):
+        for team in match.get("teams", []):
+            key, name, short = _standings_identity(team, roster_teams)
+            if not key:
+                continue
+            row = teams.setdefault(key, {
+                "key": key, "name": name,
+                "short": short or derive_short_name(name),
+                "games": [None] * len(ordered)})
+            row["games"][gi] = {
+                "kills": team.get("killScore", 0) or 0,
+                "place": team.get("rankScore", 0) or 0,
+                "total": team.get("totalScore", 0) or 0,
+                "rank": team.get("rank"),
+            }
+    return {"games": ["G%d" % (i + 1) for i in range(len(ordered))],
+            "teams": list(teams.values())}
+
+
 def compute_freefire_standings(matches, roster_teams=None):
     """Totals every committed match into one table, aggregating on the
     ROSTER's identity rather than on whatever string each match happened
@@ -9176,6 +9211,8 @@ async def handle_client(websocket, path=None):
                     server_state["standings"] = compute_freefire_standings(
                         server_state.get("matches", [])
                     )
+                    server_state["teamGraphs"] = compute_team_graphs(
+                        server_state.get("matches", []))
                     server_state["fraggers"] = compute_freefire_fraggers(
                         server_state.get("matches", [])
                     )
@@ -9639,6 +9676,7 @@ async def handle_client(websocket, path=None):
                 server_state["matches"] = []
                 server_state["currentMatchId"] = None
                 server_state["standings"] = compute_freefire_standings([])
+                server_state["teamGraphs"] = compute_team_graphs([])
                 server_state["fraggers"] = compute_freefire_fraggers([])
                 refresh_freefire_mvps()
                 server_state["championRush"] = compute_champion_rush(
@@ -9770,6 +9808,30 @@ async def handle_client(websocket, path=None):
                 # on the wire; neither belongs between pressing Show and
                 # the graphic moving.
                 await push_lobby_update()
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") in ("team_graph_show", "team_graph_hide"):
+                # The dashboard's generic push/pull, same flag as team_graph.
+                g = server_state["display"].setdefault("teamGraph", {
+                    "visible": False, "graph": "race", "bg": True,
+                    "scope": "overall", "top": 5, "teams": []})
+                g["visible"] = payload["type"] == "team_graph_show"
+                server_state["display"]["teamGraphVisible"] = g["visible"]
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "team_graph":
+                # Which team graph is on air, and how: the graph, its
+                # background on or off, the two teams for a head-to-head,
+                # how many teams a race shows, and visible or not. Merged,
+                # so a message that only flips the background keeps the
+                # rest as it was.
+                g = server_state["display"].setdefault("teamGraph", {
+                    "visible": False, "graph": "race", "bg": True,
+                    "scope": "overall", "top": 5, "teams": []})
+                for k in ("visible", "graph", "bg", "scope", "top", "teams"):
+                    if payload.get(k) is not None:
+                        g[k] = payload[k]
+                server_state["display"]["teamGraphVisible"] = bool(g.get("visible"))
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") == "lobby_timer":
@@ -11550,6 +11612,13 @@ async def main():
     # knew last night.
     load_glyph_templates()
     load_banner_flag_reference()
+    # The team graphs' table, rebuilt from the committed matches at start
+    # as the standings are on every change -- see compute_team_graphs.
+    try:
+        server_state["teamGraphs"] = compute_team_graphs(server_state.get("matches", []))
+    except Exception as e:
+        print("Team graphs could not be built at start: %s" % e)
+        server_state["teamGraphs"] = {"games": [], "teams": []}
     try:
         keyboard.add_hotkey(NUM5_HOTKEY, on_num5_pressed)
         print(f"Loadout capture armed on '{NUM5_HOTKEY}' (only fires while loadoutCapture.active is true)")
