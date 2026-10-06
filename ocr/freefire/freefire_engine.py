@@ -4504,6 +4504,33 @@ def claim_finish_rank(key, rows):
     return pos
 
 
+def roster_rows(roster_teams):
+    """The alive table as a fresh lobby of these teams: everyone alive,
+    nothing scored, in roster order -- the shape the log's own rows have,
+    so every overlay reads it unchanged."""
+    overrides = (server_state.get("settings") or {}).get("shortNames") or {}
+    rows = []
+    for team in roster_teams:
+        name = (team.get("name") or "").strip()
+        if not name:
+            continue
+        override = (overrides.get(name) or "").strip()
+        short = override or (team.get("shortName") or "").strip()
+        rows.append({
+            "teamName": name,
+            "short": short or derive_short_name(name),
+            "shortSource": "operator" if override else ("roster" if short else "derived"),
+            "shortDerived": not short,
+            "elims": 0, "score": 0,
+            "bars": ["alive"] * 4,
+            "barDetail": [{"status": "alive"} for _ in range(4)],
+            "aliveCount": 4, "eliminated": False, "placement": None,
+            "finishRank": None, "nameRead": True, "rawText": name,
+            "teamId": None, "gsTeam": None, "joinedBy": "roster", "source": "roster",
+        })
+    return rows
+
+
 def reset_alive_for_new_match(reason=""):
     """Everything that belongs to ONE game, cleared in one place.
 
@@ -4565,6 +4592,17 @@ def reset_alive_for_new_match(reason=""):
         row["elims"] = 0
         row["finishRank"] = None
         row.pop("awaitingApproval", None)
+
+    # TODAY'S TEAMS, not the last game's. Pressed by the operator before a
+    # match, the reset kept whatever names the previous game had left on
+    # the table -- the day before's lobby, on an event day with a new
+    # roster -- so the graphic went up with last night's teams and none of
+    # the logos just uploaded. With a roster loaded, the table is laid out
+    # from it instead: every team, all alive, nothing scored. The log's own
+    # rows replace these the moment the match is narrated.
+    roster_teams = ((server_state.get("roster") or {}).get("teams")) or []
+    if reason == "operator" and roster_teams:
+        ops["sidetableRows"] = roster_rows(roster_teams)
 
     # Any card mid-flight belongs to the game that just ended.
     server_state["teamEliminated"] = {"status": "idle", "shownUntil": None,
