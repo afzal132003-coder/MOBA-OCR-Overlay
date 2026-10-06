@@ -4531,6 +4531,174 @@ def roster_rows(roster_teams):
     return rows
 
 
+# ---------------------------------------------------------------------------
+# SIDE POP-UPS: first blood, kill leader, rampage and the rest, detected from
+# the client's own kill narration as it arrives and sent to the alive-stats
+# page on their own message -- each one switched on by the operator.
+# ---------------------------------------------------------------------------
+SIDE_POPUP_TYPES = {
+    # key: (title on the card, label under the number)
+    "firstBlood": ("FIRST BLOOD", "ELIM"),
+    "killLeader": ("KILL LEADER", "ELIMS"),
+    "rampage":    ("RAMPAGE", "ELIMS IN 30s"),
+    "soloWipe":   ("SQUAD WIPE", "SOLO ELIMS"),
+    "clutch":     ("CLUTCH", "ELIMS"),
+    "headshot":   ("HEADSHOT", "ELIMS"),
+    "teamsLeft":  ("TEAMS LEFT", "REMAINING"),
+}
+RAMPAGE_WINDOW_SECONDS = 30.0
+RAMPAGE_MIN_KILLS = 3
+KILL_LEADER_MIN_KILLS = 3
+TEAMS_LEFT_MARKS = (8, 6, 4, 2)
+
+
+def _event_epoch(ev):
+    try:
+        return _datetime.datetime.strptime(ev.get("time", "")[:23],
+                                          "%Y-%m-%d %H:%M:%S.%f").timestamp()
+    except (TypeError, ValueError):
+        return time.time()
+
+
+# PLAYER PHOTOS from a folder of "UID - IGN.png" files: indexed by UID and
+# by IGN, re-scanned at most every 20s, each photo encoded once and kept.
+_photo_index = {"folder": None, "at": 0.0, "uid": {}, "ign": {}}
+_photo_cache = {}
+
+
+def _photo_lookup(uid, ign):
+    folder = ((server_state.get("settings") or {}).get("playerPhotoFolder") or "").strip()
+    if not folder:
+        return ""
+    now = time.time()
+    if _photo_index["folder"] != folder or now - _photo_index["at"] > 20:
+        by_uid, by_ign = {}, {}
+        root = Path(folder)
+        if root.is_dir():
+            for f in root.iterdir():
+                if f.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
+                    continue
+                stem = f.stem.strip()
+                parts = re.split(r"\s*[-_]\s*", stem, maxsplit=1)
+                if parts and parts[0].isdigit():
+                    by_uid[parts[0]] = f
+                    if len(parts) > 1:
+                        by_ign[_ign_key(parts[1])] = f
+                else:
+                    by_ign[_ign_key(stem)] = f
+        _photo_index.update(folder=folder, at=now, uid=by_uid, ign=by_ign)
+    path = (_photo_index["uid"].get(str(uid or "").strip())
+            or _photo_index["ign"].get(_ign_key(ign or "")))
+    if not path:
+        return ""
+    key = (str(path), path.stat().st_mtime if path.exists() else 0)
+    if key not in _photo_cache:
+        try:
+            from PIL import Image as _Img
+            im = _Img.open(path).convert("RGBA")
+            if im.height > 360:
+                im = im.resize((max(1, im.width * 360 // im.height), 360), _Img.LANCZOS)
+            buf = io.BytesIO()
+            im.save(buf, format="PNG", optimize=True)
+            _photo_cache[key] = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+        except Exception as e:
+            print("[popup] could not read photo %s: %s" % (path, e))
+            _photo_cache[key] = ""
+    return _photo_cache[key]
+
+
+def _squad_alive(live, gs):
+    squad = (live.get("gsIgns") or {}).get(gs) or {}
+    down = (live.get("gsDown") or {}).get(gs) or set()
+    if gs in (live.get("wiped") or []):
+        return 0
+    return max(0, len(squad) - len(down))
+
+
+def detect_side_popups(new_events, live):
+    """What these new kills are worth announcing, per the operator's switches.
+
+    Kept inside the live match itself, so a new match starts from nothing
+    and a restart's silent catch-up (which passes no events) cannot replay
+    a session's worth of them."""
+    switches = (server_state.get("settings") or {}).get("sidePopups") or {}
+    if not any(switches.get(k) for k in SIDE_POPUP_TYPES):
+        return []
+    P = live.setdefault("_popups", {"kills": {}, "recent": {}, "leader": None,
+                                    "firstBlood": False, "rampage": {},
+                                    "squadKillers": {}, "marks": []})
+    rows = (server_state.get("liveOps") or {}).get("sidetableRows") or []
+    team_of = {r.get("gsTeam"): r for r in rows if r.get("gsTeam") is not None}
+    out = []
+
+    def popup(kind, ev, value, ign=None, uid=None, gs=None):
+        title, label = SIDE_POPUP_TYPES[kind]
+        row = team_of.get(gs if gs is not None else ev.get("killerTeam")) or {}
+        ign = ign if ign is not None else ev.get("killerIgn", "")
+        uid = uid if uid is not None else ev.get("killerUid", "")
+        out.append({"id": "%s:%s:%s" % (kind, ev.get("time"), uid or ign),
+                    "type": kind, "title": title, "label": label, "value": value,
+                    "ign": ign, "uid": uid, "teamName": row.get("teamName", ""),
+                    "short": row.get("short", ""), "photo": _photo_lookup(uid, ign)})
+
+    for ev in new_events:
+        if ev.get("type") != "kill":
+            continue
+        killer = str(ev.get("killerUid") or ev.get("killerIgn") or "")
+        if not killer:
+            continue
+        t = _event_epoch(ev)
+        kills = P["kills"]
+        kills[killer] = kills.get(killer, 0) + 1
+        mine = kills[killer]
+
+        if switches.get("firstBlood") and not P["firstBlood"]:
+            popup("firstBlood", ev, 1)
+        P["firstBlood"] = True
+
+        recent = [x for x in P["recent"].get(killer, []) if t - x <= RAMPAGE_WINDOW_SECONDS] + [t]
+        P["recent"][killer] = recent
+        if (switches.get("rampage") and len(recent) >= RAMPAGE_MIN_KILLS
+                and len(recent) > P["rampage"].get(killer, 0)):
+            P["rampage"][killer] = len(recent)
+            popup("rampage", ev, len(recent))
+        elif len(recent) < RAMPAGE_MIN_KILLS:
+            P["rampage"][killer] = 0
+
+        top = max(kills.values())
+        if (switches.get("killLeader") and mine == top and mine >= KILL_LEADER_MIN_KILLS
+                and list(kills.values()).count(top) == 1 and P["leader"] != killer):
+            P["leader"] = killer
+            popup("killLeader", ev, mine)
+
+        if switches.get("headshot") and ev.get("headshot"):
+            popup("headshot", ev, mine)
+
+        if switches.get("clutch") and _squad_alive(live, ev.get("killerTeam")) == 1:
+            popup("clutch", ev, mine)
+
+        vt = ev.get("victimTeam")
+        if vt is not None:
+            P["squadKillers"].setdefault(vt, set()).add(killer)
+            if (switches.get("soloWipe") and _squad_alive(live, vt) == 0
+                    and len(P["squadKillers"][vt]) == 1
+                    and len((live.get("gsIgns") or {}).get(vt) or {}) >= 3):
+                popup("soloWipe", ev, len((live.get("gsIgns") or {}).get(vt) or {}))
+
+    if switches.get("teamsLeft"):
+        total = len(live.get("gsIgns") or {})
+        left = total - len(live.get("wiped") or [])
+        # Several squads can fall in one batch, crossing more than one
+        # mark; that is ONE announcement with the count that is true now.
+        crossed = [m for m in TEAMS_LEFT_MARKS
+                   if total > m and left <= m and m not in P["marks"]]
+        if crossed:
+            P["marks"].extend(crossed)
+            last = (new_events or [{}])[-1]
+            popup("teamsLeft", last, left, ign="", uid="", gs=-1)
+    return out
+
+
 def reset_alive_for_new_match(reason=""):
     """Everything that belongs to ONE game, cleared in one place.
 
@@ -11026,6 +11194,16 @@ async def ocr_loop():
                         feed = (feed + new_events)[-MAX_KILL_EVENTS:]
                         server_state["liveOps"]["killEvents"] = feed
                         changed = True
+                        # Side pop-ups, on their own message -- a player
+                        # photo rides along with the one card that needs it
+                        # rather than in every state_sync.
+                        try:
+                            for pop in detect_side_popups(new_events, _live_match):
+                                server_state["liveOps"]["lastSidePopup"] = dict(pop, photo=bool(pop.get("photo")))
+                                await broadcast_to_page("freefire_alive_status",
+                                                        {"type": "side_popup", "popup": pop})
+                        except Exception as e:
+                            print("[popup] detection failed: %s" % e)
 
                     # The 12-team side table, straight from the client's own
                     # narration rather than read back off the screen.

@@ -2324,6 +2324,40 @@
           <input type="checkbox" id="ff_aliveReadTeams" checked> Read the team names off the screen
         </label>
       </div>
+      <div id="ff_popupBox" style="border:1px solid #1b2430;border-radius:6px;padding:8px 10px;margin:0 0 10px;">
+        <div class="row" style="gap:14px;align-items:center;flex-wrap:wrap;">
+          <strong style="font-size:12px;">Pop-ups</strong>
+          <label class="hint" style="margin:0;" title="The ELIMINATED card when a squad is wiped. Off: no card at all, from the engine or the table.">
+            <input type="checkbox" id="ff_elimPopup" checked> Elimination pop-up</label>
+          <span class="hint" style="margin:0;">Side pop-ups:</span>
+          <label class="hint" style="margin:0;"><input type="checkbox" class="ff-sidepop" data-k="firstBlood"> First blood</label>
+          <label class="hint" style="margin:0;" title="A new player on top of the kill table, from 3 kills"><input type="checkbox" class="ff-sidepop" data-k="killLeader"> Kill leader</label>
+          <label class="hint" style="margin:0;" title="3 or more kills inside 30 seconds"><input type="checkbox" class="ff-sidepop" data-k="rampage"> Rampage</label>
+          <label class="hint" style="margin:0;" title="One player takes out a whole squad alone"><input type="checkbox" class="ff-sidepop" data-k="soloWipe"> Solo squad wipe</label>
+          <label class="hint" style="margin:0;" title="The last one alive in a squad gets a kill"><input type="checkbox" class="ff-sidepop" data-k="clutch"> Clutch</label>
+          <label class="hint" style="margin:0;" title="Every headshot kill -- busy in a fight"><input type="checkbox" class="ff-sidepop" data-k="headshot"> Headshot</label>
+          <label class="hint" style="margin:0;" title="At 8, 6, 4 and 2 squads left"><input type="checkbox" class="ff-sidepop" data-k="teamsLeft"> Teams left</label>
+          <label class="hint" style="margin:0;">Hold <input type="number" id="ff_sidePopupSeconds" min="2" max="15" step="0.5" value="5" style="width:52px;">s</label>
+        </div>
+        <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;">
+          <span class="hint" style="margin:0;">Player photo folder</span>
+          <input type="text" id="ff_playerPhotoFolder" placeholder="e.g. D:\SS3\Player Photos  (files named  UID - IGN.png)" style="width:360px;">
+          <button class="secondary" id="ff_playerPhotoFolderSave">Save Folder</button>
+          <span class="hint" style="margin:0 0 0 10px;">Default team photo</span>
+          <img id="ff_defaultTeamPhotoImg" alt="" style="height:30px;max-width:90px;object-fit:contain;background:#06090c;border:1px solid #1b2430;">
+          <button class="secondary" id="ff_defaultTeamPhotoPick">Upload</button>
+          <button class="secondary" id="ff_defaultTeamPhotoClear" title="Remove it">&times;</button>
+          <span class="hint" style="margin:0 0 0 10px;">Default player photo</span>
+          <img id="ff_defaultPlayerPhotoImg" alt="" style="height:30px;max-width:60px;object-fit:contain;background:#06090c;border:1px solid #1b2430;">
+          <button class="secondary" id="ff_defaultPlayerPhotoPick">Upload</button>
+          <button class="secondary" id="ff_defaultPlayerPhotoClear" title="Remove it">&times;</button>
+          <span class="hint" id="ff_popupNote" style="margin:0;"></span>
+        </div>
+        <p class="hint" style="margin:6px 0 0;">Side pop-ups are read from the kill log as they happen and use the event's achievement art.
+          A player's photo is found in the folder by UID, then by IGN; with none there, the default player photo is used.
+          The elimination card uses the squad's group photo from the roster, else the default team photo.
+          Changes apply straight away; a new game starts the counts (first blood, leader) fresh.</p>
+      </div>
       <button class="secondary" id="ff_aliveGridPreviewBtn">Capture Preview</button>
         <label class="hint" style="margin:0 0 0 8px;align-self:center;">
           <input type="checkbox" id="ff_aliveGridLive"> Keep it live
@@ -7237,7 +7271,12 @@ function ffSaveRoster(){
   // visible while editing, but a nameless team has nothing to match
   // against and would only pollute the roster the engine resolves results
   // with. Same for player rows left blank.
-  ffState.roster = { teams: ffRosterDraft.teams
+  const prevRoster = ffState.roster || {};
+  ffState.roster = {
+    // The event-wide fallbacks set in the alive card, not on this form.
+    defaultTeamPhoto: prevRoster.defaultTeamPhoto || "",
+    defaultPlayerPhoto: prevRoster.defaultPlayerPhoto || "",
+    teams: ffRosterDraft.teams
     .filter(t => (t.name || "").trim())
     .map(t => ({
       name: t.name.trim(),
@@ -7542,6 +7581,7 @@ function ffRenderEvent(ff){
     st.autoTeamEliminated !== false;
   document.getElementById("ff_autoFetchOnMatchEnd").checked =
     st.autoFetchOnMatchEnd !== false;
+  ffRenderPopupControls(ff);
 }
 
 document.getElementById("ff_eventSave").addEventListener("click", () => {
@@ -10465,6 +10505,79 @@ function ffSyncTgGamesStatus(){
   document.getElementById("ff_top4Hide").addEventListener("click", () => send("top4_hide"));
 })();
 
+/* ---------- Pop-ups: elimination card, side pop-ups, photos ----------
+   All of it lives in settings (switches, hold, folder) or the roster
+   (the two default photos -- the roster is the part relayed once and
+   cached, so a photo there is not resent with every sync). */
+function ffPopupSettings(partial){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN) || !ffState){
+    document.getElementById("ff_popupNote").textContent = "NOT saved -- not connected to the engine.";
+    return false;
+  }
+  const settings = Object.assign({}, ffState.settings || {}, partial);
+  ffState.settings = settings;
+  ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { settings } } }));
+  return true;
+}
+function ffPopupRoster(partial){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN) || !ffState){
+    document.getElementById("ff_popupNote").textContent = "NOT saved -- not connected to the engine.";
+    return;
+  }
+  const roster = Object.assign({ teams: [] }, ffState.roster || {}, partial);
+  ffState.roster = roster;
+  ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { roster } } }));
+  ffRenderPopupControls(ffState);
+}
+function ffRenderPopupControls(ff){
+  const st = (ff && ff.settings) || {};
+  const sw = st.sidePopups || {};
+  const idle = el => el && el !== document.activeElement;
+  const ep = document.getElementById("ff_elimPopup");
+  if(idle(ep)) ep.checked = st.elimPopup !== false;
+  document.querySelectorAll(".ff-sidepop").forEach(el => { if(idle(el)) el.checked = !!sw[el.dataset.k]; });
+  const sec = document.getElementById("ff_sidePopupSeconds");
+  if(idle(sec)) sec.value = st.sidePopupSeconds || 5;
+  const fo = document.getElementById("ff_playerPhotoFolder");
+  if(idle(fo) && !fo.dataset.dirty) fo.value = st.playerPhotoFolder || "";
+  const r = (ff && ff.roster) || {};
+  [["ff_defaultTeamPhotoImg", r.defaultTeamPhoto], ["ff_defaultPlayerPhotoImg", r.defaultPlayerPhoto]].forEach(([id, src]) => {
+    const im = document.getElementById(id);
+    if(src){ if(im.getAttribute("src") !== src) im.src = src; im.style.opacity = "1"; }
+    else { im.removeAttribute("src"); im.style.opacity = "0.35"; }
+  });
+}
+(function ffWirePopups(){
+  const note = t => { const n = document.getElementById("ff_popupNote"); n.textContent = t; setTimeout(() => { if(n.textContent === t) n.textContent = ""; }, 4000); };
+  document.getElementById("ff_elimPopup").addEventListener("change", e => {
+    if(ffPopupSettings({ elimPopup: e.target.checked })) note(e.target.checked ? "Elimination pop-up on." : "Elimination pop-up off.");
+  });
+  document.querySelectorAll(".ff-sidepop").forEach(el => el.addEventListener("change", () => {
+    const sw = Object.assign({}, (ffState && ffState.settings && ffState.settings.sidePopups) || {});
+    sw[el.dataset.k] = el.checked;
+    if(ffPopupSettings({ sidePopups: sw })) note(el.parentElement.textContent.trim() + (el.checked ? " on." : " off."));
+  }));
+  document.getElementById("ff_sidePopupSeconds").addEventListener("change", e => {
+    const secs = Math.min(15, Math.max(2, Number(e.target.value) || 5));
+    e.target.value = secs;
+    if(ffPopupSettings({ sidePopupSeconds: secs })) note("Side pop-ups hold " + secs + "s.");
+  });
+  const fo = document.getElementById("ff_playerPhotoFolder");
+  fo.addEventListener("input", () => { fo.dataset.dirty = "1"; });
+  document.getElementById("ff_playerPhotoFolderSave").addEventListener("click", () => {
+    // Pasted from Explorer it often comes wrapped in quotes.
+    const v = fo.value.trim().replace(/^"(.*)"$/, "$1");
+    fo.value = v;
+    if(ffPopupSettings({ playerPhotoFolder: v })){ delete fo.dataset.dirty; note(v ? "Photo folder saved." : "Photo folder cleared."); }
+  });
+  document.getElementById("ff_defaultTeamPhotoPick").addEventListener("click", () =>
+    ffPickImage(480, url => ffPopupRoster({ defaultTeamPhoto: url })));
+  document.getElementById("ff_defaultPlayerPhotoPick").addEventListener("click", () =>
+    ffPickImage(320, url => ffPopupRoster({ defaultPlayerPhoto: url })));
+  document.getElementById("ff_defaultTeamPhotoClear").addEventListener("click", () => ffPopupRoster({ defaultTeamPhoto: "" }));
+  document.getElementById("ff_defaultPlayerPhotoClear").addEventListener("click", () => ffPopupRoster({ defaultPlayerPhoto: "" }));
+})();
+
 /* ---------- ARROW sheet: Booyah, match top 5, series totals ----------
    The game checkboxes are drawn from the games actually committed, so a
    box can never offer a game with no match behind it. They are redrawn
@@ -12511,16 +12624,42 @@ const FFGFX_ELIM_BOXES = {
               rect: { left: 677, top: 316, width: 50, height: 18 } },
 };
 
+/* The SS3 card is a different shape in a different place, and keeps its
+   own nudges ("elimCard@ss3" ...) -- the overlay reads those for it, so
+   the ones saved for the older card cannot drag it about. Measured from
+   "eliminated bug - BLANK.png": panel 763..1190 / 101..305; logo box
+   770..828 / 250..300; name bar 836..1170 / 253..295; #N 1148..1190 /
+   101..146. */
+const FFGFX_ELIM_BOXES_SS3 = {
+  elimCard: { left: 763, top: 101, width: 428, height: 205 },
+  elimLogo: { left: 770, top: 250, width: 58, height: 50 },
+  elimName: { left: 836, top: 253, width: 334, height: 42 },
+  elimRank: { left: 1148, top: 101, width: 42, height: 45 },
+};
+function ffgfxElimPackage(){
+  const ev = (ffState && ffState.event) || {};
+  return (ev.aliveAssetFolder || ev.assetFolder || "CLT") === "ss3" ? "ss3" : "";
+}
+// Where a page's nudge is stored: the SS3 card's under its own keys.
+function ffgfxStoreKey(pageKey){
+  return (FFGFX_ELIM_BOXES[pageKey] && ffgfxElimPackage()) ? pageKey + "@" + ffgfxElimPackage() : pageKey;
+}
+
 Object.entries(FFGFX_ELIM_BOXES).forEach(([key, el]) => {
+  const rectNow = () => ffgfxElimPackage() ? FFGFX_ELIM_BOXES_SS3[key] : el.rect;
   FFGFX_PAGES[key] = {
     label: el.label,
-    bg: () => "../overlay/assets/freefire/" +
-      ((ffState && ffState.event && ffState.event.assetFolder) || "CLT") + "/Eliminated.png",
-    rect: el.rect,
+    bg: () => ffgfxElimPackage()
+      ? "../overlay/assets/freefire/ss3/eliminated bug - DEMO.png"
+      : "../overlay/assets/freefire/" +
+        ((ffState && ffState.event && ffState.event.assetFolder) || "CLT") + "/Eliminated.png",
+    // Read when the page is drawn, so switching the alive package
+    // switches the box with it.
+    get rect(){ return rectNow(); },
     // Everything on this card scales about its own centre, matching the
     // overlay: a box that grows from a corner walks away from the slot it
     // was lined up with.
-    origin: { x: el.rect.left + el.rect.width / 2, y: el.rect.top + el.rect.height / 2 },
+    get origin(){ const r = rectNow(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; },
   };
 });
 
@@ -12553,7 +12692,7 @@ function ffgfxLoadPage(pageKey){
     if(btn){ btn.style.background = k === pageKey ? "#4d9fff" : ""; btn.style.color = k === pageKey ? "#06090c" : ""; }
   });
 
-  const existing = (ffState && ffState.graphicOverrides && ffState.graphicOverrides[pageKey]) || {};
+  const existing = (ffState && ffState.graphicOverrides && ffState.graphicOverrides[ffgfxStoreKey(pageKey)]) || {};
   ffgfxPending = Object.assign({ dx: 0, dy: 0, scale: 1 }, existing);
   document.getElementById("ffgfx_scale").value = ffgfxPending.scale;
   // On a logo page the field sizes one badge; on the panel page it sizes
@@ -12846,7 +12985,7 @@ document.getElementById("ffgfx_save").addEventListener("click", () => {
     return;
   }
   const allOverrides = Object.assign({}, (ffState && ffState.graphicOverrides) || {});
-  allOverrides[ffgfxCurrentPage] = ffgfxPending;
+  allOverrides[ffgfxStoreKey(ffgfxCurrentPage)] = ffgfxPending;
   ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { graphicOverrides: allOverrides } } }));
   statusEl.textContent = "Saved — live on the overlay now.";
 });
