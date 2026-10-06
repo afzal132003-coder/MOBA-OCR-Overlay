@@ -46,7 +46,7 @@ function lift(name) {
 const SOURCE =
   "let wasJoined = new Set();\nlet lastSignature = '';\nlet wasVisible = false;\n" +
   "let clockOffset = 0;\nlet timerState = null;\nlet lastShown = '';\n" +
-  ["esc", "label", "initials", "fmt", "timerRemaining", "drawTimer", "render"]
+  ["esc", "label", "initials", "fmt", "timerRemaining", "drawTimer", "lobbyTheme", "render"]
     .map(lift).join("\n\n");
 
 let checks = 0; const failures = [];
@@ -74,7 +74,7 @@ function mkEnv() {
     id => (nodes[id] = Object.assign(mk(id), { style: {} })));
   const vm = require("vm");
   const sandbox = {
-    document: { getElementById: id => nodes[id] || null },
+    document: { getElementById: id => nodes[id] || null, body: { dataset: {} } },
     setTimeout: () => 0,
     JSON, console, Math, Number, Date,
   };
@@ -300,6 +300,20 @@ console.log("\nthe room-create countdown");
   check("past the end it holds at 00:00 and says so",
         n.timerClock.textContent === "00:00" && n.timerState.textContent === "Time up" &&
         n.timer.classList.contains("done"));
+})();
+
+console.log("\nthe strip's theme");
+(function () {
+  const env = mkEnv();
+  const run = st => { draw(env, st); return env.sandbox.document.body.dataset.theme; };
+  check("no package named: the ARROW look", run(state(true)) === "arrow");
+  check("an SS3 event gets the SS3 strip by itself",
+        run(Object.assign(state(true), { event: { assetFolder: "ss3" } })) === "ss3");
+  check("so does an event whose ALIVE graphic is SS3",
+        run(Object.assign(state(true), { event: { aliveAssetFolder: "ss3" } })) === "ss3");
+  check("and the operator's choice wins over the package",
+        run(Object.assign(state(true), { event: { assetFolder: "ss3" },
+                                         lobby: { joined: {}, theme: "arrow" } })) === "arrow");
 })();
 
 console.log("\n" + checks + " checks, " + failures.length + " failed");
