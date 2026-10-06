@@ -2667,6 +2667,21 @@
           <input type="checkbox" id="ff_tgAnim" checked><span>Animation in &amp; out</span>
         </label>
       </div>
+      <div style="margin-top:12px;padding:10px 12px;border:1px solid #1b2430;border-radius:10px;">
+        <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;">
+          <strong style="margin-right:6px;">Games</strong>
+          <button class="secondary" id="ff_tgLatest">Use Latest Finished Game</button>
+          <button class="secondary" id="ff_tgList">List Games From Folder</button>
+          <button class="secondary" id="ff_tgUseTicked" style="display:none;">Use Ticked Games</button>
+          <button class="secondary" id="ff_tgCommitted">Use Committed Games</button>
+          <span class="hint" id="ff_tgGamesStatus"></span>
+        </div>
+        <div id="ff_tgFiles" style="display:none;margin-top:8px;max-height:220px;overflow:auto;
+             display:none;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:4px 14px;"></div>
+        <p class="hint" style="margin:6px 0 0;">Nothing has to be committed: the graphs can read result files
+          straight from the Match Result Folder. Tick several to draw a series -- they are put in the order they
+          were played.</p>
+      </div>
       <div class="row" style="gap:8px;margin-top:10px;">
         <button id="ff_tgShow">Push Graph Up</button>
         <button class="secondary" id="ff_tgHide">Pull Graph Down</button>
@@ -6618,6 +6633,7 @@ function ffOpen(url){
       try { ffSyncLobbyTimerControls(); } catch(e){ console.error("lobby timer:", e); }
       try { ffSyncTeamGraphs(); } catch(e){ console.error("team graphs:", e); }
       try { ffDrawProfiles(); } catch(e){ console.error("event profiles:", e); }
+      try { ffSyncTgGamesStatus(); } catch(e){ console.error("team graph games:", e); }
       if(!ffHydrated){
         ffHydrate(ffState);
         ffHydrated = true;
@@ -6693,6 +6709,15 @@ function ffOpen(url){
         : "⚠ Failed: " + (msg.error || "unknown error");
     } else if(msg.type === "freefire_results_push_result"){
       ffShowResultsPushResult(msg);
+    } else if(msg.type === "team_graph_games_result"){
+      ffReplyArrived("tgGames");
+      const el = document.getElementById("ff_tgGamesStatus");
+      if(el) el.textContent = msg.games
+        ? "Graphs now drawn from " + msg.games + " game(s), " + msg.teams + " team(s)" +
+          (msg.source === "files" ? " -- result files" : " -- committed games") +
+          (msg.missing && msg.missing.length ? ". Could not read: " + msg.missing.join(", ") : ".")
+        : (msg.source === "files" ? "Those result files could not be read -- check the Match Result Folder."
+                                  : "No committed games yet -- use Latest Finished Game or pick from the folder.");
     } else if(msg.type === "freefire_match_list"){
       /* The REPLY TO "List Result Files", which nothing was listening for.
          The engine has two file listings that answer two different
@@ -6705,6 +6730,7 @@ function ffOpen(url){
       ffReplyArrived("matchList");
       ffFillMatchListPick(msg.files || []);
       if (ffArrowFiles !== null) { ffArrowFiles = msg.files || []; ffDrawArrowFiles(); }
+      if (ffTgFiles !== null) { ffTgFiles = msg.files || []; ffDrawTgFiles(); }
     } else if(msg.type === "freefire_match_files"){
       ffReplyArrived("matchList");
       ffShowMatchFiles(msg);
@@ -10363,6 +10389,62 @@ function ffDrawProfiles(){
     say("Deleted '" + name + "'.");
   });
 })();
+
+/* ---------- Team graphs: which games ----------
+   The graphs can be drawn from result files picked here, without anything
+   being committed -- the newest one, or a ticked set for a series. */
+let ffTgFiles = null;
+function ffDrawTgFiles(){
+  const box = document.getElementById("ff_tgFiles");
+  if(!box || ffTgFiles === null) return;
+  const cfg = (ffState && ffState.display && ffState.display.teamGraph) || {};
+  const on = new Set(cfg.source === "files" ? (cfg.matchIds || []) : []);
+  box.style.display = "grid";
+  document.getElementById("ff_tgUseTicked").style.display = "";
+  box.innerHTML = ffTgFiles.length ? ffTgFiles.map(f => {
+    const when = (f.timestamp || "").replace(/_/g, " ");
+    return "<label style='display:flex;gap:6px;align-items:center;margin:0;font-size:13px;'>" +
+      "<input type='checkbox' class='ff-tg-file' value='" + ffEscapeHtml(f.matchId) + "'" +
+      (on.has(f.matchId) ? " checked" : "") + ">" + ffEscapeHtml(when || f.matchId) +
+      (f.committed ? " <span class='hint'>committed</span>" : "") + "</label>";
+  }).join("") : "<span class='hint'>No result files in the Match Result Folder.</span>";
+}
+function ffTgGames(msg){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)){
+    document.getElementById("ff_tgGamesStatus").textContent = "Not connected to the Free Fire engine.";
+    return;
+  }
+  document.getElementById("ff_tgGamesStatus").textContent = "Reading result files...";
+  ffWs.send(JSON.stringify(Object.assign({ type: "team_graph_games" }, msg)));
+  if(typeof ffAwaitReply === "function") ffAwaitReply("tgGames", "ff_tgGamesStatus", "reading the result files", 20);
+}
+(function ffWireTgGames(){
+  if(!document.getElementById("ff_tgLatest")) return;
+  document.getElementById("ff_tgLatest").addEventListener("click", () => ffTgGames({ latest: true }));
+  document.getElementById("ff_tgCommitted").addEventListener("click", () => ffTgGames({ source: "committed" }));
+  document.getElementById("ff_tgList").addEventListener("click", () => {
+    if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+    ffTgFiles = [];
+    document.getElementById("ff_tgGamesStatus").textContent = "Listing result files...";
+    ffWs.send(JSON.stringify({ type: "freefire_list_matches" }));
+  });
+  document.getElementById("ff_tgUseTicked").addEventListener("click", () => {
+    const ids = Array.from(document.querySelectorAll(".ff-tg-file:checked")).map(x => x.value);
+    if(!ids.length){ document.getElementById("ff_tgGamesStatus").textContent = "Tick at least one game."; return; }
+    ffTgGames({ matchIds: ids });
+  });
+})();
+function ffSyncTgGamesStatus(){
+  const el = document.getElementById("ff_tgGamesStatus");
+  if(!el || !ffState || el.dataset.busy) return;
+  const g = ffState.teamGraphs || {};
+  const n = (g.games || []).length;
+  if(!el.textContent || /^Showing/.test(el.textContent)){
+    el.textContent = n ? "Showing " + n + " game(s) from " +
+      (g.source === "files" ? "picked result files." : "committed games.")
+      : "Showing nothing yet -- no committed games. Use Latest Finished Game.";
+  }
+}
 
 /* ---------- ARROW sheet: Booyah, match top 5, series totals ----------
    The game checkboxes are drawn from the games actually committed, so a

@@ -50,6 +50,36 @@ def main():
     empty = ff.compute_team_graphs([], roster)
     check("no games: an empty table, not an error", empty == {"games": [], "teams": []})
 
+    print("\nwhich games the graphs are drawn from")
+    keep = (ff.build_match_result_payload, dict(ff.server_state.get("display") or {}),
+            ff.server_state.get("matches"), ff.server_state.get("teamGraphs"))
+    reads = []
+    def fake_build(folder, mid):
+        reads.append(mid)
+        return dict({"1": g1, "2": g2}.get(mid, {"teams": []}), matchId=mid)
+    try:
+        ff.build_match_result_payload = fake_build
+        ff.server_state["matches"] = []
+        ff.server_state.setdefault("display", {})["teamGraph"] = {"source": "files", "matchIds": ["2", "1", "9"]}
+        got = ff.refresh_team_graphs()
+        check("picked result files are read, not the (empty) standings",
+              got["source"] == "files" and len(got["games"]) == 2, str(got.get("games")))
+        check("in the order they were played, whatever order they were ticked",
+              got["matchIds"] == ["1", "2"], str(got.get("matchIds")))
+        check("a file that cannot be read is named, not silently dropped", got["missing"] == ["9"])
+        reads.clear()
+        ff.refresh_team_graphs(from_files=False)
+        check("a dashboard change does not re-read the disk while files are picked", reads == [])
+        ff.server_state["display"]["teamGraph"] = {"source": "committed", "matchIds": []}
+        ff.server_state["matches"] = [g1]
+        got = ff.refresh_team_graphs()
+        check("back to committed games", got["source"] == "committed" and len(got["games"]) == 1)
+    finally:
+        ff.build_match_result_payload = keep[0]
+        ff.server_state["display"] = keep[1]
+        ff.server_state["matches"] = keep[2]
+        ff.server_state["teamGraphs"] = keep[3]
+
     print("\n%d checks, %d failed" % (checks, len(failures)))
     return 1 if failures else 0
 

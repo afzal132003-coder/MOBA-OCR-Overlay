@@ -8096,6 +8096,45 @@ def compute_team_graphs(matches, roster_teams=None):
             "teams": list(teams.values())}
 
 
+def team_graph_matches_from_files(match_ids):
+    """The picked result files, read and resolved exactly as a commit
+    would read them -- roster names, and a normal room's missing points
+    scored -- in the order the games were played. Never touches the
+    standings: the graphs can show games nobody has committed."""
+    folder = (server_state.get("settings", {}) or {}).get("matchResultFolder", "")
+    built, missing = [], []
+    for mid in match_ids or []:
+        one = build_match_result_payload(folder, str(mid))
+        if one.get("teams"):
+            built.append(one)
+        else:
+            missing.append(str(mid))
+    built.sort(key=lambda m: m.get("timestamp") or "")
+    return built, missing
+
+
+def refresh_team_graphs(from_files=True):
+    """Rebuild the team graphs' table from wherever the operator pointed it:
+    the committed games, or a set of result files picked in Post-Match.
+
+    from_files=False skips re-reading the disk -- the commit path calls it
+    on every dashboard change, and picked files do not change under it."""
+    cfg = (server_state.get("display") or {}).get("teamGraph") or {}
+    ids = cfg.get("matchIds") or []
+    if cfg.get("source") == "files" and ids:
+        if not from_files and server_state.get("teamGraphs", {}).get("source") == "files":
+            return server_state["teamGraphs"]
+        built, missing = team_graph_matches_from_files(ids)
+        graphs = compute_team_graphs(built)
+        graphs.update(source="files", matchIds=[m.get("matchId") for m in built],
+                      missing=missing)
+    else:
+        graphs = compute_team_graphs(server_state.get("matches", []))
+        graphs["source"] = "committed"
+    server_state["teamGraphs"] = graphs
+    return graphs
+
+
 def compute_freefire_standings(matches, roster_teams=None):
     """Totals every committed match into one table, aggregating on the
     ROSTER's identity rather than on whatever string each match happened
@@ -9211,8 +9250,7 @@ async def handle_client(websocket, path=None):
                     server_state["standings"] = compute_freefire_standings(
                         server_state.get("matches", [])
                     )
-                    server_state["teamGraphs"] = compute_team_graphs(
-                        server_state.get("matches", []))
+                    refresh_team_graphs(from_files=False)
                     server_state["fraggers"] = compute_freefire_fraggers(
                         server_state.get("matches", [])
                     )
@@ -9676,7 +9714,7 @@ async def handle_client(websocket, path=None):
                 server_state["matches"] = []
                 server_state["currentMatchId"] = None
                 server_state["standings"] = compute_freefire_standings([])
-                server_state["teamGraphs"] = compute_team_graphs([])
+                refresh_team_graphs(from_files=False)
                 server_state["fraggers"] = compute_freefire_fraggers([])
                 refresh_freefire_mvps()
                 server_state["championRush"] = compute_champion_rush(
@@ -9818,6 +9856,35 @@ async def handle_client(websocket, path=None):
                 g["visible"] = payload["type"] == "team_graph_show"
                 server_state["display"]["teamGraphVisible"] = g["visible"]
                 save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "team_graph_games":
+                # WHICH GAMES the graphs are drawn from. "committed" is the
+                # standings; "files" is a set of result files picked from
+                # the folder -- or just the newest one -- so a graph can go
+                # out without anything being committed first.
+                g = server_state["display"].setdefault("teamGraph", {
+                    "visible": False, "graph": "race", "bg": True,
+                    "scope": "overall", "top": 5, "teams": []})
+                ids = [str(x) for x in (payload.get("matchIds") or []) if str(x).strip()]
+                if payload.get("latest"):
+                    folder = (server_state.get("settings", {}) or {}).get("matchResultFolder", "")
+                    newest, _nm = find_freefire_latest_match_file(folder)
+                    got = FREEFIRE_MATCH_FILENAME_REGEX.match(newest.name) if newest else None
+                    ids = [got.group("match_id")] if got else []
+                if payload.get("source") == "committed" or not ids:
+                    g["source"], g["matchIds"] = "committed", []
+                else:
+                    g["source"], g["matchIds"] = "files", ids
+                loop = asyncio.get_running_loop()
+                graphs = await loop.run_in_executor(None, refresh_team_graphs)
+                save_state()
+                await websocket.send(json.dumps({
+                    "type": "team_graph_games_result",
+                    "source": graphs.get("source"),
+                    "games": len(graphs.get("games") or []),
+                    "teams": len(graphs.get("teams") or []),
+                    "missing": graphs.get("missing") or [],
+                }))
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") == "team_graph":
                 # Which team graph is on air, and how: the graph, its
@@ -11615,7 +11682,7 @@ async def main():
     # The team graphs' table, rebuilt from the committed matches at start
     # as the standings are on every change -- see compute_team_graphs.
     try:
-        server_state["teamGraphs"] = compute_team_graphs(server_state.get("matches", []))
+        refresh_team_graphs()
     except Exception as e:
         print("Team graphs could not be built at start: %s" % e)
         server_state["teamGraphs"] = {"games": [], "teams": []}
