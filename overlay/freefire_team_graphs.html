@@ -66,6 +66,11 @@
     transition:opacity .45s ease, transform .55s cubic-bezier(.16,.84,.34,1);
   }
   #panel.on{opacity:1;transform:translateY(0);}
+  /* Out: the panel drops away and fades, a little faster than it came in. */
+  #panel:not(.on){transition:opacity .35s ease, transform .45s cubic-bezier(.5,0,.75,0);
+                  transform:translateY(42px) scale(.985);}
+  /* Animation switched off: in, out and every build happen instantly. */
+  body.still #panel, body.still #panel *{animation:none !important;transition:none !important;}
   /* The stand-in background: the surface the palette was validated on,
      the deck's dot field, and an amber rule along the top. */
   #panel.bg{
@@ -249,12 +254,15 @@ function bar(parent, x, y, w, h, fill, cls, delay, roundRight){
    data-delay staggers it, data-fixed keeps decimals. */
 const ease = t => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
 let animToken = 0;
+// Off: every number and the race ride jump straight to the end.
+let ANIMATE = true;
+const now0 = () => performance.now() - (ANIMATE ? 0 : 1e7);
 
 function countUp(root){
   const token = animToken;
   const els = Array.from(root.querySelectorAll("[data-count]"));
   if(!els.length) return;
-  const t0 = performance.now();
+  const t0 = now0();
   els.forEach(el => { el.textContent = "0"; });
   (function frame(now){
     if(token !== animToken) return;
@@ -342,7 +350,7 @@ function drawRace(svg, data, cfg, roster, head){
   // THE RIDE: every line draws from G1 to the latest game together, its dot
   // and label riding the tip and the total counting up the way it was
   // scored; at the finish the labels settle into their final places.
-  const token = animToken, t0 = performance.now(), DUR = 2200;
+  const token = animToken, t0 = now0(), DUR = 2200;
   const valueAt = (t, gx) => {
     if(n <= 1) return t.cum[0] || 0;
     const f = (gx - L) / pw * (n - 1), i = Math.max(0, Math.min(n - 2, Math.floor(f)));
@@ -545,6 +553,8 @@ function render(state){
   if(_params.get("graph")) cfg.graph = _params.get("graph");
   if(_params.get("bg") != null) cfg.bg = _params.get("bg") !== "0";
   const visible = PREVIEW || !!cfg.visible;
+  ANIMATE = cfg.animate !== false && _params.get("anim") !== "0";
+  document.body.classList.toggle("still", !ANIMATE);
   const roster = ((state.roster || {}).teams) || [];
   let data = state.teamGraphs || { games: [], teams: [] };
   const demo = FORCE_DEMO || (PREVIEW && !(data.games || []).length);

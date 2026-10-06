@@ -9828,7 +9828,7 @@ async def handle_client(websocket, path=None):
                 g = server_state["display"].setdefault("teamGraph", {
                     "visible": False, "graph": "race", "bg": True,
                     "scope": "overall", "top": 5, "teams": []})
-                for k in ("visible", "graph", "bg", "scope", "top", "teams"):
+                for k in ("visible", "graph", "bg", "scope", "top", "teams", "animate"):
                     if payload.get(k) is not None:
                         g[k] = payload[k]
                 server_state["display"]["teamGraphVisible"] = bool(g.get("visible"))
