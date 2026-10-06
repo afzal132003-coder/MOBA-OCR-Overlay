@@ -8540,42 +8540,6 @@ def booyah_sheet_rows(matches, roster_teams=None):
             for p in players]
 
 
-def match_fragger_rows(matches, game=None, top=5, roster_teams=None):
-    """The top fraggers of ONE match, across every team.
-
-    Contributions are measured against the player's OWN team in that
-    match -- the only pool that means anything once the five rows come
-    from five different squads.
-    """
-    if roster_teams is None:
-        roster_teams = ((server_state.get("roster") or {}).get("teams")) or []
-    if not matches:
-        return []
-    if game is None:
-        chosen = matches[-1]
-    else:
-        later = [m for m in matches if m.get("gameNumber") == game]
-        chosen = later[-1] if later else None
-    if chosen is None:
-        return []
-
-    rows = []
-    for team in chosen.get("teams", []) or []:
-        _, name, _short = _standings_identity(team, roster_teams)
-        players = team.get("players") or []
-        weight = sum(7 * (p.get("kills") or 0) + 3 * (p.get("knocks") or 0)
-                     for p in players)
-        heads_total = sum(p["headshots"] for p in players
-                          if p.get("headshots") is not None)
-        for p in players:
-            rows.append(_sheet_row(name, p.get("name"), p.get("kills"),
-                                   p.get("knocks"), p.get("headshots"),
-                                   weight, heads_total))
-    rows.sort(key=lambda r: (-r["elims"], -r["knocks"],
-                             -(r["headshots"] or 0), r["ign"].upper()))
-    return rows[:top] if top else rows
-
-
 def total_fragger_rows(matches, games=None, roster_teams=None):
     """Every player across the games the operator ticked, rank order.
 
@@ -9320,7 +9284,8 @@ async def handle_client(websocket, path=None):
                         "type": "freefire_match_result", "teams": [], "matchId": None, "error": str(e),
                     }))
             elif payload.get("type") == "freefire_push_arrow":
-                # what: "booyah" | "matchTop" | "totals" | "clearTotals"
+                # what: "booyah" | "totals" | "clearTotals"  (the per-game
+                # top-5 block was dropped: no event uses it)
                 #
                 # The rows are built HERE rather than sent by the
                 # dashboard. The dashboard holds a copy of the state for
@@ -9347,7 +9312,7 @@ async def handle_client(websocket, path=None):
                 # commit or a fetch in this particular browser session to
                 # establish it made them silently write nothing on a rig
                 # with a hundred and thirty-six results sitting on disk.
-                if not wanted_id and not matches and what in ("booyah", "matchTop"):
+                if not wanted_id and not matches and what == "booyah":
                     folder = (server_state.get("settings", {})
                               .get("matchResultFolder", ""))
                     newest, _nm = find_freefire_latest_match_file(folder)
@@ -9355,7 +9320,7 @@ async def handle_client(websocket, path=None):
                         got = FREEFIRE_MATCH_FILENAME_REGEX.match(newest.name)
                         if got:
                             wanted_id = got.group("match_id")
-                if wanted_id and what in ("booyah", "matchTop"):
+                if wanted_id and what == "booyah":
                     folder = (server_state.get("settings", {})
                               .get("matchResultFolder", ""))
                     built = build_match_result_payload(folder, wanted_id)
@@ -9371,10 +9336,6 @@ async def handle_client(websocket, path=None):
                         continue
                 if what == "booyah":
                     rows = booyah_sheet_rows(matches)
-                elif what == "matchTop":
-                    rows = match_fragger_rows(
-                        matches, game=payload.get("game"),
-                        top=payload.get("top") or 5)
                 elif what == "totals":
                     # Either a set of RESULT FILES picked by the operator,
                     # or the committed games.

@@ -2847,8 +2847,8 @@
     </div>
 
     <div class="card">
-      <h2>ARROW Sheet &mdash; Booyah, Match Top 5, Series Totals</h2>
-      <p class="hint">Three blocks on their own spreadsheet. Every push <strong>clears its block first</strong>,
+      <h2>ARROW Sheet &mdash; Booyah, Series Totals</h2>
+      <p class="hint">Two blocks on their own spreadsheet. Every push <strong>clears its block first</strong>,
         so a shorter push can never leave the tail of a longer one behind looking like current data. Rows are
         built by the engine at the moment you press the button &mdash; not from what this page happens to be
         showing &mdash; so a tab left open from an earlier match can't be written by mistake.</p>
@@ -2868,16 +2868,6 @@
            border-top:1px solid #1b2430;padding-top:12px;flex-wrap:wrap;">
         <button id="ff_pushBooyah">Push Booyah Stats</button>
         <span class="hint">BOOYAH-ARROW &mdash; A/C/E/F/G/H, rows 2&ndash;5 (winning squad)</span>
-      </div>
-
-      <div class="row" style="gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;">
-        <button id="ff_pushMatchTop">Push Match Top 5</button>
-        <div class="team-form" style="max-width:150px;margin:0;">
-          <label for="ff_arrowGame">Game (blank = latest)</label>
-          <input type="number" id="ff_arrowGame" min="1" max="20" placeholder="latest">
-        </div>
-        <button class="secondary" id="ff_arrowUseLatest">Use Latest Finished Game</button>
-        <span class="hint">ARROW MVP &mdash; N/P/R/S/T/U/V, rows 2&ndash;6</span>
       </div>
       <div class="hint" id="ff_arrowLatest" style="margin-top:6px;"></div>
 
@@ -6410,7 +6400,7 @@ function connect(){
       // here rather than looking identical to one that worked.
       const el = document.getElementById("ff_arrowStatus");
       const r = msg.result || {};
-      const label = {booyah: "Booyah stats", matchTop: "match top 5",
+      const label = {booyah: "Booyah stats",
                      totals: "series totals",
                      clearTotals: "totals block"}[msg.what] || msg.what;
       el.textContent = r.ok
@@ -10485,8 +10475,8 @@ function ffDrawArrowFiles() {
 }
 
 function ffDrawArrowGames() {
-  // What the Booyah and match-top pushes will actually read if pressed
-  // now. Both default to the latest committed match, and "latest" is not
+  // What the Booyah push will actually read if pressed now. It
+  // defaults to the latest committed match, and "latest" is not
   // something the operator can see anywhere else on this card.
   const latest = document.getElementById("ff_arrowLatest");
   if (latest) {
@@ -10586,30 +10576,6 @@ function ffArrowSend(what, extra) {
     ffArrowSend("booyah", pending ? {matchId: pending} : {});
   });
 
-  document.getElementById("ff_arrowUseLatest").addEventListener("click", () => {
-    const m = ffLatestMatch();
-    const el = document.getElementById("ff_arrowStatus");
-    // Blank already MEANS the newest result file, so with nothing
-    // committed the right move is to empty the box rather than refuse.
-    // It used to say "no committed match" and do nothing, on a rig whose
-    // folder was full of finished games.
-    if (!m || m.gameNumber == null) {
-      document.getElementById("ff_arrowGame").value = "";
-      el.textContent = "Nothing committed, so the game box is cleared — " +
-        "blank means the newest result file in the folder, which is the " +
-        "game that just finished.";
-      return;
-    }
-    document.getElementById("ff_arrowGame").value = m.gameNumber;
-    el.textContent = "Set to game " + m.gameNumber + " — " + ffLatestSummary();
-  });
-
-  document.getElementById("ff_pushMatchTop").addEventListener("click", () => {
-    const g = Number(document.getElementById("ff_arrowGame").value);
-    if (g) { ffArrowSend("matchTop", {game: g}); return; }
-    const pending = ffPendingMatch && ffPendingMatch.matchId;
-    ffArrowSend("matchTop", pending ? {matchId: pending} : {});
-  });
 
   document.getElementById("ff_arrowListMatches").addEventListener("click", () => {
     if (!(ffWs && ffWs.readyState === WebSocket.OPEN)) {

@@ -191,22 +191,6 @@ def main():
     check("finish contribution is a share of the squad",
           b[0]["finContri"] == 85.42, "41 of 48: got %s" % b[0]["finContri"])
 
-    m5 = ff.match_fragger_rows(sm, game=1, top=5, roster_teams=[])
-    check("the match top-5 crosses every team", m5[0]["ign"] == "Zen",
-          m5[0]["ign"])
-    check("it is capped at five rows",
-          len(ff.match_fragger_rows(sm, game=1, top=5, roster_teams=[])) <= 5)
-    check("head contribution is a share of the TEAM headshots, not of kills",
-          m5[1]["headContri"] == 75.0,
-          "Ace 3 of NEBULA 4: got %s" % m5[1]["headContri"])
-
-    # The two percentages are different numbers and must not be the same
-    # field wearing two names.
-    ace = [r for r in m5 if r["ign"] == "Ace"][0]
-    check("head rate and head contribution are not the same figure",
-          ace["headRate"] != ace["headContri"],
-          "rate %s vs contri %s" % (ace["headRate"], ace["headContri"]))
-
     allg = ff.total_fragger_rows(sm, games=None, roster_teams=[])
     one = ff.total_fragger_rows(sm, games=[1], roster_teams=[])
     check("totals with no game filter take everything",
@@ -215,17 +199,7 @@ def main():
     check("ticking a game that has not happened yields nothing",
           ff.total_fragger_rows(sm, games=[6], roster_teams=[]) == [])
     check("no matches at all is empty, not a crash",
-          ff.booyah_sheet_rows([], roster_teams=[]) == []
-          and ff.match_fragger_rows([], roster_teams=[]) == [])
-
-    # A game the engine never watched has no headshot figure; a rate of
-    # 0% would read as "never hit one".
-    nohs = ff.match_fragger_rows([match(1, [team("A", 1, [
-        {"name": "NoData", "uid": "9", "kills": 4, "knocks": 0}])])],
-        roster_teams=[])[0]
-    check("no headshot data gives no rate and no contribution",
-          nohs["headRate"] is None and nohs["headContri"] is None,
-          "%s / %s" % (nohs["headRate"], nohs["headContri"]))
+          ff.booyah_sheet_rows([], roster_teams=[]) == [])
 
     print("\nrecovering headshots and knocks from a past match")
     # The result file carries only NAME/ID/KILL -- no headshots, no
