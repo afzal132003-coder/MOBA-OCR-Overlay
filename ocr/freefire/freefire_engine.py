@@ -9841,6 +9841,13 @@ async def handle_client(websocket, path=None):
                     save_state()
                     await broadcast({"type": "state_sync", "data": server_state,
                                      "locked": list(locked_fields)})
+            elif payload.get("type") in ("top4_show", "top4_hide"):
+                # The TOP 4 bar across the top of the alive-stats source --
+                # its own switch, so the side table can be pulled down once
+                # four squads remain and this stays up.
+                server_state["display"]["top4Visible"] = payload["type"] == "top4_show"
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") in ("champion_badge_show", "champion_badge_hide"):
                 server_state["display"]["championRushBadgeVisible"] = (
                     payload["type"] == "champion_badge_show")
@@ -9904,7 +9911,7 @@ async def handle_client(websocket, path=None):
                 g = server_state["display"].setdefault("teamGraph", {
                     "visible": False, "graph": "race", "bg": True,
                     "scope": "overall", "top": 5, "teams": []})
-                for k in ("visible", "graph", "bg", "scope", "top", "teams", "animate"):
+                for k in ("visible", "graph", "bg", "scope", "top", "teams", "animate", "theme"):
                     if payload.get(k) is not None:
                         g[k] = payload[k]
                 server_state["display"]["teamGraphVisible"] = bool(g.get("visible"))
@@ -9963,6 +9970,8 @@ async def handle_client(websocket, path=None):
                     lobby["kicker"] = payload["kicker"]
                 if payload.get("shortNames") is not None:
                     lobby["shortNames"] = bool(payload["shortNames"])
+                if payload.get("theme") is not None:
+                    lobby["theme"] = str(payload["theme"])[:20]
                 _bump_lobby_rev()
                 await push_lobby_update()
                 save_state()

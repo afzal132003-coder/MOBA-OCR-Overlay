@@ -46,6 +46,12 @@
      the way it does for any other font. */
   /* PRG ARROW's face -- TT Supermolot Black Italic, the same file the
      lobby strip uses for the ARROW SHOWDOWN theme. */
+  /* SS3's face -- Tactic Sans Bold Italic, shipped in the package. */
+  @font-face {
+    font-family: 'TacticSans';
+    src: url('assets/freefire/ss3/TacticSans-BldIt.otf') format('opentype');
+    font-weight: 100 900; font-style: normal; font-display: block;
+  }
   @font-face {
     font-family: 'Supermolot';
     src: url('assets/fonts/TT Supermolot Neue Trial Black Italic.ttf') format('truetype');
@@ -356,6 +362,16 @@
      eleven rows to cross, and at a snappier duration that reads as a
      jump rather than a fall. The ease-in-out start and finish are what
      make a long move look deliberate instead of thrown. */
+  /* Champion Rush: the package's crown tile just outside the row, for a
+     team that has activated -- only where the package has a tile, and
+     only while the emblem is switched on. */
+  .crtile {
+    position: absolute; top: 0; left: var(--cr-x, -47px); width: var(--cr-w, 45px);
+    height: var(--row-h); background-size: 100% 100%; background-repeat: no-repeat;
+    opacity: 0; transform: translateX(14px);
+    transition: opacity .4s ease, transform .5s cubic-bezier(.2,.9,.3,1);
+  }
+  .row.cr .crtile { opacity: 1; transform: none; }
   .row { transition: top 900ms cubic-bezier(0.65, 0, 0.35, 1); }
   .row.no-anim { transition: none; }
 
@@ -403,9 +419,33 @@
     100% { box-shadow: inset 0 0 0 999px var(--accent-flash-0); }
   }
   .row.just-eliminated { animation: ff-elim-flash 1150ms ease-out; }
+  /* ---- TOP 4: the final squads across the top, pushed on its own ----
+     Separate from the side table so the operator can pull the table down
+     once four remain and keep this up. Drawn from the package's artwork
+     (cards, the WIN RATE tab and its label are all in it); the logo, the
+     four alive bars and the percentage are filled in. */
+  #top4 { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px;
+          pointer-events: none; }
+  #top4 .t4bg { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px;
+                opacity: 0; transition: opacity .35s ease; }
+  #top4.show .t4bg { opacity: 1; }
+  #top4 .t4card { position: absolute; top: 0; height: 140px;
+                  opacity: 0; transform: translateY(-120px);
+                  transition: opacity .35s ease, transform .6s cubic-bezier(.2,.9,.3,1.1); }
+  #top4.show .t4card { opacity: 1; transform: none; }
+  #top4 .t4card.out { filter: grayscale(1) brightness(.6); }
+  #top4 .t4logo { position: absolute; display: flex; align-items: center; justify-content: center; }
+  #top4 .t4logo img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  #top4 .t4bar { position: absolute; background: #ffffff; border-radius: 1px;
+                 transition: background .3s ease, opacity .3s ease; }
+  #top4 .t4bar.down { background: rgba(0, 0, 0, .38); }
+  #top4 .t4win { position: absolute; text-align: right; font-family: var(--top4-face, var(--face));
+                 font-weight: 900; line-height: 1; white-space: nowrap; }
 </style>
 </head>
 <body>
+
+<div id="top4"><img class="t4bg" alt=""></div>
 
 <div id="frame">
   <div id="stage">
@@ -529,6 +569,43 @@ const LAYOUTS = {
     kills: { x: 208, w: 74, size: 18 },
     pip: { x: 316.4, y: 8.5, w: 53.2, h: 27, size: 56.49, px: -1.69, py: -14.69 },
     originY: 576,
+  },
+
+  // SS3 (PRG BR SS3): the PRG ARROW table recoloured red and black --
+  // "prg ss s3 alive - BLANK.png" has the same panel (x 1602..1920,
+  // y 255..862) and the same twelve 45px rows from 287, measured, and the
+  // demo puts every cell where PRG ARROW's are. Ink sampled from the demo:
+  // all white (names, rank, numbers on the red). Champion Rush is a crown
+  // tile at x 1555..1599 beside the row, cut from the CR RUSH render.
+  ss3: {
+    bg: "prg ss s3 alive - BLANK.png",
+    pipBase: "Live Stats/",
+    rowTops: [287, 333, 379, 425, 471, 517, 564, 610, 656, 702, 748, 794],
+    row: { x: 1602, w: 318, h: 45 },
+    ink: "#ffffff",
+    face: "'TacticSans'",
+    accent: "#ff1e1e", accentGlow: "rgba(255, 30, 30, 0.9)",
+    accentFlash: ["rgba(255, 30, 30, 0)", "rgba(255, 30, 30, 0.5)"],
+    rank: { x: 2, w: 38, size: 20 },
+    logo: { x: 44, w: 34, img: 30 },
+    name: { x: 93, w: 118, size: 19, align: "flex-start" },
+    points: null,
+    kills: { x: 222, w: 45, size: 20 },
+    pip: { x: 275, y: 12, w: 29, h: 21, size: 43.15, px: -7.08, py: -11.05 },
+    originY: 558,
+    crTile: "cr_tile.png",
+    // The TOP 4 bar, measured from "prg br ss3 top 4 - BLANK/DEMO": four
+    // cards from x 426 on a 273px pitch, y 32..131; in each, the logo
+    // at +19..+69 / y 43..93, four bars 16x37 from +153 on a 22.7px
+    // pitch at y 50, and the percentage right-aligned at +243, y 111,
+    // in the package's red (238, 37, 23).
+    top4: {
+      bg: "prg br ss3 top 4 - BLANK.png",
+      cards: [426, 699, 972, 1245],
+      logo: { dx: 19, y: 43, w: 50, h: 50 },
+      bars: { dx: 153, y: 50, w: 16, h: 37, pitch: 22.7 },
+      win: { right: 245, y: 110, size: 18, ink: "#ee2517" },
+    },
   },
 
   // PRG ARROW (the ARROW SHOWDOWN alive table): MATCH STANDINGS / ELIMS /
@@ -701,6 +778,7 @@ function applyLayout(L, showPoints){
   // per package: CLT's box runs y 247..905, GC's 254..818.
   r.setProperty("--panel-origin-y", L.originY + "px");
   r.setProperty("--face", L.face);
+  r.setProperty("--top4-face", L.face);
   r.setProperty("--accent", L.accent);
   r.setProperty("--accent-glow", L.accentGlow);
   r.setProperty("--accent-flash-0", L.accentFlash[0]);
@@ -1122,6 +1200,7 @@ function makeRowEl(){
     '<div class="points"></div>' +
     '<div class="kills"></div>' +
     '<div class="status-pip"></div>' +
+    '<div class="crtile"></div>' +
     '<div class="flyby"><span class="word trail">ELIMINATED</span>' +
     '<span class="word">ELIMINATED</span></div>';
   return el;
@@ -1408,6 +1487,89 @@ function fitName(el){
   }
 }
 
+/* ---- TOP 4 -----------------------------------------------------------
+   WIN RATE is an ESTIMATE: the game publishes none. Weighted on what most
+   decides the last four -- players still standing, then kills -- and
+   scaled so the four add to 100. Over the replays of this event, the team
+   with the most kills among the last four went on to win 35% of the time
+   against 13% for the fewest; players alive count for more than that. */
+function winRates(rows){
+  const w = rows.map(r => {
+    const alive = r.eliminated ? 0 : Math.max(0, Number(r.aliveCount != null ? r.aliveCount : 4));
+    const kills = Math.max(0, Number(effectiveKills(r)) || 0);
+    return alive <= 0 ? 0 : Math.pow(alive, 1.5) * (1 + 0.1 * kills);
+  });
+  const total = w.reduce((a, b) => a + b, 0);
+  if(total <= 0) return w.map(() => null);
+  const pct = w.map(v => v / total * 100);
+  // whole numbers that still add to 100: largest remainders get the spare
+  const floor = pct.map(Math.floor);
+  let spare = 100 - floor.reduce((a, b) => a + b, 0);
+  pct.map((v, i) => [v - floor[i], i]).sort((a, b) => b[0] - a[0])
+     .forEach(([, i]) => { if(spare > 0 && w[i] > 0){ floor[i]++; spare--; } });
+  return floor.map((v, i) => w[i] > 0 ? v : null);
+}
+
+function renderTop4(state, source){
+  const box = document.getElementById("top4");
+  const L = layoutFor(state);
+  const T = L.top4;
+  const on = !!(T && ((state.display && state.display.top4Visible) || _params.get("top4") === "1"));
+  box.classList.toggle("show", on);
+  if(!T) return;
+  const base = assetBase(state);
+  const bg = box.querySelector(".t4bg");
+  if(bg.getAttribute("src") !== base + encodeURI(T.bg)) bg.src = base + encodeURI(T.bg);
+  if(!on) return;
+  // The four: everyone still in first, by the table's own order (most
+  // kills, then players up), then -- if fewer than four remain -- the
+  // last to fall, shown out.
+  const alive = source.filter(r => !r.eliminated);
+  const out = source.filter(r => r.eliminated)
+    .sort((a, b) => (a.finishRank || 99) - (b.finishRank || 99));
+  const four = alive.sort((a, b) => (effectiveKills(b) - effectiveKills(a)) ||
+                                    ((b.aliveCount || 0) - (a.aliveCount || 0)))
+    .slice(0, 4).concat(out).slice(0, 4);
+  const rates = winRates(four);
+  T.cards.forEach((x0, i) => {
+    let card = box.querySelector('.t4card[data-i="' + i + '"]');
+    if(!card){
+      card = document.createElement("div");
+      card.className = "t4card";
+      card.dataset.i = i;
+      card.style.transitionDelay = (i * 90) + "ms";
+      card.innerHTML = '<div class="t4logo"><img alt=""></div>' +
+        [0, 1, 2, 3].map(k => '<div class="t4bar" data-k="' + k + '"></div>').join("") +
+        '<div class="t4win"></div>';
+      box.appendChild(card);
+    }
+    card.style.left = x0 + "px";
+    const row = four[i];
+    card.style.visibility = row ? "" : "hidden";
+    if(!row) return;
+    card.classList.toggle("out", !!row.eliminated);
+    const team = logoFor(row.teamName, state.roster);
+    const lg = card.querySelector(".t4logo");
+    Object.assign(lg.style, { left: T.logo.dx + "px", top: T.logo.y + "px",
+                              width: T.logo.w + "px", height: T.logo.h + "px" });
+    const img = lg.querySelector("img");
+    const src = (team && team.logo) || "";
+    if(img.getAttribute("src") !== src){ if(src) img.src = src; img.style.display = src ? "" : "none"; }
+    const up = row.eliminated ? 0 : Math.max(0, Math.min(4, row.aliveCount != null ? row.aliveCount : 4));
+    card.querySelectorAll(".t4bar").forEach(b => {
+      const k = Number(b.dataset.k);
+      Object.assign(b.style, { left: (T.bars.dx + k * T.bars.pitch) + "px", top: T.bars.y + "px",
+                               width: T.bars.w + "px", height: T.bars.h + "px" });
+      b.classList.toggle("down", k >= up);
+    });
+    const win = card.querySelector(".t4win");
+    Object.assign(win.style, { left: "0px", width: T.win.right + "px", top: T.win.y + "px",
+                               fontSize: T.win.size + "px", color: T.win.ink });
+    const txt = rates[i] == null ? "\u2014" : rates[i] + "%";
+    if(win.textContent !== txt) win.textContent = txt;
+  });
+}
+
 function apply(state){
   lastState = state;
   const live = state.liveOps || {};
@@ -1421,6 +1583,10 @@ function apply(state){
   // so nothing reaches air from this.
   const visible = PREVIEW_MODE || (state.display && state.display.aliveStatusVisible);
 
+  // The top bar has its own switch, so it can stay up with the side table
+  // pulled down.
+  try { renderTop4(state, source); } catch(e){ console.error("top4:", e); }
+
   document.getElementById("stage").classList.toggle("show", !!visible && source.length > 0);
   if(!visible || !source.length) return;
 
@@ -1430,6 +1596,9 @@ function apply(state){
   // the column together, never one without the other.
   const showPoints = !!(L.points && state.display && state.display.aliveStatusPoints);
   applyLayout(L, showPoints);
+  const championTeams = new Set(
+    ((state.display || {}).championRushBadgeVisible ? ((state.championRush || {}).totals || []) : [])
+      .filter(t => t.activated).map(t => String(t.teamName || "").trim().toUpperCase()));
   ROW_TOPS = L.rowTops;
   ROW_BLOCK = { x: L.row.x, y: L.rowTops[0] };
   RANK_PREFIX = (L.rank && L.rank.prefix) || "";
@@ -1550,6 +1719,15 @@ function apply(state){
        set whether or not the package styles it, so adding the look later
        is a stylesheet change and nothing more. */
     el.classList.toggle("killleader", !!row.killLeader);
+    // Champion Rush: the scoreboard's rule -- emblem switched on, and the
+    // team activated in the committed standings.
+    const crTile = el.querySelector(".crtile");
+    const crOn = !!(L.crTile && championTeams.has(String(row.teamName || "").trim().toUpperCase()));
+    if(crOn && crTile.dataset.src !== base + L.crTile){
+      crTile.dataset.src = base + L.crTile;
+      crTile.style.backgroundImage = "url('" + base + L.crTile + "')";
+    }
+    el.classList.toggle("cr", crOn);
     if(row.eliminated){
       nowEliminated.add(key);
       noteElimination(key, row);

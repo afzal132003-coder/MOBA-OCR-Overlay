@@ -55,6 +55,25 @@
     --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
     --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
   }
+  @font-face {
+    font-family: 'TacticSans';
+    src: url('assets/freefire/ss3/TacticSans-BldIt.otf') format('opentype');
+    font-weight: 100 900; font-style: normal;
+  }
+  /* SS3: red and black with its yellow accent, Tactic Sans. The data
+     colours stay the validated palette -- only the frame changes. */
+  body.ss3{ --surface:#0e0e0e; --amber:#ffe97a; --grid:#2c2626; --text-3:#b39b9b; }
+  body.ss3, body.ss3 svg text{ font-family:'TacticSans',Arial,sans-serif !important; }
+  body.ss3 #panel.bg{
+    background:
+      radial-gradient(120% 90% at 50% 0%, rgba(255,30,30,.28) 0%, rgba(14,14,14,0) 60%),
+      repeating-linear-gradient(115deg, rgba(255,30,30,.05) 0 2px, transparent 2px 22px),
+      var(--surface);
+    border-top-color:#ff1e1e;
+  }
+  body.ss3 .kicker::before{ background:#ff1e1e; }
+  body.ss3 .title{ font-style:normal; }
+
   html,body{margin:0;padding:0;background:transparent;overflow:hidden;}
   body{width:1920px;height:1080px;font-family:'Supermolot',Arial,sans-serif;
        color:var(--text-1);-webkit-font-smoothing:antialiased;}
@@ -670,6 +689,13 @@ function render(state){
 
   const panel = document.getElementById("panel");
   panel.classList.toggle("bg", !!cfg.bg);
+  // Theme: the operator's choice, else the event's package.
+  const ev = state.event || {};
+  const themePick = String(_params.get("theme") || cfg.theme || "auto").toLowerCase();
+  const theme = themePick === "auto"
+    ? (String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase() === "ss3" ? "ss3" : "arrow")
+    : themePick;
+  document.body.classList.toggle("ss3", theme === "ss3");
   panel.classList.toggle("on", visible);
   document.getElementById("sample").classList.toggle("on", demo);
   if(!visible){ lastSig = ""; return; }

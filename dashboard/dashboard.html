@@ -2214,6 +2214,11 @@
           <input type="checkbox" id="ff_lobbyShortNames" checked>
           <span>Short name / tag on the strip</span>
         </label>
+        <div class="team-form" style="max-width:150px;margin:0;">
+          <label for="ff_lobbyTheme">Strip theme</label>
+          <select id="ff_lobbyTheme"><option value="auto">Auto (package)</option>
+            <option value="arrow">ARROW</option><option value="ss3">SS3</option></select>
+        </div>
       </div>
       <div style="margin-top:12px;padding:10px 12px;border:1px solid #1b2430;border-radius:10px;">
         <div class="row" style="gap:10px;align-items:flex-end;flex-wrap:wrap;">
@@ -2307,6 +2312,8 @@
         <button id="ff_aliveHereShow">Push Alive Status Up</button>
         <button class="secondary" id="ff_aliveHereHide">Pull Down</button>
         <button class="danger" id="ff_aliveResetTop" title="All squads alive, 0 kills, finishing positions cleared">New Game: Reset Alive Table</button>
+        <button id="ff_top4Show" title="The four-card bar across the top -- logo, alive bars, win rate. Its own switch: pull the side table down and keep this up.">Push Top 4 Up</button>
+        <button class="secondary" id="ff_top4Hide">Pull Top 4 Down</button>
         <label class="hint" style="display:flex;gap:6px;align-items:center;margin:0;">Alive graphic <select class="ff-alive-pkg" title="Which artwork the live alive table is drawn with. Only the alive table changes -- every other Free Fire graphic stays on the event package."><option value="">Event package</option></select></label>
         <span class="hint" id="ff_aliveHereState" style="align-self:center;"></span>
         <label class="hint" id="ff_alivePointsWrap" style="align-self:center;margin-left:8px;display:none;">
@@ -2667,6 +2674,11 @@
         <label style="display:flex;align-items:center;gap:8px;margin:0 0 4px;">
           <input type="checkbox" id="ff_tgAnim" checked><span>Animation in &amp; out</span>
         </label>
+        <div class="team-form" style="max-width:150px;margin:0;">
+          <label for="ff_tgTheme">Theme</label>
+          <select id="ff_tgTheme"><option value="auto">Auto (package)</option>
+            <option value="arrow">ARROW</option><option value="ss3">SS3</option></select>
+        </div>
       </div>
       <div style="margin-top:12px;padding:10px 12px;border:1px solid #1b2430;border-radius:10px;">
         <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;">
@@ -7503,6 +7515,8 @@ function ffRenderEvent(ff){
   setIfFree("ff_arrowWebhookUrl", (ff.settings && ff.settings.arrowWebhookUrl) || "");
   setIfFree("ff_lobbyTitle", (ff.lobby && ff.lobby.title) || "");
   setIfFree("ff_lobbyKicker", (ff.lobby && ff.lobby.kicker) || "");
+  const lt = document.getElementById("ff_lobbyTheme");
+  if (lt && document.activeElement !== lt) lt.value = (ff.lobby && ff.lobby.theme) || "auto";
   const sn = document.getElementById("ff_lobbyShortNames");
   if (sn && document.activeElement !== sn) {
     sn.checked = !(ff.lobby && ff.lobby.shortNames === false);
@@ -9806,7 +9820,8 @@ function ffLobbySend() {
     joined: ffLobbyTicked(),
     title: document.getElementById("ff_lobbyTitle").value.trim(),
     kicker: document.getElementById("ff_lobbyKicker").value.trim(),
-    shortNames: document.getElementById("ff_lobbyShortNames").checked
+    shortNames: document.getElementById("ff_lobbyShortNames").checked,
+    theme: (document.getElementById("ff_lobbyTheme") || {}).value || "auto"
   }));
 }
 
@@ -9903,6 +9918,8 @@ function ffLobbyCount() {
   document.getElementById("ff_lobbyNoneIn").addEventListener("click", () => setAll(false));
   document.getElementById("ff_lobbyShortNames")
     .addEventListener("change", ffLobbySend);
+  const themeSel = document.getElementById("ff_lobbyTheme");
+  if (themeSel) themeSel.addEventListener("change", () => ffLobbySend());
   /* ON "input", NOT JUST "change".
      change fires when the field loses focus. Typing a title and watching
      the strip -- which is exactly how this is used, both on the same
@@ -10266,6 +10283,7 @@ function ffTgSend(extra){
     teams: [document.getElementById("ff_tgA").value, document.getElementById("ff_tgB").value].filter(Boolean),
     bg: document.getElementById("ff_tgBg").checked,
     animate: document.getElementById("ff_tgAnim").checked,
+    theme: document.getElementById("ff_tgTheme").value,
   }, extra || {});
   ffWs.send(JSON.stringify(msg));
   return true;
@@ -10279,7 +10297,7 @@ function ffTgShowFields(){
 }
 (function ffWireTeamGraphs(){
   if(!document.getElementById("ff_tgGraph")) return;
-  ["ff_tgGraph", "ff_tgScope", "ff_tgTop", "ff_tgA", "ff_tgB", "ff_tgBg", "ff_tgAnim"].forEach(id =>
+  ["ff_tgGraph", "ff_tgScope", "ff_tgTop", "ff_tgA", "ff_tgB", "ff_tgBg", "ff_tgAnim", "ff_tgTheme"].forEach(id =>
     document.getElementById(id).addEventListener("change", () => { ffTgShowFields(); ffTgSend(); }));
   document.getElementById("ff_tgShow").addEventListener("click", () => {
     if(ffTgSend({ visible: true })) document.getElementById("ff_tgStatus").textContent = "Graph pushed up.";
@@ -10311,6 +10329,7 @@ function ffSyncTeamGraphs(){
   set("ff_tgTop", cfg.top != null ? String(cfg.top) : null);
   set("ff_tgBg", cfg.bg != null ? !!cfg.bg : null, "checked");
   set("ff_tgAnim", cfg.animate != null ? cfg.animate !== false : null, "checked");
+  set("ff_tgTheme", cfg.theme || "auto");
   ffTgShowFields();
   document.getElementById("ff_tgStatus").textContent = cfg.visible ? "On air." : "";
 }
@@ -10436,6 +10455,15 @@ function ffSyncTgGamesStatus(){
       : "Showing nothing yet -- no committed games. Use Latest Finished Game.";
   }
 }
+
+/* ---------- Top 4 bar ---------- */
+(function ffWireTop4(){
+  const up = document.getElementById("ff_top4Show");
+  if(!up) return;
+  const send = t => { if(ffWs && ffWs.readyState === WebSocket.OPEN) ffWs.send(JSON.stringify({ type: t })); };
+  up.addEventListener("click", () => send("top4_show"));
+  document.getElementById("ff_top4Hide").addEventListener("click", () => send("top4_hide"));
+})();
 
 /* ---------- ARROW sheet: Booyah, match top 5, series totals ----------
    The game checkboxes are drawn from the games actually committed, so a

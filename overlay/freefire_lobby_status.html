@@ -63,6 +63,41 @@
     --muted:#8fae9f;
   }
 
+  @font-face {
+    font-family: 'TacticSans';
+    src: url('assets/freefire/ss3/TacticSans-BldIt.otf') format('opentype');
+    font-weight: 100 900; font-style: normal;
+  }
+  /* SS3 (PRG BR SS3): red and black, the yellow of its headers, Tactic
+     Sans. Only the palette and face change -- every motion and layout rule
+     below is shared, so the two themes cannot drift apart. JOINED stays
+     light green and YET TO JOIN light red: those are meanings, not
+     decoration. */
+  body[data-theme="ss3"]{
+    --amber:#ffe97a; --amber-deep:#f5c400;
+    --joined:#6ef0a4; --waiting:#ff9c9c;
+    --green-0:#2a0707; --green-1:#0b0b0b;
+    --panel:#151515; --panel-lit:#222222;
+    --cream:#ffffff; --muted:#c9a9a9;
+    font-family:'TacticSans',Arial,sans-serif;
+  }
+  body[data-theme="ss3"] #stage{
+    background:
+      radial-gradient(120% 180% at 50% 0%, rgba(255,30,30,.35) 0%, rgba(11,11,11,0) 68%),
+      repeating-linear-gradient(115deg, rgba(255,30,30,.07) 0 2px, transparent 2px 18px),
+      linear-gradient(180deg, var(--green-0) 0%, var(--green-1) 100%);
+    border-top-color:#ff1e1e;
+  }
+  body[data-theme="ss3"] #stage::before{
+    background:linear-gradient(90deg, #ff1e1e 0%, rgba(255,30,30,.15) 38%,
+                                      rgba(255,30,30,.15) 62%, #ff1e1e 100%);
+  }
+  body[data-theme="ss3"] .slot{ border-color:rgba(255,30,30,.35); }
+  /* Tactic Sans runs wider than Supermolot: "YET TO JOIN" was clipped. */
+  body[data-theme="ss3"] .state{ font-size:11px; letter-spacing:.01em; gap:5px; }
+  body[data-theme="ss3"] .head .title,
+  body[data-theme="ss3"] .timer .tclock{ font-style:normal; }
+
   html,body{margin:0;padding:0;background:transparent;overflow:hidden;}
   body{
     width:1918px;height:248px;
@@ -555,9 +590,20 @@ function drawTimer(){
   requestAnimationFrame(tick);
 })();
 
+/* Which look: the operator's choice, else the event's own package -- an
+   event running SS3 graphics gets the SS3 strip without being told. */
+function lobbyTheme(ff){
+  const pick = ((ff.lobby || {}).theme || "auto").toLowerCase();
+  if(pick === "ss3" || pick === "arrow") return pick;
+  const ev = ff.event || {};
+  const folder = String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase();
+  return folder === "ss3" ? "ss3" : "arrow";
+}
+
 function render(ff){
   const teams = ((ff.roster || {}).teams) || [];
   const lobby = ff.lobby || {};
+  document.body.dataset.theme = lobbyTheme(ff);
   timerState = lobby.timer || null;
   drawTimer();
   const joined = lobby.joined || {};
