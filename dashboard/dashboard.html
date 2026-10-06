@@ -2640,6 +2640,7 @@
         <div class="team-form" style="max-width:200px;margin:0;">
           <label for="ff_tgGraph">Graph</label>
           <select id="ff_tgGraph">
+            <option value="columns">Team Points (all teams, logos)</option>
             <option value="race">Points Race</option>
             <option value="breakdown">Points Breakdown</option>
             <option value="kills">Kills By Game</option>
@@ -10271,7 +10272,7 @@ function ffTgSend(extra){
 }
 function ffTgShowFields(){
   const g = document.getElementById("ff_tgGraph").value;
-  document.getElementById("ff_tgScopeWrap").style.display = g === "breakdown" ? "" : "none";
+  document.getElementById("ff_tgScopeWrap").style.display = (g === "breakdown" || g === "columns") ? "" : "none";
   document.getElementById("ff_tgTopWrap").style.display = g === "race" ? "" : "none";
   document.getElementById("ff_tgAWrap").style.display = g === "h2h" ? "" : "none";
   document.getElementById("ff_tgBWrap").style.display = g === "h2h" ? "" : "none";

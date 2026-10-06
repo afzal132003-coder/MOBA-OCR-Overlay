@@ -113,6 +113,8 @@
   .fade{animation:fade .5s ease both;}
   @keyframes fade{from{opacity:0;}to{opacity:1;}}
   .draw{animation:draw 1.3s cubic-bezier(.3,.6,.3,1) both;}
+  .rise{transform-box:fill-box;transform-origin:center bottom;animation:rise .9s cubic-bezier(.2,.8,.3,1) both;}
+  @keyframes rise{from{transform:scaleY(0);}to{transform:scaleY(1);}}
   .pop{transform-box:fill-box;transform-origin:center;animation:pop .5s cubic-bezier(.2,.9,.3,1.25) both;}
   @keyframes pop{from{opacity:0;transform:scale(.55);}to{opacity:1;transform:scale(1);}}
   @keyframes draw{from{stroke-dashoffset:var(--len);}to{stroke-dashoffset:0;}}
@@ -290,6 +292,8 @@ const W = 1488;   // inner width of the panel
 const H = 640;    // chart height under the header
 
 function drawRace(svg, data, cfg, roster, head){
+  if(data.games.length < 2)
+    return drawColumns(svg, data, cfg, roster, head, "Points race needs two games");
   const top = Math.max(2, Math.min(8, Number(cfg.top) || 5));
   const teams = data.teams.map(t => {
     let acc = 0;
@@ -375,6 +379,84 @@ function drawRace(svg, data, cfg, roster, head){
     });
     if(busy) requestAnimationFrame(frame);
   })(t0);
+}
+
+/* TEAM POINTS: every team along the bottom -- logo and name -- and a column
+   rising for its points, placement underneath and kills on top, ranked left
+   to right. The view for a single game, and for "where does everyone
+   stand" at any point in a series. */
+function initialsOf(team){
+  const words = String(team.name || "").trim().split(/\s+/).filter(Boolean);
+  return (words.length === 1 ? words[0].slice(0, 3) : words.map(w => w[0]).join("").slice(0, 3)).toUpperCase();
+}
+function drawColumns(svg, data, cfg, roster, head, note){
+  const last = cfg.scope === "last" && data.games.length > 0;
+  const rows = data.teams.map(t => ({ t, place: sum(t, "place", last), kills: sum(t, "kills", last),
+                                      played: last ? !!t.games[t.games.length - 1] : true }))
+    .filter(r => r.played)
+    .map(r => Object.assign(r, { total: r.place + r.kills }))
+    .sort((a, b) => b.total - a.total || b.kills - a.kills);
+  const scopeText = last || data.games.length === 1
+    ? data.games[data.games.length - 1] + (data.games.length === 1 ? "" : " only")
+    : "All " + data.games.length + " games";
+  head("Team Points", (note ? note + " · " : "") + scopeText + " · placement + kill points",
+       [{label: "Placement points", colour: SERIES[0]}, {label: "Kill points", colour: SERIES[1]}]);
+  const L = 64, R = 16, T = 30, AX = 128;          // AX: room under the baseline for logos + names
+  const pw = W - L - R, ph = H - T - AX + 40;
+  const base = T + ph;
+  const max = niceMax(Math.max(1, ...rows.map(r => r.total)));
+  const yv = v => base - (v / max) * ph;
+  for(let k = 0; k <= 5; k++){
+    const v = (max / 5) * k, yy = yv(v);
+    el("line", {x1: L, x2: L + pw, y1: yy, y2: yy, stroke: "var(--grid)", "stroke-width": 1}, svg);
+    txt(svg, L - 14, yy + 6, String(Math.round(v)),
+        {"text-anchor": "end", fill: "var(--text-3)", "font-size": 16, "font-weight": 700});
+  }
+  const slot = pw / Math.max(1, rows.length);
+  const bw = Math.min(56, slot * 0.5);
+  rows.forEach((r, i) => {
+    const cx = L + slot * i + slot / 2, x0 = cx - bw / 2;
+    const delay = 150 + i * 70;
+    const hp = (r.place / max) * ph, hk = (r.kills / max) * ph;
+    const g = el("g", {class: "rise", style: "animation-delay:" + delay + "ms"}, svg);
+    // placement from the baseline, a 2px gap, kills on top with the rounded cap
+    if(hp > 0) el("path", {d: `M${x0},${base} V${base - hp + (hk > 0 ? 1 : Math.min(4, hp))}` +
+      (hk > 0 ? ` H${x0 + bw} V${base} Z`
+              : ` Q${x0},${base - hp} ${x0 + Math.min(4, bw / 2)},${base - hp} H${x0 + bw - Math.min(4, bw / 2)} Q${x0 + bw},${base - hp} ${x0 + bw},${base - hp + Math.min(4, hp)} V${base} Z`),
+      fill: SERIES[0]}, g);
+    if(hk > 0){
+      const top = base - hp - hk, b2 = base - hp - (hp > 0 ? 1 : 0), rr = Math.min(4, hk / 2);
+      el("path", {d: `M${x0},${b2} V${top + rr} Q${x0},${top} ${x0 + rr},${top} H${x0 + bw - rr} Q${x0 + bw},${top} ${x0 + bw},${top + rr} V${b2} Z`,
+                  fill: SERIES[1]}, g);
+    }
+    // values inside a segment only when it is tall enough to hold one
+    [[r.place, base - hp / 2, hp, SERIES[0]], [r.kills, base - hp - hk / 2, hk, SERIES[1]]].forEach(([v, yc, h, c]) => {
+      if(v > 0 && h >= 26) counted(txt(g, cx, yc + 6, String(v), {"text-anchor": "middle", "font-size": 16,
+                                                                  fill: inkOn(c), stroke: "none"}), v, delay);
+    });
+    counted(txt(svg, cx, base - hp - hk - 12, String(r.total),
+        {"text-anchor": "middle", "font-size": 24, "font-weight": 900, class: "fade",
+         style: "animation-delay:" + delay + "ms"}), r.total, delay);
+    // the team, under its column: rank, logo (or initials), short name
+    const logo = logoOf(r.t, roster);
+    const ly = base + 14, size = Math.min(64, slot - 16);
+    if(logo){
+      el("image", {href: logo, x: cx - size / 2, y: ly, width: size, height: size,
+                   preserveAspectRatio: "xMidYMid meet", class: "fade",
+                   style: "animation-delay:" + delay + "ms"}, svg);
+    } else {
+      el("rect", {x: cx - size / 2, y: ly, width: size, height: size, rx: 8,
+                  fill: "rgba(255,255,255,.06)", stroke: "rgba(247,148,29,.35)", class: "fade",
+                  style: "animation-delay:" + delay + "ms"}, svg);
+      txt(svg, cx, ly + size / 2 + 7, initialsOf(r.t), {"text-anchor": "middle", "font-size": 19,
+          "font-weight": 900, "font-style": "italic", fill: "var(--text-2)", class: "fade",
+          style: "animation-delay:" + delay + "ms"});
+    }
+    txt(svg, cx, ly + size + 24, r.t.short, {"text-anchor": "middle", "font-size": 18, class: "fade",
+        style: "animation-delay:" + delay + "ms"});
+    txt(svg, cx, ly + size + 46, "#" + (i + 1), {"text-anchor": "middle", "font-size": 14,
+        fill: "var(--text-3)", class: "fade", style: "animation-delay:" + delay + "ms"});
+  });
 }
 
 function drawBreakdown(svg, data, cfg, roster, head){
@@ -539,7 +621,7 @@ function drawH2H(svg, data, cfg, roster, head){
   txt(svg, mid + gap + 14, yb + 8, sb.best ? "#" + sb.best : "–", {"font-size": 24, "font-weight": 900});
 }
 
-const GRAPHS = { race: drawRace, breakdown: drawBreakdown, kills: drawKills, h2h: drawH2H };
+const GRAPHS = { columns: drawColumns, race: drawRace, breakdown: drawBreakdown, kills: drawKills, h2h: drawH2H };
 
 /* ---- render -------------------------------------------------------- */
 
