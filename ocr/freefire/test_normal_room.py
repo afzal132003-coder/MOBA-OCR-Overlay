@@ -443,6 +443,17 @@ def main():
         ff.server_state["event"] = keep_ev4
         ff.server_state["roster"] = keep_ro4
 
+    print("\na short name from another lobby is not someone else's team")
+    roster_m = [{"name": "LR7 ESP", "shortName": ""}, {"name": "NG PROS", "shortName": ""},
+                {"name": "HEAD HUNTERS", "shortName": ""}]
+    check("an old lobby's RES is not LR7 ESP (generic ESP set aside)",
+          ff.match_roster_team("RES", roster_m) is None,
+          str((ff.match_roster_team("RES", roster_m) or {}).get("name")))
+    check("but LR7 still finds LR7 ESP",
+          (ff.match_roster_team("LR7", roster_m) or {}).get("name") == "LR7 ESP")
+    check("and a near-spelling still matches",
+          (ff.match_roster_team("HEAD HUNTER", roster_m) or {}).get("name") == "HEAD HUNTERS")
+
     print("\n%d checks, %d failed" % (checks, len(failures)))
     if failures:
         print("failed: " + ", ".join(failures))
