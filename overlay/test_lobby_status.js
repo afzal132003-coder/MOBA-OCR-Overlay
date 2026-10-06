@@ -45,7 +45,9 @@ function lift(name) {
 
 const SOURCE =
   "let wasJoined = new Set();\nlet lastSignature = '';\nlet wasVisible = false;\n" +
-  ["esc", "label", "initials", "render"].map(lift).join("\n\n");
+  "let clockOffset = 0;\nlet timerState = null;\nlet lastShown = '';\n" +
+  ["esc", "label", "initials", "fmt", "timerRemaining", "drawTimer", "render"]
+    .map(lift).join("\n\n");
 
 let checks = 0; const failures = [];
 function check(label, ok, detail) {
@@ -67,13 +69,14 @@ function mkEnv() {
       toggle(c, on) { if (on) this._s.add(c); else this._s.delete(c); },
     },
   });
-  ["stage", "title", "kicker", "cards", "joined", "total"].forEach(
-    id => (nodes[id] = mk(id)));
+  ["stage", "title", "kicker", "cards", "joined", "total",
+   "timer", "timerLabel", "timerClock", "timerBar", "timerState"].forEach(
+    id => (nodes[id] = Object.assign(mk(id), { style: {} })));
   const vm = require("vm");
   const sandbox = {
     document: { getElementById: id => nodes[id] || null },
     setTimeout: () => 0,
-    JSON, console,
+    JSON, console, Math, Number, Date,
   };
   vm.createContext(sandbox);
   vm.runInContext(SOURCE, sandbox);
@@ -255,6 +258,48 @@ console.log("\na stale state never undoes a newer tick");
   const later = vm.runInContext("_keepNewestLobby(__restart)", sb);
   check("an old guard expires, so a restarted engine is believed",
         !later.lobby.joined.TAG);
+})();
+
+console.log("\nthe room-create countdown");
+(function () {
+  const env = mkEnv();
+  const withTimer = (t) => Object.assign(state(true), { lobby: { joined: {}, timer: t } });
+  let n = draw(env, state(true));
+  check("no timer in the state: the block stays out of the layout",
+        !n.timer.classList.contains("on"));
+  n = draw(env, withTimer({ show: false, running: false, remainingMs: 300000, durationMs: 300000 }));
+  check("switched off: hidden, so the cards keep the room",
+        !n.timer.classList.contains("on"));
+  n = draw(env, withTimer({ show: true, running: false, remainingMs: 300000, durationMs: 300000,
+                            label: "Room closes in" }));
+  check("switched on and paused: shown, full time, PAUSED",
+        n.timer.classList.contains("on") && n.timerClock.textContent === "05:00" &&
+        n.timerState.textContent === "Paused" && n.timerLabel.textContent === "Room closes in",
+        n.timerClock.textContent + " / " + n.timerState.textContent);
+  const end = Date.now() + 95000;
+  n = draw(env, withTimer({ show: true, running: true, endsAt: end, remainingMs: 95000,
+                            durationMs: 300000 }));
+  check("running: counts from its end time, not from what was sent",
+        n.timerClock.textContent === "01:35" && n.timerState.textContent === "",
+        n.timerClock.textContent);
+  check("and the bar shows the share left",
+        /^scaleX\(0\.31/.test(n.timerBar.style.transform), n.timerBar.style.transform);
+  env.vm.runInContext("clockOffset = 20000;", env.sandbox);
+  env.vm.runInContext("lastShown = '';", env.sandbox);
+  n = draw(env, withTimer({ show: true, running: true, endsAt: end, remainingMs: 95000,
+                            durationMs: 300000 }));
+  check("an OBS PC 20s behind the engine still shows the engine's time",
+        n.timerClock.textContent === "01:15", n.timerClock.textContent);
+  env.vm.runInContext("clockOffset = 0; lastShown = '';", env.sandbox);
+  n = draw(env, withTimer({ show: true, running: true, endsAt: Date.now() + 20000,
+                            remainingMs: 20000, durationMs: 300000 }));
+  check("the last thirty seconds turn urgent",
+        n.timer.classList.contains("urgent"));
+  n = draw(env, withTimer({ show: true, running: true, endsAt: Date.now() - 5000,
+                            remainingMs: 0, durationMs: 300000 }));
+  check("past the end it holds at 00:00 and says so",
+        n.timerClock.textContent === "00:00" && n.timerState.textContent === "Time up" &&
+        n.timer.classList.contains("done"));
 })();
 
 console.log("\n" + checks + " checks, " + failures.length + " failed");

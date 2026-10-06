@@ -8898,6 +8898,9 @@ async def push_lobby_update():
     """
     await broadcast_to_page("freefire_lobby_status", {
         "type": "lobby_update",
+        # The engine's clock, so the strip can count down against it even
+        # when the PC running OBS keeps slightly different time.
+        "serverNow": int(time.time() * 1000),
         "lobby": server_state.get("lobby") or {},
         "visible": bool((server_state.get("display") or {})
                         .get("lobbyStatusVisible")),
@@ -9766,6 +9769,43 @@ async def handle_client(websocket, path=None):
                 # state writes 190 KB to disk and the full sync is 72 KB
                 # on the wire; neither belongs between pressing Show and
                 # the graphic moving.
+                await push_lobby_update()
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "lobby_timer":
+                # THE ROOM-CREATE COUNTDOWN on the lobby strip. Kept as an
+                # END TIME while running and a remainder while paused, so
+                # the strip counts down by itself -- smoothly, every frame --
+                # and nothing has to be sent once a second to drive it.
+                lobby = server_state.setdefault(
+                    "lobby", {"joined": {}, "title": "", "kicker": ""})
+                timer = lobby.setdefault("timer", {
+                    "show": False, "running": False, "endsAt": None,
+                    "durationMs": 300000, "remainingMs": 300000,
+                    "label": "Lobby closes in"})
+                now_ms = int(time.time() * 1000)
+                action = payload.get("action")
+                if action == "set":
+                    ms = max(0, int(float(payload.get("seconds") or 0) * 1000))
+                    timer.update(durationMs=ms, remainingMs=ms,
+                                 running=False, endsAt=None)
+                elif action == "start" and not timer.get("running"):
+                    remaining = int(timer.get("remainingMs") or 0)
+                    if remaining <= 0:
+                        remaining = int(timer.get("durationMs") or 0)
+                    timer.update(running=True, endsAt=now_ms + remaining,
+                                 remainingMs=remaining)
+                elif action == "pause" and timer.get("running"):
+                    timer.update(running=False, endsAt=None,
+                                 remainingMs=max(0, int(timer["endsAt"]) - now_ms))
+                elif action == "reset":
+                    timer.update(running=False, endsAt=None,
+                                 remainingMs=int(timer.get("durationMs") or 0))
+                if payload.get("show") is not None:
+                    timer["show"] = bool(payload["show"])
+                if payload.get("label") is not None:
+                    timer["label"] = str(payload["label"])[:40]
+                _bump_lobby_rev()
                 await push_lobby_update()
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})

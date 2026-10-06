@@ -44,6 +44,13 @@
 
      One family name for all three, so `font-weight` picks between them
      the way it does for any other font. */
+  /* PRG ARROW's face -- TT Supermolot Black Italic, the same file the
+     lobby strip uses for the ARROW SHOWDOWN theme. */
+  @font-face {
+    font-family: 'Supermolot';
+    src: url('assets/fonts/TT Supermolot Neue Trial Black Italic.ttf') format('truetype');
+    font-weight: 400 900; font-style: normal; font-display: block;
+  }
   @font-face {
     font-family: 'Nippo';
     src: url('assets/freefire/GC/fonts/Nippo-Variable.woff2') format('woff2-variations'),
@@ -221,7 +228,7 @@
     position: absolute; display: var(--rank-display);
     left: var(--rank-x); top: 0; width: var(--rank-w); height: var(--row-h);
     align-items: center; justify-content: center;
-    color: var(--ink); font-weight: 800; font-size: var(--rank-size);
+    color: var(--rank-ink, var(--ink)); font-weight: 800; font-size: var(--rank-size);
     font-variant-numeric: tabular-nums;
   }
   .logo {
@@ -237,7 +244,7 @@
     position: absolute; left: var(--name-x); top: 0;
     width: var(--name-w); height: var(--row-h);
     display: flex; align-items: center; justify-content: var(--name-align);
-    color: var(--ink); font-weight: 700; font-size: var(--name-size);
+    color: var(--name-ink, var(--ink)); font-weight: 700; font-size: var(--name-size);
     letter-spacing: 0.2px;
     text-transform: uppercase; white-space: nowrap; overflow: hidden;
   }
@@ -256,7 +263,7 @@
     position: absolute; left: var(--kills-x); top: 0;
     width: var(--kills-w); height: var(--row-h);
     display: flex; align-items: center; justify-content: center;
-    color: var(--ink); font-weight: 800; font-size: var(--num-size);
+    color: var(--kills-ink, var(--ink)); font-weight: 800; font-size: var(--num-size);
     font-variant-numeric: tabular-nums;
   }
 
@@ -524,6 +531,38 @@ const LAYOUTS = {
     originY: 576,
   },
 
+  // PRG ARROW (the ARROW SHOWDOWN alive table): MATCH STANDINGS / ELIMS /
+  // STATUS. Measured from "prg arrow alive status - blank.png" against the
+  // demo render: panel x 1602..1920, y 255..862; twelve 45px rows from 287
+  // on a ~46px pitch (alpha and luminance scan of the blank); in each row
+  // the rank digits centre on x 1622, the logo on 1663, the name starts at
+  // 1695 on the light band, "00" centres on 1846.5 on the green, and the
+  // four bars fill x 1877..1906 / y 299..320. The bar icons share one
+  // content box, x 82..417 / y 128..372 of their 500 canvas, so one crop
+  // shows all five: 29px wide, 43.15px canvas, offset -7.08 / -11.05.
+  // Ink sampled from the demo: names and rank (36,36,36), numbers
+  // (213,219,213). The rank is printed bare ("1"), not "#1".
+  "PRG ARROW": {
+    bg: "prg arrow alive status - blank.png",
+    pipBase: "Live Stats/",
+    rowTops: [287, 333, 379, 425, 471, 517, 564, 610, 656, 702, 748, 794],
+    row: { x: 1602, w: 318, h: 45 },
+    ink: "#d5dbd5",
+    rankInk: "#242424", nameInk: "#242424", killsInk: "#d5dbd5",
+    face: "'Supermolot'",
+    // The package's own orange (its MATCH STANDINGS header), so an
+    // elimination alert belongs to the design.
+    accent: "#f39a1e", accentGlow: "rgba(243, 154, 30, 0.9)",
+    accentFlash: ["rgba(243, 154, 30, 0)", "rgba(243, 154, 30, 0.5)"],
+    rank: { x: 2, w: 38, size: 19 },
+    logo: { x: 44, w: 34, img: 30 },
+    name: { x: 93, w: 118, size: 19, align: "flex-start" },
+    points: null,
+    kills: { x: 222, w: 45, size: 19 },
+    pip: { x: 275, y: 12, w: 29, h: 21, size: 43.15, px: -7.08, py: -11.05 },
+    originY: 558,          // centre of y 255..862
+  },
+
   // The # / TEAM / ALIVE / PTS. / ELIMS. design. Panel x 1455..1920,
   // y 254..818; header 254..288; twelve 43px rows from 291 on a 44px
   // pitch. The slot number is NOT printed in this artwork, so this one
@@ -603,9 +642,13 @@ const LAYOUTS = {
 // Which package's artwork is on disk decides which layout is used, so
 // switching graphics packages on the dashboard switches this too with
 // nothing else to remember.
+function aliveFolder(state){
+  const ev = (state && state.event) || {};
+  return ev.aliveAssetFolder || ev.assetFolder || "CLT";
+}
+
 function layoutFor(state){
-  const folder = (state && state.event && state.event.assetFolder) || "CLT";
-  return LAYOUTS[folder] || LAYOUTS.CLT;
+  return LAYOUTS[aliveFolder(state)] || LAYOUTS.CLT;
 }
 
 let activeLayout = null;
@@ -614,7 +657,7 @@ let activeLayout = null;
    this runs on every sync, and rewriting a dozen properties on the root
    element four times a second invalidates style for the whole page. */
 function applyLayout(L, showPoints){
-  const sig = JSON.stringify([L.row, showPoints]);
+  const sig = JSON.stringify([L.row, L.ink, L.nameInk, L.killsInk, L.face, showPoints]);
   if(activeLayout === sig) return;
   activeLayout = sig;
   const r = document.documentElement.style;
@@ -622,6 +665,11 @@ function applyLayout(L, showPoints){
   r.setProperty("--row-w", L.row.w + "px");
   r.setProperty("--row-h", L.row.h + "px");
   r.setProperty("--ink", L.ink);
+  // Per-column ink where a package needs it (PRG ARROW: dark names on its
+  // light band, light numbers on its green); otherwise every cell is --ink.
+  r.setProperty("--rank-ink", L.rankInk || L.ink);
+  r.setProperty("--name-ink", L.nameInk || L.ink);
+  r.setProperty("--kills-ink", L.killsInk || L.ink);
   r.setProperty("--rank-display", L.rank ? "flex" : "none");
   r.setProperty("--rank-x", ((L.rank && L.rank.x) || 0) + "px");
   r.setProperty("--rank-w", ((L.rank && L.rank.w) || 0) + "px");
@@ -694,8 +742,8 @@ function connect(){
 }
 
 function assetBase(state){
-  const folder = (state.event && state.event.assetFolder) || "CLT";
-  return "assets/freefire/" + folder + "/";
+  // Encoded: "PRG ARROW" has a space, and its files do too.
+  return "assets/freefire/" + encodeURIComponent(aliveFolder(state)) + "/";
 }
 
 function escapeHtml(s){

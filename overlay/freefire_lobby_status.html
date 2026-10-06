@@ -391,6 +391,54 @@
     55% {opacity:1;}
     100%{opacity:1;transform:translateY(0);}
   }
+  /* ---- the room-create countdown, the header's mirror at the far end ----
+     Present only while the operator has it switched on; off, it is gone
+     from the layout entirely and the twelve cards take the room back. */
+  .timer{
+    flex:0 0 212px;display:none;flex-direction:column;justify-content:center;
+    padding-left:22px;position:relative;
+  }
+  .timer.on{display:flex;}
+  .timer::before{
+    content:"";position:absolute;left:0;top:8%;bottom:8%;width:3px;
+    background:linear-gradient(180deg,
+      transparent, var(--amber) 22%, var(--amber) 78%, transparent);
+  }
+  .timer .tlabel{
+    font-weight:800;font-size:15px;letter-spacing:.16em;
+    color:var(--cream);text-transform:uppercase;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;
+    text-shadow:0 1px 0 rgba(0,0,0,.4);
+  }
+  .timer .tlabel::before{
+    content:"";display:block;width:26px;height:3px;
+    background:var(--amber);margin:0 0 7px;
+  }
+  .timer .tclock{
+    font-weight:900;font-style:italic;font-size:66px;line-height:1;
+    margin-top:6px;color:var(--amber);letter-spacing:.01em;
+    font-variant-numeric:tabular-nums;
+    text-shadow:0 3px 0 rgba(0,0,0,.35);
+    transition:color .3s ease;
+  }
+  /* The last thirty seconds: coral, and a slow pulse -- urgency without
+     anything that flickers under the live game. */
+  .timer.urgent .tclock{color:var(--waiting);animation:tpulse 1s ease-in-out infinite;}
+  @keyframes tpulse{0%,100%{opacity:1;}50%{opacity:.62;}}
+  .timer.done .tclock{color:var(--waiting);}
+  .timer .tbar{
+    margin-top:10px;height:5px;background:rgba(0,0,0,.35);overflow:hidden;
+    clip-path:polygon(0 0, 100% 0, calc(100% - 5px) 100%, 0 100%);
+  }
+  .timer .tbar i{
+    display:block;height:100%;width:100%;background:var(--amber);
+    transform-origin:left center;
+  }
+  .timer.urgent .tbar i, .timer.done .tbar i{background:var(--waiting);}
+  .timer .tstate{
+    margin-top:7px;font-weight:700;font-size:12px;letter-spacing:.24em;
+    color:var(--muted);text-transform:uppercase;min-height:14px;
+  }
 </style>
 </head>
 <body>
@@ -402,6 +450,12 @@
       <span>Checked In</span></div>
   </div>
   <div class="cards" id="cards"></div>
+  <div class="timer" id="timer">
+    <div class="tlabel" id="timerLabel">Lobby closes in</div>
+    <div class="tclock" id="timerClock">05:00</div>
+    <div class="tbar"><i id="timerBar"></i></div>
+    <div class="tstate" id="timerState"></div>
+  </div>
 </div>
 
 <script>
@@ -453,9 +507,59 @@ let lastSignature = "";
    all twelve cards flying again in the middle of the show. */
 let wasVisible = false;
 
+/* ---- the countdown ----
+   The engine sends an END TIME while running and a remainder while paused;
+   this page counts down by itself, every frame. clockOffset is the engine's
+   clock minus this one, taken from each lobby_update, so a PC running OBS a
+   second or two off the engine's still shows the right time. */
+let clockOffset = 0;
+let timerState = null;
+let lastShown = "";
+
+function fmt(ms){
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  const m = Math.floor(s / 60), r = s % 60;
+  return (m < 10 ? "0" : "") + m + ":" + (r < 10 ? "0" : "") + r;
+}
+
+function timerRemaining(t){
+  if(!t) return 0;
+  if(t.running && t.endsAt) return Math.max(0, t.endsAt - (Date.now() + clockOffset));
+  return Math.max(0, Number(t.remainingMs) || 0);
+}
+
+function drawTimer(){
+  const t = timerState;
+  const box = document.getElementById("timer");
+  const on = !!(t && t.show);
+  box.classList.toggle("on", on);
+  if(!on){ lastShown = ""; return; }
+  const left = timerRemaining(t);
+  const text = fmt(left);
+  const total = Math.max(1, Number(t.durationMs) || 1);
+  document.getElementById("timerBar").style.transform =
+    "scaleX(" + Math.min(1, left / total).toFixed(4) + ")";
+  box.classList.toggle("urgent", left > 0 && left <= 30000);
+  box.classList.toggle("done", left <= 0);
+  const state = left <= 0 ? "Time up" : (t.running ? "" : "Paused");
+  const sig = text + "|" + (t.label || "") + "|" + state;
+  if(sig === lastShown) return;
+  lastShown = sig;
+  document.getElementById("timerClock").textContent = text;
+  document.getElementById("timerLabel").textContent = t.label || "Lobby closes in";
+  document.getElementById("timerState").textContent = state;
+}
+
+(function tick(){
+  drawTimer();
+  requestAnimationFrame(tick);
+})();
+
 function render(ff){
   const teams = ((ff.roster || {}).teams) || [];
   const lobby = ff.lobby || {};
+  timerState = lobby.timer || null;
+  drawTimer();
   const joined = lobby.joined || {};
   const visible = !!(ff.display && ff.display.lobbyStatusVisible) && teams.length > 0;
 
@@ -582,6 +686,7 @@ function connect(){
          arrived yet; one is always sent on connect. */
       if(!_lastState) return;
       const lobby = msg.lobby || {};
+      if(msg.serverNow) clockOffset = Number(msg.serverNow) - Date.now();
       // Out of order? An older update is simply ignored.
       if(_newestLobby && _lobbyRev(lobby) < _newestLobby.rev &&
          Date.now() - _newestLobby.at <= NEWEST_LOBBY_TRUST_MS) return;

@@ -2215,6 +2215,35 @@
           <span>Short name / tag on the strip</span>
         </label>
       </div>
+      <div style="margin-top:12px;padding:10px 12px;border:1px solid #1b2430;border-radius:10px;">
+        <div class="row" style="gap:10px;align-items:flex-end;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:8px;margin:0 0 4px;">
+            <input type="checkbox" id="ff_lobbyTimerShow">
+            <span><strong>Countdown on the strip</strong></span>
+          </label>
+          <div class="team-form" style="max-width:90px;margin:0;">
+            <label for="ff_lobbyTimerMin">Minutes</label>
+            <input type="number" id="ff_lobbyTimerMin" min="0" max="120" value="5">
+          </div>
+          <div class="team-form" style="max-width:90px;margin:0;">
+            <label for="ff_lobbyTimerSec">Seconds</label>
+            <input type="number" id="ff_lobbyTimerSec" min="0" max="59" value="0">
+          </div>
+          <button class="secondary" id="ff_lobbyTimerSet">Set</button>
+          <button id="ff_lobbyTimerStart">Start</button>
+          <button class="secondary" id="ff_lobbyTimerPause">Pause</button>
+          <button class="secondary" id="ff_lobbyTimerReset">Reset</button>
+          <div class="team-form" style="max-width:220px;margin:0;">
+            <label for="ff_lobbyTimerLabel">Label above it</label>
+            <input type="text" id="ff_lobbyTimerLabel" placeholder="Lobby closes in" maxlength="40">
+          </div>
+          <span id="ff_lobbyTimerNow" style="font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;
+                align-self:center;margin-left:6px;">--:--</span>
+        </div>
+        <p class="hint" style="margin:6px 0 0;">Set the time, tick <em>Countdown on the strip</em> to show it,
+          then Start. It counts down on the strip by itself, smoothly, and turns coral for the last thirty
+          seconds. Pause holds it; Reset puts it back to the time you set.</p>
+      </div>
       <p class="hint" style="margin:6px 0 0;">Twelve cards across 1918px give each about 140 pixels, so
         <code>COSMIC ESPORT</code> gets cut where <code>CE</code> fits. Turn it off for a lobby whose names are
         all short. A team's <strong>display name</strong>, if you set one, wins either way.</p>
@@ -2278,6 +2307,7 @@
         <button id="ff_aliveHereShow">Push Alive Status Up</button>
         <button class="secondary" id="ff_aliveHereHide">Pull Down</button>
         <button class="danger" id="ff_aliveResetTop" title="All squads alive, 0 kills, finishing positions cleared">New Game: Reset Alive Table</button>
+        <label class="hint" style="display:flex;gap:6px;align-items:center;margin:0;">Alive graphic <select class="ff-alive-pkg" title="Which artwork the live alive table is drawn with. Only the alive table changes -- every other Free Fire graphic stays on the event package."><option value="">Event package</option></select></label>
         <span class="hint" id="ff_aliveHereState" style="align-self:center;"></span>
         <label class="hint" id="ff_alivePointsWrap" style="align-self:center;margin-left:8px;display:none;">
           <input type="checkbox" id="ff_alivePoints"> Show the PTS. column
@@ -3062,6 +3092,7 @@
       <div class="row" style="gap:8px;">
         <button id="ff_aliveStatusShow">Push Alive Status Up</button>
         <button class="secondary" id="ff_aliveStatusHide">Pull Alive Status Down</button>
+        <label class="hint" style="display:flex;gap:6px;align-items:center;margin:0;">Alive graphic <select class="ff-alive-pkg" title="Which artwork the live alive table is drawn with. Only the alive table changes -- every other Free Fire graphic stays on the event package."><option value="">Event package</option></select></label>
       </div>
       <div class="hint" id="ff_aliveStatusStatus" style="margin-top:6px;"></div>
 
@@ -6513,6 +6544,8 @@ function ffOpen(url){
       try { ffRenderNameSquads(); } catch(e){ console.error("name squads:", e); }
       try { ffDrawRoomSlots(); } catch(e){ console.error("room slots:", e); }
       try { ffSyncAliveNameStyle(); } catch(e){ console.error("name style:", e); }
+      try { ffDrawAlivePackages(); } catch(e){ console.error("alive packages:", e); }
+      try { ffSyncLobbyTimerControls(); } catch(e){ console.error("lobby timer:", e); }
       if(!ffHydrated){
         ffHydrate(ffState);
         ffHydrated = true;
@@ -10035,6 +10068,89 @@ function ffSyncAliveNameStyle(){
     ffAliveNameStyle = onAir;
     try { ffRenderAliveGridRows(ffState); } catch(e) {}
   }
+}
+
+/* ---------- Which artwork draws the ALIVE TABLE ----------
+   Its own choice, separate from the event's graphics package: a package
+   like PRG ARROW ships alive-table artwork only, and making it the whole
+   event's package would leave the standings, elimination card and the
+   rest looking for files that are not there. Empty = the event package.
+   Saved MERGED into the event, for the reason given at Save Event Setup. */
+function ffDrawAlivePackages(){
+  if(!ffState) return;
+  const packs = ffState.assetPackages || [];
+  const chosen = (ffState.event && ffState.event.aliveAssetFolder) || "";
+  const evPack = (ffState.event && ffState.event.assetFolder) || "CLT";
+  document.querySelectorAll(".ff-alive-pkg").forEach(sel => {
+    if(document.activeElement === sel) return;
+    const want = ["<option value=''>Event package (" + ffEscapeHtml(evPack) + ")</option>"]
+      .concat(packs.map(p => "<option value=\"" + ffEscapeHtml(p).replace(/"/g, "&quot;") + "\">" +
+                             ffEscapeHtml(p) + "</option>")).join("");
+    if(sel.dataset.sig !== want){ sel.innerHTML = want; sel.dataset.sig = want; }
+    if(sel.value !== chosen) sel.value = chosen;
+  });
+}
+document.querySelectorAll(".ff-alive-pkg").forEach(sel => {
+  sel.addEventListener("change", () => {
+    if(!(ffWs && ffWs.readyState === WebSocket.OPEN) || !ffState) return;
+    const event = Object.assign({}, ffState.event || {}, { aliveAssetFolder: sel.value });
+    ffState.event = event;
+    ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { event } } }));
+    ffDrawAlivePackages();
+  });
+});
+
+/* ---------- Lobby strip countdown ----------
+   The engine holds an end time (running) or a remainder (paused); this
+   only sends the operator's intent and shows the same count locally. */
+function ffLobbyTimer(action, extra){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  ffWs.send(JSON.stringify(Object.assign({ type: "lobby_timer", action: action }, extra || {})));
+}
+function ffLobbyTimerSeconds(){
+  const m = Math.max(0, Number(document.getElementById("ff_lobbyTimerMin").value) || 0);
+  const sec = Math.max(0, Math.min(59, Number(document.getElementById("ff_lobbyTimerSec").value) || 0));
+  return m * 60 + sec;
+}
+(function ffWireLobbyTimer(){
+  const show = document.getElementById("ff_lobbyTimerShow");
+  if(!show) return;
+  show.addEventListener("change", () => ffLobbyTimer("show", { show: show.checked }));
+  document.getElementById("ff_lobbyTimerSet").addEventListener("click", () =>
+    ffLobbyTimer("set", { seconds: ffLobbyTimerSeconds() }));
+  document.getElementById("ff_lobbyTimerStart").addEventListener("click", () => {
+    // Starting a timer that was never set starts the time in the boxes.
+    const t = ffState && ffState.lobby && ffState.lobby.timer;
+    if(!t) ffLobbyTimer("set", { seconds: ffLobbyTimerSeconds() });
+    ffLobbyTimer("start");
+  });
+  document.getElementById("ff_lobbyTimerPause").addEventListener("click", () => ffLobbyTimer("pause"));
+  document.getElementById("ff_lobbyTimerReset").addEventListener("click", () => ffLobbyTimer("reset"));
+  let labelTimer = null;
+  document.getElementById("ff_lobbyTimerLabel").addEventListener("input", (e) => {
+    clearTimeout(labelTimer);
+    labelTimer = setTimeout(() => ffLobbyTimer("label", { label: e.target.value }), 350);
+  });
+  // The dashboard's own copy of the count, so the operator sees what is on air.
+  setInterval(() => {
+    const t = ffState && ffState.lobby && ffState.lobby.timer;
+    const el = document.getElementById("ff_lobbyTimerNow");
+    if(!el) return;
+    if(!t){ el.textContent = "--:--"; return; }
+    const left = t.running && t.endsAt ? Math.max(0, t.endsAt - Date.now()) : Math.max(0, t.remainingMs || 0);
+    const sec = Math.ceil(left / 1000), m = Math.floor(sec / 60), r = sec % 60;
+    el.textContent = (m < 10 ? "0" : "") + m + ":" + (r < 10 ? "0" : "") + r +
+                     (t.running ? "" : (left > 0 ? "  (paused)" : "  (time up)"));
+    el.style.color = left > 0 && left <= 30000 ? "#ff7a7a" : "";
+  }, 250);
+})();
+function ffSyncLobbyTimerControls(){
+  const t = ffState && ffState.lobby && ffState.lobby.timer;
+  if(!t) return;
+  const show = document.getElementById("ff_lobbyTimerShow");
+  if(show && document.activeElement !== show) show.checked = !!t.show;
+  const lab = document.getElementById("ff_lobbyTimerLabel");
+  if(lab && document.activeElement !== lab && lab.value !== (t.label || "")) lab.value = t.label || "";
 }
 
 /* ---------- ARROW sheet: Booyah, match top 5, series totals ----------
