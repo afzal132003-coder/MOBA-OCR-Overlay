@@ -51,6 +51,8 @@ import pytesseract
 import websockets
 import keyboard
 
+import map_analysis
+
 
 # --- DNS that survives a bad minute ------------------------------------
 _dns_cache = {}
@@ -1274,6 +1276,9 @@ def blank_live_match():
         "zonePhaseAt": None,   # when the current phase began, for the countdown
         "zoneHistory": [],
         "airline": None,   # {"start": [x,y,z], "end": [x,y,z]}
+        # Which map, from "SendJoinMatch ... MapID=N" as the match loads
+        # -- the replay file says it too, but only once the match is over.
+        "mapId": None,
         # [epoch, ...] one per airdrop moment seen this match.
         "airdrops": [],
         "itemCounts": {},  # runtime player id -> {EITEM_TYPE -> count}
@@ -1358,6 +1363,7 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
             # whichever line triggers this, so clearing it here would
             # throw away the new match's flight path, not the old one's.
             airline = live.get("airline")
+            map_id = live.get("mapId")   # written just before the airline
             # The squad list is NOT carried here, and that is deliberate.
             # Keeping it shortens the window where the lobby reads empty
             # at the start of a match -- but the client issues fresh
@@ -1369,6 +1375,7 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
             live.clear()
             live.update(blank_live_match())
             live["airline"] = airline
+            live["mapId"] = map_id
             signal({"type": "match_start"})
 
     def roll_over_if_a_game_was_played():
@@ -1409,10 +1416,12 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
         # being cleared. Without carrying it across, the flight path was
         # captured and then immediately thrown away on every match.
         airline = live.get("airline")
+        map_id = live.get("mapId")   # written just before the airline
         live.clear()
         live.update(blank_live_match())
         live["gsIgns"] = squads
         live["airline"] = airline
+        live["mapId"] = map_id
         signal({"type": "match_start"})
     try:
         size = log_path.stat().st_size
@@ -1627,6 +1636,12 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
                 live.setdefault("zoneHistory", []).append(
                     dict(state, time=stamp.group("ts") if stamp else ""))
             continue
+
+        if "SendJoinMatch" in line:
+            mp = map_analysis.MAP_RE.search(line)
+            if mp:
+                live["mapId"] = int(mp.group("map"))
+                continue
 
         air = DEBUGGER_AIRLINE_START_REGEX.search(line)
         if air:
@@ -8329,6 +8344,117 @@ def team_graph_matches_from_files(match_ids):
     return built, missing
 
 
+# ---------------------------------------------------------------------------
+# THE MAP GRAPHIC: a finished match's zones, plane, kills and rotations on
+# the map image (see map_analysis.py), or the live zone. mapView holds how
+# it is drawn and the match loaded; the loaded match is trimmed to
+# positions because it rides in every state_sync.
+# ---------------------------------------------------------------------------
+MAP_VIEW_DEFAULTS = {
+    "visible": False,
+    "source": "live",           # "live" | "match"
+    "show": {"zones": True, "plane": True, "kills": True, "paths": True, "shots": False},
+    "teams": [],                # squad numbers; empty = all
+    "animate": True,            # draw in (static) / replay the match (replay)
+    "replay": False,            # play the match forward instead of drawing it whole
+    "replaySeconds": 30,
+    "theme": "",                # "" = event package, or "ss3"
+    "bg": True,
+    "zoom": "map",              # "map" | "zones" (the first circle) | "end"
+    "template": "",             # "" = the standard panel, "ss3" = the SS3 drop-spot art
+    "dropMap": None,            # which map the drop spots are drawn on; None = the live one
+    # The drop-spot graphic's own text, typed by the operator; blank =
+    # "MATCH <current game>", the map's name, the event's round name.
+    "matchLabel": "", "mapLabel": "", "roundLabel": "",
+    # Drop spots, per map and team, kept across games -- squads keep their
+    # landing per map for an event, so they are set once per map:
+    #   {"1": {"TSG ARMY": {"at": [u, v], "by": "hand" | "games"}}}
+    "drops": {},
+    "match": None,
+}
+
+
+def map_view_state():
+    mv = server_state.setdefault("mapView", {})
+    for k, v in MAP_VIEW_DEFAULTS.items():
+        mv.setdefault(k, dict(v) if isinstance(v, dict) else v)
+    return mv
+
+
+def replays_folder():
+    results = (server_state.get("settings", {}).get("matchResultFolder") or "").strip()
+    return (Path(results) / "Replays") if results else None
+
+
+def build_map_view(match_id=None, with_log=True):
+    """One match for the map graphic, the newest when no id is given.
+    Squads are named from that match's result file, then the roster."""
+    path = map_analysis.find_replay(replays_folder(), (match_id or "").strip() or None)
+    if not path:
+        raise ValueError("No replay file%s in %s" % (
+            (" for match " + match_id) if match_id else "", replays_folder()))
+    rj = map_analysis.rj
+    names = rj.player_names(rj.load(path))
+    mid = path.name.split("_")[1]
+    teams = {}
+    try:
+        folder = (server_state.get("settings", {}).get("matchResultFolder") or "").strip()
+        res = build_match_result_payload(folder, mid)
+        teams = map_analysis.squad_teams_from_result(names, res.get("teams"))
+    except Exception as e:
+        print("[map] result file for %s not used: %s" % (mid, e))
+    roster = [{"teamName": t.get("name") or "",
+               "players": [{"name": p.get("ign")} for p in t.get("players") or []]
+                          + [{"name": p.get("displayIgn")} for p in t.get("players") or []]}
+              for t in ((server_state.get("roster") or {}).get("teams") or [])]
+    # The result file wins where both name a squad: it is this match's own.
+    merged = map_analysis.squad_teams_from_result(names, roster)
+    merged.update(teams)
+    # Without the log: no zones or plane, but kills and squads -- all a
+    # drop-spot fill needs, and without reading 100 MB per game.
+    story = None if with_log else {"zones": [], "airline": None, "mapId": None}
+    return map_analysis.build(path, debugger_log_folder(), merged, story=story)
+
+
+def fill_drops_from_games(map_id, games=6):
+    """Each team's usual early position on this map over its last few
+    games, the median of where it was first seen in each. Pins placed by
+    hand are left alone."""
+    rows = [r for r in map_analysis.list_replays(replays_folder(), 80)
+            if str(r.get("mapId")) == str(map_id)][:max(1, int(games or 6))]
+    seen = collections.defaultdict(list)
+    for r in rows:
+        try:
+            view = build_map_view(r["matchId"], with_log=False)
+        except Exception as e:
+            print("[map] drop fill skipped %s: %s" % (r["matchId"], e))
+            continue
+        for team, at in map_analysis.drops_from_match(view).items():
+            seen[team].append(at)
+    # Only this event's teams: the folder holds every game the client has
+    # played, other lobbies' included. Pinned under the roster's own name.
+    canon = {}
+    for t in ((server_state.get("roster") or {}).get("teams") or []):
+        for n in (t.get("name"), t.get("displayName"), t.get("shortName")):
+            if (n or "").strip():
+                canon[n.strip().upper()] = (t.get("name") or "").strip().upper()
+    mv = map_view_state()
+    pins = mv["drops"].setdefault(str(map_id), {})
+    filled = 0
+    for team, pts in seen.items():
+        if canon:
+            if team not in canon:
+                continue
+            team = canon[team]
+        if (pins.get(team) or {}).get("by") == "hand":
+            continue
+        xs = sorted(p[0] for p in pts)
+        ys = sorted(p[1] for p in pts)
+        pins[team] = {"at": [xs[len(xs) // 2], ys[len(ys) // 2]], "by": "games", "games": len(pts)}
+        filled += 1
+    return {"games": len(rows), "filled": filled}
+
+
 def refresh_team_graphs(from_files=True):
     """Rebuild the team graphs' table from wherever the operator pointed it:
     the committed games, or a set of result files picked in Post-Match.
@@ -10041,6 +10167,80 @@ async def handle_client(websocket, path=None):
                 server_state["display"]["teamGraphVisible"] = g["visible"]
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "map_view":
+                # How the map graphic is drawn and whether it is up. The
+                # match it draws is loaded separately (map_view_match).
+                mv = map_view_state()
+                for k in ("visible", "source", "animate", "replay", "replaySeconds", "theme", "bg", "zoom",
+                          "template", "dropMap", "matchLabel", "mapLabel", "roundLabel"):
+                    if k in payload:
+                        mv[k] = payload[k]
+                if isinstance(payload.get("show"), dict):
+                    mv["show"] = dict(mv.get("show") or {}, **payload["show"])
+                if "teams" in payload:
+                    mv["teams"] = [int(x) for x in (payload.get("teams") or [])
+                                   if str(x).strip().lstrip("-").isdigit()]
+                # Stamped on every push, so pressing it again replays the
+                # draw-in rather than doing nothing.
+                if payload.get("visible"):
+                    mv["shownAt"] = int(time.time() * 1000)
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "map_drops":
+                # Drop spots: set or clear one team's pin on a map, clear
+                # a map, or fill a map from its recent games.
+                mv = map_view_state()
+                op = payload.get("op")
+                key = str(payload.get("map") or "")
+                team = (payload.get("team") or "").strip().upper()
+                reply = {"type": "map_drops_result", "op": op, "ok": True}
+                if not key:
+                    reply.update(ok=False, error="no map")
+                elif op == "set" and team and isinstance(payload.get("at"), list):
+                    u, v = [max(0.0, min(1.0, float(x))) for x in payload["at"][:2]]
+                    mv["drops"].setdefault(key, {})[team] = {"at": [round(u, 4), round(v, 4)], "by": "hand"}
+                elif op == "clear" and team:
+                    mv["drops"].get(key, {}).pop(team, None)
+                elif op == "clearAll":
+                    mv["drops"][key] = {}
+                elif op == "fill":
+                    loop = asyncio.get_running_loop()
+                    try:
+                        reply.update(await loop.run_in_executor(
+                            None, fill_drops_from_games, key, payload.get("games") or 6))
+                    except Exception as e:
+                        reply.update(ok=False, error=str(e))
+                else:
+                    reply.update(ok=False, error="nothing to do")
+                save_state()
+                await websocket.send(json.dumps(reply))
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "map_view_list":
+                loop = asyncio.get_running_loop()
+                rows = await loop.run_in_executor(None, map_analysis.list_replays, replays_folder(), 40)
+                for r in rows:
+                    r.pop("path", None)
+                await websocket.send(json.dumps({"type": "map_view_list_result", "replays": rows}))
+            elif payload.get("type") == "map_view_match":
+                # Read in a worker: the log it scans for the zones is
+                # ~100 MB, and this loop is feeding a live broadcast.
+                loop = asyncio.get_running_loop()
+                try:
+                    view = await loop.run_in_executor(None, build_map_view, payload.get("matchId"))
+                    mv = map_view_state()
+                    mv["match"], mv["source"], mv["teams"] = view, "match", []
+                    reply = {"type": "map_view_result", "ok": True,
+                             "matchId": view["matchId"], "mapName": view["mapName"],
+                             "playedAt": view["playedAt"], "zones": len(view["zones"]),
+                             "kills": len(view["kills"]),
+                             "squads": [{"squad": q["squad"], "teamName": q["teamName"],
+                                         "place": q["place"], "kills": q["kills"]}
+                                        for q in view["squads"]]}
+                    save_state()
+                    await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+                except Exception as e:
+                    reply = {"type": "map_view_result", "ok": False, "error": str(e)}
+                await websocket.send(json.dumps(reply))
             elif payload.get("type") == "team_graph_games":
                 # WHICH GAMES the graphs are drawn from. "committed" is the
                 # standings; "files" is a set of result files picked from
@@ -11340,7 +11540,15 @@ async def ocr_loop():
                         "now": _live_match.get("zone"),
                         "history": _live_match.get("zoneHistory") or [],
                         "airline": _live_match.get("airline"),
+                        "mapId": _live_match.get("mapId"),
                     }
+                    # The same, placed on the map image -- what the map
+                    # graphic draws live. None until the map is known.
+                    try:
+                        zone["view"] = map_analysis.live_view(zone)
+                    except Exception as e:
+                        zone["view"] = None
+                        print("[map] live view failed: %s" % e)
                     if zone != server_state["liveOps"].get("zone"):
                         server_state["liveOps"]["zone"] = zone
                         changed = True
@@ -11882,6 +12090,10 @@ async def main():
     except Exception as e:
         print("Team graphs could not be built at start: %s" % e)
         server_state["teamGraphs"] = {"games": [], "teams": []}
+    # The map calibration, for the dashboard's own kill map. The graphic
+    # is handed positions already placed and does not need it.
+    server_state["ffMaps"] = {str(k): dict(v) for k, v in map_analysis.MAPS.items()}
+    map_view_state()
     try:
         keyboard.add_hotkey(NUM5_HOTKEY, on_num5_pressed)
         print(f"Loadout capture armed on '{NUM5_HOTKEY}' (only fires while loadoutCapture.active is true)")

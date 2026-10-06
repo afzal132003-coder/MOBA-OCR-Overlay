@@ -57,6 +57,13 @@
     src: url('assets/fonts/TT Supermolot Neue Trial Black Italic.ttf') format('truetype');
     font-weight: 400 900; font-style: normal; font-display: block;
   }
+  /* Upright, for the Top 4 win rate -- the demo sets it straight, and
+     'Supermolot' above is the italic cut. */
+  @font-face {
+    font-family: 'Supermolot Upright';
+    src: url('assets/fonts/TT Supermolot Neue Trial ExtraBold.ttf') format('truetype');
+    font-weight: 400 900; font-style: normal; font-display: block;
+  }
   @font-face {
     font-family: 'Nippo';
     src: url('assets/freefire/GC/fonts/Nippo-Variable.woff2') format('woff2-variations'),
@@ -671,7 +678,10 @@ const LAYOUTS = {
       cards: [426, 699, 972, 1245],
       logo: { dx: 19, y: 43, w: 50, h: 50 },
       bars: { dx: 153, y: 50, w: 16, h: 37, pitch: 22.7 },
-      win: { right: 245, y: 110, size: 18, ink: "#ee2517" },
+      // The demo's number: upright, right edge 9px inside the yellow box
+      // (card x 242), cap top 112 / baseline 124 -- level with WIN RATE
+      // and clear of it.
+      win: { right: 244, y: 110, size: 18, ink: "#ee2517", face: "Supermolot Upright", weight: 800 },
     },
   },
 
@@ -1655,7 +1665,9 @@ function renderTop4(state, source){
     });
     const win = card.querySelector(".t4win");
     Object.assign(win.style, { left: "0px", width: T.win.right + "px", top: T.win.y + "px",
-                               fontSize: T.win.size + "px", color: T.win.ink });
+                               fontSize: T.win.size + "px", color: T.win.ink,
+                               fontFamily: T.win.face ? `'${T.win.face}', Arial, sans-serif` : "",
+                               fontWeight: T.win.weight || "", fontStyle: T.win.face ? "normal" : "" });
     const txt = rates[i] == null ? "\u2014" : rates[i] + "%";
     if(win.textContent !== txt) win.textContent = txt;
   });

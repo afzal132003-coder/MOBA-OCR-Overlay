@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Free Fire Zone Map</title>
+<style>
+  /* ZONE MAP -- one full-screen browser source, two layouts, three things
+     it can show.
+
+     LAYOUT    "std"  the standard panel: map left, title and teams right.
+               "ss3"  the SS3 drop-spot artwork: the map in its frame,
+                      MATCH / map tags, the round bar, the 12-team grid.
+
+     SHOWING   live   the circle as the client narrates it: every circle
+                      so far, the next one, the plane -- on the map the
+                      log says this match loaded.
+               match  a finished match from its replay: zones, plane,
+                      where each kill landed, and each squad's rotation
+                      (where it fought and fell while each circle was up).
+               drops  each team's drop spot as a pin with its logo, set
+                      per map in the dashboard (by hand or from recent
+                      games) and kept for the event.
+
+     Positions arrive placed on the map image (0..1 across and down) by
+     ocr/freefire/map_analysis.py, which holds the calibration; this page
+     only draws. Squad colours: twelve that stay apart on a busy map, by
+     squad number. Text never wears a squad colour. */
+  @font-face { font-family:'Supermolot'; src:url('assets/fonts/TT Supermolot Neue Trial Black Italic.ttf') format('truetype'); font-weight:900; font-style:italic; }
+  @font-face { font-family:'Supermolot'; src:url('assets/fonts/TT Supermolot Neue Trial ExtraBold.ttf') format('truetype'); font-weight:800; font-style:normal; }
+  @font-face { font-family:'Supermolot'; src:url('assets/fonts/TT Supermolot Neue Trial Bold.ttf') format('truetype'); font-weight:700; font-style:normal; }
+  @font-face { font-family:'TacticSans'; src:url('assets/freefire/ss3/TacticSans-BldIt.otf') format('opentype'); font-weight:100 900; }
+
+  :root{
+    --surface:#0f1a17; --text-1:#ffffff; --text-2:#c3c2b7; --text-3:#8fa39a;
+    --accent:#f7941d; --zone:#ffffff; --next:#ffe97a; --pin:#ee1c25;
+  }
+  body.ss3{ --surface:#0e0e0e; --accent:#ff1e1e; --text-3:#b39b9b; }
+  body.ss3, body.ss3 svg text, body.tpl-ss3, body.tpl-ss3 svg text{ font-family:'TacticSans',Arial,sans-serif !important; }
+
+  html,body{margin:0;padding:0;background:transparent;overflow:hidden;}
+  body{width:1920px;height:1080px;font-family:'Supermolot',Arial,sans-serif;color:var(--text-1);
+       -webkit-font-smoothing:antialiased;}
+  body.still *{animation:none !important;transition:none !important;}
+
+  /* ---- standard panel ---- */
+  #panel{position:absolute;left:160px;top:96px;width:1600px;height:888px;box-sizing:border-box;
+         padding:40px 56px 40px;display:flex;gap:48px;
+         opacity:0;transform:translateY(28px);pointer-events:none;
+         transition:opacity .45s ease, transform .55s cubic-bezier(.16,.84,.34,1);}
+  #panel.on{opacity:1;transform:translateY(0);}
+  #panel:not(.on){transition:opacity .35s ease, transform .45s cubic-bezier(.5,0,.75,0);
+                  transform:translateY(42px) scale(.985);}
+  #panel.bg{
+    background:radial-gradient(120% 90% at 50% 0%, rgba(18,90,64,.35) 0%, rgba(15,26,23,0) 60%),
+               radial-gradient(rgba(95,227,154,.06) 1.1px, transparent 1.2px) 0 0 / 10px 10px, var(--surface);
+    border-top:4px solid var(--accent); box-shadow:0 24px 60px rgba(0,0,0,.55);
+    clip-path:polygon(0 0,100% 0,100% calc(100% - 28px),calc(100% - 28px) 100%,0 100%);
+  }
+  body.ss3 #panel.bg{
+    background:radial-gradient(120% 90% at 50% 0%, rgba(255,30,30,.28) 0%, rgba(14,14,14,0) 60%),
+               repeating-linear-gradient(115deg, rgba(255,30,30,.05) 0 2px, transparent 2px 22px), var(--surface);
+  }
+  #panel:not(.bg) .side{ text-shadow:0 2px 6px rgba(0,0,0,.85); }
+  #stdMap{width:808px;height:808px;flex:0 0 808px;position:relative;}
+  #mapbox{position:relative;width:100%;height:100%;overflow:hidden;background:#0b1210;}
+  #stdMap #mapbox{border-radius:6px;box-shadow:0 0 0 2px rgba(255,255,255,.12), 0 18px 40px rgba(0,0,0,.5);}
+  #map{display:block;width:100%;height:100%;}
+  .side{flex:1;display:flex;flex-direction:column;min-width:0;}
+  .kicker{font-weight:800;font-size:18px;letter-spacing:.22em;text-transform:uppercase;color:var(--text-2);}
+  .kicker::before{content:"";display:block;width:30px;height:4px;background:var(--accent);margin:0 0 9px;}
+  .title{font-weight:900;font-style:italic;font-size:58px;line-height:1;margin-top:4px;text-transform:uppercase;color:var(--accent);}
+  body.ss3 .title{font-style:normal;color:#fff;}
+  .sub{font-weight:700;font-size:18px;color:var(--text-3);margin-top:10px;letter-spacing:.06em;text-transform:uppercase;}
+  .zones{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px;}
+  .zchip{font-weight:800;font-size:15px;letter-spacing:.06em;padding:6px 10px;border-radius:4px;
+         background:rgba(255,255,255,.07);color:var(--text-2);white-space:nowrap;}
+  .zchip b{color:var(--text-1);margin-right:6px;}
+  .zchip.last{background:var(--next);color:#111;}
+  .zchip.last b{color:#111;}
+  .status{margin-top:28px;}
+  .status .big{font-weight:900;font-size:64px;line-height:1;text-transform:uppercase;}
+  .status .phase{font-weight:800;font-size:24px;letter-spacing:.12em;color:var(--next);margin-top:8px;text-transform:uppercase;}
+  .status .meta{font-weight:700;font-size:18px;color:var(--text-3);margin-top:8px;letter-spacing:.06em;}
+  .teams{margin-top:22px;display:flex;flex-direction:column;gap:5px;}
+  .trow{display:flex;align-items:center;gap:12px;height:40px;padding:0 12px 0 0;
+        background:rgba(255,255,255,.045);border-radius:4px;font-weight:800;font-size:19px;}
+  .trow i{width:7px;align-self:stretch;border-radius:4px 0 0 4px;flex:0 0 7px;}
+  .trow img{width:30px;height:30px;object-fit:contain;flex:0 0 30px;}
+  .trow .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:uppercase;}
+  .trow .k{color:var(--text-2);width:70px;text-align:right;font-size:17px;}
+  .trow .p{width:48px;text-align:right;color:var(--text-1);}
+  .trow.dim{opacity:.42;}
+  .trow.win .p{color:var(--next);}
+  #panel.on .trow{animation:rowin .45s cubic-bezier(.2,.8,.3,1) both;}
+  @keyframes rowin{from{opacity:0;transform:translateX(26px);}to{opacity:1;transform:none;}}
+  .legend{margin-top:auto;display:flex;gap:22px;flex-wrap:wrap;font-weight:800;font-size:15px;color:var(--text-2);
+          text-transform:uppercase;letter-spacing:.06em;}
+  .legend span{display:flex;align-items:center;gap:8px;}
+  .clock{position:absolute;right:14px;top:12px;font-weight:900;font-size:30px;padding:4px 12px;border-radius:4px;
+         background:rgba(0,0,0,.6);display:none;font-variant-numeric:tabular-nums;z-index:3;}
+  .clock.on{display:block;}
+  .nomap{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;
+         font-weight:800;font-size:26px;color:var(--text-2);padding:40px;background:rgba(0,0,0,.35);}
+
+  /* ---- SS3 drop-spot artwork ----
+     Measured from "prg br ss3 drop spot - BLANK": the map frame 65..1004 x
+     58..997 (3px red border), the yellow MATCH tag 65..231 x 910..947, the
+     red map tag 65..279 x 949..998, the round bar 1412..1790 x 435..482,
+     the red panel 1055..1855 x 541..996 with name bars 150 wide at x 1090 /
+     1284 / 1477 / 1672 and y 662 / 799 / 935. The ribbons cross the frame,
+     so the art goes BEHIND the map, and the border and tags are put back
+     on top from the same image (.sprite). */
+  #ss3{position:absolute;inset:0;opacity:0;pointer-events:none;transition:opacity .35s ease;}
+  #ss3.on{opacity:1;}
+  #ss3Art{position:absolute;left:0;top:0;width:1920px;height:1080px;}
+  #ss3Map{position:absolute;left:65px;top:58px;width:940px;height:940px;}
+  .sprite{position:absolute;background-repeat:no-repeat;background-size:1920px 1080px;}
+  .tagtxt{position:absolute;display:flex;align-items:center;font-size:27px;letter-spacing:.02em;
+          text-transform:uppercase;white-space:nowrap;}
+  #ss3Match{left:65px;top:910px;width:167px;height:38px;padding-left:22px;box-sizing:border-box;color:#e8141b;}
+  #ss3MapName{left:65px;top:949px;width:215px;height:46px;padding-left:22px;box-sizing:border-box;color:#fff;}
+  #ss3Round{position:absolute;left:1412px;top:435px;width:378px;height:48px;display:flex;align-items:center;
+            justify-content:center;font-size:32px;color:#171717;text-transform:uppercase;white-space:nowrap;}
+  .cell{position:absolute;width:150px;}
+  .cell img{position:absolute;left:30px;width:90px;height:90px;object-fit:contain;}
+  .cell .nm{position:absolute;left:0;width:150px;height:27px;display:flex;align-items:center;justify-content:center;
+            font-size:17px;color:#121212;text-transform:uppercase;white-space:nowrap;overflow:hidden;}
+  /* The demo sets the names and the two tags upright and condensed, the
+     round name italic: Supermolot ExtraBold for the first, Tactic Sans
+     for the second. */
+  body.tpl-ss3 .cell .nm, body.tpl-ss3 .tagtxt{font-family:'Supermolot',Arial,sans-serif !important;
+            font-weight:800;font-style:normal;letter-spacing:.01em;}
+  /* SS3 entrance: the map wipes down, the tags slide in, the grid pops
+     in cell by cell; out, the whole layer fades. */
+  #ss3.on #ss3Map{animation:wipe .75s cubic-bezier(.3,.7,.2,1) .15s both;}
+  @keyframes wipe{from{clip-path:inset(0 0 100% 0);}to{clip-path:inset(0 0 0 0);}}
+  #ss3.on .slidein{animation:slidein .5s cubic-bezier(.2,.8,.3,1) both;}
+  @keyframes slidein{from{opacity:0;transform:translateX(-60px);}to{opacity:1;transform:none;}}
+  #ss3.on .rise{animation:rise .5s cubic-bezier(.2,.8,.3,1) both;}
+  @keyframes rise{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:none;}}
+  #ss3.on .cell{animation:cellpop .45s cubic-bezier(.2,.9,.3,1.2) both;}
+  @keyframes cellpop{from{opacity:0;transform:scale(.7);}to{opacity:1;transform:scale(1);}}
+
+  /* Map entrances (static mode). */
+  .draw{animation:draw 1.2s cubic-bezier(.3,.6,.3,1) both;}
+  @keyframes draw{from{stroke-dashoffset:var(--len);}to{stroke-dashoffset:0;}}
+  .pop{transform-box:fill-box;transform-origin:center;animation:pop .45s cubic-bezier(.2,.9,.3,1.25) both;}
+  @keyframes pop{from{opacity:0;transform:scale(.3);}to{opacity:1;transform:scale(1);}}
+  .fade{animation:fade .6s ease both;}
+  @keyframes fade{from{opacity:0;}to{opacity:1;}}
+  /* A pin falls onto its spot and settles; a ring spreads where it lands. */
+  .pindrop{animation:pindrop .7s cubic-bezier(.3,1.5,.5,1) both;}
+  @keyframes pindrop{0%{opacity:0;transform:translateY(var(--fall));}55%{opacity:1;}100%{opacity:1;transform:translateY(0);}}
+  .ripple{transform-box:fill-box;transform-origin:center;animation:ripple 2.6s ease-out infinite;}
+  @keyframes ripple{0%{opacity:.75;transform:scale(.3);}80%{opacity:0;transform:scale(1.6);}100%{opacity:0;transform:scale(1.6);}}
+  /* The next circle, live: its dashes march while it waits to close. */
+  .march{animation:march 1.6s linear infinite;}
+  @keyframes march{to{stroke-dashoffset:var(--step);}}
+</style>
+</head>
+<body>
+<div id="panel">
+  <div id="stdMap"><div id="mapbox"><svg id="map" viewBox="0 0 1000 1000"></svg><div class="clock" id="clock"></div></div></div>
+  <div class="side">
+    <div class="kicker" id="kicker"></div>
+    <div class="title" id="title"></div>
+    <div class="sub" id="sub"></div>
+    <div id="sideBody"></div>
+    <div class="legend" id="legend"></div>
+  </div>
+</div>
+
+<div id="ss3">
+  <img id="ss3Art" alt="">
+  <div id="ss3Map"></div>
+  <div id="ss3Over"></div>
+  <div class="tagtxt slidein" id="ss3Match" style="animation-delay:.55s"></div>
+  <div class="tagtxt slidein" id="ss3MapName" style="animation-delay:.65s"></div>
+  <div id="ss3Round" class="rise" style="animation-delay:.5s"></div>
+  <div id="ss3Grid"></div>
+</div>
+
+<script>
+const _params = new URLSearchParams(location.search);
+const _sameOrigin = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || _sameOrigin;
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_map&rostercache=1"
+  : "ws://localhost:8765?page=freefire_map&rostercache=1";
+// ?preview=1 draws whether or not it is on air (the dashboard's preview).
+const PREVIEW = _params.get("preview") === "1";
+const NS = "http://www.w3.org/2000/svg";
+const SS3_ART = "assets/freefire/ss3/" + encodeURI("prg br ss3 drop spot - BLANK.png");
+
+const SQUAD_COLOURS = ["#4d9fff", "#ffa53d", "#4ade80", "#ff6b6b", "#b57bff", "#2dd4bf",
+                       "#f472b6", "#facc15", "#60a5fa", "#fb923c", "#a3e635", "#e879f9"];
+const colourOf = sq => SQUAD_COLOURS[((Number(sq) || 1) - 1) % SQUAD_COLOURS.length];
+
+function el(tag, attrs, parent){
+  const e = document.createElementNS(NS, tag);
+  for(const k in attrs || {}) e.setAttribute(k, attrs[k]);
+  if(parent) parent.appendChild(e);
+  return e;
+}
+function esc(s){ return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+const P = uv => [uv[0] * 1000, uv[1] * 1000];
+let U = 1;            // drawing unit: the viewBox width / 1000
+const u = v => +(v * U).toFixed(2);
+function mmss(t){ t = Math.max(0, Math.round(t || 0)); return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0"); }
+
+/* ZOOM. "map" is the whole image. "zones" fits the first circle -- where
+   the match was actually played. "end" fits the endgame: the circle
+   three from the last, or for the live view the one closing now. */
+function zoomBox(zones, zoom, live){
+  const zs = zones || [];
+  let c = null, pad = 1.08;
+  if(zoom === "zones" && zs.length) c = zs[0];
+  if(zoom === "end" && zs.length){ c = zs[Math.max(0, zs.length - (live ? 2 : 3))]; pad = 1.25; }
+  if(!c || !c.at || !c.r) return [0, 0, 1000];
+  const [cx, cy] = P(c.at);
+  const w = Math.max(220, Math.min(1000, 2 * c.r * 1000 * pad));
+  return [Math.max(0, Math.min(1000 - w, cx - w / 2)), Math.max(0, Math.min(1000 - w, cy - w / 2)), w];
+}
+function applyZoom(svg, box){
+  const [x, y, w] = box;
+  svg.setAttribute("viewBox", `${x.toFixed(1)} ${y.toFixed(1)} ${w.toFixed(1)} ${w.toFixed(1)}`);
+  U = w / 1000;
+}
+
+function teamFor(name, roster){
+  const key = String(name || "").trim().toUpperCase();
+  if(!key) return null;
+  return ((roster || {}).teams || []).find(t =>
+    [t.name, t.displayName, t.shortName].some(n => String(n || "").trim().toUpperCase() === key)) || null;
+}
+function shortOf(sq, roster){
+  const t = teamFor(sq.teamName, roster);
+  return (t && t.shortName) || sq.teamName || ("SQUAD " + sq.squad);
+}
+function fullOf(t){ return (t && (t.displayName || t.name)) || ""; }
+function fitText(node, min){
+  node.style.fontSize = "";
+  const base = parseFloat(getComputedStyle(node).fontSize) || 16;
+  let size = base;
+  while(node.scrollWidth > node.clientWidth + 1 && size > base * (min || 0.55)){
+    size -= 0.5; node.style.fontSize = size + "px";
+  }
+}
+
+/* ---- the map itself ------------------------------------------------ */
+
+function baseMap(svg, image){
+  svg.innerHTML = "";
+  const defs = el("defs", {}, svg);
+  const clip = el("clipPath", { id: "mapclip" }, defs);
+  el("rect", { x: 0, y: 0, width: 1000, height: 1000 }, clip);
+  const arrow = el("marker", { id: "arrow", viewBox: "0 0 10 10", refX: 8, refY: 5, markerWidth: 7, markerHeight: 7,
+                               orient: "auto-start-reverse" }, defs);
+  el("path", { d: "M0,0 L10,5 L0,10 z", fill: "#ffffff" }, arrow);
+  const glow = el("filter", { id: "glow", x: "-50%", y: "-50%", width: "200%", height: "200%" }, defs);
+  el("feGaussianBlur", { stdDeviation: 4 }, glow);
+  el("image", { href: "assets/" + encodeURI(image), x: 0, y: 0, width: 1000, height: 1000,
+                preserveAspectRatio: "none" }, svg);
+  // A light veil so circles and dots read over the busiest map art.
+  el("rect", { x: 0, y: 0, width: 1000, height: 1000, fill: "rgba(0,0,0,.16)" }, svg);
+  return el("g", { "clip-path": "url(#mapclip)" }, svg);
+}
+
+function drawPlane(g, plane, delay){
+  if(!plane || !plane.from || !plane.to) return null;
+  const [x1, y1] = P(plane.from), [x2, y2] = P(plane.to);
+  const ln = el("line", { x1, y1, x2, y2, stroke: "#ffffff", "stroke-width": u(4),
+                          "stroke-dasharray": u(14) + " " + u(10),
+                          "stroke-linecap": "round", opacity: .85, "marker-end": "url(#arrow)" }, g);
+  ln.classList.add("fade"); ln.style.animationDelay = delay + "s";
+  return ln;
+}
+
+function circlePath(cx, cy, r){
+  return `M ${cx - r} ${cy} a ${r} ${r} 0 1 0 ${2 * r} 0 a ${r} ${r} 0 1 0 ${-2 * r} 0`;
+}
+
+function drawZone(g, z, i, n, opts){
+  const [cx, cy] = P(z.at), r = z.r * 1000;
+  const last = i === n - 1;
+  const grp = el("g", {}, g);
+  const dash = opts && opts.dashed ? u(16) + " " + u(10) : "none";
+  const halo = el("path", { d: circlePath(cx, cy, r), fill: "none", stroke: "rgba(0,0,0,.45)",
+                            "stroke-width": u(last ? 10 : 8), "stroke-dasharray": dash }, grp);
+  const path = el("path", { d: circlePath(cx, cy, r), fill: last ? "rgba(255,233,122,.10)" : "none",
+                            stroke: last ? "var(--next)" : "var(--zone)", "stroke-width": u(last ? 5 : 3.5),
+                            opacity: last ? 1 : 0.45 + 0.55 * ((i + 1) / n), "stroke-dasharray": dash }, grp);
+  if(opts && opts.dashed){
+    // Waiting to close: the dashes march round it.
+    [halo, path].forEach(nd => { nd.style.setProperty("--step", -u(26)); nd.classList.add("march"); });
+  } else if(opts && opts.animate){
+    const len = 2 * Math.PI * r;
+    [halo, path].forEach(nd => { nd.setAttribute("stroke-dasharray", len); nd.style.setProperty("--len", len);
+                                 nd.classList.add("draw"); nd.style.animationDelay = opts.delay + "s"; });
+  }
+  const by = cy - r;
+  const badge = el("g", {}, grp);
+  el("circle", { cx, cy: by, r: u(15), fill: last ? "var(--next)" : "#ffffff", stroke: "rgba(0,0,0,.6)",
+                 "stroke-width": u(2) }, badge);
+  const t = el("text", { x: cx, y: by + u(6), "text-anchor": "middle", "font-size": u(17), "font-weight": 900,
+                         fill: "#111" }, badge);
+  t.textContent = (z.stage || 0) + 1;
+  if(opts && opts.animate){ badge.classList.add("pop"); badge.style.animationDelay = (opts.delay + .5) + "s"; }
+  return grp;
+}
+
+/* A drop-spot pin: red teardrop, its tip on the spot, the team's logo in
+   a black disc -- the shape the SS3 demo draws. */
+function drawPin(g, at, team, i, animate, delay){
+  const [x, y] = P(at);
+  const s = U * 1.0;
+  const outer = el("g", { transform: `translate(${x.toFixed(1)},${y.toFixed(1)})` }, g);
+  const ring = el("ellipse", { cx: 0, cy: 0, rx: 30 * s, ry: 12 * s, fill: "none", stroke: "var(--pin)",
+                               "stroke-width": 3 * s }, outer);
+  el("ellipse", { cx: 0, cy: 2 * s, rx: 14 * s, ry: 5 * s, fill: "rgba(0,0,0,.45)" }, outer);
+  const pin = el("g", {}, outer);
+  el("path", { d: `M0,0 L${-26 * s},${-44 * s} A${38 * s} ${38 * s} 0 1 1 ${26 * s},${-44 * s} Z`,
+               fill: "var(--pin)", stroke: "rgba(0,0,0,.55)", "stroke-width": 2 * s }, pin);
+  el("circle", { cx: 0, cy: -72 * s, r: 30 * s, fill: "#0d0d0d" }, pin);
+  if(team && team.logo){
+    // The clip is in the logo's own coordinates (the pin's), so it falls
+    // with the pin rather than staying behind on the map.
+    const cid = "pinclip" + i;
+    const cp = el("clipPath", { id: cid, clipPathUnits: "userSpaceOnUse" }, g.ownerSVGElement.querySelector("defs"));
+    el("circle", { cx: 0, cy: -72 * s, r: 27 * s }, cp);
+    el("image", { href: team.logo, x: -24 * s, y: -96 * s, width: 48 * s, height: 48 * s,
+                  "clip-path": `url(#${cid})` }, pin);
+  } else {
+    const t = el("text", { x: 0, y: -65 * s, "text-anchor": "middle", "font-size": 20 * s, "font-weight": 900, fill: "#fff" }, pin);
+    t.textContent = ((team && (team.shortName || team.name)) || "?").slice(0, 4);
+  }
+  if(animate){
+    pin.style.setProperty("--fall", (-260 * s) + "px");
+    pin.classList.add("pindrop"); pin.style.animationDelay = delay + "s";
+    ring.classList.add("ripple"); ring.style.animationDelay = (delay + .55) + "s";
+  } else {
+    ring.setAttribute("opacity", 0);
+  }
+  return outer;
+}
+
+/* ---- MATCH --------------------------------------------------------- */
+
+function chosenSquads(view, cfg){
+  const pick = (cfg.teams || []).map(Number);
+  if(pick.length) return new Set(pick);
+  // Nobody picked: the four who finished highest -- twelve rotations at
+  // once is a tangle, four tell the story of the endgame.
+  return new Set((view.squads || []).filter(s => s.place).sort((a, b) => a.place - b.place)
+                 .slice(0, 4).map(s => s.squad));
+}
+
+/* Every element that appears at a moment in the match carries data-t, so
+   the replay can walk time forward by showing what has happened. */
+function drawMatch(svg, view, cfg, roster, animate){
+  applyZoom(svg, zoomBox(view.zones, cfg.zoom, false));
+  const g = baseMap(svg, view.image);
+  const show = Object.assign({ zones: true, plane: true, kills: true, paths: true, shots: false }, cfg.show || {});
+  const picked = chosenSquads(view, cfg);
+  const filtered = (cfg.teams || []).length > 0;
+  const timed = [];
+  const stamp = (node, t) => { if(node){ node.dataset.t = t; timed.push(node); } return node; };
+
+  if(show.plane) stamp(drawPlane(g, view.plane, 0.1), 0);
+  if(show.zones){
+    const zs = view.zones || [];
+    zs.forEach((z, i) => stamp(drawZone(g, z, i, zs.length, { animate, delay: 0.3 + i * 0.35 }), z.announced));
+  }
+  const kills = (view.kills || []).filter(k => k.at &&
+    (!filtered || picked.has(k.ks) || picked.has(k.vs)));
+  const kd = Math.max(1, kills.length);
+  if(show.shots){
+    kills.forEach((k, i) => {
+      if(!k.from) return;
+      const [x1, y1] = P(k.from), [x2, y2] = P(k.at);
+      const ln = el("line", { x1, y1, x2, y2, stroke: colourOf(k.ks), "stroke-width": u(2.5), opacity: .8 }, g);
+      if(animate){ ln.classList.add("fade"); ln.style.animationDelay = (1.2 + 1.6 * i / kd) + "s"; }
+      stamp(ln, k.t);
+    });
+  }
+  if(show.kills){
+    kills.forEach((k, i) => {
+      const [x, y] = P(k.at);
+      // A squad that was picked: its kills solid, its own deaths hollow.
+      const own = filtered && picked.has(k.vs) && !picked.has(k.ks);
+      const c = el("circle", { cx: x, cy: y, r: u(own ? 7 : 6.5),
+                               fill: own ? "none" : colourOf(k.ks),
+                               stroke: own ? colourOf(k.vs) : "rgba(0,0,0,.75)", "stroke-width": u(own ? 3 : 2) }, g);
+      if(animate){ c.classList.add("pop"); c.style.animationDelay = (1.2 + 1.6 * i / kd) + "s"; }
+      stamp(c, k.t);
+    });
+  }
+  if(show.paths){
+    (view.squads || []).filter(s => picked.has(s.squad) && (s.path || []).length).forEach((s, si) => {
+      const pts = s.path.filter(p => p.phase >= 1);
+      if(!pts.length) return;
+      const col = colourOf(s.squad);
+      const xy = pts.map(p => P(p.at));
+      const zoneT = ph => ((view.zones || [])[ph - 1] || {}).announced || 0;
+      const start = 2.4 + si * .25;
+      for(let i = 1; i < xy.length; i++){
+        const [x1, y1] = xy[i - 1], [x2, y2] = xy[i];
+        const halo = el("line", { x1, y1, x2, y2, stroke: "rgba(0,0,0,.6)", "stroke-width": u(11), "stroke-linecap": "round" }, g);
+        const seg = el("line", { x1, y1, x2, y2, stroke: col, "stroke-width": u(6), "stroke-linecap": "round" }, g);
+        if(animate){
+          const len = Math.hypot(x2 - x1, y2 - y1);
+          [halo, seg].forEach(n => { n.setAttribute("stroke-dasharray", len); n.style.setProperty("--len", len);
+                                     n.classList.add("draw"); n.style.animationDelay = (start + i * .3) + "s"; });
+        }
+        stamp(halo, zoneT(pts[i].phase)); stamp(seg, zoneT(pts[i].phase));
+      }
+      pts.forEach((p, i) => {
+        const [x, y] = xy[i];
+        const last = i === pts.length - 1;
+        const node = el("g", {}, g);
+        el("circle", { cx: x, cy: y, r: u(last ? 16 : 11), fill: col, stroke: "#111", "stroke-width": u(3) }, node);
+        const team = teamFor(s.teamName, roster);
+        if(last && team && team.logo){
+          el("circle", { cx: x, cy: y, r: u(22), fill: "#111", stroke: col, "stroke-width": u(4) }, node);
+          el("image", { href: team.logo, x: x - u(17), y: y - u(17), width: u(34), height: u(34) }, node);
+        } else {
+          const t = el("text", { x, y: y + u(5), "text-anchor": "middle", "font-size": u(14), "font-weight": 900, fill: "#111" }, node);
+          t.textContent = p.phase;
+        }
+        if(animate){ node.classList.add("pop"); node.style.animationDelay = (start + i * .3) + "s"; }
+        stamp(node, zoneT(p.phase));
+      });
+      // The movement itself: a glowing marker that travels the rotation
+      // from the first circle to where the squad ended, once the line is in.
+      if(animate && xy.length > 1){
+        const d = "M" + xy.map(q => q[0].toFixed(1) + "," + q[1].toFixed(1)).join(" L");
+        const comet = el("g", {}, g);
+        el("circle", { r: u(14), fill: col, opacity: .55, filter: "url(#glow)" }, comet);
+        el("circle", { r: u(7), fill: "#fff", stroke: col, "stroke-width": u(3) }, comet);
+        comet.setAttribute("opacity", 0);
+        const begin = (start + xy.length * .3 + .4).toFixed(2) + "s";
+        el("animateMotion", { path: d, dur: Math.max(1.6, xy.length * .55).toFixed(2) + "s", begin, fill: "freeze",
+                              calcMode: "paced" }, comet);
+        el("set", { attributeName: "opacity", to: 1, begin }, comet);
+      }
+    });
+  }
+  return timed;
+}
+
+function sideMatch(view, cfg, roster){
+  const picked = chosenSquads(view, cfg);
+  const filtered = (cfg.teams || []).length > 0;
+  const zs = view.zones || [];
+  const zones = "<div class='zones'>" + zs.map((z, i) =>
+    `<div class="zchip${i === zs.length - 1 ? " last" : ""}"><b>Z${(z.stage || 0) + 1}</b>${Math.round(z.meters)}m · ${mmss(z.announced)}</div>`
+  ).join("") + "</div>";
+  let squads = (view.squads || []).slice();
+  if(filtered) squads = squads.filter(s => picked.has(s.squad));
+  const rows = squads.map((s, i) => {
+    const team = teamFor(s.teamName, roster);
+    const logo = team && team.logo ? `<img src="${team.logo}">` : `<span style="width:30px"></span>`;
+    const dim = !filtered && !picked.has(s.squad) && (cfg.show || {}).paths !== false;
+    return `<div class="trow${s.place === 1 ? " win" : ""}${dim ? " dim" : ""}" style="animation-delay:${(.3 + i * .05).toFixed(2)}s">` +
+           `<i style="background:${colourOf(s.squad)}"></i>${logo}` +
+           `<span class="nm">${esc(shortOf(s, roster))}</span><span class="k">${s.kills} K</span>` +
+           `<span class="p">${s.place ? "#" + s.place : ""}</span></div>`;
+  }).join("");
+  return zones + "<div class='teams'>" + rows + "</div>";
+}
+
+/* ---- LIVE ---------------------------------------------------------- */
+
+function drawLive(svg, view, animate, zoom){
+  applyZoom(svg, zoomBox(view.zones, zoom, true));
+  const g = baseMap(svg, view.image);
+  drawPlane(g, view.plane, 0);
+  const zs = view.zones || [];
+  zs.forEach((z, i) => {
+    const last = i === zs.length - 1;
+    drawZone(g, z, i, zs.length, { animate, delay: 0.2 + i * 0.25,
+                                   dashed: last && view.phase !== "SHRINK" && view.phase !== "RANDOM_MOVE" });
+  });
+}
+
+const PHASE_WORDS = { STABLE: "Holding", PRE_SHRINK: "Next circle drawn", SHRINK: "Closing",
+                      RANDOM_PREMOVE: "Final circle moving soon", RANDOM_MOVE: "Final circle moving" };
+
+function sideLive(view){
+  const zs = view.zones || [];
+  const now = zs[zs.length - 1];
+  const big = now ? "Zone " + ((now.stage || 0) + 1) : "Waiting";
+  const meta = now ? Math.round(now.meters) + " m circle" : "No circle drawn yet";
+  const chips = "<div class='zones'>" + zs.map((z, i) =>
+    `<div class="zchip${i === zs.length - 1 ? " last" : ""}"><b>Z${(z.stage || 0) + 1}</b>${Math.round(z.meters)}m</div>`).join("") + "</div>";
+  return `<div class="status"><div class="big">${big}</div><div class="phase">${esc(PHASE_WORDS[view.phase] || view.phase || "")}</div>` +
+         `<div class="meta">${meta}</div></div>` + chips;
+}
+
+/* ---- DROPS --------------------------------------------------------- */
+
+/* Which map the drop spots are for: the operator's pick, else the map the
+   live match loaded, else the loaded match's. */
+function dropMapId(state, cfg){
+  const live = (((state.liveOps || {}).zone) || {}).mapId;
+  return String(cfg.dropMap || live || ((cfg.match || {}).mapId) || 1);
+}
+function dropPins(state, cfg){
+  const id = dropMapId(state, cfg);
+  const pins = ((cfg.drops || {})[id]) || {};
+  const teams = ((state.roster || {}).teams) || [];
+  const out = [];
+  teams.forEach(t => {
+    const keys = [t.name, t.displayName, t.shortName].map(n => String(n || "").trim().toUpperCase()).filter(Boolean);
+    const hit = keys.map(k => pins[k]).find(Boolean);
+    if(hit && hit.at) out.push({ team: t, at: hit.at });
+  });
+  return out;
+}
+/* Two squads on the same POI would stack one pin exactly on the other and
+   hide a logo, so pins closer than a pin's width are eased apart sideways
+   -- only for drawing, the saved spot is untouched. */
+function spreadPins(pins){
+  const pts = pins.map(p => ({ p, x: p.at[0], y: p.at[1] }));
+  // A pin is ~0.07 wide and its head stands ~0.1 above its tip, so two
+  // pins collide when they are close across AND within a head's height.
+  const MINX = 0.068, MINY = 0.1;
+  for(let pass = 0; pass < 60; pass++){
+    let moved = false;
+    for(let i = 0; i < pts.length; i++) for(let j = i + 1; j < pts.length; j++){
+      const a = pts[i], b = pts[j];
+      const dx = b.x - a.x;
+      if(Math.abs(dx) >= MINX || Math.abs(b.y - a.y) >= MINY) continue;
+      const push = (MINX - Math.abs(dx)) / 2 + 0.002;
+      const dir = dx === 0 ? (i % 2 ? 1 : -1) : Math.sign(dx);
+      a.x -= dir * push; b.x += dir * push;
+      moved = true;
+    }
+    if(!moved) break;
+  }
+  return pts.map(q => ({ team: q.p.team, at: [Math.min(.97, Math.max(.03, q.x)), q.y] }));
+}
+function drawDrops(svg, image, pins, animate){
+  applyZoom(svg, [0, 0, 1000]);
+  const g = baseMap(svg, image);
+  pins = spreadPins(pins);
+  // Top of the map first, so lower pins overlap the ones behind them.
+  pins.slice().sort((a, b) => a.at[1] - b.at[1])
+      .forEach((p, i) => drawPin(g, p.at, p.team, i, animate, 1.0 + i * .12));
+}
+function sideDrops(pins){
+  const rows = pins.map((p, i) =>
+    `<div class="trow" style="animation-delay:${(.3 + i * .05).toFixed(2)}s"><i style="background:var(--pin)"></i>` +
+    (p.team.logo ? `<img src="${p.team.logo}">` : `<span style="width:30px"></span>`) +
+    `<span class="nm">${esc(p.team.shortName || p.team.name)}</span></div>`).join("");
+  return "<div class='teams'>" + rows + "</div>";
+}
+
+/* ---- SS3 layout ---------------------------------------------------- */
+
+const SS3_BARS_X = [1090, 1284, 1477, 1672];
+const SS3_BARS_Y = [662, 799, 935];
+
+function ss3Frame(){
+  const art = document.getElementById("ss3Art");
+  if(art.getAttribute("src") !== SS3_ART) art.src = SS3_ART;
+  // The frame border and both tags, put back over the map from the art.
+  const over = document.getElementById("ss3Over");
+  if(over.dataset.ready) return;
+  over.dataset.ready = "1";
+  const strip = (x, y, w, h, cls, delay) => {
+    const d = document.createElement("div");
+    d.className = "sprite" + (cls ? " " + cls : "");
+    Object.assign(d.style, { left: x + "px", top: y + "px", width: w + "px", height: h + "px",
+                             backgroundImage: `url("${SS3_ART}")`, backgroundPosition: `-${x}px -${y}px` });
+    if(delay != null) d.style.animationDelay = delay + "s";
+    over.appendChild(d);
+  };
+  strip(65, 58, 940, 3); strip(65, 995, 940, 3); strip(65, 58, 3, 940); strip(1002, 58, 3, 940);
+  strip(65, 910, 167, 38, "slidein", .55); strip(65, 948, 216, 51, "slidein", .65);
+}
+
+function ss3Grid(teams, roster){
+  const grid = document.getElementById("ss3Grid");
+  grid.innerHTML = "";
+  teams.slice(0, 12).forEach((t, i) => {
+    const col = i % 4, row = Math.floor(i / 4);
+    const cell = document.createElement("div");
+    cell.className = "cell";
+    cell.style.left = SS3_BARS_X[col] + "px";
+    cell.style.top = (SS3_BARS_Y[row] - 100) + "px";
+    cell.style.height = "127px";
+    cell.style.animationDelay = (.75 + i * .06).toFixed(2) + "s";
+    if(t.logo){
+      const img = document.createElement("img");
+      img.src = t.logo; img.style.top = "4px";
+      cell.appendChild(img);
+    }
+    const nm = document.createElement("div");
+    nm.className = "nm"; nm.style.top = "100px";
+    const span = document.createElement("span");
+    span.textContent = t.label;
+    nm.appendChild(span);
+    cell.appendChild(nm);
+    grid.appendChild(cell);
+    // Shrunk to fit its bar: a centred box does not report overflow on its
+    // left, so the text's own width is what is measured.
+    let size = 17;
+    while(span.offsetWidth > 136 && size > 10){ size -= 0.5; nm.style.fontSize = size + "px"; }
+  });
+}
+
+/* ---- render -------------------------------------------------------- */
+
+let lastSig = "";
+let _lastRoster = null;
+let replay = null;
+
+function legendHtml(mode, show){
+  const items = [];
+  if(mode === "drops"){
+    items.push(`<span><svg width="16" height="22"><path d="M8,21 L2,9 A7 7 0 1 1 14,9 Z" fill="#ee1c25"/></svg>Drop spot</span>`);
+    return items.join("");
+  }
+  if(show.zones !== false) items.push(`<span><svg width="22" height="22"><circle cx="11" cy="11" r="8" fill="none" stroke="#fff" stroke-width="3"/></svg>Zone</span>`);
+  if(show.plane !== false) items.push(`<span><svg width="30" height="10"><line x1="1" y1="5" x2="29" y2="5" stroke="#fff" stroke-width="3" stroke-dasharray="7 5"/></svg>Plane</span>`);
+  if(mode === "match"){
+    if(show.kills !== false) items.push(`<span><svg width="16" height="16"><circle cx="8" cy="8" r="6" fill="#ffa53d" stroke="#000" stroke-width="2"/></svg>Kill (killer's colour)</span>`);
+    if(show.paths !== false) items.push(`<span><svg width="34" height="16"><line x1="4" y1="8" x2="30" y2="8" stroke="#4d9fff" stroke-width="5"/><circle cx="30" cy="8" r="6" fill="#4d9fff"/></svg>Rotation by zone</span>`);
+  }
+  return items.join("");
+}
+
+function render(state){
+  const cfg = Object.assign({ visible: false, source: "live", show: {}, teams: [], animate: true,
+                              replay: false, replaySeconds: 30, theme: "", bg: true, zoom: "map",
+                              template: "", drops: {} }, state.mapView || {});
+  ["source", "zoom", "template"].forEach(k => { if(_params.get(k)) cfg[k] = _params.get(k); });
+  const visible = PREVIEW || !!cfg.visible;
+  const animate = cfg.animate !== false && _params.get("anim") !== "0";
+  document.body.classList.toggle("still", !animate);
+  const ev = state.event || {};
+  const theme = String(_params.get("theme") || cfg.theme || "auto").toLowerCase();
+  const ss3Theme = theme === "ss3" || ((theme === "auto" || theme === "") &&
+                   String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase() === "ss3");
+  const mode = ["match", "drops"].includes(cfg.source) ? cfg.source : "live";
+  // The SS3 artwork has "PREFERRED DROP SPOT" in it, so it is used for the
+  // drop spots only; zones and match analysis picked with it get the
+  // standard layout in SS3 colours and type.
+  const tpl = cfg.template === "ss3" && mode === "drops" ? "ss3" : "std";
+  document.body.classList.toggle("ss3", ss3Theme || cfg.template === "ss3");
+  document.body.classList.toggle("tpl-ss3", tpl === "ss3");
+
+  // One map, moved into whichever layout is in use.
+  const box = document.getElementById("mapbox");
+  const host = document.getElementById(tpl === "ss3" ? "ss3Map" : "stdMap");
+  if(box.parentNode !== host) host.appendChild(box);
+  const panel = document.getElementById("panel"), ss3 = document.getElementById("ss3");
+  panel.classList.toggle("bg", cfg.bg !== false);
+  panel.classList.toggle("on", visible && tpl === "std");
+  ss3.classList.toggle("on", visible && tpl === "ss3");
+  if(!visible){ lastSig = ""; stopReplay(); return; }
+
+  const roster = state.roster || {};
+  const maps = state.ffMaps || {};
+  let view = null, pins = [];
+  if(mode === "match") view = cfg.match;
+  else if(mode === "live") view = ((state.liveOps || {}).zone || {}).view;
+  else {
+    const m = maps[dropMapId(state, cfg)];
+    pins = dropPins(state, cfg);
+    view = m ? { image: m.image, mapName: m.name } : null;
+  }
+  const sig = JSON.stringify([tpl, mode, view, pins, cfg.show, cfg.teams, cfg.replay, cfg.replaySeconds, cfg.shownAt,
+                              cfg.zoom, ev.currentGame, ev.roundName, cfg.matchLabel, cfg.mapLabel, cfg.roundLabel,
+                              ((roster.teams) || []).map(t => [t.name, t.shortName, t.displayName, !!t.logo])]);
+  if(sig === lastSig) return;
+  // Live, a new circle redraws -- without replaying the whole entrance.
+  const firstDraw = !lastSig || mode !== "live";
+  lastSig = sig;
+  stopReplay();
+  // Restart the layout's own entrance (the CSS animations on it).
+  if(firstDraw){ [panel, ss3].forEach(n => { if(n.classList.contains("on")){ n.classList.remove("on"); void n.offsetWidth; n.classList.add("on"); } }); }
+
+  const svg = document.getElementById("map");
+  box.querySelectorAll(".nomap").forEach(n => n.remove());
+  const side = document.getElementById("sideBody");
+  document.getElementById("kicker").textContent = ev.matchTitle || "Zone Map";
+  document.getElementById("legend").innerHTML = legendHtml(mode, cfg.show || {});
+
+  if(!view || !view.image){
+    svg.innerHTML = "";
+    document.getElementById("title").textContent = mode === "drops" ? "Drop Spots" : mode === "match" ? "Zone Map" : "Live Zone";
+    document.getElementById("sub").textContent = "";
+    side.innerHTML = "";
+    const msg = document.createElement("div");
+    msg.className = "nomap";
+    msg.textContent = mode === "match" ? "No match loaded." : mode === "drops" ? "No map image for this map."
+                                       : "Waiting for the match to load its map.";
+    box.appendChild(msg);
+  } else if(mode === "match"){
+    document.getElementById("title").textContent = "Zone Map";
+    document.getElementById("sub").textContent =
+      [view.mapName, view.playedAt ? view.playedAt.slice(11) : "", mmss(view.duration), (view.kills || []).length + " kills"]
+        .filter(Boolean).join(" · ");
+    const replaying = !!cfg.replay;
+    const nodes = drawMatch(svg, view, cfg, roster, animate && !replaying);
+    side.innerHTML = sideMatch(view, cfg, roster);
+    if(replaying) startReplay(nodes, view.duration, cfg.replaySeconds);
+  } else if(mode === "live"){
+    document.getElementById("title").textContent = "Live Zone";
+    document.getElementById("sub").textContent = view.mapName || "";
+    drawLive(svg, view, animate && firstDraw, cfg.zoom);
+    side.innerHTML = sideLive(view);
+  } else {
+    document.getElementById("title").textContent = "Drop Spots";
+    document.getElementById("sub").textContent = cfg.mapLabel || view.mapName || "";
+    drawDrops(svg, view.image, pins, animate);
+    side.innerHTML = sideDrops(pins);
+  }
+
+  if(tpl === "ss3"){
+    ss3Frame();
+    // Typed in the dashboard wins; blank follows the event and the map.
+    document.getElementById("ss3Match").textContent = cfg.matchLabel || ("Match " + (ev.currentGame || 1));
+    document.getElementById("ss3MapName").textContent = cfg.mapLabel || (view && view.mapName) || "";
+    // The round bar is slanted at both ends and its text centred, so the
+    // text's own width is measured against the straight part of the bar.
+    const rb = document.getElementById("ss3Round");
+    rb.style.fontSize = "";
+    rb.innerHTML = "";
+    const rs = document.createElement("span");
+    rs.textContent = cfg.roundLabel || ev.roundName || "";
+    rb.appendChild(rs);
+    let rsz = 32;
+    while(rs.offsetWidth > 318 && rsz > 16){ rsz -= 0.5; rb.style.fontSize = rsz + "px"; }
+    fitText(document.getElementById("ss3Match"), 0.6);
+    fitText(document.getElementById("ss3MapName"), 0.6);
+    // The grid: the roster, or for a finished match its squads in the
+    // order they finished.
+    let teams;
+    if(mode === "match" && view && view.squads){
+      teams = view.squads.map(s => { const t = teamFor(s.teamName, roster) || {};
+        return { logo: t.logo, label: fullOf(t) || s.teamName || ("Squad " + s.squad) }; });
+    } else {
+      teams = ((roster.teams) || []).map(t => ({ logo: t.logo, label: fullOf(t) }));
+    }
+    ss3Grid(teams, roster);
+  }
+}
+
+/* The animated replay: the match played forward in replaySeconds. Each
+   timed element shows from its moment on; the clock reads match time. */
+function startReplay(nodes, duration, seconds){
+  const clock = document.getElementById("clock");
+  const total = Math.max(5, Number(seconds) || 30) * 1000;
+  nodes.forEach(n => { n.style.display = "none"; n.classList.remove("draw", "pop", "fade"); });
+  replay = { started: performance.now(), total, duration: duration || 1, nodes, raf: 0 };
+  clock.classList.add("on");
+  const tick = now => {
+    if(!replay) return;
+    const f = Math.min(1, (now - replay.started) / replay.total);
+    const t = f * replay.duration;
+    replay.nodes.forEach(n => {
+      if(Number(n.dataset.t) <= t && n.style.display === "none"){ n.style.display = ""; n.classList.add("pop"); }
+    });
+    clock.textContent = mmss(t);
+    if(f < 1) replay.raf = requestAnimationFrame(tick);
+  };
+  replay.raf = requestAnimationFrame(tick);
+}
+function stopReplay(){
+  if(replay && replay.raf) cancelAnimationFrame(replay.raf);
+  replay = null;
+  document.getElementById("clock").classList.remove("on");
+}
+
+let ws;
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = evt => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type !== "state_sync" || !msg.data) return;
+    if(msg.data.roster) _lastRoster = msg.data.roster;
+    else if(_lastRoster) msg.data.roster = _lastRoster;
+    render(msg.data);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+connect();
+</script>
+</body>
+</html>

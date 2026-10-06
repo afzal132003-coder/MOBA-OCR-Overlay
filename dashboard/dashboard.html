@@ -3349,6 +3349,102 @@
   <div class="ff-tab-panel" id="fftab-analysis">
 
     <div class="card">
+      <h2>Zone Map &amp; Drop Spots (on air)</h2>
+      <p class="hint">Its own full-screen browser source: <code>overlay/freefire_map.html</code>.
+        <strong>Live</strong> draws the circle as the game announces it -- every circle so far, the next one,
+        the plane -- on the map the match loaded. <strong>Match</strong> draws a finished game from its replay
+        file: every zone, the plane, where each kill landed, and each squad's rotation (where its players fought
+        and fell while each circle was up, joined in order). <strong>Drop spots</strong> pins each team's logo on
+        its landing spot -- set once per map below and kept for the event. The map is recognised on its own.</p>
+      <div class="row" style="gap:10px;align-items:flex-end;flex-wrap:wrap;">
+        <div class="team-form" style="max-width:150px;margin:0;">
+          <label for="ff_mvSource">Show</label>
+          <select id="ff_mvSource"><option value="live">Live zone</option><option value="match">A finished match</option>
+            <option value="drops">Drop spots</option></select>
+        </div>
+        <div class="team-form" style="max-width:190px;margin:0;">
+          <label for="ff_mvTemplate">Graphic</label>
+          <select id="ff_mvTemplate" title="SS3 uses the event's PREFERRED DROP SPOT artwork for drop spots; zones and match analysis are then drawn in the SS3 colours and font.">
+            <option value="">Standard</option><option value="ss3">SS3</option></select>
+        </div>
+        <div class="team-form" style="max-width:170px;margin:0;">
+          <label for="ff_mvZoom">Zoom</label>
+          <select id="ff_mvZoom"><option value="map">Whole map</option><option value="zones">Fit the first circle</option>
+            <option value="end">Endgame</option></select>
+        </div>
+        <div class="team-form" style="max-width:160px;margin:0;">
+          <label for="ff_mvTheme">Theme</label>
+          <select id="ff_mvTheme"><option value="auto">Auto (package)</option><option value="arrow">Default</option>
+            <option value="ss3">SS3</option></select>
+        </div>
+        <label class="hint" style="display:flex;gap:6px;align-items:center;margin:0 0 8px;"><input type="checkbox" id="ff_mvBg" checked> Background</label>
+        <label class="hint" style="display:flex;gap:6px;align-items:center;margin:0 0 8px;"><input type="checkbox" id="ff_mvAnim" checked> Animation in &amp; out</label>
+      </div>
+      <div id="ff_mvMatchBox" style="margin-top:10px;">
+        <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;">
+          <span class="hint" style="margin:0;">Game</span>
+          <select id="ff_mvPick" style="width:auto;min-width:340px;"><option value="">Latest finished game</option></select>
+          <button id="ff_mvLoad">Load</button>
+          <button class="secondary" id="ff_mvList" title="Read the Replays folder again">Refresh List</button>
+          <span class="hint" id="ff_mvLoaded"></span>
+        </div>
+        <div class="row" style="gap:14px;align-items:center;flex-wrap:wrap;margin-top:8px;">
+          <span class="hint" style="margin:0;">Draw:</span>
+          <label class="hint" style="margin:0;"><input type="checkbox" class="ff-mv-show" data-k="zones" checked> Zones</label>
+          <label class="hint" style="margin:0;"><input type="checkbox" class="ff-mv-show" data-k="plane" checked> Plane</label>
+          <label class="hint" style="margin:0;"><input type="checkbox" class="ff-mv-show" data-k="kills" checked> Kill spots</label>
+          <label class="hint" style="margin:0;"><input type="checkbox" class="ff-mv-show" data-k="paths" checked> Rotations</label>
+          <label class="hint" style="margin:0;" title="A line from where the shot came from to where the player fell"><input type="checkbox" class="ff-mv-show" data-k="shots"> Shot lines</label>
+          <label class="hint" style="margin:0 0 0 12px;" title="Plays the match forward instead of drawing it all at once"><input type="checkbox" id="ff_mvReplay"> Replay it over</label>
+          <input type="number" id="ff_mvReplaySecs" min="5" max="120" value="30" style="width:60px;"><span class="hint" style="margin:0;">s</span>
+        </div>
+        <div class="hint" style="margin-top:8px;">Teams <span style="opacity:.75;">(none ticked: every kill, and rotations for the top 4
+          finishers; ticked: only those teams)</span></div>
+        <div id="ff_mvTeams" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:3px 12px;margin-top:4px;"></div>
+      </div>
+      <div id="ff_mvDropBox" style="margin-top:10px;display:none;">
+        <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;">
+          <span class="hint" style="margin:0;">Map</span>
+          <select id="ff_mvDropMap" style="width:auto;"><option value="">Auto (the live match's map)</option></select>
+          <span class="hint" style="margin:0 0 0 8px;">Team</span>
+          <select id="ff_mvDropTeam" style="width:auto;min-width:200px;"></select>
+          <button class="secondary" id="ff_mvDropClear">Remove Its Pin</button>
+          <span class="hint" style="margin:0 0 0 8px;">Fill from the last</span>
+          <input type="number" id="ff_mvDropGames" min="1" max="20" value="6" style="width:54px;">
+          <button class="secondary" id="ff_mvDropFill" title="Each team's usual early position on this map over its recent games. Pins placed by hand are kept.">Games On This Map</button>
+          <button class="danger" id="ff_mvDropClearAll">Clear This Map</button>
+        </div>
+        <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">
+          <span class="hint" style="margin:0;" title="Leave blank to follow the event: MATCH and the current game, the map's own name, the event's round name">On the graphic:</span>
+          <input type="text" id="ff_mvMatchLabel" class="ff-mv-label" data-k="matchLabel" placeholder="MATCH (game no.)" style="width:150px;">
+          <input type="text" id="ff_mvMapLabel" class="ff-mv-label" data-k="mapLabel" placeholder="Map name" style="width:150px;">
+          <input type="text" id="ff_mvRoundLabel" class="ff-mv-label" data-k="roundLabel" placeholder="Round name" style="width:220px;">
+          <span class="hint" style="margin:0;">blank = automatic</span>
+        </div>
+        <div class="row" style="gap:16px;align-items:flex-start;margin-top:8px;flex-wrap:wrap;">
+          <div id="ff_mvDropPad" style="position:relative;width:520px;height:520px;cursor:crosshair;border:1px solid #1b2430;
+               border-radius:6px;overflow:hidden;background:#0a0e14;flex:0 0 520px;">
+            <img id="ff_mvDropImg" alt="" style="width:100%;height:100%;display:block;pointer-events:none;">
+            <div id="ff_mvDropPins" style="position:absolute;inset:0;pointer-events:none;"></div>
+          </div>
+          <div style="flex:1;min-width:220px;">
+            <p class="hint" style="margin-top:0;">Pick a team, then click where it lands. The team box moves on to the next
+              team with no pin, so all twelve go down in twelve clicks. Pins are kept per map for the whole event --
+              set Bermuda once and every Bermuda game uses it.</p>
+            <p class="hint">Solid pins were placed by hand; dashed ones came from recent games (where each team was first
+              seen fighting -- close to its landing, not exact). Fill never moves a pin you placed.</p>
+            <div class="hint" id="ff_mvDropNote"></div>
+          </div>
+        </div>
+      </div>
+      <div class="row" style="gap:8px;margin-top:12px;">
+        <button id="ff_mvShow">Push Map Up</button>
+        <button class="secondary" id="ff_mvHide">Pull Map Down</button>
+        <span class="hint" id="ff_mvStatus" style="align-self:center;"></span>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>Match Analysis</h2>
       <p class="hint">Drop a <code>ReplayInfo_*.json</code> from
         <code>Free Fire_64_Data\Replays</code>. Every finished match leaves one, alongside a much larger
@@ -6669,6 +6765,7 @@ function ffOpen(url){
       try { ffDrawAlivePackages(); } catch(e){ console.error("alive packages:", e); }
       try { ffSyncLobbyTimerControls(); } catch(e){ console.error("lobby timer:", e); }
       try { ffSyncTeamGraphs(); } catch(e){ console.error("team graphs:", e); }
+      try { ffSyncMapView(); } catch(e){ console.error("map view:", e); }
       try { ffDrawProfiles(); } catch(e){ console.error("event profiles:", e); }
       try { ffSyncTgGamesStatus(); } catch(e){ console.error("team graph games:", e); }
       if(!ffHydrated){
@@ -6677,7 +6774,9 @@ function ffOpen(url){
       }
       ffRenderStandings(ffState);
       ffRenderRoster(ffState);
-      ffRenderTeamNamesList(ffState);
+      // (The Team Names list was removed with its function in 6f10c3a; its
+      // call stayed behind and threw here on every sync, so nothing below
+      // this line ran -- lobby, event form, alive rows, mapping and more.)
       ffRenderLoadouts(ffState);
       ffRenderLoadoutCapture(ffState);
       ffRenderIconLibraries(ffState);
@@ -6746,6 +6845,22 @@ function ffOpen(url){
         : "⚠ Failed: " + (msg.error || "unknown error");
     } else if(msg.type === "freefire_results_push_result"){
       ffShowResultsPushResult(msg);
+    } else if(msg.type === "map_view_result"){
+      ffReplyArrived("mapView");
+      const el = document.getElementById("ff_mvLoaded");
+      if(el) el.textContent = msg.ok
+        ? "Loaded: " + msg.mapName + " · " + msg.playedAt + " · " + msg.zones + " zones · " + msg.kills + " kills"
+        : "⚠ " + (msg.error || "could not load that game");
+    } else if(msg.type === "map_drops_result"){
+      ffReplyArrived("mapDrops");
+      const n = document.getElementById("ff_mvDropNote");
+      if(n && msg.op === "fill") n.textContent = msg.ok
+        ? "Filled " + msg.filled + " team(s) from " + msg.games + " game(s) on this map."
+        : "⚠ " + (msg.error || "could not fill");
+      else if(n && !msg.ok) n.textContent = "⚠ " + (msg.error || "not saved");
+    } else if(msg.type === "map_view_list_result"){
+      ffReplyArrived("mapList");
+      ffMvFillPick(msg.replays || []);
     } else if(msg.type === "team_graph_games_result"){
       ffReplyArrived("tgGames");
       const el = document.getElementById("ff_tgGamesStatus");
@@ -10309,6 +10424,219 @@ function ffSyncLobbyTimerControls(){
   const lab = document.getElementById("ff_lobbyTimerLabel");
   if(lab && document.activeElement !== lab && lab.value !== (t.label || "")) lab.value = t.label || "";
 }
+
+/* ---------- Zone map ----------
+   Like the team graphs: every control sends the whole choice as one
+   map_view message, which the engine merges. Loading a game is its own
+   request (map_view_match) because it reads files and takes a second. */
+function ffMvSend(extra){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return false;
+  const show = {};
+  document.querySelectorAll(".ff-mv-show").forEach(el => { show[el.dataset.k] = el.checked; });
+  const teams = Array.from(document.querySelectorAll(".ff-mv-team")).filter(el => el.checked).map(el => Number(el.dataset.squad));
+  ffWs.send(JSON.stringify(Object.assign({
+    type: "map_view",
+    source: document.getElementById("ff_mvSource").value,
+    template: document.getElementById("ff_mvTemplate").value,
+    dropMap: document.getElementById("ff_mvDropMap").value ? Number(document.getElementById("ff_mvDropMap").value) : null,
+    zoom: document.getElementById("ff_mvZoom").value,
+    theme: document.getElementById("ff_mvTheme").value,
+    bg: document.getElementById("ff_mvBg").checked,
+    animate: document.getElementById("ff_mvAnim").checked,
+    replay: document.getElementById("ff_mvReplay").checked,
+    replaySeconds: Math.max(5, Math.min(120, Number(document.getElementById("ff_mvReplaySecs").value) || 30)),
+    show, teams,
+    matchLabel: document.getElementById("ff_mvMatchLabel").value.trim(),
+    mapLabel: document.getElementById("ff_mvMapLabel").value.trim(),
+    roundLabel: document.getElementById("ff_mvRoundLabel").value.trim(),
+  }, extra || {})));
+  return true;
+}
+function ffMvFillPick(rows){
+  const sel = document.getElementById("ff_mvPick");
+  const keep = sel.value;
+  sel.innerHTML = `<option value="">Latest finished game</option>` + rows.map(r => {
+    const when = String(r.playedAt || "").replace(/^(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2}).*$/, "$3/$2 $4:$5");
+    return `<option value="${r.matchId}">${when} · ${r.mapName} · ${r.room || ""} · ${r.matchId}</option>`;
+  }).join("");
+  if(Array.from(sel.options).some(o => o.value === keep)) sel.value = keep;
+  if(!rows.length) document.getElementById("ff_mvLoaded").textContent = "No replay files found in the Replays folder.";
+}
+let ffMvListAsked = false;
+function ffMvAskList(){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return false;
+  ffMvListAsked = true;
+  ffWs.send(JSON.stringify({ type: "map_view_list" }));
+  return true;
+}
+/* The map the drop spots are being set on: the one picked, else the map
+   the live match loaded, else the loaded game's -- the same rule the
+   graphic uses, so the pad and the graphic cannot disagree. */
+function ffMvDropMapId(){
+  const mv = (ffState && ffState.mapView) || {};
+  const live = (((ffState && ffState.liveOps) || {}).zone || {}).mapId;
+  return String(mv.dropMap || live || ((mv.match || {}).mapId) || 1);
+}
+function ffMvDrawDrops(){
+  const pad = document.getElementById("ff_mvDropPins");
+  if(!pad || !ffState) return;
+  const maps = ffState.ffMaps || {};
+  const id = ffMvDropMapId();
+  const m = maps[id];
+  const img = document.getElementById("ff_mvDropImg");
+  const src = m ? "../overlay/assets/" + encodeURI(m.image) : "";
+  if(img.getAttribute("src") !== src){ if(src) img.src = src; else img.removeAttribute("src"); }
+  const pins = (((ffState.mapView || {}).drops) || {})[id] || {};
+  const sel = document.getElementById("ff_mvDropTeam").value.toUpperCase();
+  const teams = ((ffState.roster || {}).teams) || [];
+  const label = key => { const t = teams.find(x => (x.name || "").toUpperCase() === key); return (t && (t.shortName || t.name)) || key; };
+  pad.innerHTML = Object.entries(pins).map(([key, p]) => {
+    if(!p || !p.at) return "";
+    const on = key === sel;
+    return `<div style="position:absolute;left:${(p.at[0] * 100).toFixed(2)}%;top:${(p.at[1] * 100).toFixed(2)}%;transform:translate(-50%,-100%);` +
+           `display:flex;flex-direction:column;align-items:center;">` +
+           `<span style="font:700 11px/1 sans-serif;color:#fff;background:${on ? "#ee1c25" : "rgba(0,0,0,.75)"};padding:2px 5px;border-radius:3px;` +
+           `border:1px ${p.by === "hand" ? "solid" : "dashed"} ${on ? "#fff" : "#ee1c25"};white-space:nowrap;">${label(key).replace(/</g, "&lt;")}</span>` +
+           `<span style="width:2px;height:8px;background:#ee1c25;"></span>` +
+           `<span style="width:8px;height:8px;border-radius:50%;background:#ee1c25;border:1px solid #fff;margin-top:-1px;"></span></div>`;
+  }).join("");
+  const placed = Object.keys(pins).length;
+  const note = document.getElementById("ff_mvDropNote");
+  if(note && !note.dataset.hold) note.textContent = (m ? m.name : "Map " + id) + ": " + placed + " of " + teams.length + " teams pinned.";
+}
+let ffMvTeamsKey = "";
+function ffSyncMapView(){
+  if(!ffState || !document.getElementById("ff_mvSource")) return;
+  const mv = ffState.mapView || {};
+  const set = (id, v, prop) => {
+    const el = document.getElementById(id);
+    if(el && document.activeElement !== el && v != null && el[prop || "value"] !== v) el[prop || "value"] = v;
+  };
+  set("ff_mvSource", mv.source || "live");
+  set("ff_mvTemplate", mv.template || "");
+  set("ff_mvMatchLabel", mv.matchLabel || "");
+  set("ff_mvMapLabel", mv.mapLabel || "");
+  set("ff_mvRoundLabel", mv.roundLabel || "");
+  // The placeholders show what blank will print.
+  const evNow = ffState.event || {};
+  const mapNow = (ffState.ffMaps || {})[ffMvDropMapId()];
+  document.getElementById("ff_mvMatchLabel").placeholder = "MATCH " + (evNow.currentGame || 1);
+  document.getElementById("ff_mvMapLabel").placeholder = mapNow ? mapNow.name.toUpperCase() : "Map name";
+  document.getElementById("ff_mvRoundLabel").placeholder = evNow.roundName || "Round name";
+  // The map list, from the engine's own calibration table.
+  const dm = document.getElementById("ff_mvDropMap");
+  const maps = ffState.ffMaps || {};
+  if(dm.options.length < 2 && Object.keys(maps).length){
+    Object.entries(maps).forEach(([id, m]) => { const o = document.createElement("option"); o.value = id; o.textContent = m.name; dm.appendChild(o); });
+  }
+  set("ff_mvDropMap", mv.dropMap ? String(mv.dropMap) : "");
+  // Team picker: the roster, kept while the operator is using it.
+  const tp = document.getElementById("ff_mvDropTeam");
+  const names = (((ffState.roster || {}).teams) || []).map(t => t.name || "").filter(Boolean);
+  if(tp !== document.activeElement && tp.dataset.key !== names.join("|")){
+    const keep = tp.value;
+    tp.dataset.key = names.join("|");
+    tp.innerHTML = names.map(n => `<option value="${n.replace(/"/g, "&quot;")}">${n.replace(/</g, "&lt;")}</option>`).join("");
+    if(names.includes(keep)) tp.value = keep;
+  }
+  document.getElementById("ff_mvDropBox").style.display = mv.source === "drops" ? "" : "none";
+  document.getElementById("ff_mvMatchBox").style.display = mv.source === "drops" ? "none" : "";
+  ffMvDrawDrops();
+  if(!ffMvListAsked) ffMvAskList();
+  set("ff_mvZoom", mv.zoom || "map");
+  set("ff_mvTheme", mv.theme || "auto");
+  set("ff_mvBg", mv.bg !== false, "checked");
+  set("ff_mvAnim", mv.animate !== false, "checked");
+  set("ff_mvReplay", !!mv.replay, "checked");
+  set("ff_mvReplaySecs", String(mv.replaySeconds || 30));
+  const show = mv.show || {};
+  document.querySelectorAll(".ff-mv-show").forEach(el => {
+    if(el !== document.activeElement && show[el.dataset.k] != null) el.checked = !!show[el.dataset.k];
+  });
+  document.getElementById("ff_mvMatchBox").style.opacity = (mv.source === "match") ? "1" : "0.55";
+  const m = mv.match;
+  const loaded = document.getElementById("ff_mvLoaded");
+  if(m && !loaded.textContent) loaded.textContent = "Loaded: " + m.mapName + " · " + m.playedAt;
+  // Team boxes: redrawn only when the loaded game changes, so a tick in
+  // progress is not wiped by the next sync.
+  const squads = (m && m.squads) || [];
+  const key = (m && m.matchId) + "|" + squads.map(q => q.squad + q.teamName).join(",");
+  const picked = new Set((mv.teams || []).map(Number));
+  if(key !== ffMvTeamsKey){
+    ffMvTeamsKey = key;
+    document.getElementById("ff_mvTeams").innerHTML = squads.map(q =>
+      `<label class="hint" style="margin:0;display:flex;gap:6px;align-items:center;">` +
+      `<input type="checkbox" class="ff-mv-team" data-squad="${q.squad}"${picked.has(q.squad) ? " checked" : ""}>` +
+      `${q.place ? "#" + q.place + " " : ""}${(q.teamName || "Squad " + q.squad).replace(/</g, "&lt;")} · ${q.kills}K</label>`).join("") ||
+      `<span class="hint">Load a game to pick teams.</span>`;
+    document.querySelectorAll(".ff-mv-team").forEach(el => el.addEventListener("change", () => ffMvSend()));
+  } else {
+    document.querySelectorAll(".ff-mv-team").forEach(el => { el.checked = picked.has(Number(el.dataset.squad)); });
+  }
+  const st = document.getElementById("ff_mvStatus");
+  if(st && !st.dataset.busy) st.textContent = mv.visible ? "On air." : "";
+}
+(function ffWireMapView(){
+  if(!document.getElementById("ff_mvSource")) return;
+  ["ff_mvSource", "ff_mvTemplate", "ff_mvDropMap", "ff_mvZoom", "ff_mvTheme", "ff_mvBg", "ff_mvAnim", "ff_mvReplay", "ff_mvReplaySecs"].forEach(id =>
+    document.getElementById(id).addEventListener("change", () => ffMvSend()));
+  const drops = (op, extra) => {
+    if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return false;
+    ffWs.send(JSON.stringify(Object.assign({ type: "map_drops", op, map: Number(ffMvDropMapId()) }, extra || {})));
+    return true;
+  };
+  document.getElementById("ff_mvDropTeam").addEventListener("change", ffMvDrawDrops);
+  document.querySelectorAll(".ff-mv-label").forEach(el => el.addEventListener("change", () => ffMvSend()));
+  document.getElementById("ff_mvDropPad").addEventListener("click", e => {
+    const pad = e.currentTarget.getBoundingClientRect();
+    const at = [(e.clientX - pad.left) / pad.width, (e.clientY - pad.top) / pad.height];
+    const tp = document.getElementById("ff_mvDropTeam");
+    if(!tp.value || !drops("set", { team: tp.value, at })) return;
+    // On to the next team without a pin, so twelve clicks place twelve.
+    const pins = Object.assign({}, (((ffState.mapView || {}).drops) || {})[ffMvDropMapId()] || {});
+    pins[tp.value.toUpperCase()] = { at, by: "hand" };
+    const next = Array.from(tp.options).find(o => !pins[o.value.toUpperCase()]);
+    if(next) tp.value = next.value;
+  });
+  document.getElementById("ff_mvDropClear").addEventListener("click", () => {
+    const tp = document.getElementById("ff_mvDropTeam");
+    if(tp.value) drops("clear", { team: tp.value });
+  });
+  document.getElementById("ff_mvDropClearAll").addEventListener("click", () => {
+    const m = (ffState.ffMaps || {})[ffMvDropMapId()];
+    if(confirm("Remove every drop-spot pin on " + (m ? m.name : "this map") + "?")) drops("clearAll");
+  });
+  document.getElementById("ff_mvDropFill").addEventListener("click", () => {
+    const games = Math.max(1, Math.min(20, Number(document.getElementById("ff_mvDropGames").value) || 6));
+    const note = document.getElementById("ff_mvDropNote");
+    note.dataset.hold = "1";
+    note.textContent = "Reading the last " + games + " game(s) on this map...";
+    ffAwaitReply("mapDrops", "ff_mvDropNote", "the fill never came back", 60);
+    drops("fill", { games });
+    setTimeout(() => { delete note.dataset.hold; }, 8000);
+  });
+  document.querySelectorAll(".ff-mv-show").forEach(el => el.addEventListener("change", () => ffMvSend()));
+  const load = matchId => {
+    if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+    document.getElementById("ff_mvLoaded").textContent = "Reading the replay and the log...";
+    // Reading a ~100 MB log for the zones can take a few seconds.
+    ffAwaitReply("mapView", "ff_mvLoaded", "the game was never sent back", 25);
+    ffWs.send(JSON.stringify({ type: "map_view_match", matchId: matchId || "" }));
+  };
+  document.getElementById("ff_mvLoad").addEventListener("click", () => load(document.getElementById("ff_mvPick").value));
+  document.getElementById("ff_mvList").addEventListener("click", () => {
+    document.getElementById("ff_mvLoaded").textContent = "Listing games...";
+    ffAwaitReply("mapList", "ff_mvLoaded", "the list was never sent back");
+    if(ffMvAskList()) setTimeout(() => { const l = document.getElementById("ff_mvLoaded");
+      if(l.textContent === "Listing games...") l.textContent = ""; }, 3000);
+  });
+  document.getElementById("ff_mvShow").addEventListener("click", () => {
+    if(ffMvSend({ visible: true })) document.getElementById("ff_mvStatus").textContent = "Map pushed up.";
+  });
+  document.getElementById("ff_mvHide").addEventListener("click", () => {
+    if(ffMvSend({ visible: false })) document.getElementById("ff_mvStatus").textContent = "Map pulled down.";
+  });
+})();
 
 /* ---------- Team graphs ----------
    Every control sends the WHOLE choice as one team_graph message; the
