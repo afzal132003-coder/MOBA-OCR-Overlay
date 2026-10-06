@@ -8455,6 +8455,217 @@ def fill_drops_from_games(map_id, games=6):
     return {"games": len(rows), "filled": filled}
 
 
+# ---------------------------------------------------------------------------
+# PLAYER HEAD TO HEAD: two players from different teams, side by side --
+# rank, eliminations, placement points, total points -- for one game or
+# for the series so far. Built from the same result files the standings
+# and team graphs use, so the numbers agree with the points table.
+# ---------------------------------------------------------------------------
+PLAYER_H2H_DEFAULTS = {
+    "visible": False,
+    "a": None, "b": None,       # {"uid", "ign", "team"} -- a roster player
+    "games": "graphs",          # "graphs" (the team graphs' games) | "committed" | "latest"
+    "latest": 6,                # how many result files, for "latest"
+    "scope": "overall",         # "overall" | "game"
+    "game": 0,                  # the game for "game"; for "overall", up to this game (0 = all)
+    "total": "team",            # "team" = the team's points | "player" = placement + this player's elims
+    "animate": True,
+    "roundLabel": "",
+    "rows": None,
+}
+_h2h_results = {}
+
+
+def player_h2h_state():
+    h = server_state.setdefault("playerH2H", {})
+    for k, v in PLAYER_H2H_DEFAULTS.items():
+        h.setdefault(k, v)
+    return h
+
+
+def _h2h_result(match_id):
+    """One result file read and resolved, kept: a finished game's file does
+    not change, and the head to head is re-read on every pick."""
+    if match_id not in _h2h_results:
+        folder = (server_state.get("settings", {}) or {}).get("matchResultFolder", "")
+        _h2h_results[match_id] = build_match_result_payload(folder, str(match_id))
+    return _h2h_results[match_id]
+
+
+def player_h2h_matches(cfg):
+    """The games, in the order they were played."""
+    src = cfg.get("games") or "graphs"
+    tg = (server_state.get("display") or {}).get("teamGraph") or {}
+    if src == "graphs" and tg.get("source") == "files":
+        ids = [str(x) for x in tg.get("matchIds") or []]
+    elif src == "latest":
+        folder = (server_state.get("settings", {}) or {}).get("matchResultFolder", "")
+        found = []
+        if folder and Path(folder).is_dir():
+            for f in Path(folder).iterdir():
+                m = FREEFIRE_MATCH_FILENAME_REGEX.match(f.name)
+                if m:
+                    found.append((m.group("timestamp"), m.group("match_id")))
+        found.sort(reverse=True)
+        ids = [mid for _, mid in found[:max(1, int(cfg.get("latest") or 6))]]
+    else:
+        ms = list(server_state.get("matches") or [])
+        ms.sort(key=lambda m: (m.get("timestamp") or "", m.get("gameNumber") or 0))
+        return ms
+    built = [m for m in (_h2h_result(i) for i in ids) if m.get("teams")]
+    built.sort(key=lambda m: m.get("timestamp") or "")
+    return built
+
+
+def _h2h_find(match, who):
+    """(team, player) for this player in this game, by UID, else by IGN."""
+    uid = str((who or {}).get("uid") or "").strip()
+    ign = _ign_key((who or {}).get("ign"))
+    for team in match.get("teams") or []:
+        for pl in team.get("players") or []:
+            if uid and str(pl.get("uid") or "").strip() == uid:
+                return team, pl
+    if ign:
+        for team in match.get("teams") or []:
+            for pl in team.get("players") or []:
+                if ign in (_ign_key(pl.get("name")), _ign_key(pl.get("fileName"))):
+                    return team, pl
+    return None, None
+
+
+def compute_player_h2h(matches, cfg, roster_teams=None):
+    roster_teams = roster_teams if roster_teams is not None else (
+        (server_state.get("roster") or {}).get("teams") or [])
+    n = len(matches)
+    k = int(cfg.get("game") or 0)
+    k = k if 1 <= k <= n else n
+    if cfg.get("scope") == "game":
+        subset, label = matches[k - 1:k], "GAME %d" % k
+    else:
+        subset = matches[:k]
+        label = "OVERALL" if k == n else ("GAME 1" if k == 1 else "OVERALL · GAMES 1-%d" % k)
+    table = compute_freefire_standings(subset, roster_teams) if cfg.get("scope") != "game" else []
+
+    def side(who):
+        if not who:
+            return None
+        out = {"uid": who.get("uid") or "", "ign": who.get("ign") or "", "teamName": who.get("team") or "",
+               "shortName": "", "rank": None, "elims": 0, "placement": 0, "teamTotal": 0, "games": 0}
+        for m in subset:
+            team, pl = _h2h_find(m, who)
+            if not team:
+                continue
+            out["games"] += 1
+            out["elims"] += int(pl.get("kills") or 0)
+            out["placement"] += int(team.get("rankScore") or 0)
+            out["teamTotal"] += int(team.get("totalScore") or 0)
+            _key, name, short = _standings_identity(team, roster_teams)
+            out["teamName"], out["shortName"] = name or out["teamName"], short or out["shortName"]
+            if cfg.get("scope") == "game":
+                out["rank"] = team.get("rank")
+        if table and out["teamName"]:
+            want = normalize_for_match(out["teamName"])
+            for i, row in enumerate(table):
+                if normalize_for_match(row.get("teamName") or "") == want:
+                    out["rank"] = i + 1
+                    break
+        out["total"] = out["teamTotal"] if cfg.get("total") != "player" else out["placement"] + out["elims"]
+        return out
+
+    return {"label": label, "games": len(subset), "of": n,
+            "a": side(cfg.get("a")), "b": side(cfg.get("b"))}
+
+
+def refresh_player_h2h():
+    h = player_h2h_state()
+    try:
+        h["rows"] = compute_player_h2h(player_h2h_matches(h), h)
+    except Exception as e:
+        print("[h2h] could not build: %s" % e)
+        h["rows"] = {"label": "", "games": 0, "of": 0, "a": None, "b": None, "error": str(e)}
+    return h["rows"]
+
+
+def h2h_photos():
+    """The two players' photos from the photo folder, by UID then IGN.
+    Sent on their own message to the head-to-head page -- not in the
+    state, which goes out several times a second."""
+    h = player_h2h_state()
+    out = {}
+    for side in ("a", "b"):
+        who = h.get(side) or {}
+        key = str(who.get("uid") or who.get("ign") or "")
+        out[side] = {"key": key, "photo": _photo_lookup(who.get("uid"), who.get("ign")) if key else ""}
+    return out
+
+
+async def h2h_photo_heartbeat():
+    """The photos again every 10s while the graphic is up, so a browser
+    source that reloads -- over the relay this engine never hears about
+    it -- still gets them."""
+    while True:
+        await asyncio.sleep(10)
+        try:
+            if player_h2h_state().get("visible"):
+                await broadcast_to_page("freefire_player_h2h", {"type": "h2h_photos", **h2h_photos()})
+        except Exception as e:
+            print("[h2h] photo resend failed: %s" % e)
+
+
+# Parsed result files, by match id and file time. A finished game's file
+# does not change; the roster it is resolved against can, so this is
+# cleared on every manual update (with the head to head's own copy).
+_listing_cache = {}
+LIST_MATCH_FILES_MAX = 24
+
+
+def list_match_files(folder):
+    """Every result file in the folder, oldest first, parsed and resolved
+    exactly as a fetch would. Returns (entries, error)."""
+    folder_path = Path(folder) if folder else None
+    if not folder_path or not folder_path.is_dir():
+        return [], f"No match result folder set, or {folder!r} is not a folder."
+    found = []
+    for f in folder_path.iterdir():
+        m = FREEFIRE_MATCH_FILENAME_REGEX.match(f.name)
+        if m:
+            found.append((m.group("timestamp"), f, m))
+    # Only the newest few. The folder keeps every game the client has
+    # ever played, and an older game's knocks and headshots are dug out
+    # of the debugger logs (recover_match_extras) -- across 186 files
+    # that ran for minutes. The push dropdown is for this event's games.
+    found.sort(key=lambda x: x[0])
+    found = found[-LIST_MATCH_FILES_MAX:]
+    entries = []
+    for index, (stamp, path, _m) in enumerate(found):
+        mid = _m.group("match_id")
+        try:
+            key = (mid, path.stat().st_mtime)
+        except OSError:
+            continue
+        built = _listing_cache.get(key)
+        if built is None:
+            built = build_match_result_payload(folder, mid)
+            _listing_cache[key] = built
+        if built.get("error") or not built.get("teams"):
+            continue
+        # Without images: each team carries its roster logo, and two
+        # dozen games of them made this reply ~3 MB. The pushes it feeds
+        # send names and numbers.
+        teams = [dict({k: v for k, v in t.items() if k != "logo"},
+                      players=[{k: v for k, v in pl.items() if k != "photo"}
+                               for pl in t.get("players") or []])
+                 for t in built.get("teams") or []]
+        entries.append({
+            "game": index + 1,
+            "matchId": built.get("matchId"),
+            "fileName": built.get("fileName"),
+            "timestamp": stamp,
+            "teams": teams,
+        })
+    return entries, (None if entries else f"No readable MatchResult files in {folder}.")
+
+
 def refresh_team_graphs(from_files=True):
     """Rebuild the team graphs' table from wherever the operator pointed it:
     the committed games, or a set of result files picked in Post-Match.
@@ -9557,6 +9768,10 @@ async def handle_client(websocket, path=None):
                         server_state.get("matches", [])
                     )
                     refresh_team_graphs(from_files=False)
+                    _h2h_results.clear()
+                    _listing_cache.clear()
+                    if (server_state.get("playerH2H") or {}).get("a"):
+                        refresh_player_h2h()
                     server_state["fraggers"] = compute_freefire_fraggers(
                         server_state.get("matches", [])
                     )
@@ -10186,6 +10401,20 @@ async def handle_client(websocket, path=None):
                     mv["shownAt"] = int(time.time() * 1000)
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "player_h2h":
+                h = player_h2h_state()
+                for k in ("visible", "a", "b", "games", "latest", "scope", "game", "total", "animate", "roundLabel"):
+                    if k in payload:
+                        h[k] = payload[k]
+                if payload.get("visible"):
+                    h["shownAt"] = int(time.time() * 1000)
+                loop = asyncio.get_running_loop()
+                rows = await loop.run_in_executor(None, refresh_player_h2h)
+                photos = await loop.run_in_executor(None, h2h_photos)
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+                await broadcast_to_page("freefire_player_h2h", {"type": "h2h_photos", **photos})
+                await websocket.send(json.dumps({"type": "player_h2h_result", "rows": rows}))
             elif payload.get("type") == "map_drops":
                 # Drop spots: set or clear one team's pin on a map, clear
                 # a map, or fill a map from its recent games.
@@ -10905,32 +11134,13 @@ async def handle_client(websocket, path=None):
                 # fetch reads.
                 folder = (server_state.get("settings", {})
                           .get("matchResultFolder") or "")
-                entries, error = [], None
-                folder_path = Path(folder) if folder else None
-                if not folder_path or not folder_path.is_dir():
-                    error = f"No match result folder set, or {folder!r} is not a folder."
-                else:
-                    found = []
-                    for f in folder_path.iterdir():
-                        m = FREEFIRE_MATCH_FILENAME_REGEX.match(f.name)
-                        if m:
-                            found.append((m.group("timestamp"), f, m))
-                    # Oldest first, so game 1 is the first one played --
-                    # which is the order the RESULTS grid's columns are in.
-                    found.sort(key=lambda x: x[0])
-                    for index, (stamp, path, _m) in enumerate(found):
-                        built = build_match_result_payload(folder, _m.group("match_id"))
-                        if built.get("error") or not built.get("teams"):
-                            continue
-                        entries.append({
-                            "game": index + 1,
-                            "matchId": built.get("matchId"),
-                            "fileName": built.get("fileName"),
-                            "timestamp": stamp,
-                            "teams": built.get("teams") or [],
-                        })
-                    if not entries:
-                        error = f"No readable MatchResult files in {folder}."
+                # In a worker, never on this loop: the folder holds every
+                # game the client has played (186 files, ~0.08s each) and
+                # reading it here froze the whole engine -- alive table,
+                # relay, everything -- for ~15s each time a dashboard
+                # connected.
+                loop = asyncio.get_running_loop()
+                entries, error = await loop.run_in_executor(None, list_match_files, folder)
                 await websocket.send(json.dumps({
                     "type": "freefire_match_files",
                     "files": entries, "folder": folder, "error": error,
@@ -12094,6 +12304,7 @@ async def main():
     # is handed positions already placed and does not need it.
     server_state["ffMaps"] = {str(k): dict(v) for k, v in map_analysis.MAPS.items()}
     map_view_state()
+    player_h2h_state()
     try:
         keyboard.add_hotkey(NUM5_HOTKEY, on_num5_pressed)
         print(f"Loadout capture armed on '{NUM5_HOTKEY}' (only fires while loadoutCapture.active is true)")
@@ -12107,7 +12318,7 @@ async def main():
         print(f"Free Fire OCR engine running at ws://{host}:{port}")
         print("Open dashboard.html's FreeFire Max tab in a browser, and")
         print("overlay/freefire_scoreboard.html + overlay/freefire_booyah.html in OBS as Browser Sources.")
-        await asyncio.gather(ocr_loop(), relay_client_loop())
+        await asyncio.gather(ocr_loop(), relay_client_loop(), h2h_photo_heartbeat())
 
 
 if __name__ == "__main__":

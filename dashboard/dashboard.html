@@ -2737,6 +2737,41 @@
     </div>
 
     <div class="card">
+      <h2>Player Head To Head</h2>
+      <p class="hint">Its own browser source: <code>overlay/freefire_player_h2h.html</code> (SS3 art). Two players from
+        different teams: <strong>Rank</strong> (their team's finish in that game, or its place in the standings over
+        the games chosen), <strong>Elimination</strong> (the player's own kills), <strong>Placement</strong> and
+        <strong>Total Points</strong> (their team's). Photos come from the Player Photo Folder (UID - IGN), else the
+        roster photo, else the default player photo.</p>
+      <div class="row" style="gap:10px;align-items:flex-end;flex-wrap:wrap;">
+        <div class="team-form" style="max-width:240px;margin:0;"><label for="ff_h2hA">Player (left)</label><select id="ff_h2hA"></select></div>
+        <div class="team-form" style="max-width:240px;margin:0;"><label for="ff_h2hB">Player (right)</label><select id="ff_h2hB"></select></div>
+        <div class="team-form" style="max-width:200px;margin:0;"><label for="ff_h2hGames">Games from</label>
+          <select id="ff_h2hGames"><option value="graphs">Same games as Team Graphs</option><option value="committed">Committed games</option>
+            <option value="latest">Latest result files</option></select></div>
+        <div class="team-form" style="max-width:80px;margin:0;display:none;" id="ff_h2hLatestWrap"><label for="ff_h2hLatest">How many</label>
+          <input type="number" id="ff_h2hLatest" min="1" max="20" value="6"></div>
+        <div class="team-form" style="max-width:150px;margin:0;"><label for="ff_h2hScope">Show</label>
+          <select id="ff_h2hScope"><option value="overall">Overall</option><option value="game">One game</option></select></div>
+        <div class="team-form" style="max-width:150px;margin:0;"><label for="ff_h2hGame" id="ff_h2hGameLabel">Up to</label>
+          <select id="ff_h2hGame"><option value="0">All games</option></select></div>
+        <div class="team-form" style="max-width:230px;margin:0;"><label for="ff_h2hTotal">Total points</label>
+          <select id="ff_h2hTotal"><option value="team">The team's total</option><option value="player">Placement + this player's elims</option></select></div>
+      </div>
+      <div class="row" style="gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px;">
+        <span class="hint" style="margin:0;">Round text</span>
+        <input type="text" id="ff_h2hRound" placeholder="Round name" style="width:240px;">
+        <label class="hint" style="display:flex;gap:6px;align-items:center;margin:0;"><input type="checkbox" id="ff_h2hAnim" checked> Animation in &amp; out</label>
+      </div>
+      <div class="hint" id="ff_h2hPreview" style="margin-top:8px;font-family:ui-monospace,monospace;"></div>
+      <div class="row" style="gap:8px;margin-top:10px;">
+        <button id="ff_h2hShow">Push Head To Head Up</button>
+        <button class="secondary" id="ff_h2hHide">Pull Down</button>
+        <span class="hint" id="ff_h2hStatus" style="align-self:center;"></span>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>File &amp; OCR Management</h2>
       <p class="hint">Free Fire's own game client writes these files directly to disk — no screenshots, no OCR
         involved. Point each path at the folder the client saves into, then fetch. Match result is one file per
@@ -6766,6 +6801,7 @@ function ffOpen(url){
       try { ffSyncLobbyTimerControls(); } catch(e){ console.error("lobby timer:", e); }
       try { ffSyncTeamGraphs(); } catch(e){ console.error("team graphs:", e); }
       try { ffSyncMapView(); } catch(e){ console.error("map view:", e); }
+      try { ffSyncPlayerH2H(); } catch(e){ console.error("player h2h:", e); }
       try { ffDrawProfiles(); } catch(e){ console.error("event profiles:", e); }
       try { ffSyncTgGamesStatus(); } catch(e){ console.error("team graph games:", e); }
       if(!ffHydrated){
@@ -6851,6 +6887,8 @@ function ffOpen(url){
       if(el) el.textContent = msg.ok
         ? "Loaded: " + msg.mapName + " · " + msg.playedAt + " · " + msg.zones + " zones · " + msg.kills + " kills"
         : "⚠ " + (msg.error || "could not load that game");
+    } else if(msg.type === "player_h2h_result"){
+      ffReplyArrived("h2h");
     } else if(msg.type === "map_drops_result"){
       ffReplyArrived("mapDrops");
       const n = document.getElementById("ff_mvDropNote");
@@ -10424,6 +10462,100 @@ function ffSyncLobbyTimerControls(){
   const lab = document.getElementById("ff_lobbyTimerLabel");
   if(lab && document.activeElement !== lab && lab.value !== (t.label || "")) lab.value = t.label || "";
 }
+
+/* ---------- Player head to head ----------
+   The two pickers list the roster's players under their teams; each
+   option carries the player's UID and IGN, which is what the engine
+   finds them by in every game's result file. */
+let ffH2hPlayers = [];
+let ffH2hKey = "";
+function ffH2hWho(sel){
+  const v = document.getElementById(sel).value;
+  const p = v === "" ? null : ffH2hPlayers[Number(v)];
+  return p ? { uid: p.uid, ign: p.ign, team: p.team } : null;
+}
+function ffH2hSend(extra){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return false;
+  document.getElementById("ff_h2hStatus").textContent = "Working it out...";
+  ffAwaitReply("h2h", "ff_h2hStatus", "the head to head was never sent back", 20);
+  ffWs.send(JSON.stringify(Object.assign({
+    type: "player_h2h",
+    a: ffH2hWho("ff_h2hA"), b: ffH2hWho("ff_h2hB"),
+    games: document.getElementById("ff_h2hGames").value,
+    latest: Math.max(1, Math.min(20, Number(document.getElementById("ff_h2hLatest").value) || 6)),
+    scope: document.getElementById("ff_h2hScope").value,
+    game: Number(document.getElementById("ff_h2hGame").value) || 0,
+    total: document.getElementById("ff_h2hTotal").value,
+    roundLabel: document.getElementById("ff_h2hRound").value.trim(),
+    animate: document.getElementById("ff_h2hAnim").checked,
+  }, extra || {})));
+  return true;
+}
+function ffSyncPlayerH2H(){
+  if(!ffState || !document.getElementById("ff_h2hA")) return;
+  const h = ffState.playerH2H || {};
+  const teams = ((ffState.roster || {}).teams) || [];
+  // Pickers: rebuilt only when the roster's players change.
+  const key = JSON.stringify(teams.map(t => [t.name, (t.players || []).map(p => [p.uid, p.ign])]));
+  if(key !== ffH2hKey && document.activeElement !== document.getElementById("ff_h2hA")
+     && document.activeElement !== document.getElementById("ff_h2hB")){
+    ffH2hKey = key;
+    ffH2hPlayers = [];
+    const html = teams.map(t => `<optgroup label="${(t.name || "").replace(/"/g, "&quot;")}">` +
+      (t.players || []).filter(p => p.ign || p.uid).map(p => {
+        ffH2hPlayers.push({ uid: p.uid || "", ign: p.ign || "", team: t.name || "" });
+        return `<option value="${ffH2hPlayers.length - 1}">${(p.displayIgn || p.ign || p.uid).replace(/</g, "&lt;")}</option>`;
+      }).join("") + `</optgroup>`).join("");
+    ["ff_h2hA", "ff_h2hB"].forEach(id => { document.getElementById(id).innerHTML = `<option value="">-- pick --</option>` + html; });
+  }
+  const pick = (id, who) => {
+    const el = document.getElementById(id);
+    if(el === document.activeElement || !who) return;
+    const i = ffH2hPlayers.findIndex(p => (who.uid && p.uid === who.uid) || (!who.uid && p.ign === who.ign));
+    if(i >= 0 && el.value !== String(i)) el.value = String(i);
+  };
+  pick("ff_h2hA", h.a); pick("ff_h2hB", h.b);
+  const set = (id, v, prop) => {
+    const el = document.getElementById(id);
+    if(el && document.activeElement !== el && v != null && el[prop || "value"] !== v) el[prop || "value"] = v;
+  };
+  set("ff_h2hGames", h.games || "graphs");
+  set("ff_h2hLatest", String(h.latest || 6));
+  set("ff_h2hScope", h.scope || "overall");
+  set("ff_h2hTotal", h.total || "team");
+  set("ff_h2hRound", h.roundLabel || "");
+  set("ff_h2hAnim", h.animate !== false, "checked");
+  document.getElementById("ff_h2hRound").placeholder = (ffState.event || {}).roundName || "Round name";
+  document.getElementById("ff_h2hLatestWrap").style.display = (h.games === "latest") ? "" : "none";
+  // The game list follows how many games there are.
+  const rows = h.rows || {};
+  const n = rows.of || 0;
+  const scope = h.scope || "overall";
+  document.getElementById("ff_h2hGameLabel").textContent = scope === "game" ? "Game" : "Up to";
+  const gs = document.getElementById("ff_h2hGame");
+  const want = (scope === "game" ? "" : `<option value="0">All games</option>`) +
+    Array.from({ length: n }, (_, i) => `<option value="${i + 1}">Game ${i + 1}</option>`).join("");
+  if(gs.dataset.sig !== scope + n && gs !== document.activeElement){ gs.dataset.sig = scope + n; gs.innerHTML = want; }
+  set("ff_h2hGame", String(h.game || (scope === "game" ? n || 1 : 0)));
+  const line = (s) => s ? `${s.ign} (${s.shortName || s.teamName || "?"})  #${s.rank == null ? "-" : s.rank} · ${s.elims} elims · ${s.placement} placement · ${s.total} pts` +
+    (s.games === 0 ? "  -- not found in these games" : "") : "--";
+  document.getElementById("ff_h2hPreview").innerHTML = rows.error ? "⚠ " + rows.error :
+    (rows.label ? `<strong>${rows.label}</strong> (${rows.games} of ${n} game${n === 1 ? "" : "s"})<br>` +
+      line(rows.a).replace(/</g, "&lt;") + "<br>" + line(rows.b).replace(/</g, "&lt;") : "Pick two players.");
+  const st = document.getElementById("ff_h2hStatus");
+  if(st.textContent === "Working it out...") st.textContent = h.visible ? "On air." : "";
+}
+(function ffWireH2H(){
+  if(!document.getElementById("ff_h2hA")) return;
+  ["ff_h2hA", "ff_h2hB", "ff_h2hGames", "ff_h2hLatest", "ff_h2hScope", "ff_h2hGame", "ff_h2hTotal", "ff_h2hRound", "ff_h2hAnim"]
+    .forEach(id => document.getElementById(id).addEventListener("change", () => ffH2hSend()));
+  document.getElementById("ff_h2hShow").addEventListener("click", () => {
+    if(ffH2hSend({ visible: true })) setTimeout(() => { document.getElementById("ff_h2hStatus").textContent = "Pushed up."; }, 600);
+  });
+  document.getElementById("ff_h2hHide").addEventListener("click", () => {
+    if(ffH2hSend({ visible: false })) setTimeout(() => { document.getElementById("ff_h2hStatus").textContent = "Pulled down."; }, 600);
+  });
+})();
 
 /* ---------- Zone map ----------
    Like the team graphs: every control sends the whole choice as one

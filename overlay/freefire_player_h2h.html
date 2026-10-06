@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Free Fire Player Head To Head</title>
+<style>
+  /* PLAYER HEAD TO HEAD -- two players from different teams, from the SS3
+     "head to head R" artwork: photo and team logo on each side, the name
+     in the yellow bar, and RANK / ELIMINATION / PLACEMENT / TOTAL POINTS
+     down the middle for one game or the series so far (the engine's
+     playerH2H.rows; numbers from the same result files as the standings).
+
+     Measured from "head to head R - BLANK/DEMO": side panels x 124..622
+     and 1296..1794, y 417..868; name bars x 153..594 / 1325..1766, y
+     764..840; the value columns centred on x 718 and 1195, rows centred
+     on y 512 / 602 / 692 / 780, digits 34px tall in #fff694; the round bar
+     x 717..1027, y 274..317. The photo stands in the panel with its head
+     above it, behind the name bar -- so the bar is put back over it from
+     the same artwork. */
+  @font-face { font-family:'SMBlack'; src:url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype'); font-weight:900; }
+  @font-face { font-family:'TacticSans'; src:url('assets/freefire/ss3/TacticSans-BldIt.otf') format('opentype'); font-weight:100 900; }
+
+  html,body{margin:0;padding:0;background:transparent;overflow:hidden;}
+  body{width:1920px;height:1080px;-webkit-font-smoothing:antialiased;}
+  body.still *{animation:none !important;transition:none !important;}
+  #stage{position:absolute;inset:0;opacity:0;transform:scale(.985);
+         transition:opacity .4s ease, transform .5s cubic-bezier(.16,.84,.34,1);}
+  #stage.on{opacity:1;transform:none;}
+  #art{position:absolute;left:0;top:0;width:1920px;height:1080px;}
+  .sprite{position:absolute;background-repeat:no-repeat;background-size:1920px 1080px;}
+
+  .clip{position:absolute;overflow:hidden;}
+  .photo{position:absolute;object-fit:contain;object-position:center bottom;}
+  .logo{position:absolute;object-fit:contain;object-position:center;}
+  .name{position:absolute;display:flex;align-items:center;justify-content:center;
+        font-family:'SMBlack',Arial,sans-serif;font-weight:900;font-size:46px;color:#0f0f0f;
+        text-transform:uppercase;white-space:nowrap;letter-spacing:.01em;}
+  .val{position:absolute;width:200px;height:56px;display:flex;align-items:center;justify-content:center;
+       font-family:'SMBlack',Arial,sans-serif;font-weight:900;font-size:48px;color:#fff694;line-height:1;
+       font-variant-numeric:tabular-nums;}
+  .val.lead{text-shadow:0 0 14px rgba(255,246,148,.55);}
+  #round{position:absolute;left:717px;top:274px;width:311px;height:44px;display:flex;align-items:center;justify-content:center;
+         font-family:'TacticSans',Arial,sans-serif;font-size:30px;color:#171717;text-transform:uppercase;white-space:nowrap;}
+  #scope{position:absolute;left:810px;top:836px;width:300px;height:32px;display:flex;align-items:center;justify-content:center;
+         font-family:'SMBlack',Arial,sans-serif;font-size:19px;letter-spacing:.14em;color:#fff694;background:#000;
+         text-transform:uppercase;white-space:nowrap;}
+  #scope:empty{display:none;}
+
+  /* Entrance: photos rise into their panels, logos pop, names slide in
+     from their own side, then the numbers come up row by row. */
+  #stage.on .rise{animation:rise .7s cubic-bezier(.2,.85,.25,1.05) both;}
+  @keyframes rise{from{opacity:0;transform:translateY(90px);}to{opacity:1;transform:none;}}
+  #stage.on .pop{animation:pop .5s cubic-bezier(.2,.9,.3,1.25) both;}
+  @keyframes pop{from{opacity:0;transform:scale(.6);}to{opacity:1;transform:none;}}
+  #stage.on .fromL{animation:fromL .55s cubic-bezier(.2,.8,.3,1) both;}
+  @keyframes fromL{from{opacity:0;transform:translateX(-50px);}to{opacity:1;transform:none;}}
+  #stage.on .fromR{animation:fromR .55s cubic-bezier(.2,.8,.3,1) both;}
+  @keyframes fromR{from{opacity:0;transform:translateX(50px);}to{opacity:1;transform:none;}}
+  #stage.on .num{animation:num .45s cubic-bezier(.2,.9,.3,1.2) both;}
+  @keyframes num{from{opacity:0;transform:translateY(14px) scale(.85);}to{opacity:1;transform:none;}}
+  #stage.on .fade{animation:fade .5s ease both;}
+  @keyframes fade{from{opacity:0;}to{opacity:1;}}
+</style>
+</head>
+<body>
+<div id="stage">
+  <img id="art" alt="">
+  <!-- left -->
+  <img class="logo pop" id="logoA" alt="" style="left:132px;top:410px;width:190px;height:190px;animation-delay:.45s">
+  <div class="clip" style="left:124px;top:230px;width:499px;height:611px;">
+    <img class="photo rise" id="photoA" alt="" style="left:40px;top:90px;width:440px;height:521px;animation-delay:.3s">
+  </div>
+  <div class="sprite" id="barA" style="left:153px;top:764px;width:442px;height:77px;"></div>
+  <div class="name fromL" id="nameA" style="left:153px;top:764px;width:442px;height:77px;animation-delay:.55s"></div>
+  <!-- right -->
+  <img class="logo pop" id="logoB" alt="" style="left:1304px;top:410px;width:190px;height:190px;animation-delay:.5s">
+  <div class="clip" style="left:1296px;top:230px;width:499px;height:611px;">
+    <img class="photo rise" id="photoB" alt="" style="left:40px;top:90px;width:440px;height:521px;animation-delay:.38s">
+  </div>
+  <div class="sprite" id="barB" style="left:1325px;top:764px;width:442px;height:77px;"></div>
+  <div class="name fromR" id="nameB" style="left:1325px;top:764px;width:442px;height:77px;animation-delay:.6s"></div>
+  <!-- middle -->
+  <div id="vals"></div>
+  <div id="round" class="fade" style="animation-delay:.3s"></div>
+  <div id="scope" class="fade" style="animation-delay:1.3s"></div>
+</div>
+
+<script>
+const _params = new URLSearchParams(location.search);
+const _sameOrigin = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
+const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || _sameOrigin;
+const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+const WS_URL = _relay
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_player_h2h&rostercache=1"
+  : "ws://localhost:8765?page=freefire_player_h2h&rostercache=1";
+const PREVIEW = _params.get("preview") === "1";
+const ART = "assets/freefire/ss3/" + encodeURI("head to head R - BLANK.png");
+const COLS = [718, 1195];
+const ROWS = [512, 602, 692, 780];
+
+// Photos from the engine's photo folder, by player; sent on their own
+// message (see h2h_photos in the engine) and kept here.
+const photoCache = {};
+let lastState = null, lastSig = "", _lastRoster = null;
+
+function rosterPlayer(who, roster){
+  if(!who) return null;
+  const uid = String(who.uid || ""), ign = String(who.ign || "").toLowerCase();
+  for(const t of (roster && roster.teams) || []){
+    for(const p of t.players || []){
+      if((uid && String(p.uid || "") === uid) || (ign && String(p.ign || "").toLowerCase() === ign)) return { team: t, player: p };
+    }
+  }
+  return null;
+}
+function teamFor(name, roster){
+  const key = String(name || "").trim().toUpperCase();
+  return ((roster && roster.teams) || []).find(t =>
+    [t.name, t.displayName, t.shortName].some(n => String(n || "").trim().toUpperCase() === key)) || null;
+}
+function fit(node, max, min){
+  node.style.fontSize = "";
+  const span = node.firstChild;
+  let size = parseFloat(getComputedStyle(node).fontSize);
+  while(span && span.offsetWidth > max && size > min){ size -= 1; node.style.fontSize = size + "px"; }
+}
+function setText(node, text){
+  node.innerHTML = "";
+  const s = document.createElement("span"); s.textContent = text; node.appendChild(s);
+}
+function setImg(img, src){
+  if(src){ if(img.getAttribute("src") !== src) img.src = src; img.style.visibility = ""; }
+  else { img.removeAttribute("src"); img.style.visibility = "hidden"; }
+}
+const two = v => v == null ? "--" : String(v).padStart(2, "0");
+
+/* Numbers count up from zero as their row comes in. */
+function countUp(node, to, prefix, delay){
+  if(document.body.classList.contains("still") || typeof to !== "number"){ node.textContent = prefix + (typeof to === "number" ? (prefix ? to : two(to)) : to); return; }
+  node.textContent = prefix + (prefix ? 0 : "00");
+  const start = performance.now() + delay * 1000, dur = 650;
+  const step = now => {
+    const f = Math.max(0, Math.min(1, (now - start) / dur));
+    const v = Math.round(to * (1 - Math.pow(1 - f, 3)));
+    node.textContent = prefix + (prefix ? v : two(v));
+    if(f < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+function render(state){
+  lastState = state;
+  const h = Object.assign({ visible: false, animate: true, roundLabel: "", rows: null }, state.playerH2H || {});
+  const visible = PREVIEW || !!h.visible;
+  document.body.classList.toggle("still", h.animate === false || _params.get("anim") === "0");
+  const stage = document.getElementById("stage");
+  stage.classList.toggle("on", visible);
+  if(!visible){ lastSig = ""; return; }
+
+  const art = document.getElementById("art");
+  if(art.getAttribute("src") !== ART) art.src = ART;
+  ["A", "B"].forEach(k => {
+    const bar = document.getElementById("bar" + k);
+    if(!bar.style.backgroundImage){
+      bar.style.backgroundImage = `url("${ART}")`;
+      bar.style.backgroundPosition = `-${parseInt(bar.style.left)}px -${parseInt(bar.style.top)}px`;
+    }
+  });
+
+  const roster = state.roster || {};
+  const rows = h.rows || {};
+  const ev = state.event || {};
+  const sig = JSON.stringify([rows, h.roundLabel, ev.roundName, h.shownAt, h.a, h.b,
+                              photoCache[(h.a || {}).uid || (h.a || {}).ign], photoCache[(h.b || {}).uid || (h.b || {}).ign],
+                              ((roster.teams) || []).map(t => [t.name, !!t.logo])]);
+  if(sig === lastSig) return;
+  const replay = lastSig === "" || JSON.parse(lastSig)[3] !== h.shownAt;
+  lastSig = sig;
+  if(replay){ stage.classList.remove("on"); void stage.offsetWidth; stage.classList.add("on"); }
+
+  const sides = [rows.a, rows.b];
+  [h.a, h.b].forEach((who, i) => {
+    const k = i ? "B" : "A";
+    const r = sides[i] || {};
+    const rp = rosterPlayer(who, roster);
+    const team = teamFor(r.teamName || (who || {}).team, roster) || (rp && rp.team);
+    const key = String((who || {}).uid || (who || {}).ign || "");
+    setImg(document.getElementById("photo" + k),
+           photoCache[key] || (rp && rp.player.photo) || roster.defaultPlayerPhoto || "");
+    setImg(document.getElementById("logo" + k), (team && team.logo) || "");
+    const nm = document.getElementById("name" + k);
+    setText(nm, (rp && (rp.player.displayIgn || rp.player.ign)) || (who || {}).ign || "");
+    fit(nm, 410, 22);
+  });
+
+  // The middle: each side's four numbers, the leader of each row lit.
+  const vals = document.getElementById("vals");
+  vals.innerHTML = "";
+  const a = rows.a || {}, b = rows.b || {};
+  const lines = [
+    { a: a.rank, b: b.rank, prefix: "#", better: (x, y) => x != null && (y == null || x < y) },
+    { a: a.elims, b: b.elims, prefix: "", better: (x, y) => x > y },
+    { a: a.placement, b: b.placement, prefix: "", better: (x, y) => x > y },
+    { a: a.total, b: b.total, prefix: "", better: (x, y) => x > y },
+  ];
+  lines.forEach((ln, i) => {
+    [ln.a, ln.b].forEach((v, s) => {
+      const d = document.createElement("div");
+      d.className = "val num";
+      d.style.left = (COLS[s] - 100) + "px";
+      d.style.top = (ROWS[i] - 28) + "px";
+      const delay = 0.85 + i * 0.13;
+      d.style.animationDelay = delay + "s";
+      const mine = s ? ln.b : ln.a, theirs = s ? ln.a : ln.b;
+      if(ln.better(mine, theirs)) d.classList.add("lead");
+      vals.appendChild(d);
+      if(mine == null) d.textContent = ln.prefix ? "#-" : "--";
+      else countUp(d, mine, ln.prefix, delay);
+    });
+  });
+
+  const round = document.getElementById("round");
+  setText(round, h.roundLabel || ev.roundName || "");
+  fit(round, 280, 14);
+  document.getElementById("scope").textContent = rows.label || "";
+}
+
+let ws;
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = evt => {
+    const msg = JSON.parse(evt.data);
+    if(msg.type === "h2h_photos"){
+      ["a", "b"].forEach(s => { const p = msg[s]; if(p && p.key && p.photo) photoCache[p.key] = p.photo; });
+      if(lastState) render(lastState);
+      return;
+    }
+    if(msg.type !== "state_sync" || !msg.data) return;
+    if(msg.data.roster) _lastRoster = msg.data.roster;
+    else if(_lastRoster) msg.data.roster = _lastRoster;
+    render(msg.data);
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+connect();
+</script>
+</body>
+</html>
