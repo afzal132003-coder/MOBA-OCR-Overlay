@@ -108,6 +108,8 @@
   .fade{animation:fade .5s ease both;}
   @keyframes fade{from{opacity:0;}to{opacity:1;}}
   .draw{animation:draw 1.3s cubic-bezier(.3,.6,.3,1) both;}
+  .pop{transform-box:fill-box;transform-origin:center;animation:pop .5s cubic-bezier(.2,.9,.3,1.25) both;}
+  @keyframes pop{from{opacity:0;transform:scale(.55);}to{opacity:1;transform:scale(1);}}
   @keyframes draw{from{stroke-dashoffset:var(--len);}to{stroke-dashoffset:0;}}
 </style>
 </head>
@@ -240,6 +242,40 @@ function bar(parent, x, y, w, h, fill, cls, delay, roundRight){
   return el("path", {d, fill, class: cls || "", style: "animation-delay:" + (delay || 0) + "ms"}, parent);
 }
 
+/* ---- motion --------------------------------------------------------
+   Everything arrives: lines draw, bars grow, and every number counts up
+   from nothing to its value, so the graph builds to its final picture on
+   air instead of appearing finished. Text marked data-count is counted;
+   data-delay staggers it, data-fixed keeps decimals. */
+const ease = t => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
+let animToken = 0;
+
+function countUp(root){
+  const token = animToken;
+  const els = Array.from(root.querySelectorAll("[data-count]"));
+  if(!els.length) return;
+  const t0 = performance.now();
+  els.forEach(el => { el.textContent = "0"; });
+  (function frame(now){
+    if(token !== animToken) return;
+    let busy = false;
+    els.forEach(el => {
+      const delay = Number(el.dataset.delay || 0), dur = 1100;
+      const p = ease((now - t0 - delay) / dur);
+      if(p < 1) busy = true;
+      const v = Number(el.dataset.count) * p;
+      el.textContent = el.dataset.fixed ? v.toFixed(Number(el.dataset.fixed)) : String(Math.round(v));
+    });
+    if(busy) requestAnimationFrame(frame);
+  })(t0);
+}
+function counted(node, value, delay, fixed){
+  node.setAttribute("data-count", value);
+  node.setAttribute("data-delay", delay || 0);
+  if(fixed) node.setAttribute("data-fixed", fixed);
+  return node;
+}
+
 /* ---- graphs -------------------------------------------------------- */
 
 const W = 1488;   // inner width of the panel
@@ -271,18 +307,17 @@ function drawRace(svg, data, cfg, roster, head){
   }
   data.games.forEach((g, i) => txt(svg, x(i), H - 12, g,
     {"text-anchor": "middle", fill: "var(--text-2)", "font-size": 18}));
-  // lines, then end markers with a surface ring
-  teams.forEach((t, ti) => {
+  // lines -- drawn by the ride below, not by CSS, so the tip can be followed
+  const lines = new Map();
+  teams.forEach(t => {
     const pts = t.cum.map((v, i) => [x(i), y(v)]);
-    if(pts.length > 1){
-      const d = "M" + pts.map(p => p.join(",")).join(" L");
-      const path = el("path", {d, fill: "none", stroke: colour.get(t.key), "stroke-width": 3,
-                               "stroke-linejoin": "round", "stroke-linecap": "round", class: "draw"}, svg);
-      const len = path.getTotalLength ? path.getTotalLength() : 2000;
-      path.style.strokeDasharray = len;
-      path.style.setProperty("--len", len);
-      path.style.animationDelay = (ti * 90) + "ms";
-    }
+    const d = "M" + pts.map(p => p.join(",")).join(" L") + (pts.length === 1 ? " l0.01,0" : "");
+    const path = el("path", {d, fill: "none", stroke: colour.get(t.key), "stroke-width": 3,
+                             "stroke-linejoin": "round", "stroke-linecap": "round"}, svg);
+    const len = path.getTotalLength ? path.getTotalLength() : 2000;
+    path.style.strokeDasharray = len;
+    path.style.strokeDashoffset = len;
+    lines.set(t.key, { path, len });
   });
   // end labels: sorted by height, kept 30px apart, with a leader line to
   // their marker when they had to move -- never stacked loose.
@@ -291,20 +326,47 @@ function drawRace(svg, data, cfg, roster, head){
   ends.forEach(e => { e.ly = Math.max(e.y, last + 30); last = e.ly; });
   const over = last - (T + ph);
   if(over > 0) ends.forEach(e => { e.ly -= over; });
-  ends.forEach((e, i) => {
+  const riders = ends.map((e, i) => {
     const c = colour.get(e.t.key);
-    if(Math.abs(e.ly - e.y) > 2){
-      el("path", {d: `M${e.x + 8},${e.y} L${e.x + 22},${e.ly}`, stroke: "var(--text-3)",
-                  "stroke-width": 1, fill: "none", class: "fade",
-                  style: "animation-delay:" + (900 + i * 60) + "ms"}, svg);
-    }
-    el("circle", {cx: e.x, cy: e.y, r: 7, fill: c, stroke: SURFACE, "stroke-width": 2, class: "fade",
-                  style: "animation-delay:" + (900 + i * 60) + "ms"}, svg);
-    const label = txt(svg, e.x + 28, e.ly + 6, e.t.short,
-                      {"font-size": 20, class: "fade", style: "animation-delay:" + (950 + i * 60) + "ms"});
+    const leader = Math.abs(e.ly - e.y) > 2
+      ? el("path", {d: `M${e.x + 8},${e.y} L${e.x + 22},${e.ly}`, stroke: "var(--text-3)",
+                    "stroke-width": 1, fill: "none", opacity: 0}, svg)
+      : null;
+    const dot = el("circle", {cx: x(0), cy: y(e.t.cum[0]), r: 7, fill: c, stroke: SURFACE,
+                              "stroke-width": 2}, svg);
+    const label = txt(svg, x(0) + 28, y(e.t.cum[0]) + 6, e.t.short, {"font-size": 20});
     const v = el("tspan", {fill: "var(--text-2)", dx: 10}, label);
-    v.textContent = e.t.final;
+    v.textContent = "0";
+    return { e, dot, label, v, leader, line: lines.get(e.t.key), delay: i * 90 };
   });
+  // THE RIDE: every line draws from G1 to the latest game together, its dot
+  // and label riding the tip and the total counting up the way it was
+  // scored; at the finish the labels settle into their final places.
+  const token = animToken, t0 = performance.now(), DUR = 2200;
+  const valueAt = (t, gx) => {
+    if(n <= 1) return t.cum[0] || 0;
+    const f = (gx - L) / pw * (n - 1), i = Math.max(0, Math.min(n - 2, Math.floor(f)));
+    return t.cum[i] + (t.cum[i + 1] - t.cum[i]) * Math.max(0, Math.min(1, f - i));
+  };
+  (function frame(now){
+    if(token !== animToken) return;
+    let busy = false;
+    riders.forEach(r => {
+      const p = ease((now - t0 - r.delay) / DUR);
+      if(p < 1) busy = true;
+      const { path, len } = r.line;
+      path.style.strokeDashoffset = len * (1 - p);
+      const pt = path.getPointAtLength ? path.getPointAtLength(len * p) : { x: r.e.x, y: r.e.y };
+      r.dot.setAttribute("cx", pt.x); r.dot.setAttribute("cy", pt.y);
+      // settle into the collision-free slot over the last fifth of the ride
+      const settle = Math.max(0, (p - 0.8) / 0.2);
+      const ly = pt.y + (r.e.ly - r.e.y) * settle;
+      r.label.setAttribute("x", pt.x + 28); r.label.setAttribute("y", ly + 6);
+      r.v.textContent = String(Math.round(p >= 1 ? r.e.t.final : valueAt(r.e.t, pt.x)));
+      if(r.leader) r.leader.setAttribute("opacity", p >= 1 ? 1 : 0);
+    });
+    if(busy) requestAnimationFrame(frame);
+  })(t0);
 }
 
 function drawBreakdown(svg, data, cfg, roster, head){
@@ -340,11 +402,12 @@ function drawBreakdown(svg, data, cfg, roster, head){
     if(wk > 0) bar(g, L + wp + 1, y0, Math.max(0, wk - 1), bh, SERIES[1], "", 0, true);
     // A value goes inside its segment only when it fits with room.
     [[r.place, L, wp, SERIES[0]], [r.kills, L + wp + 1, wk, SERIES[1]]].forEach(([v, x0, w, c]) => {
-      if(v > 0 && w >= 40) txt(g, x0 + w / 2, yc + 6, String(v),
-        {"text-anchor": "middle", "font-size": 16, fill: inkOn(c), stroke: "none"});
+      if(v > 0 && w >= 40) counted(txt(g, x0 + w / 2, yc + 6, String(v),
+        {"text-anchor": "middle", "font-size": 16, fill: inkOn(c), stroke: "none"}), v, delay);
     });
-    txt(svg, L + wp + wk + 14, yc + 7, String(r.total),
-        {"font-size": 22, "font-weight": 900, class: "fade", style: "animation-delay:" + (delay + 500) + "ms"});
+    counted(txt(svg, L + wp + wk + 14, yc + 7, String(r.total),
+        {"font-size": 22, "font-weight": 900, class: "fade", style: "animation-delay:" + delay + "ms"}),
+        r.total, delay);
   });
 }
 
@@ -381,15 +444,16 @@ function drawKills(svg, data, cfg, roster, head){
       }
       const bin = Math.min(RAMP.length - 1, Math.floor((g.kills / max) * RAMP.length));
       const c = RAMP[g.kills === 0 ? 0 : Math.max(0, bin)];
-      el("rect", {x: x0 + 1, y: y0, width: colW - 2, height: ch, rx: 4, fill: c, class: "fade",
-                  style: "animation-delay:" + delay + "ms"}, svg);
+      // game by game: a whole column lands, then the next
+      const cd = 150 + gi * 260 + i * 22;
+      el("rect", {x: x0 + 1, y: y0, width: colW - 2, height: ch, rx: 4, fill: c, class: "pop",
+                  style: "animation-delay:" + cd + "ms"}, svg);
       txt(svg, x0 + colW / 2, y0 + ch / 2 + 7, String(g.kills),
-          {"text-anchor": "middle", "font-size": 20, fill: inkOn(c), stroke: "none", class: "fade",
-           style: "animation-delay:" + delay + "ms"});
+          {"text-anchor": "middle", "font-size": 20, fill: inkOn(c), stroke: "none", class: "pop",
+           style: "animation-delay:" + cd + "ms"});
     });
-    txt(svg, L + n * colW + 80, y0 + ch / 2 + 8, String(r.total),
-        {"text-anchor": "middle", "font-size": 24, "font-weight": 900, class: "fade",
-         style: "animation-delay:" + (300 + i * 40) + "ms"});
+    counted(txt(svg, L + n * colW + 80, y0 + ch / 2 + 8, String(r.total),
+        {"text-anchor": "middle", "font-size": 24, "font-weight": 900}), r.total, 150 + n * 260);
   });
   // the scale, so the colour is never the only way to read a cell
   const lx = W - 330, ly = H + 10;
@@ -454,10 +518,11 @@ function drawH2H(svg, data, cfg, roster, head){
     const gb = el("g", {class: "grow", style: "animation-delay:" + (200 + i * 80) + "ms"}, svg);
     bar(gb, mid + gap, yc - 12, wb, 24, cb, "", 0, true);
     // values at the bar ends; the leader in each row is the brighter text
-    txt(svg, mid - gap - wa - 14, yc + 8, fmt(va), {"text-anchor": "end", "font-size": 24,
-        "font-weight": 900, fill: va >= vb ? "var(--text-1)" : "var(--text-3)"});
-    txt(svg, mid + gap + wb + 14, yc + 8, fmt(vb), {"font-size": 24, "font-weight": 900,
-        fill: vb >= va ? "var(--text-1)" : "var(--text-3)"});
+    const fixed = fmt === String ? 0 : 1;
+    counted(txt(svg, mid - gap - wa - 14, yc + 8, fmt(va), {"text-anchor": "end", "font-size": 24,
+        "font-weight": 900, fill: va >= vb ? "var(--text-1)" : "var(--text-3)"}), va, 200 + i * 80, fixed);
+    counted(txt(svg, mid + gap + wb + 14, yc + 8, fmt(vb), {"font-size": 24, "font-weight": 900,
+        fill: vb >= va ? "var(--text-1)" : "var(--text-3)"}), vb, 200 + i * 80, fixed);
   });
   const yb = top + metrics.length * pitch;
   txt(svg, mid, yb + 7, "BEST FINISH", {"text-anchor": "middle", "font-size": 17, fill: "var(--text-2)"});
@@ -517,7 +582,9 @@ function render(state){
   }
   const svg = el("svg", { width: W, height: H + 40, viewBox: `0 0 ${W} ${H + 40}` });
   body.appendChild(svg);
+  animToken++;
   draw(svg, data, cfg, roster, head);
+  countUp(svg);
 }
 
 let ws;
