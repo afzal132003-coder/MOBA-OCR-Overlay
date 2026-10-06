@@ -390,6 +390,11 @@ function initialsOf(team){
   return (words.length === 1 ? words[0].slice(0, 3) : words.map(w => w[0]).join("").slice(0, 3)).toUpperCase();
 }
 function drawColumns(svg, data, cfg, roster, head, note){
+  /* One column per team, one colour, the value printed big above it --
+     the simplest way to read "who has how many", the way a market-size
+     chart reads year by year. Placement-vs-kills lives in Breakdown; here
+     the total is the whole story. Ranked left to right, so the headline
+     callout sits top-right, over the short columns. */
   const last = cfg.scope === "last" && data.games.length > 0;
   const rows = data.teams.map(t => ({ t, place: sum(t, "place", last), kills: sum(t, "kills", last),
                                       played: last ? !!t.games[t.games.length - 1] : true }))
@@ -399,12 +404,13 @@ function drawColumns(svg, data, cfg, roster, head, note){
   const scopeText = last || data.games.length === 1
     ? data.games[data.games.length - 1] + (data.games.length === 1 ? "" : " only")
     : "All " + data.games.length + " games";
-  head("Team Points", (note ? note + " · " : "") + scopeText + " · placement + kill points",
-       [{label: "Placement points", colour: SERIES[0]}, {label: "Kill points", colour: SERIES[1]}]);
-  const L = 64, R = 16, T = 30, AX = 128;          // AX: room under the baseline for logos + names
+  head("Team Points", (note ? note + " · " : "") + scopeText, []);
+  if(!rows.length) return;
+
+  const L = 64, R = 70, T = 40, AX = 128;
   const pw = W - L - R, ph = H - T - AX + 40;
   const base = T + ph;
-  const max = niceMax(Math.max(1, ...rows.map(r => r.total)));
+  const max = niceMax(Math.max(1, ...rows.map(r => r.total)) * 1.08);
   const yv = v => base - (v / max) * ph;
   for(let k = 0; k <= 5; k++){
     const v = (max / 5) * k, yy = yv(v);
@@ -412,32 +418,28 @@ function drawColumns(svg, data, cfg, roster, head, note){
     txt(svg, L - 14, yy + 6, String(Math.round(v)),
         {"text-anchor": "end", fill: "var(--text-3)", "font-size": 16, "font-weight": 700});
   }
+  // the axis named on the right, the way the reference names its scale
+  const at = txt(svg, L + pw + 44, T + ph / 2, "POINTS", {"text-anchor": "middle", "font-size": 18,
+                 fill: "var(--text-3)", "letter-spacing": "3"});
+  at.setAttribute("transform", `rotate(-90 ${L + pw + 44} ${T + ph / 2})`);
+
   const slot = pw / Math.max(1, rows.length);
-  const bw = Math.min(56, slot * 0.5);
+  const bw = Math.min(84, slot * 0.56);
+  const colour = SERIES[0];
   rows.forEach((r, i) => {
     const cx = L + slot * i + slot / 2, x0 = cx - bw / 2;
     const delay = 150 + i * 70;
-    const hp = (r.place / max) * ph, hk = (r.kills / max) * ph;
-    const g = el("g", {class: "rise", style: "animation-delay:" + delay + "ms"}, svg);
-    // placement from the baseline, a 2px gap, kills on top with the rounded cap
-    if(hp > 0) el("path", {d: `M${x0},${base} V${base - hp + (hk > 0 ? 1 : Math.min(4, hp))}` +
-      (hk > 0 ? ` H${x0 + bw} V${base} Z`
-              : ` Q${x0},${base - hp} ${x0 + Math.min(4, bw / 2)},${base - hp} H${x0 + bw - Math.min(4, bw / 2)} Q${x0 + bw},${base - hp} ${x0 + bw},${base - hp + Math.min(4, hp)} V${base} Z`),
-      fill: SERIES[0]}, g);
-    if(hk > 0){
-      const top = base - hp - hk, b2 = base - hp - (hp > 0 ? 1 : 0), rr = Math.min(4, hk / 2);
-      el("path", {d: `M${x0},${b2} V${top + rr} Q${x0},${top} ${x0 + rr},${top} H${x0 + bw - rr} Q${x0 + bw},${top} ${x0 + bw},${top + rr} V${b2} Z`,
-                  fill: SERIES[1]}, g);
+    const h = (r.total / max) * ph, top = base - h, rr = Math.min(6, h / 2, bw / 2);
+    if(h > 0){
+      el("path", {d: `M${x0},${base} V${top + rr} Q${x0},${top} ${x0 + rr},${top} H${x0 + bw - rr} Q${x0 + bw},${top} ${x0 + bw},${top + rr} V${base} Z`,
+                  fill: colour, class: "rise", style: "animation-delay:" + delay + "ms"}, svg);
     }
-    // values inside a segment only when it is tall enough to hold one
-    [[r.place, base - hp / 2, hp, SERIES[0]], [r.kills, base - hp - hk / 2, hk, SERIES[1]]].forEach(([v, yc, h, c]) => {
-      if(v > 0 && h >= 26) counted(txt(g, cx, yc + 6, String(v), {"text-anchor": "middle", "font-size": 16,
-                                                                  fill: inkOn(c), stroke: "none"}), v, delay);
-    });
-    counted(txt(svg, cx, base - hp - hk - 12, String(r.total),
-        {"text-anchor": "middle", "font-size": 24, "font-weight": 900, class: "fade",
-         style: "animation-delay:" + delay + "ms"}), r.total, delay);
-    // the team, under its column: rank, logo (or initials), short name
+    // the value, big, above the column -- the leader's biggest
+    const lead = i === 0;
+    counted(txt(svg, cx, top - (lead ? 16 : 12), String(r.total),
+        {"text-anchor": "middle", "font-size": lead ? 38 : 28, "font-weight": 900,
+         class: "fade", style: "animation-delay:" + delay + "ms"}), r.total, delay);
+    // the team under its column: logo (or initials), short name, rank
     const logo = logoOf(r.t, roster);
     const ly = base + 14, size = Math.min(64, slot - 16);
     if(logo){
@@ -457,6 +459,30 @@ function drawColumns(svg, data, cfg, roster, head, note){
     txt(svg, cx, ly + size + 46, "#" + (i + 1), {"text-anchor": "middle", "font-size": 14,
         fill: "var(--text-3)", class: "fade", style: "animation-delay:" + delay + "ms"});
   });
+
+  // THE HEADLINE, the reference's "CAGR 5.5%" badge: who leads and by how
+  // much. Top-right, over the shortest columns.
+  const lead = rows[0], second = rows[1];
+  const bx = L + pw - 420, by = T + 2;
+  const card = el("g", {class: "fade", style: "animation-delay:" + (300 + rows.length * 70) + "ms"}, svg);
+  el("circle", {cx: bx + 46, cy: by + 46, r: 40, fill: "rgba(15,26,23,.9)", stroke: "var(--amber)",
+                "stroke-width": 5}, card);
+  // a small rising-arrow mark inside the ring
+  el("path", {d: `M${bx + 26},${by + 58} L${bx + 40},${by + 44} L${bx + 50},${by + 52} L${bx + 66},${by + 34}`,
+              fill: "none", stroke: "#ffffff", "stroke-width": 4, "stroke-linecap": "round",
+              "stroke-linejoin": "round"}, card);
+  el("path", {d: `M${bx + 56},${by + 33} L${bx + 67},${by + 33} L${bx + 67},${by + 44}`,
+              fill: "none", stroke: "#ffffff", "stroke-width": 4, "stroke-linecap": "round",
+              "stroke-linejoin": "round"}, card);
+  txt(card, bx + 104, by + 30, "LEADING", {"font-size": 20, fill: "var(--text-2)", "letter-spacing": "2"});
+  const big = txt(card, bx + 104, by + 72, lead.t.short + "  ", {"font-size": 40, "font-weight": 900,
+                                                                  "font-style": "italic"});
+  const pts = el("tspan", {fill: "var(--amber)"}, big);
+  pts.textContent = lead.total + " PTS";
+  if(second){
+    txt(card, bx + 104, by + 100, "+" + (lead.total - second.total) + " ahead of " + second.t.short,
+        {"font-size": 17, fill: "var(--text-3)"});
+  }
 }
 
 function drawBreakdown(svg, data, cfg, roster, head){
