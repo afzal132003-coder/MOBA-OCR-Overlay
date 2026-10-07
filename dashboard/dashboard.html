@@ -13260,9 +13260,17 @@ function ffgfxElimPackage(){
   const ev = (ffState && ffState.event) || {};
   return (ev.aliveAssetFolder || ev.assetFolder || "CLT") === "ss3" ? "ss3" : "";
 }
-// Where a page's nudge is stored: the SS3 card's under its own keys.
+// Where a page's nudge is stored: the SS3 card's under its own keys, and
+// the alive table's under the alive package's own (SS3 / PRG ARROW), so a
+// nudge for one table never moves another.
 function ffgfxStoreKey(pageKey){
-  return (FFGFX_ELIM_BOXES[pageKey] && ffgfxElimPackage()) ? pageKey + "@" + ffgfxElimPackage() : pageKey;
+  if(FFGFX_ELIM_BOXES[pageKey] && ffgfxElimPackage()) return pageKey + "@" + ffgfxElimPackage();
+  if(/^aliveStatus/.test(pageKey)){
+    const ev = (ffState && ffState.event) || {};
+    const pk = { "ss3": "ss3", "PRG ARROW": "arrow" }[ev.aliveAssetFolder || ev.assetFolder || ""];
+    if(pk) return pageKey + "@" + pk;
+  }
+  return pageKey;
 }
 
 Object.entries(FFGFX_ELIM_BOXES).forEach(([key, el]) => {

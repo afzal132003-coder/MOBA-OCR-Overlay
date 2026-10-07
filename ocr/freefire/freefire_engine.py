@@ -4715,6 +4715,29 @@ def detect_side_popups(new_events, live):
     return out
 
 
+# THE TOP 4 BAR COMES UP BY ITSELF when four squads are left and stays
+# through three and two -- once per match, so pulling it down sticks.
+# settings.top4Auto (default on) switches this off.
+_top4_auto_done = False
+
+
+def auto_top4(rows):
+    global _top4_auto_done
+    if _top4_auto_done or (server_state.get("settings") or {}).get("top4Auto") is False:
+        return False
+    if len(rows or []) < 6:
+        return False
+    # A squad nothing is known about counts as standing: better late than
+    # early.
+    standing = [r for r in rows if not r.get("eliminated")]
+    if 1 <= len(standing) <= 4:
+        _top4_auto_done = True
+        server_state.setdefault("display", {})["top4Visible"] = True
+        print("[top4] %d squads left -- Top 4 bar up" % len(standing))
+        return True
+    return False
+
+
 def reset_alive_for_new_match(reason=""):
     """Everything that belongs to ONE game, cleared in one place.
 
@@ -4729,7 +4752,9 @@ def reset_alive_for_new_match(reason=""):
     blank table between games is indistinguishable from a broken one, and
     the next poll overwrites these values with real readings anyway.
     """
-    global _finish_ranks
+    global _finish_ranks, _top4_auto_done
+    _top4_auto_done = False
+    server_state.setdefault("display", {})["top4Visible"] = False
     _alive_grid_last_elims.clear()
     _alive_grid_elim_recent.clear()
     _alive_grid_last_bars.clear()
@@ -12244,6 +12269,7 @@ async def ocr_loop():
                                 and linked["rows"] != server_state["liveOps"].get("sidetableRows")):
                             published = apply_live_points(assign_finish_ranks(apply_team_marks(gate_eliminations(apply_banner_wipes(sanitise_published_elims(linked["rows"]))))))
                             server_state["liveOps"]["sidetableRows"] = published
+                            auto_top4(published)
                             table_changed = True
                             server_state["liveOps"]["sidetableSource"] = "log"
                             changed = True
@@ -12649,6 +12675,7 @@ async def ocr_loop():
                     if merged is not None and merged != server_state["liveOps"].get("sidetableRows"):
                         published = apply_live_points(assign_finish_ranks(apply_team_marks(gate_eliminations(apply_banner_wipes(sanitise_published_elims(merged))))))
                         server_state["liveOps"]["sidetableRows"] = published
+                        auto_top4(published)
                         table_changed = True
                         server_state["liveOps"]["sidetableSource"] = "grid"
                         changed = True

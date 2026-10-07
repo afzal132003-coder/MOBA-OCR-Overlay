@@ -617,6 +617,9 @@ const LAYOUTS = {
   // all white (names, rank, numbers on the red). Champion Rush is a crown
   // tile at x 1555..1599 beside the row, cut from the CR RUSH render.
   ss3: {
+    // Its own Graphic Fixing nudges ("aliveStatusPip@ss3" ...): the ones
+    // saved for the CLT table shrank these status bars to 75%.
+    placementKey: "ss3",
     bg: "prg ss s3 alive - BLANK.png",
     pipBase: "Live Stats/",
     // Four bars drawn on whole pixels (5 wide, 3 apart, filling the 29px
@@ -703,6 +706,7 @@ const LAYOUTS = {
   // Ink sampled from the demo: names and rank (36,36,36), numbers
   // (213,219,213). The rank is printed bare ("1"), not "#1".
   "PRG ARROW": {
+    placementKey: "arrow",
     bg: "prg arrow alive status - blank.png",
     pipBase: "Live Stats/",
     // Four bars drawn on whole pixels (5 wide, 3 apart, filling the 29px
@@ -2114,10 +2118,10 @@ const OVERRIDE_TARGETS = {
    changes: this runs on every sync, and reassigning an identical
    transform on a scaled layer is work the compositor doesn't need
    mid-animation. */
-function applyPanelOverride(all){
+function applyPanelOverride(all, sfx){
   const frame = document.getElementById("frame");
   if(!frame) return;
-  const o = all.aliveStatusPanel || {};
+  const o = all["aliveStatusPanel" + (sfx || "")] || {};
   const dx = o.dx || 0, dy = o.dy || 0, scale = o.scale || 1;
   const want = (dx || dy || scale !== 1)
     ? `translate(${dx}px, ${dy}px) scale(${scale})`
@@ -2140,14 +2144,18 @@ function applyPanelOverride(all){
 
 function applyElementOverrides(state){
   const all = state.graphicOverrides || {};
-  applyPanelOverride(all);
+  // Each package keeps its own nudges (see placementKey); packages without
+  // one share the original keys, as before.
+  const L = layoutFor(state);
+  const sfx = L.placementKey ? "@" + L.placementKey : "";
+  applyPanelOverride(all, sfx);
   Object.entries(OVERRIDE_TARGETS).forEach(([key, selector]) => {
-    const o = all[key] || {};
+    const o = all[key + sfx] || {};
     const dx = o.dx || 0, dy = o.dy || 0, scale = o.scale || 1;
-    if(!dx && !dy && scale === 1) return;
+    const t = (dx || dy || scale !== 1) ? `translate(${dx}px, ${dy}px) scale(${scale})` : "";
+    // Cleared as well as set: switching package must drop the old nudge.
     document.querySelectorAll("#rows " + selector).forEach(el => {
-      el.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
-      el.style.transformOrigin = "left center";
+      if(el.style.transform !== t){ el.style.transform = t; el.style.transformOrigin = "left center"; }
     });
   });
 }
