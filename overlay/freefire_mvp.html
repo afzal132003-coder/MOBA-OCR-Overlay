@@ -1,235 +1,126 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <script src="ff_embed.js"></script>
 <title>Free Fire MVP</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="ff_theme.css">
 <style>
-  /* MVP card for the latest COMMITTED match. Deliberately plain until the
-     designer's artwork lands -- push/pull and the data binding are the
-     part that's hard to redo later, so that's what's built now; every
-     number/position below is a placeholder a background PNG can sit
-     under (assets/freefire/<folder>/MVP.png), same convention as every
-     other Free Fire graphic in this project.
+  /* MATCH MVP -- the standout player of the post-match game (state.postGame:
+     the newest result file, or the game picked in Post-Match). Picked by the
+     engine: most kills, then knocks, then survival; the MVP override wins.
+     Drawn in the event's look (ff_theme.css): SS3 on its own frame, ARROW
+     on the green board. */
 
-     MVP pick: state.mvpOverride (a uid) wins if set; otherwise the
-     highest-eliminations player in the latest match, damage as the
-     tiebreak when two players are equal on kills. See applyFreefire(). */
+  /* ---- SS3 ---- */
+  .ss3 #photoBox{left:300px;top:352px;width:540px;height:530px;overflow:hidden;}
+  .ss3 #photo{position:absolute;left:0;bottom:70px;width:540px;height:470px;object-fit:contain;object-position:center bottom;}
+  .ss3 #logo{left:318px;top:368px;width:120px;height:120px;object-fit:contain;}
+  .ss3 #nameBar{left:300px;top:812px;width:540px;height:70px;font-size:44px;}
+  .ss3 #teamTag{left:620px;top:372px;width:204px;height:40px;font-size:22px;justify-content:flex-end;}
+  .ss3 #stats{left:880px;top:392px;width:740px;height:490px;}
+  .ss3 .srow{position:absolute;left:30px;width:680px;height:78px;}
+  .ss3 .srow .lab{position:absolute;left:0;top:7px;width:340px;height:64px;font-size:30px;}
+  .ss3 .srow .val{position:absolute;left:370px;top:0;width:310px;height:78px;font-size:60px;justify-content:flex-start;}
 
-  html, body{
-    margin:0; padding:0; background:transparent; overflow:hidden;
-    width:1920px; height:1080px;
-    font-family:'Poppins','Segoe UI',Arial,sans-serif;
-  }
-  #stage{ position:absolute; inset:0; opacity:0; transition:opacity .45s ease; }
-  #stage.visible{ opacity:1; }
-  #bg{ position:absolute; top:0; left:0; width:1920px; height:1080px; }
+  /* ---- ARROW ---- */
+  .arrow #photoBox{left:210px;top:236px;width:560px;height:690px;overflow:hidden;}
+  .arrow #photo{position:absolute;left:6px;bottom:96px;width:548px;height:588px;object-fit:contain;object-position:center bottom;}
+  .arrow #logo{left:232px;top:258px;width:120px;height:120px;object-fit:contain;}
+  .arrow #nameBar{left:210px;top:842px;width:560px;height:84px;font-size:48px;}
+  .arrow #teamTag{left:520px;top:262px;width:230px;height:40px;font-size:24px;justify-content:flex-end;}
+  .arrow #stats{left:830px;top:236px;width:880px;height:690px;}
+  .arrow .srow{position:absolute;left:24px;width:832px;height:104px;}
+  .arrow .srow .lab{position:absolute;left:0;top:14px;width:440px;height:76px;font-size:36px;padding-left:26px;justify-content:flex-start;
+                    clip-path:polygon(0 0,100% 0,calc(100% - 22px) 100%,0 100%);}
+  .arrow .srow .val{position:absolute;left:470px;top:0;width:360px;height:104px;font-size:70px;justify-content:flex-start;}
 
-  #photoBox{
-    position:absolute; left:120px; top:220px; width:420px; height:520px;
-    border-radius:16px; overflow:hidden; background:#151a2c;
-    display:flex; align-items:center; justify-content:center;
-  }
-  #photoBox img{ display:block; max-width:100%; max-height:100%; object-fit:contain; }
-  #photoBox.empty{ background:rgba(255,255,255,0.04); }
-
-  #tag{
-    position:absolute; left:120px; top:150px; color:#ffc400; font-weight:800;
-    font-size:34px; letter-spacing:3px; text-shadow:0 2px 10px rgba(0,0,0,0.6);
-  }
-  #name{
-    position:absolute; left:600px; top:230px; width:1200px; color:#fff;
-    font-weight:800; font-size:74px; letter-spacing:1px; white-space:nowrap; overflow:hidden;
-    text-shadow:0 3px 14px rgba(0,0,0,0.65);
-  }
-  #teamRow{
-    position:absolute; left:602px; top:326px; display:flex; align-items:center; gap:14px;
-  }
-  #teamLogo{ width:56px; height:56px; object-fit:contain; }
-  #teamLogo.empty{ display:none; }
-  #teamName{
-    color:#98a3bd; font-weight:700; font-size:32px; letter-spacing:1px; text-transform:uppercase;
-  }
-  #statRow{ position:absolute; left:602px; top:420px; display:flex; gap:64px; }
-  .statBlock{ display:flex; flex-direction:column; }
-  .statLabel{ color:#98a3bd; font-weight:700; font-size:20px; letter-spacing:2px; text-transform:uppercase; }
-  .statValue{ color:#ffc400; font-weight:800; font-size:64px; font-variant-numeric:tabular-nums; }
+  .nodata{position:absolute;left:0;top:520px;width:1920px;text-align:center;font-family:'SMXB',Arial,sans-serif;font-size:30px;color:#fff;
+          text-shadow:0 2px 8px rgba(0,0,0,.8);}
 </style>
 </head>
-<body>
-
-<div id="stage">
-  <img id="bg" alt="">
-  <div id="tag">MVP</div>
-  <div id="photoBox" class="empty"><img id="photoImg" alt=""></div>
-  <div id="name"></div>
-  <div id="teamRow"><img id="teamLogo" class="empty" alt=""><div id="teamName"></div></div>
-  <div id="statRow">
-    <div class="statBlock"><div class="statLabel">Eliminations</div><div class="statValue" id="statKills">0</div></div>
-    <div class="statBlock"><div class="statLabel">Damage</div><div class="statValue" id="statDamage">—</div></div>
-  </div>
+<body class="ss3">
+<div class="ff-stage" id="stage">
+  <div class="ff-frame fade"></div>
+  <div class="ff-title fade" id="title" style="animation-delay:.1s">MATCH MVP</div>
+  <div class="ff-round ctr fade" id="round" style="animation-delay:.25s"></div>
+  <div class="abs ff-zebra rise" id="photoBox" style="animation-delay:.3s"><img id="photo" alt=""></div>
+  <img class="abs pop" id="logo" alt="" style="animation-delay:.55s">
+  <div class="abs ff-text left fade" id="teamTag" style="animation-delay:.6s"></div>
+  <div class="abs ff-yellow ctr fromL" id="nameBar" style="animation-delay:.5s"></div>
+  <div class="abs ff-black fade" id="stats" style="animation-delay:.45s"></div>
+  <div class="nodata" id="nodata"></div>
 </div>
-
+<script src="ff_theme.js"></script>
 <script>
-const _params = new URLSearchParams(location.search);
-if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
-if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
-/* Served BY the relay host, connect back to it.
+const PREVIEW = new URLSearchParams(location.search).get("preview") === "1";
+const photoCache = {};
+let lastSig = "", lastState = null;
 
-   These pages are now served off the same VM as the relay, and a page
-   loaded over https from that host has no business needing to be told
-   its own address. Without this every browser source and every dashboard
-   tab has to carry ?relay=wss://... forever, and one that is missing it
-   silently falls back to ws://localhost:8765 and sits there dead --
-   which looks exactly like the engine being down.
+const ROWS = [
+  ["ELIMINATIONS", m => m.kills, v => ffTwo(v)],
+  ["KNOCKS", m => m.knocks, v => ffTwo(v)],
+  ["HEADSHOTS", m => m.headshots, v => ffTwo(v)],
+  ["SURVIVAL TIME", m => m.survival, v => ffMmss(v)],
+  ["TEAM FINISH", m => m.rank, v => "#" + v],
+];
 
-   Only when actually served over https from a real host: a page opened
-   from disk, or off localhost while testing, keeps the old behaviour
-   untouched. An explicit ?relay= still wins over all of it. */
-const _sameOrigin = (location.protocol === "https:"
-  && location.hostname && !/^(localhost|127\.|\[?::1)/.test(location.hostname))
-  ? "wss://" + location.host : "";
-const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || _sameOrigin;
-const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
-const WS_URL = _relay
-  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_mvp&rostercache=1"
-  : "ws://localhost:8765?page=freefire_mvp&rostercache=1";
+function render(st){
+  lastState = st;
+  const theme = ffApplyTheme(st);
+  const visible = PREVIEW || !!(st.display || {}).mvpVisible;
+  const stage = document.getElementById("stage");
+  if(!visible){ stage.classList.remove("on"); lastSig = ""; return; }
+  const g = (st.postGame || {}).game || {};
+  const m = g.mvp || null;
+  const roster = st.roster || {};
+  const ev = st.event || {};
+  const sig = JSON.stringify([theme, m, g.matchId, g.mapName, (st.postGame || {}).label, ev.roundName,
+                              m && photoCache[m.uid || m.name], ((roster.teams) || []).map(t => [t.name, !!t.logo])]);
+  if(sig === lastSig){ stage.classList.add("on"); return; }
+  const replay = !stage.classList.contains("on");
+  lastSig = sig;
+  ffFitTitle(document.getElementById("title"));
 
-/* Same character-image lookup freefire_booyah.html uses -- the Num5
-   loadout capture is the only source for a "character" picture, joined by
-   NAME across the icon and full-size dumps (unrelated id spaces). */
-function characterImage(rosterPlayer, gameNumber, ff){
-  const loadouts = (rosterPlayer && rosterPlayer.loadouts) || {};
-  const entry = loadouts[String(gameNumber)] || loadouts[gameNumber];
-  const slot = entry && entry.slots && entry.slots.active;
-  if(!slot || !slot.label) return "";
-  const charName = (ff.assetNames || {})[slot.label];
-  if(charName){
-    const fullSizeNames = ff.fullSizeNames || {};
-    const fullSizeId = Object.keys(fullSizeNames).find(id => fullSizeNames[id] === charName);
-    if(fullSizeId) return "assets/FFM/Full Size Character/" + fullSizeId + ".png";
+  document.getElementById("nodata").textContent = m ? "" : (g.error || "No game to show yet.");
+  const label = (st.postGame || {}).label || "";
+  ffSetText(document.getElementById("round"), [label, g.mapName].filter(Boolean).join(" · ") || ev.roundName || "", theme === "ss3" ? 320 : 520, 12);
+  const rp = m ? ffRosterPlayer(m.uid, m.name, roster) : null;
+  const team = m ? (ffTeam(m.teamName, roster) || (rp && rp.team)) : null;
+  const photo = document.getElementById("photo");
+  const src = m ? (photoCache[m.uid || m.name] || (rp && rp.player.photo) || roster.defaultPlayerPhoto || "") : "";
+  if(src){ if(photo.getAttribute("src") !== src) photo.src = src; photo.style.visibility = ""; } else photo.style.visibility = "hidden";
+  const logo = document.getElementById("logo");
+  if(team && team.logo){ logo.src = team.logo; logo.style.visibility = ""; } else logo.style.visibility = "hidden";
+  ffSetText(document.getElementById("nameBar"), m ? ((rp && (rp.player.displayIgn || rp.player.ign)) || m.name) : "", theme === "ss3" ? 500 : 520, 18);
+  ffSetText(document.getElementById("teamTag"), m ? ((team && (team.shortName || team.name)) || m.teamName || "") : "", 200, 12);
+
+  const stats = document.getElementById("stats");
+  stats.innerHTML = "";
+  const pitch = theme === "ss3" ? 92 : 132;
+  const top = theme === "ss3" ? 22 : 20;
+  ROWS.forEach(([label, get, fmt], i) => {
+    const row = document.createElement("div");
+    row.className = "srow fromR";
+    row.style.top = (top + i * pitch) + "px";
+    row.style.animationDelay = (0.6 + i * 0.1).toFixed(2) + "s";
+    row.innerHTML = `<div class="lab ff-label ctr">${label}</div><div class="val ff-num left"></div>`;
+    stats.appendChild(row);
+    const v = m ? get(m) : null;
+    const node = row.querySelector(".val");
+    if(v == null) node.textContent = "--";
+    else ffCountUp(node, v, fmt, 0.75 + i * 0.1);
+  });
+  if(replay){ stage.classList.remove("on"); void stage.offsetWidth; }
+  stage.classList.add("on");
+}
+
+ffConnect("freefire_mvp", render, msg => {
+  if(msg.type === "postgame_photos"){
+    Object.assign(photoCache, msg.photos || {});
+    if(lastState){ lastSig = ""; render(lastState); }
   }
-  return "assets/FFM/" + slot.label + ".png";
-}
-
-function rosterPlayerFor(ff, teamName, uid, ign){
-  const teams = ((ff.roster && ff.roster.teams) || []);
-  const team = teams.find(t => (t.name || "").trim().toUpperCase() === (teamName || "").trim().toUpperCase());
-  if(!team) return null;
-  const players = team.players || [];
-  return players.find(p => String(p.uid || "") === String(uid || "")) ||
-         players.find(p => (p.ign || "").trim().toUpperCase() === (ign || "").trim().toUpperCase()) || null;
-}
-
-function rosterTeamFor(ff, teamName){
-  const teams = ((ff.roster && ff.roster.teams) || []);
-  const want = (teamName || "").trim().toUpperCase();
-  return teams.find(t => (t.name || "").trim().toUpperCase() === want) || null;
-}
-
-/* The MVP pick itself: an explicit uid override wins outright; otherwise
-   the highest-eliminations player across every team in the latest match,
-   damage (when it was typed in during review) breaking a tie. */
-function pickMvp(latest, mvpOverride){
-  const all = [];
-  (latest.teams || []).forEach(t => (t.players || []).forEach(p =>
-    all.push({ uid: p.uid, name: p.name, kills: p.kills || 0, damage: p.damage, teamName: t.teamName })));
-  if(!all.length) return null;
-  if(mvpOverride){
-    const forced = all.find(p => String(p.uid) === String(mvpOverride));
-    if(forced) return forced;
-  }
-  all.sort((a, b) => (b.kills - a.kills) || ((b.damage || 0) - (a.damage || 0)));
-  return all[0];
-}
-
-let lastKey = "";
-
-function applyFreefire(ff){
-  const visible = !!(ff.display && ff.display.mvpVisible);
-  document.getElementById("stage").classList.toggle("visible", visible);
-  if(!visible) return;
-
-  const folder = (ff.event && ff.event.assetFolder) || "CLT";
-  const matches = ff.matches || [];
-  const latest = matches.length ? matches[matches.length - 1] : null;
-  const mvp = latest ? pickMvp(latest, ff.mvpOverride) : null;
-
-  const key = folder + "|" + (ff.mvpOverride || "") + "|" + JSON.stringify(mvp);
-  if(key === lastKey) return;
-  lastKey = key;
-
-  document.getElementById("bg").src = "assets/freefire/" + folder + "/MVP.png";
-
-  if(!mvp){
-    ["name", "teamName"].forEach(id => document.getElementById(id).textContent = "");
-    document.getElementById("statKills").textContent = "0";
-    document.getElementById("statDamage").textContent = "—";
-    document.getElementById("photoBox").classList.add("empty");
-    document.getElementById("teamLogo").classList.add("empty");
-    return;
-  }
-
-  document.getElementById("name").textContent = mvp.name || "";
-  document.getElementById("teamName").textContent = (mvp.teamName || "").toUpperCase();
-  document.getElementById("statKills").textContent = mvp.kills;
-  document.getElementById("statDamage").textContent = mvp.damage == null ? "—" : mvp.damage;
-
-  const rosterTeam = rosterTeamFor(ff, mvp.teamName);
-  const logo = document.getElementById("teamLogo");
-  if(rosterTeam && rosterTeam.logo){
-    logo.src = rosterTeam.logo;
-    logo.classList.remove("empty");
-  } else {
-    logo.classList.add("empty");
-  }
-
-  const rosterPlayer = rosterPlayerFor(ff, mvp.teamName, mvp.uid, mvp.name);
-  const photoBox = document.getElementById("photoBox");
-  const photoImg = document.getElementById("photoImg");
-  // A real player photo (uploaded on the roster) beats the in-game
-  // character render -- it's who the audience is watching, not their
-  // Free Fire skin -- but the character render is still better than a
-  // blank box when no photo has been uploaded for them.
-  const src = (rosterPlayer && rosterPlayer.photo) ||
-    characterImage(rosterPlayer, matches.length, ff);
-  if(src){
-    photoImg.src = src;
-    photoBox.classList.remove("empty");
-  } else {
-    photoBox.classList.add("empty");
-  }
-}
-
-let _lastRoster = null;
-let ws;
-function connect(){
-  ws = new WebSocket(WS_URL);
-  ws.onmessage = (evt) => {
-    const msg = JSON.parse(evt.data);
-    if(msg.type === "state_sync"){
-      /* The engine leaves `roster` out of a state_sync when it has not
-         changed since the last one. It is 220KB of team logos and it is
-         the same all match, and re-sending it three times a second was
-         saturating the uplink to the relay -- which showed up as this
-         graphic trailing the game while the dashboard looked instant.
-         Every client is sent a complete state on connect, so holding the
-         last roster we were given and putting it back keeps everything
-         below here working on a whole state, exactly as before. */
-      if(msg.data){
-        if(msg.data.roster) _lastRoster = msg.data.roster;
-        else if(_lastRoster) msg.data.roster = _lastRoster;
-      }
-      applyFreefire(msg.data);
-    }
-  };
-  ws.onclose = () => setTimeout(connect, 2000);
-  ws.onerror = () => ws.close();
-}
-connect();
+});
 </script>
 </body>
 </html>

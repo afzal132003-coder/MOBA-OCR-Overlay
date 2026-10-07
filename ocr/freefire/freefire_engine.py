@@ -8928,6 +8928,93 @@ def booyah_photos():
     return {"photos": {k: v for k, v in out.items() if v}}
 
 
+# ---------------------------------------------------------------------------
+# THE GAME THE POST-MATCH CARDS DESCRIBE -- MVP, game summary, elimination
+# report. They used to read the last COMMITTED match, and on a night run
+# from the result files with nothing committed they had nothing to show.
+# Now they share one game: the newest result file ("follow latest", which
+# moves on by itself when a match ends) or one the operator picks.
+# Compact on purpose -- it rides in every state_sync: no logos (the pages
+# take those from the roster), names and numbers only.
+# ---------------------------------------------------------------------------
+POST_GAME_DEFAULTS = {"matchId": "", "label": "", "game": None}
+
+
+def post_game_state():
+    g = server_state.setdefault("postGame", {})
+    for k, v in POST_GAME_DEFAULTS.items():
+        g.setdefault(k, v)
+    return g
+
+
+def _replay_map_name(match_id):
+    """The map a game was played on, from its replay file, if there is one."""
+    try:
+        path = map_analysis.find_replay(replays_folder(), str(match_id).partition("@")[0])
+        if not path:
+            return ""
+        mid = map_analysis.rj.load(path).get("MapID")
+        return (map_analysis.MAPS.get(mid) or {}).get("name", "")
+    except Exception:
+        return ""
+
+
+def pick_mvp(teams, override_uid=""):
+    """Most kills; then knocks; then the longer survival. An override wins."""
+    everyone = [dict(pl, teamName=t.get("teamName", ""), rank=t.get("rank"))
+                for t in teams or [] for pl in (t.get("players") or [])]
+    if not everyone:
+        return None
+    if override_uid:
+        hit = next((pl for pl in everyone if str(pl.get("uid")) == str(override_uid)), None)
+        if hit:
+            return hit
+    return max(everyone, key=lambda pl: (pl.get("kills") or 0, pl.get("knocks") or 0,
+                                         pl.get("survival") or 0))
+
+
+def refresh_post_game():
+    g = post_game_state()
+    folder = (server_state.get("settings", {}) or {}).get("matchResultFolder", "")
+    try:
+        mid = (g.get("matchId") or "").strip()
+        if not mid:
+            newest, nm = find_freefire_latest_match_file(folder)
+            mid = result_file_key(nm.group("match_id"), nm.group("timestamp")) if nm else ""
+        built = _h2h_result(mid) if mid else {}
+        teams = []
+        for t in sorted(built.get("teams") or [], key=lambda t: t.get("rank") or 99):
+            _key, name, short = _standings_identity(t, (server_state.get("roster") or {}).get("teams") or [])
+            teams.append({
+                "teamName": name or t.get("teamName", ""), "shortName": short or "",
+                "rank": t.get("rank"), "kills": t.get("killScore") or 0,
+                "placement": t.get("rankScore") or 0, "points": t.get("totalScore") or 0,
+                "players": [{k: pl.get(k) for k in ("name", "uid", "kills", "knocks", "headshots", "survival", "damage")}
+                            for pl in t.get("players") or []]})
+        mvp = pick_mvp(teams, server_state.get("mvpOverride", ""))
+        g["game"] = {
+            "matchId": mid, "timestamp": built.get("timestamp"), "teams": teams,
+            "mapName": _replay_map_name(mid),
+            "totalKills": sum(t["kills"] for t in teams),
+            "totalKnocks": sum((pl.get("knocks") or 0) for t in teams for pl in t["players"]),
+            "totalHeadshots": sum((pl.get("headshots") or 0) for t in teams for pl in t["players"]),
+            "length": max((pl.get("survival") or 0) for t in teams for pl in t["players"]) if teams else 0,
+            "mvp": mvp,
+        } if teams else {"matchId": mid, "error": built.get("error") or "No result file to read."}
+    except Exception as e:
+        print("[post game] could not build: %s" % e)
+        g["game"] = {"error": str(e)}
+    return g["game"]
+
+
+def post_game_photos():
+    """The MVP's photo from the UID - IGN folder, on its own message."""
+    mvp = ((post_game_state().get("game") or {}).get("mvp")) or {}
+    key = str(mvp.get("uid") or mvp.get("name") or "")
+    photo = _photo_lookup(mvp.get("uid"), mvp.get("name")) if key else ""
+    return {"photos": {key: photo} if (key and photo) else {}}
+
+
 async def h2h_photo_heartbeat():
     """The photos again every 10s while the graphic is up, so a browser
     source that reloads -- over the relay this engine never hears about
@@ -8939,6 +9026,10 @@ async def h2h_photo_heartbeat():
                 await broadcast_to_page("freefire_player_h2h", {"type": "h2h_photos", **h2h_photos()})
             if booyah_stats_state().get("visible"):
                 await broadcast_to_page("freefire_booyah_stats", {"type": "booyah_photos", **booyah_photos()})
+            if _disp().get("mvpVisible") or _disp().get("gameSummaryVisible"):
+                photos = post_game_photos()
+                await broadcast_to_page("freefire_mvp", {"type": "postgame_photos", **photos})
+                await broadcast_to_page("freefire_game_summary", {"type": "postgame_photos", **photos})
         except Exception as e:
             print("[h2h] photo resend failed: %s" % e)
 
@@ -10184,7 +10275,10 @@ async def handle_client(websocket, path=None):
             if payload.get("type") == "manual_update":
                 data = payload.get("data", {})
                 if "freefire" in data:
+                    _mvp_before = server_state.get("mvpOverride", "")
                     server_state.update(data["freefire"])
+                    if server_state.get("mvpOverride", "") != _mvp_before:
+                        await asyncio.get_running_loop().run_in_executor(None, refresh_post_game)
                     server_state["standings"] = compute_freefire_standings(
                         server_state.get("matches", [])
                     )
@@ -10822,6 +10916,21 @@ async def handle_client(websocket, path=None):
                     mv["shownAt"] = int(time.time() * 1000)
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") == "post_game":
+                # Which game the MVP / summary / elimination report describe:
+                # matchId "" follows the newest result file.
+                g = post_game_state()
+                for k in ("matchId", "label"):
+                    if k in payload:
+                        g[k] = payload[k]
+                loop = asyncio.get_running_loop()
+                game = await loop.run_in_executor(None, refresh_post_game)
+                photos = await loop.run_in_executor(None, post_game_photos)
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+                for page in ("freefire_mvp", "freefire_game_summary"):
+                    await broadcast_to_page(page, {"type": "postgame_photos", **photos})
+                await websocket.send(json.dumps({"type": "post_game_result", "game": game}))
             elif payload.get("type") == "booyah_stats":
                 b = booyah_stats_state()
                 rebuild = "matchId" in payload or payload.get("refresh") or not b.get("rows")
@@ -11029,16 +11138,22 @@ async def handle_client(websocket, path=None):
             elif payload.get("type") in ("mvp_show", "mvp_hide"):
                 server_state["display"]["mvpVisible"] = (
                     payload["type"] == "mvp_show")
+                if payload["type"] == "mvp_show" and not (post_game_state().get("game") or {}).get("teams"):
+                    await asyncio.get_running_loop().run_in_executor(None, refresh_post_game)
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") in ("game_summary_show", "game_summary_hide"):
                 server_state["display"]["gameSummaryVisible"] = (
                     payload["type"] == "game_summary_show")
+                if payload["type"] == "game_summary_show" and not (post_game_state().get("game") or {}).get("teams"):
+                    await asyncio.get_running_loop().run_in_executor(None, refresh_post_game)
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") in ("damage_report_show", "damage_report_hide"):
                 server_state["display"]["damageReportVisible"] = (
                     payload["type"] == "damage_report_show")
+                if payload["type"] == "damage_report_show" and not (post_game_state().get("game") or {}).get("teams"):
+                    await asyncio.get_running_loop().run_in_executor(None, refresh_post_game)
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") == "alive_status_points":
@@ -11807,6 +11922,14 @@ async def handle_live_signals(signals, gs_names):
             print(f"[live] auto-fetched {payload['fileName']} "
                   f"({len(payload['teams'])} teams) -- review and commit")
             _pending_match_fetch = None
+            # The post-match cards follow the newest game unless one was
+            # picked, and the Booyah stats likewise.
+            loop = asyncio.get_running_loop()
+            if not (post_game_state().get("matchId") or "").strip():
+                await loop.run_in_executor(None, refresh_post_game)
+            if not (booyah_stats_state().get("matchId") or "").strip():
+                await loop.run_in_executor(None, refresh_booyah_stats)
+            changed = True
         elif time.time() - _pending_match_since >= MAX_AUTO_FETCH_SECONDS:
             print(f"[live] gave up auto-fetching match {_pending_match_fetch} "
                   f"after {_pending_match_tries} attempts over "
@@ -12751,6 +12874,11 @@ async def main():
     map_view_state()
     player_h2h_state()
     booyah_stats_state()
+    post_game_state()
+    try:
+        refresh_post_game()
+    except Exception as e:
+        print("Post-match cards could not be built at start: %s" % e)
     try:
         keyboard.add_hotkey(NUM5_HOTKEY, on_num5_pressed)
         print(f"Loadout capture armed on '{NUM5_HOTKEY}' (only fires while loadoutCapture.active is true)")

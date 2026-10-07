@@ -3311,10 +3311,21 @@
       </div>
       <div class="hint" id="ff_booyahLoadoutStatus" style="margin-top:6px;"></div>
 
+      <h3 style="margin-top:18px;">MVP, Game Summary &amp; Elimination Report -- which game</h3>
+      <p class="hint">These three cards describe one game: the newest result file (follows each new game by itself)
+        or one you pick. They draw in the event's graphics package (SS3 or ARROW).</p>
+      <div class="row" style="gap:10px;align-items:flex-end;flex-wrap:wrap;">
+        <div class="team-form" style="max-width:340px;margin:0;"><label for="ff_pgGame">Game</label>
+          <select id="ff_pgGame"><option value="">Latest finished game</option></select></div>
+        <div class="team-form" style="max-width:200px;margin:0;"><label for="ff_pgLabel">Label on the cards</label>
+          <input type="text" id="ff_pgLabel" placeholder="e.g. GAME 4"></div>
+        <button class="secondary" id="ff_pgRefresh">Refresh</button>
+        <span class="hint" id="ff_pgStatus"></span>
+      </div>
+
       <h3 style="margin-top:18px;">MVP</h3>
-      <p class="hint">Its own browser source (overlay/freefire_mvp.html) — the standout player of the latest
-        committed match. Auto-picks the highest eliminations, damage typed in during review breaking a tie;
-        override below to pick someone else by hand.</p>
+      <p class="hint">The standout player of that game -- most kills, then knocks, then survival; override below to
+        pick someone else by hand.</p>
       <div class="row" style="gap:16px;align-items:flex-end;">
         <div class="team-form" style="max-width:280px;">
           <label>Override (blank = auto)</label>
@@ -3329,18 +3340,16 @@
       <div class="hint" id="ff_mvpStatus" style="margin-top:6px;"></div>
 
       <h3 style="margin-top:18px;">Game Summary</h3>
-      <p class="hint">Its own browser source (overlay/freefire_game_summary.html) — map, Booyah team, MVP and
-        total kills for the latest committed match, all in one card.</p>
+      <p class="hint">Map, Booyah team, top 6, MVP, total kills and knocks, game length -- one card.</p>
       <div class="row" style="gap:8px;">
         <button id="ff_gameSummaryShow">Push Game Summary Up</button>
         <button class="secondary" id="ff_gameSummaryHide">Pull Game Summary Down</button>
       </div>
       <div class="hint" id="ff_gameSummaryStatus" style="margin-top:6px;"></div>
 
-      <h3 style="margin-top:18px;">Elimination &amp; Damage Report</h3>
-      <p class="hint">Its own browser source (overlay/freefire_damage_report.html) — every player from the latest
-        committed match, ranked by eliminations, with damage shown alongside wherever it was typed in during
-        review.</p>
+      <h3 style="margin-top:18px;">Elimination Report</h3>
+      <p class="hint">The game's top 12 players: elims, knocks, headshots, survival. The game records no damage; a
+        DMG column appears only if damage was typed in during review.</p>
       <div class="row" style="gap:8px;">
         <button id="ff_damageReportShow">Push Report Up</button>
         <button class="secondary" id="ff_damageReportHide">Pull Report Down</button>
@@ -12041,6 +12050,7 @@ function ffRequestMatchFiles(){
 function ffShowMatchFiles(msg){
   clearTimeout(ffMatchFilesTimer);
   ffMatchFiles = (msg.files || []).filter(f => f.teams && f.teams.length);
+  try { if(ffState) ffSyncPostGame(ffState); } catch(e){ console.error("post game:", e); }
   // The Booyah stats card lists these games too.
   try { ffSyncBooyahStats(); } catch(e){ console.error("booyah stats:", e); }
   const el = document.getElementById("ff_resultsPushTarget");
@@ -13753,9 +13763,12 @@ function ffRenderMvpPicker(ff){
   const matches = ff.matches || [];
   const latest = matches.length ? matches[matches.length - 1] : null;
   const players = [];
-  (latest ? latest.teams || [] : []).forEach(t => {
+  // The players of the game the cards describe, else the latest committed one.
+  const pgTeams = (((ff.postGame || {}).game || {}).teams) || (latest ? latest.teams || [] : []);
+  pgTeams.forEach(t => {
     (t.players || []).forEach(p => players.push({ uid: p.uid, name: p.name, team: t.teamName }));
   });
+  ffSyncPostGame(ff);
   const key = JSON.stringify(players) + "|" + (ff.mvpOverride || "");
   if(key === ffLastMvpKey) return;
   ffLastMvpKey = key;
@@ -13766,6 +13779,45 @@ function ffRenderMvpPicker(ff){
       ffEscapeHtml(p.name) + ' (' + ffEscapeHtml(p.team) + ')</option>').join("");
   sel.value = ff.mvpOverride || "";
 }
+
+let ffPgKey = "";
+function ffSyncPostGame(ff){
+  const sel = document.getElementById("ff_pgGame");
+  if(!sel) return;
+  const pg = ff.postGame || {};
+  const files = (typeof ffMatchFiles !== "undefined" ? ffMatchFiles : []) || [];
+  const key = files.map(f => f.matchId).join(",");
+  if(key !== ffPgKey && sel !== document.activeElement){
+    ffPgKey = key;
+    sel.innerHTML = `<option value="">Latest finished game</option>` + files.slice().reverse().map(f => {
+      const when = String(f.timestamp || "").replace(/^(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2}).*$/, "$3/$2 $4:$5");
+      const win = (f.teams || []).find(t => t.rank === 1);
+      return `<option value="${f.matchId}">${when} · Booyah: ${String((win && win.teamName) || "?").replace(/</g, "&lt;")}</option>`;
+    }).join("");
+  }
+  if(sel !== document.activeElement && sel.value !== (pg.matchId || "")) sel.value = pg.matchId || "";
+  const lab = document.getElementById("ff_pgLabel");
+  if(lab !== document.activeElement && lab.value !== (pg.label || "")) lab.value = pg.label || "";
+  const g = pg.game || {};
+  const st = document.getElementById("ff_pgStatus");
+  if(st && !st.dataset.busy) st.textContent = g.teams
+    ? (g.mapName ? g.mapName + " · " : "") + "Booyah " + ((g.teams[0] || {}).teamName || "?") + " · MVP " + ((g.mvp || {}).name || "?")
+    : (g.error || "");
+}
+(function ffWirePostGame(){
+  const send = extra => {
+    if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+    const st = document.getElementById("ff_pgStatus");
+    st.dataset.busy = "1"; st.textContent = "Reading the game...";
+    setTimeout(() => { delete st.dataset.busy; }, 1500);
+    ffWs.send(JSON.stringify(Object.assign({ type: "post_game",
+      matchId: document.getElementById("ff_pgGame").value,
+      label: document.getElementById("ff_pgLabel").value.trim() }, extra || {})));
+  };
+  document.getElementById("ff_pgGame").addEventListener("change", () => send());
+  document.getElementById("ff_pgLabel").addEventListener("change", () => send());
+  document.getElementById("ff_pgRefresh").addEventListener("click", () => send());
+})();
 
 document.getElementById("ff_mvpOverrideSave").addEventListener("click", () => {
   if(!ffState) return;

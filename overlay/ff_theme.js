@@ -1,0 +1,96 @@
+/* Shared helpers for the themed Free Fire cards (see ff_theme.css). */
+
+// "ss3" for the Survivor Series package, "arrow" for everything else --
+// PRG ARROW, and the older packages that never had art for these cards.
+function ffTheme(state){
+  const ev = (state && state.event) || {};
+  const pick = String(new URLSearchParams(location.search).get("theme") || ev.assetFolder || "").toLowerCase();
+  return pick === "ss3" ? "ss3" : "arrow";
+}
+function ffApplyTheme(state){
+  const t = ffTheme(state);
+  document.body.classList.toggle("ss3", t === "ss3");
+  document.body.classList.toggle("arrow", t !== "ss3");
+  return t;
+}
+function ffTeam(name, roster){
+  const key = String(name || "").trim().toUpperCase();
+  if(!key) return null;
+  return ((roster && roster.teams) || []).find(t =>
+    [t.name, t.displayName, t.shortName].some(n => String(n || "").trim().toUpperCase() === key)) || null;
+}
+function ffRosterPlayer(uid, ign, roster){
+  const u = String(uid || ""), g = String(ign || "").trim().toUpperCase();
+  for(const t of (roster && roster.teams) || []){
+    for(const p of t.players || []){
+      if((u && String(p.uid || "") === u) || (g && String(p.ign || "").trim().toUpperCase() === g)) return { team: t, player: p };
+    }
+  }
+  return null;
+}
+function ffEsc(s){ return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+const ffTwo = v => v == null ? "--" : String(v).padStart(2, "0");
+function ffMmss(t){ if(t == null) return "--"; t = Math.max(0, Math.round(t)); return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0"); }
+// Shrinks a box's text until it fits -- measured on an inner span, since a
+// centred box does not report overflow on its left.
+function ffSetText(node, text, max, min){
+  node.innerHTML = "";
+  const s = document.createElement("span"); s.textContent = text == null ? "" : text; node.appendChild(s);
+  node.style.fontSize = "";
+  let size = parseFloat(getComputedStyle(node).fontSize);
+  const limit = max || node.clientWidth - 8;
+  while(s.offsetWidth > limit && size > (min || 10)){ size -= 0.5; node.style.fontSize = size + "px"; }
+}
+// Numbers count up as they come in; format(v) draws each step.
+function ffCountUp(node, to, format, delay){
+  const fmt = format || (v => String(v));
+  if(to == null || typeof to !== "number"){ node.textContent = to == null ? "--" : String(to); return; }
+  if(document.body.classList.contains("still")){ node.textContent = fmt(to); return; }
+  node.textContent = fmt(0);
+  const start = performance.now() + (delay || 0) * 1000, dur = 700;
+  const step = now => {
+    const f = Math.max(0, Math.min(1, (now - start) / dur));
+    node.textContent = fmt(Math.round(to * (1 - Math.pow(1 - f, 3))));
+    if(f < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+// The standard connection, roster-carry included; onMsg gets every
+// message, onState every full state.
+function ffConnect(page, onState, onMsg){
+  const params = new URLSearchParams(location.search);
+  const sameOrigin = (location.protocol === "https:" && location.hostname && !/^(localhost|127\.|\[?::1)/.test(location.hostname))
+    ? "wss://" + location.host : "";
+  const relay = params.get("relay") || localStorage.getItem("moba_relay") || sameOrigin;
+  const token = params.get("token") || localStorage.getItem("moba_token") || "";
+  const url = relay
+    ? relay + (relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(token) + "&page=" + page + "&rostercache=1"
+    : "ws://localhost:8765?page=" + page + "&rostercache=1";
+  let lastRoster = null;
+  (function go(){
+    const ws = new WebSocket(url);
+    ws.onmessage = evt => {
+      const msg = JSON.parse(evt.data);
+      if(onMsg) onMsg(msg);
+      if(msg.type !== "state_sync" || !msg.data) return;
+      if(msg.data.roster) lastRoster = msg.data.roster;
+      else if(lastRoster) msg.data.roster = lastRoster;
+      onState(msg.data);
+    };
+    ws.onclose = () => setTimeout(go, 2000);
+    ws.onerror = () => ws.close();
+  })();
+}
+
+// The title, shrunk until its text fits its box (SS3: between the ribbon
+// and the event logo). Measured on the text itself, not the box.
+function ffFitTitle(el){
+  if(!el) return;
+  el.style.fontSize = "";
+  const r = document.createRange();
+  r.selectNodeContents(el);
+  let size = parseFloat(getComputedStyle(el).fontSize);
+  while(r.getBoundingClientRect().width > el.clientWidth - 10 && size > 40){
+    size -= 2; el.style.fontSize = size + "px";
+  }
+}

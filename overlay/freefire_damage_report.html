@@ -1,152 +1,105 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <script src="ff_embed.js"></script>
-<title>Free Fire Damage Report</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
+<title>Free Fire Elimination Report</title>
+<link rel="stylesheet" href="ff_theme.css">
 <style>
-  /* Every player from the latest COMMITTED match, ranked by eliminations
-     (damage as the tiebreak), damage shown alongside wherever it was
-     typed in during review -- see ffHandleMatchResult/ffReviewDamage in
-     dashboard.html. Damage isn't in the result file or any log the
-     client writes, so a blank cell here means "not entered", not zero.
-
-     Capped at REPORT_ROWS players so a full 48-player lobby still fits
-     one 1080p card; raise it if the artwork has room for more.
-     Background is assets/freefire/<folder>/ELIMINATION AND DAMAGE
-     REPORT.png, to be supplied later. */
-
-  html, body{
-    margin:0; padding:0; background:transparent; overflow:hidden;
-    width:1920px; height:1080px;
-    font-family:'Poppins','Segoe UI',Arial,sans-serif;
-  }
-  #stage{ position:absolute; inset:0; opacity:0; transition:opacity .45s ease; }
-  #stage.visible{ opacity:1; }
-  #bg{ position:absolute; top:0; left:0; width:1920px; height:1080px; }
-
-  #heading{
-    position:absolute; left:120px; top:80px; color:#fff; font-weight:800;
-    font-size:48px; letter-spacing:1px; text-shadow:0 3px 14px rgba(0,0,0,0.65);
-  }
-
-  #rows{ position:absolute; left:120px; top:200px; width:1680px; }
-  .row{
-    display:grid; grid-template-columns:70px 1fr 420px 220px 220px;
-    align-items:center; height:56px; color:#fff; font-weight:700; font-size:26px;
-  }
-  .row + .row{ border-top:1px solid rgba(255,255,255,0.08); }
-  .rank{ color:#98a3bd; font-variant-numeric:tabular-nums; }
-  .pname{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .team{ color:#98a3bd; font-weight:600; font-size:20px; text-transform:uppercase; }
-  .kills{ color:#ffc400; font-weight:800; text-align:right; padding-right:24px; }
-  .damage{ color:#4ade80; font-weight:800; text-align:right; padding-right:24px; }
+  /* ELIMINATION REPORT -- the top 12 players of the post-match game
+     (state.postGame), by eliminations, then knocks, then survival: team,
+     player, elims, knocks, headshots, survival. The client writes no damage
+     anywhere, so a DMG column appears only when damage was typed in during
+     review. Drawn in the event's look (ff_theme.css). */
+  .ss3 #board{left:150px;top:340px;width:1620px;height:552px;}
+  .arrow #board{left:200px;top:236px;width:1520px;height:700px;}
+  .hd, .pr{position:absolute;left:0;width:100%;display:flex;align-items:center;}
+  .hd{top:0;}
+  .ss3 .hd{height:44px;}
+  .arrow .hd{height:54px;clip-path:polygon(0 0,100% 0,calc(100% - 22px) 100%,0 100%);}
+  .hd > div, .pr > div{height:100%;display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;}
+  .ss3 .hd > div{font-size:20px;}
+  .arrow .hd > div{font-size:24px;}
+  .ss3 .pr{height:38px;}
+  .arrow .pr{height:50px;border-bottom:1px solid rgba(255,255,255,.07);}
+  .ss3 .pr:nth-child(odd){background:rgba(255,255,255,.06);}
+  .ss3 .pr > div{font-size:22px;}
+  .arrow .pr > div{font-size:26px;}
+  .c-rk{width:80px;} .c-lg{width:56px;} .c-pl{flex:1;justify-content:flex-start !important;padding-left:8px;}
+  .c-tm{width:250px;justify-content:flex-start !important;} .c-n{width:150px;}
+  .pr img{width:32px;height:32px;object-fit:contain;}
+  .arrow .pr img{width:40px;height:40px;}
+  .top1 .c-rk, .top1 .c-pl{}
+  .nodata{position:absolute;left:0;top:520px;width:1920px;text-align:center;font-family:'SMXB',Arial,sans-serif;font-size:30px;color:#fff;
+          text-shadow:0 2px 8px rgba(0,0,0,.8);}
 </style>
 </head>
-<body>
-
-<div id="stage">
-  <img id="bg" alt="">
-  <div id="heading"></div>
-  <div id="rows"></div>
+<body class="ss3">
+<div class="ff-stage" id="stage">
+  <div class="ff-frame fade"></div>
+  <div class="ff-title fade" id="title" style="animation-delay:.1s">ELIMINATION REPORT</div>
+  <div class="ff-round ctr fade" id="round" style="animation-delay:.25s"></div>
+  <div class="abs ff-black fade" id="board" style="animation-delay:.35s"></div>
+  <div class="nodata" id="nodata"></div>
 </div>
-
+<script src="ff_theme.js"></script>
 <script>
-const _params = new URLSearchParams(location.search);
-if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
-if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
-/* Served BY the relay host, connect back to it.
+const PREVIEW = new URLSearchParams(location.search).get("preview") === "1";
+const ROWS = 12;
+let lastSig = "";
 
-   These pages are now served off the same VM as the relay, and a page
-   loaded over https from that host has no business needing to be told
-   its own address. Without this every browser source and every dashboard
-   tab has to carry ?relay=wss://... forever, and one that is missing it
-   silently falls back to ws://localhost:8765 and sits there dead --
-   which looks exactly like the engine being down.
-
-   Only when actually served over https from a real host: a page opened
-   from disk, or off localhost while testing, keeps the old behaviour
-   untouched. An explicit ?relay= still wins over all of it. */
-const _sameOrigin = (location.protocol === "https:"
-  && location.hostname && !/^(localhost|127\.|\[?::1)/.test(location.hostname))
-  ? "wss://" + location.host : "";
-const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || _sameOrigin;
-const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
-const WS_URL = _relay
-  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_damage_report&rostercache=1"
-  : "ws://localhost:8765?page=freefire_damage_report&rostercache=1";
-
-const REPORT_ROWS = 12;
-
-function escapeHtml(str){
-  return String(str == null ? "" : str).replace(/[&<>"']/g, c => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-
-let lastKey = "";
-
-function applyFreefire(ff){
-  const visible = !!(ff.display && ff.display.damageReportVisible);
-  document.getElementById("stage").classList.toggle("visible", visible);
-  if(!visible) return;
-
-  const folder = (ff.event && ff.event.assetFolder) || "CLT";
-  const matches = ff.matches || [];
-  const gameNumber = matches.length;
-  const latest = gameNumber ? matches[gameNumber - 1] : null;
+function render(st){
+  const theme = ffApplyTheme(st);
+  const visible = PREVIEW || !!(st.display || {}).damageReportVisible;
+  const stage = document.getElementById("stage");
+  if(!visible){ stage.classList.remove("on"); lastSig = ""; return; }
+  const pg = st.postGame || {};
+  const g = pg.game || {};
+  const roster = st.roster || {};
+  const ev = st.event || {};
+  const sig = JSON.stringify([theme, g, pg.label, ev.roundName, ((roster.teams) || []).map(t => [t.name, t.shortName, !!t.logo])]);
+  if(sig === lastSig){ stage.classList.add("on"); return; }
+  const replay = !stage.classList.contains("on");
+  lastSig = sig;
+  ffFitTitle(document.getElementById("title"));
+  const ss3 = theme === "ss3";
+  ffSetText(document.getElementById("round"), [pg.label, g.mapName].filter(Boolean).join(" · ") || ev.roundName || "", ss3 ? 320 : 520, 12);
 
   const players = [];
-  (latest ? latest.teams || [] : []).forEach(t => (t.players || []).forEach(p =>
-    players.push({ name: p.name, teamName: t.teamName, kills: p.kills || 0, damage: p.damage })));
-  players.sort((a, b) => (b.kills - a.kills) || ((b.damage || 0) - (a.damage || 0)));
-  const top = players.slice(0, REPORT_ROWS);
+  (g.teams || []).forEach(t => (t.players || []).forEach(p => players.push(Object.assign({ teamName: t.teamName }, p))));
+  players.sort((a, b) => ((b.kills || 0) - (a.kills || 0)) || ((b.knocks || 0) - (a.knocks || 0)) || ((b.survival || 0) - (a.survival || 0)));
+  const top = players.slice(0, ROWS);
+  document.getElementById("nodata").textContent = top.length ? "" : (g.error || "No game to show yet.");
+  const hasDmg = top.some(p => p.damage != null && p.damage !== "");
+  const cols = [["ELIMS", p => ffTwo(p.kills || 0)], ["KNOCKS", p => p.knocks == null ? "--" : ffTwo(p.knocks)],
+                ["HEADSHOTS", p => p.headshots == null ? "--" : ffTwo(p.headshots)], ["SURVIVAL", p => ffMmss(p.survival)]]
+    .concat(hasDmg ? [["DMG", p => p.damage == null ? "--" : String(p.damage)]] : []);
 
-  const key = folder + "|" + gameNumber + "|" + JSON.stringify(top);
-  if(key === lastKey) return;
-  lastKey = key;
-
-  document.getElementById("bg").src = "assets/freefire/" + folder + "/ELIMINATION AND DAMAGE REPORT.png";
-  document.getElementById("heading").textContent = gameNumber ? "GAME " + gameNumber + " — ELIMINATION & DAMAGE REPORT" : "";
-
-  document.getElementById("rows").innerHTML = top.map((p, i) => `
-    <div class="row">
-      <div class="rank">${String(i + 1).padStart(2, "0")}</div>
-      <div class="pname">${escapeHtml(p.name)}</div>
-      <div class="team">${escapeHtml(p.teamName)}</div>
-      <div class="kills">${p.kills} ELIMS</div>
-      <div class="damage">${p.damage == null ? "—" : p.damage + " DMG"}</div>
-    </div>`).join("");
+  const board = document.getElementById("board");
+  board.innerHTML = `<div class="hd ff-label">` +
+    `<div class="c-rk">#</div><div class="c-lg"></div><div class="c-pl">PLAYER</div><div class="c-tm">TEAM</div>` +
+    cols.map(c => `<div class="c-n">${c[0]}</div>`).join("") + `</div>`;
+  const pitch = ss3 ? 42 : 52, top0 = ss3 ? 50 : 62;
+  top.forEach((p, i) => {
+    const rt = ffTeam(p.teamName, roster);
+    const r = document.createElement("div");
+    r.className = "pr fromL";
+    r.style.top = (top0 + i * pitch) + "px";
+    r.style.animationDelay = (0.45 + i * 0.05).toFixed(2) + "s";
+    r.innerHTML = `<div class="c-rk ${i < 3 ? "ff-num" : "ff-muted"}">${i + 1}</div>` +
+      `<div class="c-lg">${rt && rt.logo ? `<img src="${rt.logo}">` : ""}</div>` +
+      `<div class="c-pl ff-text"></div><div class="c-tm ff-muted"></div>` +
+      cols.map(() => `<div class="c-n ff-num"></div>`).join("");
+    board.appendChild(r);
+    const rp = ffRosterPlayer(p.uid, p.name, roster);
+    ffSetText(r.querySelector(".c-pl"), (rp && (rp.player.displayIgn || rp.player.ign)) || p.name, 0, 12);
+    ffSetText(r.querySelector(".c-tm"), (rt && (rt.shortName || rt.name)) || p.teamName, 240, 12);
+    r.querySelectorAll(".c-n").forEach((n, k) => { n.textContent = cols[k][1](p); });
+  });
+  if(replay){ stage.classList.remove("on"); void stage.offsetWidth; }
+  stage.classList.add("on");
 }
-
-let _lastRoster = null;
-let ws;
-function connect(){
-  ws = new WebSocket(WS_URL);
-  ws.onmessage = (evt) => {
-    const msg = JSON.parse(evt.data);
-    if(msg.type === "state_sync"){
-      /* The engine leaves `roster` out of a state_sync when it has not
-         changed since the last one. It is 220KB of team logos and it is
-         the same all match, and re-sending it three times a second was
-         saturating the uplink to the relay -- which showed up as this
-         graphic trailing the game while the dashboard looked instant.
-         Every client is sent a complete state on connect, so holding the
-         last roster we were given and putting it back keeps everything
-         below here working on a whole state, exactly as before. */
-      if(msg.data){
-        if(msg.data.roster) _lastRoster = msg.data.roster;
-        else if(_lastRoster) msg.data.roster = _lastRoster;
-      }
-      applyFreefire(msg.data);
-    }
-  };
-  ws.onclose = () => setTimeout(connect, 2000);
-  ws.onerror = () => ws.close();
-}
-connect();
+ffConnect("freefire_damage_report", render);
 </script>
 </body>
 </html>

@@ -1,0 +1,90 @@
+/* FREE FIRE THEME KIT -- the two event looks every themed card draws in.
+
+   body.ss3    Survivor Series S3: the event frame (PRG logo, ribbons, S3
+               logo, footer, round bar -- cut from the event's own art,
+               assets/freefire/kit/ss3_frame.png), a halftone title, red
+               zebra panels, black stat panels with red labels, pale
+               yellow name bars. Tactic Sans for titles, Supermolot for
+               names and numbers, as the art sets them.
+   body.arrow  PRG ARROW: dark green board, gold italic header, white
+               satin plates (cut from the ARROW alive art), Supermolot
+               Black Italic throughout.
+
+   A card picks its theme from the event's graphics package (see
+   ff_theme.js: ffTheme) and lays itself out per theme. */
+@font-face { font-family:'TacticSans'; src:url('assets/freefire/ss3/TacticSans-BldIt.otf') format('opentype'); font-weight:100 900; }
+@font-face { font-family:'SMBlack'; src:url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype'); font-weight:900; }
+@font-face { font-family:'SMXB'; src:url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype'); font-weight:800; }
+@font-face { font-family:'SMBI'; src:url('assets/fonts/TT Supermolot Neue Trial Black Italic.ttf') format('truetype'); font-weight:900; }
+
+:root{
+  --ss3-red:#eb0000; --ss3-label:#e11b17; --ss3-yellow:#fff694; --ss3-bar:#fff594; --ss3-black:#050505;
+  --ar-green:#163618; --ar-green-2:#0f2711; --ar-gold:#ffb21e; --ar-gold-2:#ffe08a; --ar-satin:#f2f2f2;
+}
+html,body{margin:0;padding:0;background:transparent;overflow:hidden;}
+body{width:1920px;height:1080px;-webkit-font-smoothing:antialiased;}
+body.still *{animation:none !important;transition:none !important;}
+
+/* the whole card: in and out */
+.ff-stage{position:absolute;inset:0;opacity:0;transform:scale(.985);pointer-events:none;
+          transition:opacity .4s ease, transform .5s cubic-bezier(.16,.84,.34,1);}
+.ff-stage.on{opacity:1;transform:none;}
+.abs{position:absolute;}
+.ctr{display:flex;align-items:center;justify-content:center;white-space:nowrap;}
+.left{display:flex;align-items:center;white-space:nowrap;}
+
+/* ---- SS3 ---- */
+.ss3 .ff-frame{position:absolute;left:0;top:0;width:1920px;height:1080px;background:url('assets/freefire/kit/ss3_frame.png') no-repeat;}
+/* The title, like the art's: solid white at the top, halftone dots below. */
+.ss3 .ff-title{position:absolute;left:470px;top:118px;width:990px;height:140px;font-family:'TacticSans',Arial,sans-serif;
+  font-size:118px;line-height:140px;text-align:center;text-transform:uppercase;letter-spacing:.01em;color:transparent;
+  background:linear-gradient(180deg,#fff 0%,#fff 46%,rgba(255,255,255,0) 82%),
+             radial-gradient(circle,#fff 0 1.7px,transparent 2.1px) 0 0/7px 7px;
+  -webkit-background-clip:text;background-clip:text;white-space:nowrap;}
+.ss3 .ff-round{position:absolute;left:697px;top:273px;width:347px;height:47px;font-family:'TacticSans',Arial,sans-serif;
+  font-size:27px;color:#151515;text-transform:uppercase;}
+.ss3 .ff-zebra{background:url('assets/freefire/kit/ss3_zebra.png') center/cover,var(--ss3-red);}
+.ss3 .ff-black{background:var(--ss3-black);box-shadow:inset 0 0 0 3px #d40000;}
+.ss3 .ff-yellow{background:var(--ss3-bar);color:#101010;font-family:'SMBlack',Arial,sans-serif;text-transform:uppercase;}
+.ss3 .ff-label{background:var(--ss3-label);color:var(--ss3-yellow);font-family:'SMXB',Arial,sans-serif;text-transform:uppercase;}
+.ss3 .ff-num{color:var(--ss3-yellow);font-family:'SMBlack',Arial,sans-serif;font-variant-numeric:tabular-nums;line-height:1;}
+.ss3 .ff-text{color:#fff;font-family:'SMXB',Arial,sans-serif;text-transform:uppercase;}
+.ss3 .ff-muted{color:#ffd9d0;font-family:'SMXB',Arial,sans-serif;text-transform:uppercase;}
+
+/* ---- ARROW ---- */
+.arrow .ff-frame{position:absolute;left:150px;top:100px;width:1620px;height:880px;
+  background:linear-gradient(115deg,rgba(255,255,255,.05) 0 18%,transparent 18% 60%,rgba(255,255,255,.035) 60% 64%,transparent 64%),
+             linear-gradient(180deg,var(--ar-green) 0%,var(--ar-green-2) 100%);
+  box-shadow:0 30px 70px rgba(0,0,0,.55), inset 0 0 0 2px rgba(255,255,255,.06);
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 34px),calc(100% - 34px) 100%,0 100%);}
+.arrow .ff-frame::before{content:"";position:absolute;left:0;top:0;right:0;height:96px;
+  background:linear-gradient(180deg,rgba(0,0,0,.35),rgba(0,0,0,.12));border-bottom:3px solid var(--ar-gold);}
+.arrow .ff-title{position:absolute;left:210px;top:112px;width:1100px;height:90px;font-family:'SMBI',Arial,sans-serif;
+  font-size:66px;line-height:90px;text-transform:uppercase;white-space:nowrap;color:transparent;
+  background:linear-gradient(180deg,var(--ar-gold-2) 0%,var(--ar-gold) 55%,#e07b00 100%);
+  -webkit-background-clip:text;background-clip:text;filter:drop-shadow(0 3px 0 rgba(0,0,0,.35));}
+.arrow .ff-round{position:absolute;left:1180px;top:126px;width:540px;height:60px;justify-content:flex-end;
+  font-family:'SMBI',Arial,sans-serif;font-size:30px;color:#fff;text-transform:uppercase;}
+.arrow .ff-zebra{background:linear-gradient(160deg,#2a5a2c 0%,#173a19 60%,#10280f 100%);box-shadow:inset 0 0 0 6px var(--ar-satin);}
+.arrow .ff-black{background:rgba(0,0,0,.28);box-shadow:inset 0 0 0 2px rgba(255,255,255,.08);}
+.arrow .ff-yellow{background:url('assets/freefire/kit/arrow_satin.png') center/cover,var(--ar-satin);color:#121212;
+  font-family:'SMBI',Arial,sans-serif;text-transform:uppercase;}
+.arrow .ff-label{background:url('assets/freefire/kit/arrow_satin.png') center/cover,var(--ar-satin);color:#151515;
+  font-family:'SMBI',Arial,sans-serif;text-transform:uppercase;}
+.arrow .ff-num{color:#fff;font-family:'SMBI',Arial,sans-serif;font-variant-numeric:tabular-nums;line-height:1;}
+.arrow .ff-text{color:#fff;font-family:'SMBI',Arial,sans-serif;text-transform:uppercase;}
+.arrow .ff-muted{color:var(--ar-gold);font-family:'SMBI',Arial,sans-serif;text-transform:uppercase;}
+
+/* ---- entrances (played each time the card is pushed) ---- */
+.ff-stage.on .rise{animation:ffrise .65s cubic-bezier(.2,.85,.25,1.05) both;}
+@keyframes ffrise{from{opacity:0;transform:translateY(60px);}to{opacity:1;transform:none;}}
+.ff-stage.on .pop{animation:ffpop .5s cubic-bezier(.2,.9,.3,1.25) both;}
+@keyframes ffpop{from{opacity:0;transform:scale(.6);}to{opacity:1;transform:none;}}
+.ff-stage.on .fromL{animation:fffromL .55s cubic-bezier(.2,.8,.3,1) both;}
+@keyframes fffromL{from{opacity:0;transform:translateX(-50px);}to{opacity:1;transform:none;}}
+.ff-stage.on .fromR{animation:fffromR .55s cubic-bezier(.2,.8,.3,1) both;}
+@keyframes fffromR{from{opacity:0;transform:translateX(50px);}to{opacity:1;transform:none;}}
+.ff-stage.on .fade{animation:fffade .6s ease both;}
+@keyframes fffade{from{opacity:0;}to{opacity:1;}}
+.ff-stage.on .wipe{animation:ffwipe .7s cubic-bezier(.3,.7,.2,1) both;}
+@keyframes ffwipe{from{clip-path:inset(0 100% 0 0);}to{clip-path:inset(0 0 0 0);}}

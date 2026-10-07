@@ -1,188 +1,172 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <script src="ff_embed.js"></script>
 <title>Free Fire Game Summary</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="ff_theme.css">
 <style>
-  /* One card recapping the latest COMMITTED match: which game/map it was,
-     who took the Booyah, who the MVP was, and the total kills across all
-     12 squads. Background is assets/freefire/<folder>/GAME SUMMARY.png,
-     to be supplied later -- see the note in freefire_mvp.html for why
-     this is deliberately plain until then. */
+  /* GAME SUMMARY -- one card recapping the post-match game (state.postGame):
+     the map and game length, the Booyah team, the MVP, the top 6 finish
+     table, and the game's totals (kills, knocks, headshots). Drawn in the
+     event's look (ff_theme.css). */
 
-  html, body{
-    margin:0; padding:0; background:transparent; overflow:hidden;
-    width:1920px; height:1080px;
-    font-family:'Poppins','Segoe UI',Arial,sans-serif;
-  }
-  #stage{ position:absolute; inset:0; opacity:0; transition:opacity .45s ease; }
-  #stage.visible{ opacity:1; }
-  #bg{ position:absolute; top:0; left:0; width:1920px; height:1080px; }
+  /* ---- SS3 ---- */
+  .ss3 #booyah{left:150px;top:352px;width:520px;height:530px;}
+  .ss3 #booyahHead{left:0;top:0;width:520px;height:58px;font-size:30px;}
+  .ss3 #booyahLogo{left:150px;top:78px;width:220px;height:220px;object-fit:contain;}
+  .ss3 #booyahName{left:0;top:312px;width:520px;height:64px;font-size:38px;}
+  .ss3 #booyahNums{left:0;top:396px;width:520px;height:134px;}
+  .ss3 #table{left:700px;top:352px;width:560px;height:530px;}
+  .ss3 #side{left:1290px;top:352px;width:480px;height:530px;}
 
-  #heading{
-    position:absolute; left:120px; top:110px; color:#fff; font-weight:800;
-    font-size:56px; letter-spacing:1px; text-shadow:0 3px 14px rgba(0,0,0,0.65);
-  }
-  #mapName{
-    position:absolute; left:120px; top:184px; color:#98a3bd; font-weight:700;
-    font-size:28px; letter-spacing:2px; text-transform:uppercase;
-  }
+  /* ---- ARROW ---- */
+  .arrow #booyah{left:200px;top:236px;width:520px;height:700px;}
+  .arrow #booyahHead{left:0;top:0;width:520px;height:64px;font-size:34px;justify-content:flex-start;padding-left:24px;
+                     clip-path:polygon(0 0,100% 0,calc(100% - 22px) 100%,0 100%);}
+  .arrow #booyahLogo{left:130px;top:96px;width:260px;height:260px;object-fit:contain;}
+  .arrow #booyahName{left:0;top:380px;width:520px;height:76px;font-size:44px;}
+  .arrow #booyahNums{left:0;top:490px;width:520px;height:180px;}
+  .arrow #table{left:750px;top:236px;width:560px;height:700px;}
+  .arrow #side{left:1340px;top:236px;width:390px;height:700px;}
 
-  #row{ position:absolute; left:120px; top:300px; display:flex; gap:70px; }
-  .block{ display:flex; flex-direction:column; gap:10px; min-width:280px; }
-  .blockLabel{ color:#98a3bd; font-weight:700; font-size:20px; letter-spacing:2px; text-transform:uppercase; }
-  .blockValueRow{ display:flex; align-items:center; gap:14px; }
-  .blockLogo{ width:52px; height:52px; object-fit:contain; }
-  .blockLogo.empty{ display:none; }
-  .blockValue{ color:#fff; font-weight:800; font-size:40px; letter-spacing:.5px; white-space:nowrap; }
-  .blockSub{ color:#ffc400; font-weight:800; font-size:24px; font-variant-numeric:tabular-nums; }
+  .pair{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center;}
+  .pair .k{font-size:22px;}
+  .pair .v{font-size:54px;margin-top:4px;}
+  .trow{position:absolute;left:0;width:100%;display:flex;align-items:center;gap:12px;}
+  .trow .rk{width:58px;height:100%;font-size:28px;}
+  .trow img{width:44px;height:44px;object-fit:contain;}
+  .trow .nm{flex:1;font-size:26px;overflow:hidden;}
+  .trow .pt{width:96px;font-size:34px;justify-content:flex-end;padding-right:16px;}
+  .ss3 .trow{height:68px;background:rgba(255,255,255,.06);}
+  .arrow .trow{height:96px;border-bottom:1px solid rgba(255,255,255,.08);}
+  .thead{position:absolute;left:0;top:0;width:100%;height:58px;font-size:28px;}
+  .arrow .thead{height:64px;font-size:32px;justify-content:flex-start;padding-left:24px;clip-path:polygon(0 0,100% 0,calc(100% - 22px) 100%,0 100%);}
+  .tile{position:absolute;left:0;width:100%;}
+  .tile .k{position:absolute;left:0;top:0;width:100%;height:46px;font-size:22px;}
+  .tile .v{position:absolute;left:0;top:46px;width:100%;height:76px;font-size:56px;}
+  .ss3 .tile .k{height:38px;font-size:20px;}
+  .ss3 .tile .v{top:38px;height:58px;font-size:44px;}
+  /* A team with no logo yet: its short name, large, where the logo goes. */
+  .noLogo{display:flex;align-items:center;justify-content:center;font-family:'SMBlack',Arial,sans-serif;color:#fff;
+          text-transform:uppercase;text-shadow:0 4px 0 rgba(0,0,0,.25);}
+  .arrow .noLogo{font-family:'SMBI',Arial,sans-serif;}
+  .ss3 #booyahTag{left:20px;top:78px;width:480px;height:220px;font-size:110px;}
+  .arrow #booyahTag{left:20px;top:96px;width:480px;height:260px;font-size:120px;}
+  .arrow .tile .k{justify-content:flex-start;padding-left:20px;clip-path:polygon(0 0,100% 0,calc(100% - 18px) 100%,0 100%);}
+  .arrow .tile .v{justify-content:flex-start;padding-left:20px;}
+  .mvpline{position:absolute;left:0;width:100%;}
+  .nodata{position:absolute;left:0;top:520px;width:1920px;text-align:center;font-family:'SMXB',Arial,sans-serif;font-size:30px;color:#fff;
+          text-shadow:0 2px 8px rgba(0,0,0,.8);}
 </style>
 </head>
-<body>
-
-<div id="stage">
-  <img id="bg" alt="">
-  <div id="heading"></div>
-  <div id="mapName"></div>
-  <div id="row">
-    <div class="block">
-      <div class="blockLabel">Booyah</div>
-      <div class="blockValueRow"><img id="booyahLogo" class="blockLogo empty" alt=""><div class="blockValue" id="booyahName"></div></div>
-    </div>
-    <div class="block">
-      <div class="blockLabel">MVP</div>
-      <div class="blockValue" id="mvpName"></div>
-      <div class="blockSub" id="mvpKills"></div>
-    </div>
-    <div class="block">
-      <div class="blockLabel">Total Eliminations</div>
-      <div class="blockValue" id="totalKills"></div>
-    </div>
-    <div class="block">
-      <div class="blockLabel">Duration</div>
-      <div class="blockValue" id="duration"></div>
-    </div>
+<body class="ss3">
+<div class="ff-stage" id="stage">
+  <div class="ff-frame fade"></div>
+  <div class="ff-title fade" id="title" style="animation-delay:.1s">GAME SUMMARY</div>
+  <div class="ff-round ctr fade" id="round" style="animation-delay:.25s"></div>
+  <div class="abs ff-zebra rise" id="booyah" style="animation-delay:.3s">
+    <div class="abs ff-label ctr" id="booyahHead">BOOYAH</div>
+    <img class="abs pop" id="booyahLogo" alt="" style="animation-delay:.6s">
+    <div class="abs pop noLogo" id="booyahTag" style="animation-delay:.6s"></div>
+    <div class="abs ff-yellow ctr" id="booyahName"></div>
+    <div class="abs" id="booyahNums"></div>
   </div>
+  <div class="abs ff-black fade" id="table" style="animation-delay:.45s"></div>
+  <div class="abs fade" id="side" style="animation-delay:.55s"></div>
+  <div class="nodata" id="nodata"></div>
 </div>
-
+<script src="ff_theme.js"></script>
 <script>
-const _params = new URLSearchParams(location.search);
-if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
-if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
-/* Served BY the relay host, connect back to it.
+const PREVIEW = new URLSearchParams(location.search).get("preview") === "1";
+let lastSig = "";
 
-   These pages are now served off the same VM as the relay, and a page
-   loaded over https from that host has no business needing to be told
-   its own address. Without this every browser source and every dashboard
-   tab has to carry ?relay=wss://... forever, and one that is missing it
-   silently falls back to ws://localhost:8765 and sits there dead --
-   which looks exactly like the engine being down.
+function render(st){
+  const theme = ffApplyTheme(st);
+  const visible = PREVIEW || !!(st.display || {}).gameSummaryVisible;
+  const stage = document.getElementById("stage");
+  if(!visible){ stage.classList.remove("on"); lastSig = ""; return; }
+  const pg = st.postGame || {};
+  const g = pg.game || {};
+  const teams = g.teams || [];
+  const roster = st.roster || {};
+  const ev = st.event || {};
+  const sig = JSON.stringify([theme, g, pg.label, ev.roundName, ((roster.teams) || []).map(t => [t.name, t.shortName, !!t.logo])]);
+  if(sig === lastSig){ stage.classList.add("on"); return; }
+  const replay = !stage.classList.contains("on");
+  lastSig = sig;
+  ffFitTitle(document.getElementById("title"));
+  const ss3 = theme === "ss3";
+  document.getElementById("nodata").textContent = teams.length ? "" : (g.error || "No game to show yet.");
+  ffSetText(document.getElementById("round"), [pg.label, g.mapName].filter(Boolean).join(" · ") || ev.roundName || "", ss3 ? 320 : 520, 12);
 
-   Only when actually served over https from a real host: a page opened
-   from disk, or off localhost while testing, keeps the old behaviour
-   untouched. An explicit ?relay= still wins over all of it. */
-const _sameOrigin = (location.protocol === "https:"
-  && location.hostname && !/^(localhost|127\.|\[?::1)/.test(location.hostname))
-  ? "wss://" + location.host : "";
-const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || _sameOrigin;
-const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
-const WS_URL = _relay
-  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_game_summary&rostercache=1"
-  : "ws://localhost:8765?page=freefire_game_summary&rostercache=1";
-
-function rosterTeamFor(ff, teamName){
-  const teams = ((ff.roster && ff.roster.teams) || []);
-  const want = (teamName || "").trim().toUpperCase();
-  return teams.find(t => (t.name || "").trim().toUpperCase() === want) || null;
-}
-
-/* Same auto-pick freefire_mvp.html uses -- kept in sync deliberately,
-   since the two graphics would otherwise disagree about who the MVP was
-   whenever a tie is broken differently. */
-function pickMvp(latest, mvpOverride){
-  const all = [];
-  (latest.teams || []).forEach(t => (t.players || []).forEach(p =>
-    all.push({ uid: p.uid, name: p.name, kills: p.kills || 0, damage: p.damage, teamName: t.teamName })));
-  if(!all.length) return null;
-  if(mvpOverride){
-    const forced = all.find(p => String(p.uid) === String(mvpOverride));
-    if(forced) return forced;
+  // Booyah
+  const win = teams[0];
+  const wt = win ? ffTeam(win.teamName, roster) : null;
+  const wl = document.getElementById("booyahLogo");
+  const tag = document.getElementById("booyahTag");
+  if(wt && wt.logo){ wl.src = wt.logo; wl.style.visibility = ""; tag.textContent = ""; }
+  else {
+    wl.style.visibility = "hidden";
+    ffSetText(tag, win ? ((wt && wt.shortName) || win.shortName || win.teamName) : "", 460, 30);
   }
-  all.sort((a, b) => (b.kills - a.kills) || ((b.damage || 0) - (a.damage || 0)));
-  return all[0];
+  ffSetText(document.getElementById("booyahName"), win ? ((wt && (wt.displayName || wt.name)) || win.teamName) : "", 480, 16);
+  const bn = document.getElementById("booyahNums");
+  bn.innerHTML = "";
+  [["ELIMS", win && win.kills], ["PLACEMENT", win && win.placement], ["TOTAL", win && win.points]].forEach(([k, v], i) => {
+    const p = document.createElement("div");
+    p.className = "pair";
+    Object.assign(p.style, { left: (i * 173) + "px", top: "0px", width: "173px", height: "100%" });
+    p.innerHTML = `<div class="k ${ss3 ? "ff-yellow" : "ff-muted"}" style="${ss3 ? "padding:2px 10px;" : ""}">${k}</div><div class="v ff-num"></div>`;
+    bn.appendChild(p);
+    ffCountUp(p.querySelector(".v"), v == null ? null : v, ffTwo, 0.8 + i * 0.1);
+  });
+
+  // Top 6
+  const tb = document.getElementById("table");
+  tb.innerHTML = `<div class="thead ff-label ctr">TOP 6</div>`;
+  const pitch = ss3 ? 76 : 102, top0 = ss3 ? 68 : 76;
+  teams.slice(0, 6).forEach((t, i) => {
+    const rt = ffTeam(t.teamName, roster);
+    const r = document.createElement("div");
+    r.className = "trow fromR";
+    r.style.top = (top0 + i * pitch) + "px";
+    r.style.animationDelay = (0.6 + i * 0.07).toFixed(2) + "s";
+    r.innerHTML = `<div class="rk ctr ${ss3 ? "ff-label" : "ff-muted"}">#${t.rank}</div>` +
+      (rt && rt.logo ? `<img src="${rt.logo}">` : `<span style="width:44px"></span>`) +
+      `<div class="nm ff-text left"></div><div class="pt ff-num left"></div>`;
+    tb.appendChild(r);
+    ffSetText(r.querySelector(".nm"), (rt && (rt.shortName || rt.name)) || t.teamName, 280, 14);
+    ffCountUp(r.querySelector(".pt"), t.points, v => String(v), 0.8 + i * 0.07);
+  });
+
+  // MVP and the game's totals
+  const side = document.getElementById("side");
+  side.innerHTML = "";
+  const m = g.mvp;
+  const tiles = [
+    ["MATCH MVP", m ? m.name : "--", null],
+    ["MVP ELIMS", m ? m.kills : null, ffTwo],
+    ["TOTAL KILLS", g.totalKills, v => String(v)],
+    ["KNOCKS", g.totalKnocks, v => String(v)],
+    ["GAME LENGTH", g.length, ffMmss],
+  ];
+  const tp = ss3 ? 106 : 140;   // ss3: 38 label + 58 value + 10 apart
+  tiles.forEach(([k, v, fmt], i) => {
+    const t = document.createElement("div");
+    t.className = "tile fromR";
+    Object.assign(t.style, { top: (i * tp) + "px", height: (tp - 10) + "px", animationDelay: (0.7 + i * 0.08).toFixed(2) + "s" });
+    t.innerHTML = `<div class="k ${ss3 ? "ff-label" : "ff-label"} ctr">${k}</div><div class="v ${fmt ? "ff-num" : "ff-text"} ctr"></div>`;
+    side.appendChild(t);
+    const node = t.querySelector(".v");
+    if(fmt) ffCountUp(node, v == null ? null : v, fmt, 0.85 + i * 0.08);
+    else { node.style.fontSize = (ss3 ? 34 : 38) + "px"; ffSetText(node, v, (ss3 ? 460 : 370), 14); }
+    if(ss3) t.style.background = "rgba(0,0,0,.92)";
+  });
+  if(replay){ stage.classList.remove("on"); void stage.offsetWidth; }
+  stage.classList.add("on");
 }
-
-let lastKey = "";
-
-function applyFreefire(ff){
-  const visible = !!(ff.display && ff.display.gameSummaryVisible);
-  document.getElementById("stage").classList.toggle("visible", visible);
-  if(!visible) return;
-
-  const folder = (ff.event && ff.event.assetFolder) || "CLT";
-  const matches = ff.matches || [];
-  const gameNumber = matches.length;
-  const latest = gameNumber ? matches[gameNumber - 1] : null;
-  const winner = latest && (latest.teams || []).slice().sort((a, b) => (a.rank || 99) - (b.rank || 99))[0];
-  const mapName = ((ff.event && ff.event.maps) || [])[gameNumber - 1] || "";
-  const totalKills = latest ? (latest.teams || []).reduce((s, t) => s + (t.killScore || 0), 0) : null;
-  const mvp = latest ? pickMvp(latest, ff.mvpOverride) : null;
-
-  const key = folder + "|" + gameNumber + "|" + mapName + "|" + JSON.stringify(winner) + "|" +
-    JSON.stringify(mvp) + "|" + (latest && latest.duration || "");
-  if(key === lastKey) return;
-  lastKey = key;
-
-  document.getElementById("bg").src = "assets/freefire/" + folder + "/GAME SUMMARY.png";
-  document.getElementById("heading").textContent = gameNumber ? "GAME " + gameNumber + " SUMMARY" : "";
-  document.getElementById("mapName").textContent = mapName;
-
-  document.getElementById("booyahName").textContent = winner ? (winner.teamName || "").toUpperCase() : "";
-  const logo = document.getElementById("booyahLogo");
-  const rosterTeam = winner ? rosterTeamFor(ff, winner.teamName) : null;
-  if(rosterTeam && rosterTeam.logo){
-    logo.src = rosterTeam.logo;
-    logo.classList.remove("empty");
-  } else {
-    logo.classList.add("empty");
-  }
-
-  document.getElementById("mvpName").textContent = mvp ? (mvp.name || "") : "";
-  document.getElementById("mvpKills").textContent = mvp ? mvp.kills + " ELIMINATIONS" : "";
-  document.getElementById("totalKills").textContent = totalKills == null ? "" : totalKills;
-  document.getElementById("duration").textContent = (latest && latest.duration) || "—";
-}
-
-let _lastRoster = null;
-let ws;
-function connect(){
-  ws = new WebSocket(WS_URL);
-  ws.onmessage = (evt) => {
-    const msg = JSON.parse(evt.data);
-    if(msg.type === "state_sync"){
-      /* The engine leaves `roster` out of a state_sync when it has not
-         changed since the last one. It is 220KB of team logos and it is
-         the same all match, and re-sending it three times a second was
-         saturating the uplink to the relay -- which showed up as this
-         graphic trailing the game while the dashboard looked instant.
-         Every client is sent a complete state on connect, so holding the
-         last roster we were given and putting it back keeps everything
-         below here working on a whole state, exactly as before. */
-      if(msg.data){
-        if(msg.data.roster) _lastRoster = msg.data.roster;
-        else if(_lastRoster) msg.data.roster = _lastRoster;
-      }
-      applyFreefire(msg.data);
-    }
-  };
-  ws.onclose = () => setTimeout(connect, 2000);
-  ws.onerror = () => ws.close();
-}
-connect();
+ffConnect("freefire_game_summary", render);
 </script>
 </body>
 </html>
