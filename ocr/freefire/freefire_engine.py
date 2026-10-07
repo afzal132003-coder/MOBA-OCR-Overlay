@@ -54,6 +54,7 @@ import websockets
 import keyboard
 
 import map_analysis
+import bin_decode
 
 
 # --- DNS that survives a bad minute ------------------------------------
@@ -8975,6 +8976,53 @@ def build_map_view(match_id=None, with_log=True):
     return map_analysis.build(path, debugger_log_folder(), merged, story=story)
 
 
+BIN_CACHE = Path(__file__).parent / "bin_cache"
+
+
+def load_bin_match(match_id=""):
+    """One finished match for the BIN tab: the .bin decoded (cached on
+    disk, a file per replay) with the map view's circles, plane and team
+    names, and the map's calibration so the page can place positions."""
+    path = map_analysis.find_replay(replays_folder(), match_id or None)
+    if not path:
+        raise ValueError("No finished replay%s in %s" % ((" for " + match_id) if match_id else "", replays_folder()))
+    binp = path.with_suffix(".bin")
+    if not binp.exists():
+        raise ValueError("%s has no .bin beside it" % path.name)
+    BIN_CACHE.mkdir(exist_ok=True)
+    cache = BIN_CACHE / (path.stem + ".json")
+    decoded = None
+    if cache.exists() and cache.stat().st_mtime >= binp.stat().st_mtime:
+        try:
+            decoded = json.loads(cache.read_text(encoding="utf-8"))
+        except Exception:
+            decoded = None
+    data = map_analysis.rj.load(path)
+    if decoded is None:
+        decoded = bin_decode.decode(binp, names=map_analysis.rj.player_names(data), data=data)
+        cache.write_text(json.dumps(decoded), encoding="utf-8")
+    mid = path.name.split("_")[1]
+    view = build_map_view(mid)
+    map_id = view.get("mapId") or data.get("MapID")
+    cal = dict(map_analysis.MAPS.get(int(map_id)) or {}) if map_id is not None else {}
+    deaths = []
+    for pl in data.get("PlayerHighlightInfos") or []:
+        for e in pl.get("DeadEvents") or []:
+            p = e.get("position") or {}
+            if p:
+                deaths.append({"t": round(float(e.get("TriggerPoint") or 0), 1),
+                               "pid": int(e.get("PlayerID") or 0),
+                               "x": round(p.get("x", 0), 1), "z": round(p.get("z", 0), 1)})
+    return {"ok": True, "matchId": mid, "file": path.name, "mapId": map_id,
+            "mapName": view.get("mapName"), "image": view.get("image") or cal.get("image"),
+            "cal": cal, "duration": view.get("duration") or data.get("GameTotalTime"),
+            "playedAt": view.get("playedAt"),
+            "zones": view.get("zones") or [], "plane": view.get("plane"),
+            "squads": [{"squad": q.get("squad"), "teamName": q.get("teamName"), "place": q.get("place"),
+                        "kills": q.get("kills")} for q in view.get("squads") or []],
+            "deaths": deaths, "bin": decoded}
+
+
 def fill_drops_from_games(map_id, games=6):
     """Each team's usual early position on this map over its last few
     games, the median of where it was first seen in each. Pins placed by
@@ -11443,6 +11491,24 @@ async def handle_client(websocket, path=None):
                 for r in rows:
                     r.pop("path", None)
                 await websocket.send(json.dumps({"type": "map_view_list_result", "replays": rows}))
+            elif payload.get("type") in ("bin_list", "bin_load"):
+                # THE BIN TAB: a replay's .bin decoded into every player's
+                # movement, for the dashboard to play back. Sent to the
+                # asking page only -- it is a few hundred KB and nothing on
+                # air uses it.
+                loop = asyncio.get_running_loop()
+                if payload["type"] == "bin_list":
+                    rows = await loop.run_in_executor(None, map_analysis.list_replays, replays_folder(), 60)
+                    for r in rows:
+                        r.pop("path", None)
+                    await websocket.send(json.dumps({"type": "bin_list_result", "replays": rows}))
+                    continue
+                try:
+                    reply = await loop.run_in_executor(None, load_bin_match, str(payload.get("matchId") or ""))
+                except Exception as e:
+                    reply = {"ok": False, "error": str(e)}
+                reply["type"] = "bin_result"
+                await websocket.send(json.dumps(reply))
             elif payload.get("type") == "map_view_match":
                 # Read in a worker: the log it scans for the zones is
                 # ~100 MB, and this loop is feeding a live broadcast.

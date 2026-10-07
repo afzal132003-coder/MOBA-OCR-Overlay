@@ -2055,6 +2055,7 @@
     <button class="ff-tab-btn" data-fftab="graphic">Graphic</button>
     <button class="ff-tab-btn" data-fftab="matchfile">Match Result File</button>
     <button class="ff-tab-btn" data-fftab="analysis">Analysis</button>
+    <button class="ff-tab-btn" data-fftab="bin">BIN</button>
   </div>
 
   <!-- ===================== PRE-MATCH ===================== -->
@@ -3722,6 +3723,49 @@
            font-family:ui-monospace,SFMono-Regular,Menlo,monospace;"></div>
     </div>
 
+  </div>
+
+  <!-- ===================== BIN: the replay .bin ===================== -->
+  <div class="ff-tab-panel" id="fftab-bin">
+    <div class="card">
+      <h2>BIN &mdash; Map Analysis from the Replay File</h2>
+      <p class="hint">Everything here is read from the game's own replay <code>.bin</code>: every player's position
+        through the match (to the millimetre), timed to the match clock. A preview for us &mdash; nothing here goes on
+        air. <b>MapStream</b> plays the match back; <b>Landing</b> shows where each team dropped; <b>Rotations</b> joins
+        each team's position at every circle; <b>Paths</b> draws every route; the table gives each team's movement.</p>
+      <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;">
+        <select id="ff_binPick" style="width:auto;min-width:360px;"><option value="">Latest finished game</option></select>
+        <button id="ff_binLoad">Load</button>
+        <button class="secondary" id="ff_binList">Refresh List</button>
+        <span class="hint" id="ff_binStatus"></span>
+      </div>
+      <div class="row" style="gap:16px;align-items:flex-start;margin-top:12px;flex-wrap:wrap;">
+        <canvas id="ff_binCanvas" width="1000" height="1000"
+                style="width:720px;height:720px;background:#0b1210;border-radius:8px;border:1px solid #1b2430;"></canvas>
+        <div style="flex:1;min-width:300px;">
+          <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;">
+            <select id="ff_binMode" style="width:auto;">
+              <option value="stream">MapStream (play the match)</option>
+              <option value="landing">Landing spots</option>
+              <option value="rotations">Rotations by circle</option>
+              <option value="paths">Full paths</option>
+            </select>
+            <button id="ff_binPlay" style="min-width:80px;">Play</button>
+            <select id="ff_binSpeed" style="width:auto;">
+              <option value="5">5x</option><option value="10" selected>10x</option><option value="20">20x</option>
+              <option value="40">40x</option><option value="1">1x</option></select>
+            <select id="ff_binTrail" style="width:auto;" title="How much of each route trails behind the players">
+              <option value="30">30 s trail</option><option value="90" selected>90 s trail</option>
+              <option value="0">no trail</option><option value="9999">whole route</option></select>
+          </div>
+          <input type="range" id="ff_binTime" min="0" max="1000" step="1" value="0" style="width:100%;margin-top:10px;">
+          <div class="hint" id="ff_binClock" style="margin:2px 0 10px;font-variant-numeric:tabular-nums;"></div>
+          <div id="ff_binTeams" style="display:flex;flex-direction:column;gap:3px;"></div>
+        </div>
+      </div>
+      <h3 style="margin-top:16px;">Movement by team</h3>
+      <div id="ff_binStats" style="overflow-x:auto;font-size:12.5px;"></div>
+    </div>
   </div>
 </div>
 
@@ -7061,6 +7105,20 @@ function ffOpen(url){
         : "⚠ Failed: " + (msg.error || "unknown error");
     } else if(msg.type === "freefire_results_push_result"){
       ffShowResultsPushResult(msg);
+    } else if(msg.type === "bin_list_result"){
+      const sel = document.getElementById("ff_binPick");
+      if(sel){
+        const keep = sel.value;
+        sel.innerHTML = `<option value="">Latest finished game</option>` + (msg.replays || []).map(r => {
+          const when = String(r.playedAt || "").replace(/^(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2}).*$/, "$3/$2 $4:$5");
+          return `<option value="${r.matchId}">${when} · ${r.mapName} · ${r.room || ""}</option>`;
+        }).join("");
+        if(Array.from(sel.options).some(o => o.value === keep)) sel.value = keep;
+        const st = document.getElementById("ff_binStatus");
+        if(st && /Listing/.test(st.textContent)) st.textContent = (msg.replays || []).length + " replays.";
+      }
+    } else if(msg.type === "bin_result"){
+      ffBinShow(msg);
     } else if(msg.type === "map_view_result"){
       ffReplyArrived("mapView");
       if(ffMvConfirmShow !== null){
@@ -13923,6 +13981,244 @@ function ffSyncOneClick(ff){
   if(t && ot && document.activeElement !== ot && ot.value !== t.value) ot.value = t.value;
   ffOcRenderMvp();
 }
+
+
+/* ---------- BIN: the replay .bin, played back ----------
+   The engine decodes the .bin (bin_decode.py) and sends every player's
+   track sampled once a second; this page interpolates between samples
+   and draws. Preview only. */
+const FF_BIN_COLOURS = ["#4d9fff", "#ffa53d", "#4ade80", "#ff6b6b", "#b57bff", "#2dd4bf",
+                        "#f472b6", "#facc15", "#60a5fa", "#fb923c", "#a3e635", "#e879f9"];
+const ffBin = { d: null, img: null, t: 0, playing: false, last: 0, hidden: new Set() };
+const ffBinColour = sq => FF_BIN_COLOURS[((Number(sq) || 1) - 1) % FF_BIN_COLOURS.length];
+function ffBinTeam(sq){
+  const q = ((ffBin.d && ffBin.d.squads) || []).find(s => Number(s.squad) === Number(sq));
+  return (q && q.teamName) || ("SQUAD " + sq);
+}
+function ffBinShort(sq){
+  const name = ffBinTeam(sq);
+  const t = (((ffState || {}).roster || {}).teams || []).find(r => (r.name || "").toUpperCase() === name.toUpperCase());
+  return (t && t.shortName) || name;
+}
+function ffBinUV(x, z){
+  const c = ffBin.d.cal, W = 1000;
+  return [(c.ax * x + c.cx) / c.size * W, (c.az * z + c.cz) / c.size * W];
+}
+function ffBinMmss(t){ t = Math.max(0, Math.round(t)); return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0"); }
+// A player's position at time t (interpolated), or null outside their track.
+function ffBinAt(p, t){
+  const ts = p.t;
+  if(!ts.length || t < ts[0] || t > ts[ts.length - 1] + 1) return null;
+  let lo = 0, hi = ts.length - 1;
+  while(lo < hi){ const mid = (lo + hi + 1) >> 1; if(ts[mid] <= t) lo = mid; else hi = mid - 1; }
+  const j = Math.min(lo + 1, ts.length - 1);
+  const f = ts[j] > ts[lo] ? Math.min(1, (t - ts[lo]) / (ts[j] - ts[lo])) : 0;
+  const jump = Math.hypot(p.x[j] - p.x[lo], p.z[j] - p.z[lo]) > 60;
+  return jump ? [p.x[lo], p.z[lo], p.y[lo]] : [p.x[lo] + (p.x[j] - p.x[lo]) * f, p.z[lo] + (p.z[j] - p.z[lo]) * f, p.y[lo]];
+}
+function ffBinPath(ctx, p, from, to){
+  ctx.beginPath();
+  let pen = false, px = null, pz = null;
+  for(let k = 0; k < p.t.length; k++){
+    if(p.t[k] < from || p.t[k] > to) continue;
+    if(p.y[k] > 150){ pen = false; continue; }              // in the plane / the air
+    const [u, v] = ffBinUV(p.x[k], p.z[k]);
+    if(pen && px !== null && Math.hypot(p.x[k] - px, p.z[k] - pz) < 60) ctx.lineTo(u, v); else ctx.moveTo(u, v);
+    pen = true; px = p.x[k]; pz = p.z[k];
+  }
+  ctx.stroke();
+}
+function ffBinDraw(){
+  const cv = document.getElementById("ff_binCanvas");
+  if(!cv) return;
+  const ctx = cv.getContext("2d"), W = cv.width;
+  ctx.clearRect(0, 0, W, W);
+  const d = ffBin.d;
+  if(!d){ ctx.fillStyle = "#7d8b9c"; ctx.font = "22px sans-serif"; ctx.fillText("Load a game", 40, 60); return; }
+  if(ffBin.img && ffBin.img.complete) ctx.drawImage(ffBin.img, 0, 0, W, W);
+  ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.fillRect(0, 0, W, W);
+  const mode = document.getElementById("ff_binMode").value;
+  const t = ffBin.t;
+  const players = (d.bin.players || []).filter(p => !ffBin.hidden.has(p.squad));
+  // circles: those announced by now (all of them outside MapStream)
+  (d.zones || []).forEach((z, i) => {
+    if(mode === "stream" && z.announced != null && z.announced > t) return;
+    const [cx, cy] = [z.at[0] * W, z.at[1] * W], r = z.r * W;
+    ctx.strokeStyle = "rgba(255,255,255,.85)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+    if(mode !== "stream"){ ctx.fillStyle = "#fff"; ctx.font = "bold 16px sans-serif"; ctx.fillText(String(i + 1), cx - 5, cy - r - 6); }
+  });
+  if(d.plane && d.plane.from && d.plane.to && (mode !== "stream" || t < 260)){
+    ctx.strokeStyle = "rgba(255,255,255,.5)"; ctx.setLineDash([10, 8]); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(d.plane.from[0] * W, d.plane.from[1] * W); ctx.lineTo(d.plane.to[0] * W, d.plane.to[1] * W); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  const bySquad = {};
+  players.forEach(p => { (bySquad[p.squad] = bySquad[p.squad] || []).push(p); });
+  const label = (sq, u, v) => {
+    const s = ffBinShort(sq); ctx.font = "bold 15px sans-serif";
+    const w = ctx.measureText(s).width;
+    ctx.fillStyle = "rgba(0,0,0,.75)"; ctx.fillRect(u + 8, v - 10, w + 8, 20);
+    ctx.fillStyle = ffBinColour(sq); ctx.fillText(s, u + 12, v + 5);
+  };
+  if(mode === "paths"){
+    ctx.lineWidth = 2;
+    players.forEach(p => { ctx.strokeStyle = ffBinColour(p.squad); ffBinPath(ctx, p, -1, 1e9); });
+  } else if(mode === "landing"){
+    Object.entries(bySquad).forEach(([sq, ps]) => {
+      const pts = ps.filter(p => p.land).map(p => ffBinUV(p.land[1], p.land[2]));
+      pts.forEach(([u, v]) => { ctx.fillStyle = ffBinColour(sq); ctx.beginPath(); ctx.arc(u, v, 5, 0, Math.PI * 2); ctx.fill(); });
+      if(pts.length){ const u = pts.reduce((a, b) => a + b[0], 0) / pts.length, v = pts.reduce((a, b) => a + b[1], 0) / pts.length; label(sq, u, v); }
+    });
+  } else if(mode === "rotations"){
+    Object.entries(bySquad).forEach(([sq, ps]) => {
+      const marks = [];
+      const land = ps.filter(p => p.land);
+      if(land.length) marks.push([land.reduce((a, p) => a + p.land[1], 0) / land.length, land.reduce((a, p) => a + p.land[2], 0) / land.length, "D"]);
+      (d.zones || []).forEach((z, i) => {
+        if(z.announced == null) return;
+        const at = ps.map(p => ffBinAt(p, z.announced)).filter(Boolean).filter(a => a[2] < 150);
+        if(at.length) marks.push([at.reduce((a, b) => a + b[0], 0) / at.length, at.reduce((a, b) => a + b[1], 0) / at.length, String(i + 1)]);
+      });
+      if(!marks.length) return;
+      ctx.strokeStyle = ffBinColour(sq); ctx.lineWidth = 3;
+      ctx.beginPath(); marks.forEach(([x, z], k) => { const [u, v] = ffBinUV(x, z); k ? ctx.lineTo(u, v) : ctx.moveTo(u, v); }); ctx.stroke();
+      marks.forEach(([x, z, tag]) => {
+        const [u, v] = ffBinUV(x, z);
+        ctx.fillStyle = ffBinColour(sq); ctx.beginPath(); ctx.arc(u, v, 9, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#111"; ctx.font = "bold 11px sans-serif"; ctx.fillText(tag, u - 3.5, v + 4);
+      });
+      const [lu, lv] = ffBinUV(marks[marks.length - 1][0], marks[marks.length - 1][1]); label(sq, lu, lv);
+    });
+  } else {
+    const trail = Number(document.getElementById("ff_binTrail").value);
+    ctx.lineWidth = 2;
+    if(trail > 0) players.forEach(p => { ctx.strokeStyle = ffBinColour(p.squad) + "aa"; ffBinPath(ctx, p, t - trail, t); });
+    Object.entries(bySquad).forEach(([sq, ps]) => {
+      const pos = [];
+      ps.forEach(p => {
+        const a = ffBinAt(p, t);
+        const dead = !a && p.t.length && t > p.t[p.t.length - 1];
+        if(a){
+          const [u, v] = ffBinUV(a[0], a[1]);
+          const air = a[2] > 150;
+          ctx.fillStyle = ffBinColour(sq); ctx.strokeStyle = air ? "#fff" : "#000"; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(u, v, air ? 4 : 6.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+          if(!air) pos.push([u, v]);
+        } else if(dead){
+          const k = p.t.length - 1, [u, v] = ffBinUV(p.x[k], p.z[k]);
+          ctx.strokeStyle = "rgba(255,80,80,.9)"; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.moveTo(u - 4, v - 4); ctx.lineTo(u + 4, v + 4); ctx.moveTo(u - 4, v + 4); ctx.lineTo(u + 4, v - 4); ctx.stroke();
+        }
+      });
+      if(pos.length) label(sq, pos.reduce((a, b) => a + b[0], 0) / pos.length, pos.reduce((a, b) => a + b[1], 0) / pos.length);
+    });
+  }
+  document.getElementById("ff_binClock").textContent = mode === "stream"
+    ? ffBinMmss(t) + " / " + ffBinMmss(d.duration || 0) + "   ·   " + (d.mapName || "") + "   ·   " + ffBinAliveText(t)
+    : (d.mapName || "") + " · " + (d.playedAt || "");
+}
+function ffBinAliveText(t){
+  const sq = new Set();
+  (ffBin.d.bin.players || []).forEach(p => { if(ffBinAt(p, t)) sq.add(p.squad); });
+  return sq.size + " squads moving";
+}
+function ffBinTick(now){
+  if(!ffBin.playing) return;
+  const dt = ffBin.last ? (now - ffBin.last) / 1000 : 0;
+  ffBin.last = now;
+  ffBin.t += dt * Number(document.getElementById("ff_binSpeed").value);
+  const end = (ffBin.d && ffBin.d.duration) || 0;
+  if(ffBin.t >= end){ ffBin.t = end; ffBin.playing = false; document.getElementById("ff_binPlay").textContent = "Play"; }
+  document.getElementById("ff_binTime").value = ffBin.t;
+  ffBinDraw();
+  if(ffBin.playing) requestAnimationFrame(ffBinTick);
+}
+function ffBinRenderTeams(){
+  const d = ffBin.d, box = document.getElementById("ff_binTeams");
+  if(!d){ box.innerHTML = ""; return; }
+  const squads = Array.from(new Set((d.bin.players || []).map(p => p.squad))).sort((a, b) => {
+    const pa = (d.squads.find(s => s.squad === a) || {}).place || 99, pb = (d.squads.find(s => s.squad === b) || {}).place || 99;
+    return pa - pb;
+  });
+  box.innerHTML = squads.map(sq => {
+    const q = d.squads.find(s => s.squad === sq) || {};
+    return `<label class="hint" style="margin:0;display:flex;gap:8px;align-items:center;">` +
+      `<input type="checkbox" class="ff-bin-sq" data-sq="${sq}"${ffBin.hidden.has(sq) ? "" : " checked"}>` +
+      `<span style="width:12px;height:12px;border-radius:50%;background:${ffBinColour(sq)};display:inline-block;"></span>` +
+      `${q.place ? "#" + q.place + " " : ""}${ffEscapeHtml(ffBinTeam(sq))}${q.kills != null ? " · " + q.kills + " elims" : ""}</label>`;
+  }).join("");
+  box.querySelectorAll(".ff-bin-sq").forEach(el => el.addEventListener("change", () => {
+    const sq = Number(el.dataset.sq);
+    if(el.checked) ffBin.hidden.delete(sq); else ffBin.hidden.add(sq);
+    ffBinDraw();
+  }));
+}
+function ffBinRenderStats(){
+  const d = ffBin.d, box = document.getElementById("ff_binStats");
+  if(!d){ box.innerHTML = ""; return; }
+  const by = {};
+  (d.bin.players || []).forEach(p => { (by[p.squad] = by[p.squad] || []).push(p); });
+  const rows = Object.entries(by).map(([sq, ps]) => {
+    const q = d.squads.find(s => s.squad === Number(sq)) || {};
+    const lands = ps.filter(p => p.land).map(p => p.land[0]);
+    const dist = ps.reduce((a, p) => a + (p.distance || 0), 0) / Math.max(1, ps.length);
+    const veh = ps.reduce((a, p) => a + (p.vehicleSeconds || 0), 0) / Math.max(1, ps.length);
+    const top = Math.max(...ps.map(p => p.topSpeed || 0));
+    const walker = ps.slice().sort((a, b) => (b.distance || 0) - (a.distance || 0))[0];
+    return { sq: Number(sq), place: q.place || 99, name: ffBinTeam(sq), land: lands.length ? Math.min(...lands) : null,
+             dist, veh, top, walker };
+  }).sort((a, b) => a.place - b.place);
+  box.innerHTML = `<table style="width:100%;border-collapse:collapse;"><tr style="color:#9aa7b5;text-align:left;">` +
+    `<th>#</th><th>Team</th><th>Landed</th><th>Avg distance</th><th>Avg time in vehicle</th><th>Top speed</th><th>Most travelled</th></tr>` +
+    rows.map(r => `<tr style="border-top:1px solid #1b2430;"><td>${r.place < 99 ? r.place : ""}</td>` +
+      `<td><span style="color:${ffBinColour(r.sq)};">&#9679;</span> ${ffEscapeHtml(r.name)}</td>` +
+      `<td>${r.land != null ? ffBinMmss(r.land) : "—"}</td><td>${(r.dist / 1000).toFixed(2)} km</td>` +
+      `<td>${Math.round(r.veh)} s</td><td>${Math.round(r.top * 3.6)} km/h</td>` +
+      `<td>${r.walker ? ffEscapeHtml(r.walker.name) + " · " + (r.walker.distance / 1000).toFixed(2) + " km" : ""}</td></tr>`).join("") +
+    `</table><p class="hint" style="margin-top:6px;">Decoded ${d.bin.records} position records; clock fitted on ` +
+    `${d.bin.fit.anchors} deaths (±${d.bin.fit.sd}s).</p>`;
+}
+function ffBinShow(msg){
+  const st = document.getElementById("ff_binStatus");
+  if(!msg.ok){ st.textContent = "⚠ " + (msg.error || "could not load that game"); st.style.color = "#f87171"; return; }
+  ffBin.d = msg; ffBin.t = 0; ffBin.playing = false; ffBin.hidden = new Set();
+  document.getElementById("ff_binPlay").textContent = "Play";
+  const slider = document.getElementById("ff_binTime");
+  slider.max = Math.ceil(msg.duration || 1000); slider.value = 0;
+  st.style.color = "#4ade80";
+  st.textContent = "Loaded " + (msg.mapName || "") + " · " + (msg.playedAt || "") + " · " + (msg.bin.players || []).length + " players";
+  ffBin.img = new Image();
+  ffBin.img.onload = ffBinDraw;
+  ffBin.img.src = "../overlay/assets/" + encodeURI(msg.image || "");
+  ffBinRenderTeams(); ffBinRenderStats(); ffBinDraw();
+}
+(function ffWireBin(){
+  if(!document.getElementById("ff_binLoad")) return;
+  const send = m => { if(ffWs && ffWs.readyState === WebSocket.OPEN){ ffWs.send(JSON.stringify(m)); return true; } return false; };
+  document.getElementById("ff_binList").addEventListener("click", () => {
+    if(send({ type: "bin_list" })) document.getElementById("ff_binStatus").textContent = "Listing replays…";
+  });
+  document.getElementById("ff_binLoad").addEventListener("click", () => {
+    const st = document.getElementById("ff_binStatus");
+    if(!send({ type: "bin_load", matchId: document.getElementById("ff_binPick").value })){ st.textContent = "Not connected to the Free Fire engine."; return; }
+    st.style.color = ""; st.textContent = "Decoding the replay…";
+  });
+  document.getElementById("ff_binPlay").addEventListener("click", () => {
+    if(!ffBin.d) return;
+    if(ffBin.t >= (ffBin.d.duration || 0)) ffBin.t = 0;
+    ffBin.playing = !ffBin.playing;
+    document.getElementById("ff_binPlay").textContent = ffBin.playing ? "Pause" : "Play";
+    if(ffBin.playing){ document.getElementById("ff_binMode").value = "stream"; ffBin.last = 0; requestAnimationFrame(ffBinTick); }
+  });
+  document.getElementById("ff_binTime").addEventListener("input", e => { ffBin.t = Number(e.target.value); ffBinDraw(); });
+  ["ff_binMode", "ff_binTrail"].forEach(id => document.getElementById(id).addEventListener("change", ffBinDraw));
+  // the list on first view of the tab
+  document.querySelector('.ff-tab-btn[data-fftab="bin"]').addEventListener("click", () => {
+    if(document.getElementById("ff_binPick").options.length < 2) send({ type: "bin_list" });
+    ffBinDraw();
+  });
+})();
 
 document.getElementById("ff_qmeCopy").addEventListener("click", async () => {
   const statusEl = document.getElementById("ff_qmeStatus");

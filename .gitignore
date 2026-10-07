@@ -14,6 +14,8 @@ ocr/freefire/team_bank.json
 
 # Loadout crops captured during a match -- large, regenerated per event.
 ocr/freefire/captures/
+# Decoded replay .bin files (players' names and movement), rebuilt on demand.
+ocr/freefire/bin_cache/
 
 # Design sources (PSD) and the vMix template package. Kept on disk but out
 # of git: they're ~29MB of files nothing loads at runtime, and this repo
