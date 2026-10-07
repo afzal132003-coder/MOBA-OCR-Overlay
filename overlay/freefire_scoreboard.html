@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <script src="ff_embed.js"></script>
+<link rel="stylesheet" href="ff_theme.css">
 <title>Free Fire Max Scoreboard Overlay</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -53,6 +54,41 @@
   .stage.visible{ opacity:1; }
 
   .bg{ position:absolute; top:0; left:0; width:1920px; height:1080px; }
+
+  /* ---- SS3 / ARROW: the match scoreboard and the points table drawn from
+     the theme kit (ff_theme.css) for the packages that have no art of
+     their own for these. Two columns of six; rank, logo, team, numbers. */
+  #th-board{position:absolute;}
+  .ss3 #th-board{left:150px;top:338px;width:1620px;height:556px;}
+  .arrow #th-board{left:200px;top:236px;width:1520px;height:700px;}
+  .th-col{position:absolute;top:0;height:100%;}
+  .th-head, .th-row{position:absolute;left:0;width:100%;display:flex;align-items:center;}
+  .th-head{top:0;}
+  .ss3 .th-head{height:40px;}
+  .arrow .th-head{height:54px;clip-path:polygon(0 0,100% 0,calc(100% - 22px) 100%,0 100%);}
+  .th-head > div, .th-row > div{height:100%;display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;}
+  .ss3 .th-head > div{font-size:19px;}
+  .arrow .th-head > div{font-size:23px;}
+  .ss3 .th-row{height:80px;}
+  .arrow .th-row{height:104px;border-bottom:1px solid rgba(255,255,255,.07);}
+  .ss3 .th-row:nth-of-type(even){background:rgba(255,255,255,.05);}
+  .th-rk{width:66px;} .th-lg{width:66px;} .th-nm{flex:1;justify-content:flex-start !important;padding-left:6px;} .th-n{width:92px;}
+  .ss3 .th-row .th-rk{font-size:30px;}
+  .arrow .th-row .th-rk{font-size:36px;}
+  .ss3 .th-row .th-nm{font-size:26px;}
+  .arrow .th-row .th-nm{font-size:30px;}
+  .ss3 .th-row .th-n{font-size:32px;}
+  .arrow .th-row .th-n{font-size:38px;}
+  .th-row img{width:48px;height:48px;object-fit:contain;}
+  .arrow .th-row img{width:60px;height:60px;}
+  .ss3 .th-row .th-n.tot{font-size:36px;color:#fff;}
+  .arrow .th-row .th-n.tot{font-size:44px;color:var(--ar-gold);}
+  /* the top three */
+  .ss3 .th-row.top .th-rk{background:var(--ss3-bar);color:#111;}
+  .ss3 .th-row:not(.top) .th-rk{background:var(--ss3-label);color:var(--ss3-yellow);}
+  .arrow .th-row.top .th-rk{color:var(--ar-gold);}
+  .th-nodata{position:absolute;left:0;top:520px;width:1920px;text-align:center;font-family:'SMXB',Arial,sans-serif;font-size:30px;color:#fff;
+             text-shadow:0 2px 8px rgba(0,0,0,.8);}
 
   .cell{
     position:absolute;
@@ -135,11 +171,20 @@
     overflow:hidden; text-overflow:ellipsis; max-width:100%;
   }
 </style>
+<script src="ff_theme.js"></script>
 </head>
 <body>
 
 <div class="stage" id="sb-stage">
   <img class="bg" id="sb-bg" src="assets/freefire/postmatch-gamestats.png" alt="">
+</div>
+
+<div class="ff-stage" id="th-stage">
+  <div class="ff-frame fade"></div>
+  <div class="ff-title fade" id="th-title" style="animation-delay:.1s"></div>
+  <div class="ff-round ctr fade" id="th-round" style="animation-delay:.25s"></div>
+  <div class="ff-black fade" id="th-board" style="animation-delay:.35s"></div>
+  <div class="th-nodata" id="th-nodata"></div>
 </div>
 
 <div class="stage" id="pt-stage">
@@ -506,8 +551,127 @@ function applyFreefire(ff){
   // one, wins the source while it is up.
   const boardUp = display.scoreboardVisible !== false && !pointsUp;
 
+  // SS3 and ARROW have no art of their own for these: drawn from the
+  // theme kit instead, from the same games the other post-match graphics use.
+  if(themedPackage(ff)){
+    document.getElementById("pt-stage").classList.remove("visible");
+    document.getElementById("sb-stage").classList.remove("visible");
+    const preview = new URLSearchParams(location.search).get("preview") === "1";
+    applyThemed(ff, pointsUp ? "points" : ((boardUp && display.scoreboardVisible) || preview ? "match" : ""));
+    return;
+  }
+  applyThemed(ff, "");
   document.getElementById("pt-stage").classList.toggle("visible", pointsUp);
   document.getElementById("sb-stage").classList.toggle("visible", boardUp);
+}
+
+/* ---- SS3 / ARROW tables -------------------------------------------- */
+function themedPackage(ff){
+  const f = String((ff.event && ff.event.assetFolder) || "").toLowerCase();
+  return f === "ss3" ? "ss3" : (f === "prg arrow" ? "arrow" : "");
+}
+
+// Overall: the same games as the Team Graphs (picked result files or the
+// committed games), totalled and ordered by the rulebook -- points, then
+// Booyahs, then kills, then the last game's place. The committed
+// standings stand in when there is no team-graph table.
+function overallRows(ff){
+  const tg = ff.teamGraphs || {};
+  if((tg.teams || []).length){
+    const rows = tg.teams.map(t => {
+      const g = t.games || [];
+      const played = g.filter(x => x && x.rank != null);
+      return { name: t.name, short: t.short,
+               total: played.reduce((a, x) => a + (x.total || 0), 0),
+               kills: played.reduce((a, x) => a + (x.kills || 0), 0),
+               place: played.reduce((a, x) => a + (x.place || 0), 0),
+               booyah: played.filter(x => x.rank === 1).length,
+               last: (played[played.length - 1] || {}).rank || 99 };
+    });
+    rows.sort((a, b) => (b.total - a.total) || (b.booyah - a.booyah) || (b.kills - a.kills) || (a.last - b.last));
+    return { rows, games: (tg.games || []).length };
+  }
+  const st = (ff.standings || []).map(r => ({ name: r.teamName, short: r.shortName, total: r.totalPoints || 0,
+    kills: r.totalKills || 0, place: r.placementPoints || 0, booyah: r.booyahs || 0 }));
+  return { rows: st, games: (ff.matches || []).length };
+}
+
+// One game: the post-match game (the newest result file, or the one
+// picked), else the last committed match.
+function matchRows(ff){
+  const g = (ff.postGame || {}).game || {};
+  if((g.teams || []).length){
+    return { rows: g.teams.map(t => ({ name: t.teamName, short: t.shortName, rank: t.rank, kills: t.kills,
+                                       place: t.placement, total: t.points })),
+             label: [(ff.postGame || {}).label, g.mapName].filter(Boolean).join(" · ") };
+  }
+  const latest = (ff.matches || [])[ (ff.matches || []).length - 1 ];
+  return { rows: latest ? (latest.teams || []).slice().sort((a, b) => (a.rank || 99) - (b.rank || 99))
+             .map(t => ({ name: t.teamName, short: t.shortName, rank: t.rank, kills: t.killScore,
+                          place: t.rankScore, total: t.totalScore })) : [],
+           label: latest ? "GAME " + (ff.matches || []).length : "" };
+}
+
+let thSig = "";
+function applyThemed(ff, mode){
+  const theme = ffApplyTheme(ff);
+  const stage = document.getElementById("th-stage");
+  if(!mode){ stage.classList.remove("on"); thSig = ""; return; }
+  const roster = ff.roster || {};
+  const ev = ff.event || {};
+  const data = mode === "points" ? overallRows(ff) : matchRows(ff);
+  const sig = JSON.stringify([theme, mode, data, ev.afterGameLabel, ev.roundName,
+                              ((roster.teams) || []).map(t => [t.name, t.shortName, !!t.logo])]);
+  if(sig === thSig){ stage.classList.add("on"); return; }
+  const replay = !stage.classList.contains("on");
+  thSig = sig;
+  const ss3 = theme === "ss3";
+  const title = document.getElementById("th-title");
+  title.textContent = mode === "points" ? "OVERALL STANDINGS" : "MATCH STANDINGS";
+  ffFitTitle(title);
+  const round = mode === "points"
+    ? ((ev.afterGameLabel || "").trim() || (data.games ? "AFTER GAME " + data.games : ""))
+    : (data.label || "");
+  ffSetText(document.getElementById("th-round"), round || ev.roundName || "", ss3 ? 320 : 520, 12);
+  document.getElementById("th-nodata").textContent = data.rows.length ? "" : "No games to show yet.";
+
+  const cols = mode === "points"
+    ? [["WWCD", r => ffTwo(r.booyah)], ["ELIMS", r => ffTwo(r.kills)], ["PLACE", r => ffTwo(r.place)], ["TOTAL", r => String(r.total)]]
+    : [["ELIMS", r => ffTwo(r.kills)], ["PLACE", r => ffTwo(r.place)], ["TOTAL", r => String(r.total)]];
+  const board = document.getElementById("th-board");
+  board.innerHTML = "";
+  const W = ss3 ? 1620 : 1520, gap = ss3 ? 30 : 36, colW = (W - gap) / 2;
+  const headH = ss3 ? 40 : 54, rowH = ss3 ? 80 : 104, top0 = ss3 ? 46 : 64;
+  [0, 1].forEach(c => {
+    const col = document.createElement("div");
+    col.className = "th-col";
+    Object.assign(col.style, { left: (c * (colW + gap)) + "px", width: colW + "px" });
+    col.innerHTML = `<div class="th-head ff-label"><div class="th-rk">#</div><div class="th-lg"></div><div class="th-nm">TEAM</div>` +
+      cols.map(x => `<div class="th-n">${x[0]}</div>`).join("") + `</div>`;
+    board.appendChild(col);
+    data.rows.slice(c * 6, c * 6 + 6).forEach((r, i) => {
+      const n = c * 6 + i;
+      const rank = mode === "points" ? n + 1 : (r.rank || n + 1);
+      const team = ffTeam(r.name, roster);
+      const row = document.createElement("div");
+      row.className = "th-row fromL" + (rank <= 3 ? " top" : "");
+      Object.assign(row.style, { top: (top0 + i * rowH) + "px", animationDelay: (0.45 + n * 0.05).toFixed(2) + "s" });
+      row.innerHTML = `<div class="th-rk ff-num">${rank}</div>` +
+        `<div class="th-lg">${team && team.logo ? `<img src="${team.logo}">` : ""}</div>` +
+        `<div class="th-nm ff-text"></div>` +
+        cols.map((x, k) => `<div class="th-n ff-num${k === cols.length - 1 ? " tot" : ""}"></div>`).join("");
+      col.appendChild(row);
+      ffSetText(row.querySelector(".th-nm"), (team && (team.shortName || team.name)) || r.short || r.name, colW - 66 - 66 - cols.length * 92 - 14, 12);
+      row.querySelectorAll(".th-n").forEach((cell, k) => {
+        const v = cols[k][1](r);
+        const num = Number(v);
+        if(isFinite(num)) ffCountUp(cell, num, k === cols.length - 1 ? (x => String(x)) : ffTwo, 0.6 + n * 0.05);
+        else cell.textContent = v;
+      });
+    });
+  });
+  if(replay){ stage.classList.remove("on"); void stage.offsetWidth; }
+  stage.classList.add("on");
 }
 
 let _lastRoster = null;

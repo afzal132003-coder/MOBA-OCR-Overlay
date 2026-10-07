@@ -84,8 +84,13 @@ function ffConnect(page, onState, onMsg){
 
 // The title, shrunk until its text fits its box (SS3: between the ribbon
 // and the event logo). Measured on the text itself, not the box.
-function ffFitTitle(el){
+function ffFitTitle(el, again){
   if(!el) return;
+  // Measured again once the fonts have loaded: before that the fallback
+  // face is narrower, and the title fitted to it ran off its box.
+  if(!again && document.fonts && document.fonts.status !== "loaded"){
+    document.fonts.ready.then(() => ffFitTitle(el, true));
+  }
   el.style.fontSize = "";
   const r = document.createRange();
   r.selectNodeContents(el);
