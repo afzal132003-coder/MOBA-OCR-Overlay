@@ -1422,6 +1422,19 @@ function applyElimCardLayout(C, state){
    announcement is identified by the squad and the moment it fired. */
 let lastAnnounceKey = "";
 
+/* ONE CARD PER SQUAD PER MATCH, whichever side raises it. The stamp above
+   is the squad AND its hold time, and the engine shortens a card's hold
+   the moment another squad queues behind it -- so the same squad came
+   back as a "new" announcement and its card played two or three times.
+   The table's own trigger and the engine's announcement could each raise
+   it too. Every squad that has had its card is kept here, and the list
+   empties when a new match starts (no squad out on the table). */
+const elimCarded = new Set();
+function syncElimCarded(state){
+  const rows = ((state.liveOps || {}).sidetableRows) || [];
+  if(rows.length && !rows.some(r => r.eliminated)) elimCarded.clear();
+}
+
 /* Squads whose card arrived while another was still on screen, in the
    order they went out. Near the end of a match two or three go within
    seconds of each other, and the engine hands them over one at a time --
@@ -1497,6 +1510,8 @@ function showAnnouncedElimCard(state, L){
   const stamp = te.teamName + "@" + te.shownUntil;
   if(stamp === lastAnnounceKey) return;
   lastAnnounceKey = stamp;
+  syncElimCarded(state);
+  if(elimCarded.has(rowKeyOf({ teamName: te.teamName }))) return;   // already had its card
 
   // The announcement carries the position, but fall back to the table's
   // own row for it -- a card with a blank corner is worse than one a beat
@@ -1539,6 +1554,8 @@ function showElimCard(state, rowEl, L, forced){
       .find(r => rowKeyOf(r) === key);
   }
   if(!row) return;
+  syncElimCarded(state);
+  if(elimCarded.has(rowKeyOf(row))) return;                 // already had its card
   // Raised by the table, so the announcement must not raise it again for
   // the same squad a moment later.
   const te = state.teamEliminated;
@@ -1560,6 +1577,7 @@ function showElimCard(state, rowEl, L, forced){
     return;
   }
   currentElimRow = row;
+  elimCarded.add(rowKeyOf(row));
 
   applyElimCardLayout(C, state);
 
