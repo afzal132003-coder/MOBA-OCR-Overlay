@@ -15,6 +15,7 @@
  *   BOOYAH-ARROW   A2:A5  team        C2:C5  player
  *                  E2:E5  elims       F2:F5  knocks
  *                  G2:G5  head rate   H2:H5  finish contribution
+ *                  I2:I5  survival time (m:ss)
  *
  *   ARROW MVP      the match top 5, five rows:
  *                  N2:N6  team        P2:P6  player
@@ -27,6 +28,11 @@
  *                  F      elims       G      knocks
  *                  H      headshots   I      head contribution
  *                  J      finish contribution
+ *                  K      survival time, average per game (m:ss)
+ *
+ * Survival times go in as TEXT. "17:06" typed into a sheet becomes six
+ * minutes past five in the afternoon; set as text it stays seventeen
+ * minutes six seconds.
  *
  * EVERY BLOCK IS CLEARED BEFORE IT IS WRITTEN. A push of four Booyah
  * players over a previous five, or of eight totals over a previous
@@ -42,7 +48,7 @@ var MVP_TAB = "ARROW MVP";
 var BOOYAH_FIRST_ROW = 2;
 var BOOYAH_ROWS = 4;
 var BOOYAH_COLUMNS = {team: "A", ign: "C", elims: "E", knocks: "F",
-                      headRate: "G", finContri: "H"};
+                      headRate: "G", finContri: "H", survival: "I"};
 
 // ARROW MVP, the match block: five players, rows 2-6.
 var MATCH_FIRST_ROW = 2;
@@ -53,7 +59,8 @@ var MATCH_COLUMNS = {team: "N", ign: "P", elims: "R", knocks: "S",
 // ARROW MVP, the totals block: row 2 downwards, however many there are.
 var TOTAL_FIRST_ROW = 2;
 var TOTAL_COLUMNS = {team: "B", ign: "D", elims: "F", knocks: "G",
-                     headshots: "H", headContri: "I", finContri: "J"};
+                     headshots: "H", headContri: "I", finContri: "J",
+                     survival: "K"};
 // How far down a clear reaches. Comfortably past a full lobby of 12
 // squads at four players, so a shorter push can never leave a longer
 // one's tail behind.
@@ -97,11 +104,15 @@ function cell(value) {
   return (value === null || value === undefined) ? "" : value;
 }
 
-function writeColumn(sheet, column, firstRow, values) {
+// Fields written as plain text rather than left for the sheet to guess.
+var TEXT_FIELDS = {survival: true};
+
+function writeColumn(sheet, column, firstRow, values, asText) {
   if (!values.length) return;
   var out = values.map(function (v) { return [cell(v)]; });
-  sheet.getRange(column + firstRow + ":" + column + (firstRow + out.length - 1))
-       .setValues(out);
+  var range = sheet.getRange(column + firstRow + ":" + column + (firstRow + out.length - 1));
+  if (asText) range.setNumberFormat("@");
+  range.setValues(out);
 }
 
 function clearColumns(sheet, columns, firstRow, rowCount) {
@@ -119,7 +130,7 @@ function pushBlock(sheetName, columns, firstRow, rowCount, rows, fields) {
   fields.forEach(function (f) {
     writeColumn(sheet, columns[f], firstRow, use.map(function (r) {
       return r[f];
-    }));
+    }), TEXT_FIELDS[f] === true);
   });
   return {ok: true, tab: sheetName, written: use.length,
           cleared: rowCount};
@@ -128,7 +139,8 @@ function pushBlock(sheetName, columns, firstRow, rowCount, rows, fields) {
 function pushBooyah(rows) {
   return pushBlock(BOOYAH_TAB, BOOYAH_COLUMNS, BOOYAH_FIRST_ROW,
                    BOOYAH_ROWS, rows,
-                   ["team", "ign", "elims", "knocks", "headRate", "finContri"]);
+                   ["team", "ign", "elims", "knocks", "headRate", "finContri",
+                    "survival"]);
 }
 
 function pushMatchTop(rows) {
@@ -142,7 +154,7 @@ function pushTotals(rows) {
   return pushBlock(MVP_TAB, TOTAL_COLUMNS, TOTAL_FIRST_ROW,
                    TOTAL_CLEAR_ROWS, rows,
                    ["team", "ign", "elims", "knocks", "headshots",
-                    "headContri", "finContri"]);
+                    "headContri", "finContri", "survival"]);
 }
 
 function clearTotals() {

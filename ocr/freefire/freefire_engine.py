@@ -7938,6 +7938,13 @@ def find_freefire_latest_match_file(folder):
     return (best[1], best[2]) if best else (None, None)
 
 
+def result_file_key(match_id, timestamp):
+    """The id that finds exactly one result file. Rooms without a match id
+    all write MatchResult_0_..., so those are named by id AND time."""
+    match_id = str(match_id or "")
+    return match_id + "@" + timestamp if (match_id == "0" and timestamp) else match_id
+
+
 def find_freefire_match_file(folder, match_id):
     """The result file for one specific match, rather than the newest.
 
@@ -7947,11 +7954,21 @@ def find_freefire_match_file(folder, match_id):
     folder_path = Path(folder) if folder else None
     if not folder_path or not folder_path.is_dir():
         return (None, None)
+    # "<id>@<timestamp>" names one file exactly. A bare id takes the
+    # NEWEST file with it: rooms without a match id all write
+    # MatchResult_0_..., and "the first one the folder lists" was a game
+    # from three weeks earlier.
+    want, _, stamp = str(match_id).partition("@")
+    best = None
     for f in folder_path.iterdir():
         m = FREEFIRE_MATCH_FILENAME_REGEX.match(f.name)
-        if m and m.group("match_id") == str(match_id):
-            return (f, m)
-    return (None, None)
+        if not m or m.group("match_id") != want:
+            continue
+        if stamp and m.group("timestamp") != stamp:
+            continue
+        if best is None or m.group("timestamp") > best[1].group("timestamp"):
+            best = (f, m)
+    return best or (None, None)
 
 
 def debugger_log_folder():
@@ -7965,7 +7982,16 @@ def debugger_log_folder():
     return (Path(results) / "Debugger") if results else None
 
 
-def recover_match_extras(match_id, folder=None, max_logs=12):
+def _result_stamp_epoch(stamp):
+    """A result file's own time ("2026-10-06-21-50-51"), which is when the
+    match ENDED, as epoch seconds; None if it does not parse."""
+    try:
+        return _datetime.datetime.strptime(stamp, "%Y-%m-%d-%H-%M-%S").timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def recover_match_extras(match_id, folder=None, max_logs=12, when=None):
     """Headshots and knockdowns for a match that has already been played.
 
     THE RESULT FILE DOES NOT CARRY THEM. It holds TeamName, Rank,
@@ -7985,10 +8011,23 @@ def recover_match_extras(match_id, folder=None, max_logs=12):
     resolved to UIDs from the 'Player Join' lines of that same segment,
     because the ids are reused by the next match.
 
-    Returns {uid: {"kills": n, "headshots": n, "knocks": n}}, empty if the
-    match is in none of the logs. Validated against the result file of a
-    real match: the kills recovered here matched its KILL column for every
-    player.
+    Returns {uid: {"kills": n, "headshots": n, "knocks": n, "died": s,
+    "length": s}}, empty if the match is in none of the logs. Validated
+    against the result file of a real match: the kills recovered here
+    matched its KILL column for every player.
+
+    SURVIVAL. "died" is seconds from the match's start (its SendJoinMatch /
+    plane line) to the player's last "Dead" line with no "Revive Player"
+    after it -- a death is NOT final in this mode: players come back from
+    the air seconds to a minute later, so only the last one counts. None
+    for a player with no final death (the winners, or someone left knocked
+    when their squad went); the caller decides which, knowing the ranks.
+    "length" is start to matchend.
+
+    WHEN. Rooms without a match id all end "matchend matchid = 0" -- 13
+    result files on the event rig share that id -- so the result file's
+    own time (when the match ended) picks the segment that ended within
+    ten minutes of it.
     """
     # The caller may hand over the Debugger folder OR the result folder it
     # sits inside -- build_match_result_payload only knows the latter, and
@@ -8013,6 +8052,7 @@ def recover_match_extras(match_id, folder=None, max_logs=12):
     for log in logs:
         id_map, hs_flag = {}, {}
         kills, hs_kills, knocks = {}, {}, {}
+        dead_at, seg_start, first_join = {}, None, None
 
         def bump(d, key):
             d[key] = d.get(key, 0) + 1
@@ -8028,6 +8068,18 @@ def recover_match_extras(match_id, folder=None, max_logs=12):
                     id_map[join.group("pid")] = {
                         "uid": join.group("uid"),
                         "ign": join.group("ign").strip()}
+                    if first_join is None:
+                        st = DEBUGGER_TS_REGEX.match(line)
+                        first_join = _debugger_epoch(st.group("ts")) if st else None
+                    continue
+                if "SendJoinMatch" in line or "airline start" in line:
+                    st = DEBUGGER_TS_REGEX.match(line)
+                    if st:
+                        seg_start = _debugger_epoch(st.group("ts"))
+                    continue
+                rv = DEBUGGER_REVIVE_REGEX.search(line)
+                if rv:
+                    dead_at.pop(rv.group("pid"), None)
                     continue
                 trace = DEBUGGER_HEADSHOT_REGEX.search(line)
                 if trace:
@@ -8038,6 +8090,9 @@ def recover_match_extras(match_id, folder=None, max_logs=12):
                     continue
                 kill = DEBUGGER_KILL_REGEX.search(line)
                 if kill:
+                    st = DEBUGGER_TS_REGEX.match(line)
+                    if st:
+                        dead_at[kill.group("victim")] = _debugger_epoch(st.group("ts"))
                     bump(kills, kill.group("killer"))
                     if hs_flag.get((kill.group("killer"), kill.group("victim"))):
                         bump(hs_kills, kill.group("killer"))
@@ -8048,23 +8103,55 @@ def recover_match_extras(match_id, folder=None, max_logs=12):
                     continue
                 end = DEBUGGER_MATCH_END_REGEX.search(line)
                 if end:
-                    if end.group("match_id") == want:
+                    st = DEBUGGER_TS_REGEX.match(line)
+                    end_at = _debugger_epoch(st.group("ts")) if st else None
+                    near = (when is None or end_at is None or abs(end_at - when) <= 600)
+                    if end.group("match_id") == want and near:
+                        start = seg_start or first_join
                         out = {}
-                        for pid in set(kills) | set(knocks):
+                        # Everyone who joined, not only those who scored:
+                        # survival is for all of them.
+                        for pid in set(id_map) | set(kills) | set(knocks):
                             uid = (id_map.get(pid) or {}).get("uid")
                             if not uid:
                                 continue
+                            died = dead_at.get(pid)
                             out[str(uid)] = {
                                 "kills": kills.get(pid, 0),
                                 "headshots": hs_kills.get(pid, 0),
                                 "knocks": knocks.get(pid, 0),
+                                "died": (round(died - start) if (died is not None and start) else None),
+                                "length": (round(end_at - start) if (end_at and start) else None),
                             }
                         return out
                     # A different match in the same log: start again, ids
                     # and all, because the next match reuses them.
                     id_map, hs_flag = {}, {}
                     kills, hs_kills, knocks = {}, {}, {}
+                    dead_at, seg_start, first_join = {}, None, None
     return {}
+
+
+def attach_survival(teams, extras):
+    """Each player's survival in seconds, from recover_match_extras.
+
+    A final death is a final death. With none: the Booyah squad lasted the
+    whole match; anyone else was left knocked when their squad went, so
+    they went out with it -- at the squad's last final death."""
+    for team in teams or []:
+        players = team.get("players") or []
+        got = [extras.get(str(pl.get("uid") or "")) or {} for pl in players]
+        length = next((g.get("length") for g in got if g.get("length")), None)
+        wiped = max((g["died"] for g in got if g.get("died") is not None), default=None)
+        for pl, g in zip(players, got):
+            if pl.get("survival") is not None or not g:
+                continue
+            if g.get("died") is not None:
+                pl["survival"] = g["died"]
+            elif team.get("rank") == 1 and length:
+                pl["survival"] = length
+            elif wiped is not None:
+                pl["survival"] = wiped
 
 
 def score_unscored_blocks(teams):
@@ -8172,8 +8259,11 @@ def build_match_result_payload(folder, match_id=None, knocks=None,
     #
     # Only fills what is missing. A match the engine did watch keeps the
     # figures it counted at the time.
-    if not knocks or not headshots:
-        extras = recover_match_extras(name_match.group("match_id"), folder)
+    need_survival = any(pl.get("survival") is None
+                        for t in teams for pl in (t.get("players") or []))
+    if not knocks or not headshots or need_survival:
+        extras = recover_match_extras(name_match.group("match_id"), folder,
+                                      when=_result_stamp_epoch(name_match.group("timestamp")))
         if extras:
             for team in teams:
                 for player in team.get("players", []) or []:
@@ -8184,6 +8274,7 @@ def build_match_result_payload(folder, match_id=None, knocks=None,
                         player["knocks"] = got["knocks"]
                     if player.get("headshots") is None:
                         player["headshots"] = got["headshots"]
+            attach_survival(teams, extras)
     return {
         "type": "freefire_match_result",
         "matchId": name_match.group("match_id"),
@@ -8507,7 +8598,7 @@ def player_h2h_matches(cfg):
                 if m:
                     found.append((m.group("timestamp"), m.group("match_id")))
         found.sort(reverse=True)
-        ids = [mid for _, mid in found[:max(1, int(cfg.get("latest") or 6))]]
+        ids = [result_file_key(mid, ts) for ts, mid in found[:max(1, int(cfg.get("latest") or 6))]]
     else:
         ms = list(server_state.get("matches") or [])
         ms.sort(key=lambda m: (m.get("timestamp") or "", m.get("gameNumber") or 0))
@@ -8731,7 +8822,7 @@ def refresh_booyah_stats():
         mid = (b.get("matchId") or "").strip()
         if not mid:
             newest, nm = find_freefire_latest_match_file(folder)
-            mid = nm.group("match_id") if nm else ""
+            mid = result_file_key(nm.group("match_id"), nm.group("timestamp")) if nm else ""
         match = _h2h_result(mid) if mid else {}
         b["rows"] = compute_booyah_stats(match)
     except Exception as e:
@@ -8810,7 +8901,7 @@ def list_match_files(folder):
                  for t in built.get("teams") or []]
         entries.append({
             "game": index + 1,
-            "matchId": built.get("matchId"),
+            "matchId": result_file_key(built.get("matchId"), stamp),
             "fileName": built.get("fileName"),
             "timestamp": stamp,
             "teams": teams,
@@ -9003,6 +9094,8 @@ def compute_freefire_fraggers(matches, roster_teams=None):
                 # different facts and only one of them belongs in a rate.
                 if player.get("headshots") is not None:
                     row["perGameHeadshots"][str(game)] = player["headshots"]
+                if player.get("survival") is not None:
+                    row.setdefault("perGameSurvival", {})[str(game)] = player["survival"]
 
     # Totals are DERIVED from the per-game numbers rather than tallied as
     # the matches are walked, so there is only one place a game's kills
@@ -9020,6 +9113,9 @@ def compute_freefire_fraggers(matches, roster_teams=None):
         hs_kills = sum(row["perGame"].get(g, 0) for g in row["perGameHeadshots"])
         row["hsPct"] = (int(round(100.0 * row["totalHeadshots"] / hs_kills))
                         if hs_kills else None)
+        # Average per game that has a figure, for the MVP sheet's survival.
+        surv = list((row.get("perGameSurvival") or {}).values())
+        row["avgSurvival"] = (sum(surv) / len(surv)) if surv else None
         rows.append(row)
     # Eliminations, then knocks, then fewest games to get there -- a
     # player level on both who did it in five games out-fragged one who
@@ -9203,10 +9299,19 @@ def _pct(part, whole, places=2):
     return round(100.0 * part / whole, places)
 
 
+def fmt_survival(seconds):
+    """m:ss, or None when there is no figure."""
+    if seconds is None:
+        return None
+    seconds = int(round(seconds))
+    return "%d:%02d" % (seconds // 60, seconds % 60)
+
+
 def _sheet_row(team_name, ign, kills, knocks, heads, team_weight,
-               team_heads):
+               team_heads, survival=None):
     weight = 7 * (kills or 0) + 3 * (knocks or 0)
     return {
+        "survival": fmt_survival(survival),
         "team": team_name or "",
         "ign": ign or "",
         "elims": kills or 0,
@@ -9241,7 +9346,7 @@ def booyah_sheet_rows(matches, roster_teams=None):
     heads_total = sum(p["headshots"] for p in players
                       if p.get("headshots") is not None)
     return [_sheet_row(name, p.get("name"), p.get("kills"), p.get("knocks"),
-                       p.get("headshots"), weight, heads_total)
+                       p.get("headshots"), weight, heads_total, p.get("survival"))
             for p in players]
 
 
@@ -9274,7 +9379,8 @@ def total_fragger_rows(matches, games=None, roster_teams=None):
         out.append(_sheet_row(
             r["teamName"], r["ign"], r["totalKills"], r["totalKnocks"],
             r["totalHeadshots"] if r["hsGames"] else None,
-            team_weight.get(key, 0), team_heads.get(key, 0)))
+            team_weight.get(key, 0), team_heads.get(key, 0),
+            r.get("avgSurvival")))
     return out
 
 
@@ -9969,7 +10075,7 @@ async def handle_client(websocket, path=None):
                         m = FREEFIRE_MATCH_FILENAME_REGEX.match(f.name)
                         if m:
                             files.append({
-                                "matchId": m.group("match_id"),
+                                "matchId": result_file_key(m.group("match_id"), m.group("timestamp")),
                                 "timestamp": m.group("timestamp"),
                                 "fileName": f.name,
                             })
@@ -9985,9 +10091,9 @@ async def handle_client(websocket, path=None):
                 # the operator confirms it.
                 folder = payload.get("folder") or server_state.get("settings", {}).get("matchResultFolder", "")
                 try:
-                    await websocket.send(json.dumps(
-                        build_match_result_payload(folder, payload.get("matchId"))
-                    ))
+                    built = await asyncio.get_running_loop().run_in_executor(
+                        None, build_match_result_payload, folder, payload.get("matchId"))
+                    await websocket.send(json.dumps(built))
                 except Exception as e:
                     await websocket.send(json.dumps({
                         "type": "freefire_match_result", "teams": [], "matchId": None, "error": str(e),
@@ -10028,11 +10134,12 @@ async def handle_client(websocket, path=None):
                     if newest:
                         got = FREEFIRE_MATCH_FILENAME_REGEX.match(newest.name)
                         if got:
-                            wanted_id = got.group("match_id")
+                            wanted_id = result_file_key(got.group("match_id"), got.group("timestamp"))
                 if wanted_id and what == "booyah":
                     folder = (server_state.get("settings", {})
                               .get("matchResultFolder", ""))
-                    built = build_match_result_payload(folder, wanted_id)
+                    built = await asyncio.get_running_loop().run_in_executor(
+                        None, build_match_result_payload, folder, wanted_id)
                     if built.get("teams"):
                         matches = [built]
                     else:
@@ -10062,11 +10169,10 @@ async def handle_client(websocket, path=None):
                     if ids:
                         folder = (server_state.get("settings", {})
                                   .get("matchResultFolder", ""))
-                        built = []
-                        for mid in ids:
-                            one = build_match_result_payload(folder, str(mid))
-                            if one.get("teams"):
-                                built.append(one)
+                        def _read_all(ids=ids, folder=folder):
+                            return [one for one in (build_match_result_payload(folder, str(mid))
+                                                    for mid in ids) if one.get("teams")]
+                        built = await asyncio.get_running_loop().run_in_executor(None, _read_all)
                         built.sort(key=lambda m: m.get("timestamp") or "")
                         for i, m in enumerate(built, 1):
                             m["gameNumber"] = i
@@ -11521,9 +11627,11 @@ async def handle_live_signals(signals, gs_names):
 
     if _pending_match_fetch and settings.get("autoFetchOnMatchEnd", True):
         folder = settings.get("matchResultFolder", "")
-        payload = build_match_result_payload(folder, _pending_match_fetch,
-                                             _pending_match_knocks,
-                                             _pending_match_headshots)
+        # In a worker: reading the result also reads the debugger log
+        # back for survival times, and this is the end of a live match.
+        payload = await asyncio.get_running_loop().run_in_executor(
+            None, build_match_result_payload, folder, _pending_match_fetch,
+            _pending_match_knocks, _pending_match_headshots)
         _pending_match_tries += 1
         if payload.get("teams"):
             payload["auto"] = True
