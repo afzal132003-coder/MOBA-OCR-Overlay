@@ -66,6 +66,31 @@
   #stdMap #mapbox{border-radius:6px;box-shadow:0 0 0 2px rgba(255,255,255,.12), 0 18px 40px rgba(0,0,0,.5);}
   #map{display:block;width:100%;height:100%;}
   .side{flex:1;display:flex;flex-direction:column;min-width:0;}
+  /* MAP & TEAM STATS: a smaller map, and the table of each squad's kills
+     circle by circle beside it. */
+  body.stats #stdMap{width:700px;height:700px;flex:0 0 700px;}
+  body.stats #panel{gap:36px;}
+  .cs{margin-top:16px;width:100%;border-collapse:separate;border-spacing:0 3px;font-weight:800;}
+  .cs th{height:38px;font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:#111;white-space:nowrap;}
+  .cs th.sq{text-align:left;padding-left:12px;color:var(--text-2);background:rgba(255,255,255,.06);}
+  .cs th.c{background:var(--accent);}
+  .cs th.c:nth-of-type(odd){filter:brightness(.88);}
+  .cs td{height:46px;background:rgba(255,255,255,.04);font-size:18px;color:var(--text-1);white-space:nowrap;}
+  .cs tr:nth-child(even) td{background:rgba(255,255,255,.07);}
+  .cs td.sq{padding:0 10px 0 6px;}
+  .cs td.sq .in{display:flex;align-items:center;gap:8px;}
+  .cs td.sq img{width:30px;height:30px;object-fit:contain;}
+  .cs td.sq .nm{flex:1;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;max-width:150px;}
+  .cs td.sq .tk{color:var(--accent);font-size:16px;font-variant-numeric:tabular-nums;}
+  .cs td.c{text-align:center;position:relative;}
+  .cs td.c .k{display:inline-flex;align-items:center;gap:5px;}
+  .cs td.c .k i{width:14px;height:14px;border-radius:50%;border:2px solid var(--accent);position:relative;box-sizing:border-box;}
+  .cs td.c .k i::after{content:"";position:absolute;left:3px;top:3px;width:4px;height:4px;border-radius:50%;background:var(--accent);}
+  .cs .badge{display:inline-block;margin-left:5px;padding:3px 7px;border-radius:3px;font-size:12px;letter-spacing:.06em;color:#fff;
+             vertical-align:middle;}
+  .cs .badge.out{background:#c62f2f;}
+  .cs .badge.win{background:#1f9a4a;}
+  .stage.on .cs tr{animation:rowin .45s cubic-bezier(.2,.8,.3,1) both;}
   .kicker{font-weight:800;font-size:18px;letter-spacing:.22em;text-transform:uppercase;color:var(--text-2);}
   .kicker::before{content:"";display:block;width:30px;height:4px;background:var(--accent);margin:0 0 9px;}
   .title{font-weight:900;font-style:italic;font-size:58px;line-height:1;margin-top:4px;text-transform:uppercase;color:var(--accent);}
@@ -504,6 +529,43 @@ function drawMatch(svg, view, cfg, roster, animate){
   return timed;
 }
 
+/* Each squad's kills in the circle they happened in, an OUT where it was
+   eliminated and BOOYAH for the winner. A kill before the first circle is
+   drawn counts in circle 1. */
+function sideStats(view, roster){
+  const zones = (view.zones || []).slice(0, 6);
+  const n = Math.max(1, zones.length);
+  const circleOf = t => {
+    let c = 0;
+    zones.forEach((z, i) => { if(z.announced != null && z.announced <= t) c = i + 1; });
+    return Math.max(1, Math.min(n, c));
+  };
+  const rows = (view.squads || []).map(s => {
+    const per = new Array(n).fill(0);
+    (view.kills || []).forEach(k => { if(k.ks === s.squad && k.t != null) per[circleOf(k.t) - 1]++; });
+    return { s, per, total: per.reduce((a, b) => a + b, 0),
+             out: s.place === 1 ? null : (s.out != null ? circleOf(s.out) : null) };
+  });
+  rows.sort((a, b) => (b.total - a.total) || ((a.s.place || 99) - (b.s.place || 99)));
+  const head = `<tr><th class="sq">SQUAD</th>` +
+    Array.from({ length: n }, (_, i) => `<th class="c">CIRCLE ${i + 1}</th>`).join("") + `</tr>`;
+  const body = rows.map((r, ri) => {
+    const team = teamFor(r.s.teamName, roster);
+    const tag = (team && team.shortName) || r.s.teamName || ("SQUAD " + r.s.squad);
+    const cells = r.per.map((v, i) => {
+      const c = i + 1;
+      let html = v ? `<span class="k"><i></i>x${v}</span>` : "";
+      if(r.out === c) html += `<span class="badge out">OUT</span>`;
+      if(r.s.place === 1 && c === n) html += `<span class="badge win">BOOYAH</span>`;
+      return `<td class="c">${html}</td>`;
+    }).join("");
+    return `<tr style="animation-delay:${(.35 + ri * .05).toFixed(2)}s"><td class="sq"><div class="in">` +
+      (team && team.logo ? `<img src="${team.logo}">` : `<span style="width:30px"></span>`) +
+      `<span class="nm">${esc(tag)}</span><span class="tk">${r.total}</span></div></td>${cells}</tr>`;
+  }).join("");
+  return `<table class="cs">${head}${body}</table>`;
+}
+
 function sideMatch(view, cfg, roster){
   const picked = chosenSquads(view, cfg);
   const filtered = (cfg.teams || []).length > 0;
@@ -699,7 +761,8 @@ function render(state){
   const theme = String(_params.get("theme") || cfg.theme || "auto").toLowerCase();
   const ss3Theme = theme === "ss3" || ((theme === "auto" || theme === "") &&
                    String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase() === "ss3");
-  const mode = ["match", "drops"].includes(cfg.source) ? cfg.source : "live";
+  const mode = ["match", "drops", "stats"].includes(cfg.source) ? cfg.source : "live";
+  document.body.classList.toggle("stats", mode === "stats");
   // The SS3 artwork has "PREFERRED DROP SPOT" in it, so it is used for the
   // drop spots only; zones and match analysis picked with it get the
   // standard layout in SS3 colours and type.
@@ -720,7 +783,7 @@ function render(state){
   const roster = state.roster || {};
   const maps = state.ffMaps || {};
   let view = null, pins = [];
-  if(mode === "match") view = cfg.match;
+  if(mode === "match" || mode === "stats") view = cfg.match;
   else if(mode === "live") view = ((state.liveOps || {}).zone || {}).view;
   else {
     const m = maps[dropMapId(state, cfg)];
@@ -746,12 +809,13 @@ function render(state){
 
   if(!view || !view.image){
     svg.innerHTML = "";
-    document.getElementById("title").textContent = mode === "drops" ? "Drop Spots" : mode === "match" ? "Zone Map" : "Live Zone";
+    document.getElementById("title").textContent = mode === "drops" ? "Drop Spots" : mode === "match" ? "Zone Map"
+                                                 : mode === "stats" ? "Map & Team Stats" : "Live Zone";
     document.getElementById("sub").textContent = "";
     side.innerHTML = "";
     const msg = document.createElement("div");
     msg.className = "nomap";
-    msg.textContent = mode === "match" ? "No match loaded." : mode === "drops" ? "No map image for this map."
+    msg.textContent = (mode === "match" || mode === "stats") ? "No match loaded." : mode === "drops" ? "No map image for this map."
                                        : "Waiting for the match to load its map.";
     box.appendChild(msg);
   } else if(mode === "match"){
@@ -763,6 +827,16 @@ function render(state){
     const nodes = drawMatch(svg, view, cfg, roster, animate && !replaying);
     side.innerHTML = sideMatch(view, cfg, roster);
     if(replaying) startReplay(nodes, view.duration, cfg.replaySeconds);
+  } else if(mode === "stats"){
+    document.getElementById("title").textContent = "Map & Team Stats";
+    document.getElementById("sub").textContent =
+      [cfg.matchLabel, view.mapName, mmss(view.duration), (view.kills || []).length + " kills"].filter(Boolean).join(" · ");
+    // the map: the zones and the plane, nothing over them
+    // fitted to the first circle so the zones read large; Endgame still zooms in further
+    drawMatch(svg, view, Object.assign({}, cfg, { zoom: cfg.zoom === "end" ? "end" : "zones",
+                                                  show: { zones: true, plane: true, kills: false, paths: false, shots: false } }),
+              roster, animate);
+    side.innerHTML = sideStats(view, roster);
   } else if(mode === "live"){
     document.getElementById("title").textContent = "Live Zone";
     document.getElementById("sub").textContent = view.mapName || "";
