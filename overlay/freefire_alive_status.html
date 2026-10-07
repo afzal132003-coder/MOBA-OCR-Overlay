@@ -61,6 +61,11 @@
   /* Upright, for the Top 4 win rate -- the demo sets it straight, and
      'Supermolot' above is the italic cut. */
   @font-face {
+    font-family: 'SMBI';
+    src: url('assets/fonts/TT Supermolot Neue Trial Black Italic.ttf') format('truetype');
+    font-weight: 400 900; font-style: normal; font-display: block;
+  }
+  @font-face {
     font-family: 'Supermolot Black';
     src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
     font-weight: 400 900; font-style: normal; font-display: block;
@@ -445,11 +450,27 @@
   #top4 .t4bg { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px;
                 opacity: 0; transition: opacity .35s ease; }
   #top4.show .t4bg { opacity: 1; }
-  #top4 .t4card { position: absolute; top: 0; height: 140px;
+  /* One card per team, each its own piece of the art (or, for ARROW,
+     drawn), so a card can leave and the rest close up. They glide to their
+     new places once a leaving card has gone (--slide). */
+  #top4 .t4card { position: absolute; top: 0; width: 252px; height: 131px;
+                  background-repeat: no-repeat; background-size: 1920px 1080px;
                   opacity: 0; transform: translateY(-120px);
-                  transition: opacity .35s ease, transform .6s cubic-bezier(.2,.9,.3,1.1); }
+                  transition: opacity .35s ease var(--enter, 0s),
+                              transform .6s cubic-bezier(.2,.9,.3,1.1) var(--enter, 0s),
+                              left .75s cubic-bezier(.45,0,.2,1) var(--slide, 0s); }
   #top4.show .t4card { opacity: 1; transform: none; }
-  #top4 .t4card.out { filter: grayscale(1) brightness(.6); }
+  #top4 .t4card.leaving { opacity: 0 !important; transform: translateY(-34px) scale(.9) !important;
+                          transition: opacity .45s ease, transform .45s ease !important; }
+  /* ARROW: no art for this bar -- each card drawn from the kit. */
+  #top4 .t4card.kit .t4panel { position: absolute; left: 0; top: 32px; width: 252px; height: 66px;
+      background: linear-gradient(115deg,rgba(255,255,255,.07) 0 30%,transparent 30%), linear-gradient(180deg,#1d4720,#0f2711);
+      box-shadow: inset 0 0 0 2px #f2f2f2; }
+  #top4 .t4card.kit .t4plate { position: absolute; left: 60px; top: 98px; width: 192px; height: 32px;
+      background: url('assets/freefire/kit/arrow_satin.png') center/cover, #f2f2f2;
+      clip-path: polygon(10px 0,100% 0,100% 100%,0 100%); }
+  #top4 .t4card.kit .t4lab { position: absolute; left: 76px; top: 98px; height: 32px; display: flex; align-items: center;
+      font-family: 'SMBI', Arial, sans-serif; font-size: 15px; color: #151515; }
   #top4 .t4logo { position: absolute; display: flex; align-items: center; justify-content: center; }
   #top4 .t4logo img { max-width: 100%; max-height: 100%; object-fit: contain; }
   #top4 .t4bar { position: absolute; background: #ffffff; border-radius: 1px;
@@ -702,6 +723,8 @@ const LAYOUTS = {
       // (card x 242), cap top 112 / baseline 124 -- level with WIN RATE
       // and clear of it.
       win: { right: 244, y: 110, size: 18, ink: "#ee2517", face: "Supermolot Upright", weight: 800 },
+      // Each card is this slice of the art: x 426..677, y 32..130.
+      cardW: 252, pitch: 273, slice: 426,
     },
   },
 
@@ -718,6 +741,15 @@ const LAYOUTS = {
   // (213,219,213). The rank is printed bare ("1"), not "#1".
   "PRG ARROW": {
     placementKey: "arrow",
+    // No art for the Top 4 bar: drawn from the kit, same geometry as SS3's.
+    top4: {
+      kit: true,
+      cards: [426, 699, 972, 1245],
+      logo: { dx: 19, y: 41, w: 50, h: 50 },
+      bars: { dx: 153, y: 47, w: 16, h: 37, pitch: 22.7 },
+      win: { right: 240, y: 106, size: 19, ink: "#111111", face: "SMBI", weight: 900 },
+      cardW: 252, pitch: 273,
+    },
     bg: "prg arrow alive status - blank.png",
     pipBase: "Live Stats/",
     // Four bars drawn on whole pixels (5 wide, 3 apart, filling the 29px
@@ -1682,44 +1714,78 @@ function winRates(rows){
   return floor.map((v, i) => w[i] > 0 ? v : null);
 }
 
+// Which teams the bar shows, in a fixed order: cards only move when a
+// team leaves, not every time the kill counts reorder.
+let t4Order = [];
+
 function renderTop4(state, source){
   const box = document.getElementById("top4");
   const L = layoutFor(state);
   const T = L.top4;
   const on = !!(T && ((state.display && state.display.top4Visible) || _params.get("top4") === "1"));
   box.classList.toggle("show", on);
-  if(!T) return;
+  box.querySelector(".t4bg").style.display = "none";   // each card carries its own slice now
+  if(!T){ box.querySelectorAll(".t4card").forEach(c => c.remove()); t4Order = []; return; }
+  if(!on){ t4Order = []; return; }
   const base = assetBase(state);
-  const bg = box.querySelector(".t4bg");
-  if(bg.getAttribute("src") !== base + encodeURI(T.bg)) bg.src = base + encodeURI(T.bg);
-  if(!on) return;
-  // The four: everyone still in first, by the table's own order (most
-  // kills, then players up), then -- if fewer than four remain -- the
-  // last to fall, shown out.
+
+  // The standing squads -- four at most, the four with most kills when
+  // more than four are still in (the bar pushed early by hand).
+  const keyOf = r => rowKeyOf(r);
   const alive = source.filter(r => !r.eliminated);
-  const out = source.filter(r => r.eliminated)
-    .sort((a, b) => (a.finishRank || 99) - (b.finishRank || 99));
-  const four = alive.sort((a, b) => (effectiveKills(b) - effectiveKills(a)) ||
-                                    ((b.aliveCount || 0) - (a.aliveCount || 0)))
-    .slice(0, 4).concat(out).slice(0, 4);
-  const rates = winRates(four);
-  T.cards.forEach((x0, i) => {
-    let card = box.querySelector('.t4card[data-i="' + i + '"]');
-    if(!card){
+  const ranked = alive.slice().sort((a, b) => (effectiveKills(b) - effectiveKills(a)) ||
+                                              ((b.aliveCount || 0) - (a.aliveCount || 0)));
+  const chosen = ranked.slice(0, 4);
+  const want = new Set(chosen.map(keyOf));
+  // keep the order the cards already have; newcomers join on the right
+  t4Order = t4Order.filter(k => want.has(k));
+  chosen.forEach(r => { if(!t4Order.includes(keyOf(r))) t4Order.push(keyOf(r)); });
+  const rows = t4Order.map(k => chosen.find(r => keyOf(r) === k));
+  const rates = winRates(rows);
+
+  // Centred on the bar's own centre: four sit exactly where the art has
+  // them, three / two / one close up around the middle.
+  const W = T.cardW || 252, pitch = T.pitch || 273;
+  const mid = T.cards[0] + (3 * pitch + W) / 2;
+  const span = (rows.length - 1) * pitch + W;
+  const x0 = mid - span / 2;
+
+  // Cards for teams no longer standing lift away; the rest wait for them.
+  let leaving = false;
+  box.querySelectorAll(".t4card").forEach(c => {
+    if(!want.has(c.dataset.key) && !c.classList.contains("leaving")){
+      leaving = true;
+      c.classList.add("leaving");
+      setTimeout(() => c.remove(), 500);
+    }
+  });
+  box.style.setProperty("--slide", leaving ? ".35s" : "0s");
+
+  rows.forEach((row, i) => {
+    const key = keyOf(row);
+    let card = [...box.querySelectorAll(".t4card")].find(c => c.dataset.key === key && !c.classList.contains("leaving"));
+    const fresh = !card;
+    if(fresh){
       card = document.createElement("div");
-      card.className = "t4card";
-      card.dataset.i = i;
-      card.style.transitionDelay = (i * 90) + "ms";
-      card.innerHTML = '<div class="t4logo"><img alt=""></div>' +
+      card.className = "t4card" + (T.kit ? " kit" : "");
+      card.dataset.key = key;
+      card.style.setProperty("--enter", (i * 90) + "ms");
+      card.innerHTML = (T.kit ? '<div class="t4panel"></div><div class="t4plate"></div><div class="t4lab">WIN RATE</div>' : "") +
+        '<div class="t4logo"><img alt=""></div>' +
         [0, 1, 2, 3].map(k => '<div class="t4bar" data-k="' + k + '"></div>').join("") +
         '<div class="t4win"></div>';
       box.appendChild(card);
+      // the drop-in stagger is for arriving only
+      setTimeout(() => card.style.setProperty("--enter", "0s"), 1200);
     }
-    card.style.left = x0 + "px";
-    const row = four[i];
-    card.style.visibility = row ? "" : "hidden";
-    if(!row) return;
-    card.classList.toggle("out", !!row.eliminated);
+    card.style.left = Math.round(x0 + i * pitch) + "px";
+    if(!T.kit){
+      const art = `url("${base + encodeURI(T.bg)}")`;
+      if(card.style.backgroundImage !== art){
+        card.style.backgroundImage = art;
+        card.style.backgroundPosition = `-${T.slice || T.cards[0]}px 0px`;
+      }
+    }
     const team = logoFor(row.teamName, state.roster);
     const lg = card.querySelector(".t4logo");
     Object.assign(lg.style, { left: T.logo.dx + "px", top: T.logo.y + "px",
@@ -1727,7 +1793,7 @@ function renderTop4(state, source){
     const img = lg.querySelector("img");
     const src = (team && team.logo) || "";
     if(img.getAttribute("src") !== src){ if(src) img.src = src; img.style.display = src ? "" : "none"; }
-    const up = row.eliminated ? 0 : Math.max(0, Math.min(4, row.aliveCount != null ? row.aliveCount : 4));
+    const up = Math.max(0, Math.min(4, row.aliveCount != null ? row.aliveCount : 4));
     card.querySelectorAll(".t4bar").forEach(b => {
       const k = Number(b.dataset.k);
       Object.assign(b.style, { left: (T.bars.dx + k * T.bars.pitch) + "px", top: T.bars.y + "px",
@@ -1741,6 +1807,8 @@ function renderTop4(state, source){
                                fontWeight: T.win.weight || "", fontStyle: T.win.face ? "normal" : "" });
     const txt = rates[i] == null ? "\u2014" : rates[i] + "%";
     if(win.textContent !== txt) win.textContent = txt;
+    // "100%" is a digit wider than the box was set for: a size down.
+    win.style.fontSize = (txt.length > 3 ? T.win.size - 3 : T.win.size) + "px";
   });
 }
 
