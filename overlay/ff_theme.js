@@ -110,6 +110,16 @@ function ffFitTitle(el, again){
     // fonts after the first check.
     setTimeout(() => ffFitTitle(el, true), 1200);
   }
+  // CHIRAYU: the last word in orange-gold, the rest black.
+  const words = (el.textContent || "").trim().split(/\s+/);
+  const gold = document.body.classList.contains("chirayu") && words.length > 1;
+  if(gold && !el.querySelector(".w2")){
+    el.textContent = words.slice(0, -1).join(" ") + " ";
+    const w = document.createElement("span"); w.className = "w2"; w.textContent = words[words.length - 1];
+    el.appendChild(w);
+  } else if(!gold && el.querySelector(".w2")){
+    el.textContent = words.join(" ");
+  }
   el.style.fontSize = "";
   const r = document.createRange();
   r.selectNodeContents(el);

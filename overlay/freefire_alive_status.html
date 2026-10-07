@@ -879,15 +879,18 @@ const LAYOUTS = {
    SS3's Graphic Fixing nudges (placementKey "ss3"): same geometry. */
 LAYOUTS.CHIRAYU = (() => {
   const c = JSON.parse(JSON.stringify(LAYOUTS.ss3));
-  c.accent = "#d4b25a"; c.accentGlow = "rgba(212, 178, 90, 0.9)";
-  c.accentFlash = ["rgba(212, 178, 90, 0)", "rgba(212, 178, 90, 0.5)"];
-  c.pipBars = Object.assign({}, c.pipBars, { dead: "#5d6f8f" });
-  if(c.elimCard) c.elimCard.rank.ink = "#f3d77e";
+  // the league's look: rank and name on the white part of the row in its
+  // gold-brown, the eliminations white on the slate
+  c.rankInk = "#7d6545"; c.nameInk = "#9a6428"; c.killsInk = "#ffffff";
+  c.accent = "#e8a33a"; c.accentGlow = "rgba(232, 163, 58, 0.9)";
+  c.accentFlash = ["rgba(232, 163, 58, 0)", "rgba(232, 163, 58, 0.5)"];
+  c.pipBars = Object.assign({}, c.pipBars, { dead: "#2c3850", unknown: "rgba(255,255,255,0.32)" });
+  if(c.elimCard) c.elimCard.rank.ink = "#111111";
   if(c.achievement){
-    c.achievement.title.ink = "#22345a";
-    c.achievement.label.ink = "#f3d77e";
+    c.achievement.title.ink = "#111111";
+    c.achievement.label.ink = "#f6c45c";
   }
-  if(c.top4) c.top4.win.ink = "#22345a";
+  if(c.top4) c.top4.win.ink = "#111111";
   return c;
 })();
 

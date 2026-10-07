@@ -86,6 +86,11 @@
   /* the top three */
   .ss3 .th-row.top .th-rk{background:var(--ss3-bar);color:#111;}
   .ss3 .th-row:not(.top) .th-rk{background:var(--ss3-label);color:var(--ss3-yellow);}
+  /* CHIRAYU: the TOTAL cell shades into orange-gold at its right, as the
+     league's own table does; the slate rank cells take white figures */
+  .chirayu .th-row .th-n.tot{color:#6e3a08;background:linear-gradient(90deg,rgba(255,255,255,0) 0%,#f6c45c 62%,#e08a1e 100%);}
+  .chirayu .th-row:not(.top) .th-rk{color:#fff;}
+  .chirayu .th-row:nth-of-type(even){background:rgba(78,97,129,.06);}
   .arrow .th-row.top .th-rk{color:var(--ar-gold);}
   .th-nodata{position:absolute;left:0;top:520px;width:1920px;text-align:center;font-family:'SMXB',Arial,sans-serif;font-size:30px;color:#fff;
              text-shadow:0 2px 8px rgba(0,0,0,.8);}
