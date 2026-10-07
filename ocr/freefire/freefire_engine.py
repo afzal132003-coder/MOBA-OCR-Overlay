@@ -6190,6 +6190,15 @@ def squad_aliases():
 TEAM_NAME_NEAR_EXACT = 0.90
 
 
+SHORT_CONTAINMENT_MAX = 3
+
+
+def _name_words(raw):
+    """The words of a name, each normalised: "TSG ARMY" -> {"TSG", "ARMY"}."""
+    return {w for w in (normalize_for_match(part) for part in
+                        re.split(r"[^0-9A-Za-z]+", raw or "")) if w}
+
+
 def match_roster_team(file_team_name, roster_teams, min_ratio=None,
                      min_containment=0):
     """Returns the roster team dict this result-file team name refers to,
@@ -6255,9 +6264,26 @@ def match_roster_team(file_team_name, roster_teams, min_ratio=None,
             short, long_ = sorted((len(norm), len(target)))
             return short / long_ if long_ else 0.0
 
+        # A name of three characters or fewer only counts when it is a
+        # whole word of the other one. Inside a longer word it is a
+        # coincidence, and an expensive one: NG PROS's tag "NG" sits in
+        # "KING" and LORD ESPORTZ's "LE" in "TEAMLEGACY" and "S8ULESPORTS"
+        # -- seen live, three squads named for teams that were not in the
+        # lobby, and their points would have gone to those teams.
+        target_words = _name_words(file_team_name)
+
+        def _contains(norm, team):
+            if not (target in norm or norm in target):
+                return False
+            shorter = min(norm, target, key=len)
+            if len(shorter) > SHORT_CONTAINMENT_MAX:
+                return True
+            if shorter == norm:
+                return norm in target_words
+            return target in _name_words(raw_of.get((norm, id(team)), norm))
+
         contained = [(norm, team) for norm, team in candidates
-                     if len(norm) >= min_containment
-                     and (target in norm or norm in target)]
+                     if len(norm) >= min_containment and _contains(norm, team)]
         if contained:
             norm, team = max(
                 contained,
@@ -6306,6 +6332,11 @@ def match_roster_team(file_team_name, roster_teams, min_ratio=None,
     best_team, best_ratio = None, 0.0
     for norm, team in candidates:
         if len(norm) < min_containment:
+            continue
+        # A tag of three characters or fewer is compared only with a name
+        # of about its own length. Against a longer word it scores well by
+        # sharing letters alone: "NG" against "KING" is 0.67, over the bar.
+        if min(len(norm), len(target)) <= SHORT_CONTAINMENT_MAX and abs(len(norm) - len(target)) >= 2:
             continue
         ratio = difflib.SequenceMatcher(None, target, norm).ratio()
         # From the name AS WRITTEN, not the normalised one. Normalising
