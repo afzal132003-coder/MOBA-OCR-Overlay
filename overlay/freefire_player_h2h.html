@@ -48,6 +48,9 @@
          font-family:'SMBlack',Arial,sans-serif;font-size:19px;letter-spacing:.14em;color:#fff694;background:#000;
          text-transform:uppercase;white-space:nowrap;}
   #scope:empty{display:none;}
+  body.chirayu .val{color:#f3d77e;}
+  body.chirayu .val.lead{text-shadow:0 0 14px rgba(243,215,126,.55);}
+  body.chirayu #scope{color:#f3d77e;background:#131d32;}
 
   /* ---- ARROW: the same layout drawn from the theme kit -- green board,
      satin plates for the names and the four labels -- since the art is
@@ -128,7 +131,7 @@ const WS_URL = _relay
   ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_player_h2h&rostercache=1"
   : "ws://localhost:8765?page=freefire_player_h2h&rostercache=1";
 const PREVIEW = _params.get("preview") === "1";
-const ART = "assets/freefire/ss3/" + encodeURI("head to head R - BLANK.png");
+let ART = "assets/freefire/ss3/" + encodeURI("head to head R - BLANK.png");   // per package, set per render
 const COLS = [718, 1195];
 const ROWS = [512, 602, 692, 780];
 
@@ -193,6 +196,7 @@ function render(state){
 
   // SS3 draws on its own art; every other package on the ARROW kit.
   const theme = ffApplyTheme(state);
+  ART = ffArtDir(state) + encodeURI("head to head R - BLANK.png");
   document.getElementById("stage").classList.toggle("ff-stage", false);
   const art = document.getElementById("art");
   if(art.getAttribute("src") !== ART) art.src = ART;

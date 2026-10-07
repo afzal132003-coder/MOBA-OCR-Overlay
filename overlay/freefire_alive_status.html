@@ -445,8 +445,10 @@
      once four remain and keep this up. Drawn from the package's artwork
      (cards, the WIN RATE tab and its label are all in it); the logo, the
      four alive bars and the percentage are filled in. */
+  /* Above the elimination card (z 3): lifted clear of it (see lift), and
+     where the two still touch, the bar stays readable. */
   #top4 { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px;
-          pointer-events: none; }
+          pointer-events: none; z-index: 5; }
   #top4 .t4bg { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px;
                 opacity: 0; transition: opacity .35s ease; }
   #top4.show .t4bg { opacity: 1; }
@@ -496,7 +498,13 @@
                   text-align: center; white-space: nowrap; overflow: hidden;
                   font-family: var(--face); font-weight: 900; line-height: 1.02; }
   #popTitle { white-space: normal !important; text-transform: uppercase; }
-  #popPhoto { position: absolute; object-fit: cover; object-position: center top; }
+  /* The photo sits whole in its box, feet on the strip (the folder's
+     photos are cut out, so the box shows round them)... */
+  #popPhoto { position: absolute; object-fit: contain; object-position: center bottom; }
+  /* ...and the strip in front of it: the same art again, clipped to the
+     ribbon, the logo box and the name bar (A.over), so the player stands
+     behind them as the design has it rather than pasted over the top. */
+  #popOver { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; display: none; }
   #popLogo img { max-width: 100%; max-height: 100%; object-fit: contain; }
 </style>
 </head>
@@ -512,7 +520,7 @@
 </div>
 
 <div id="popCard"><div id="popInner">
-  <img id="popArt" alt=""><img id="popPhoto" alt="">
+  <img id="popArt" alt=""><img id="popPhoto" alt=""><img id="popOver" alt="">
   <div class="pp" id="popTitle"></div><div class="pp" id="popValue"></div>
   <div class="pp" id="popLabel"></div><div class="pp" id="popLogo"><img alt=""></div>
   <div class="pp" id="popName"></div>
@@ -709,6 +717,11 @@ const LAYOUTS = {
       label: { x: 136, y: 572, w: 164, h: 22, size: 17, ink: "#fff894", face: "Supermolot Upright" },
       logo: { x: 4, y: 596, w: 50, h: 50 },
       name: { x: 60, y: 607, w: 238, h: 42, size: 26, ink: "#111111", face: "Supermolot Black" },
+      // What is drawn IN FRONT of the photo: the logo box (x 0..58 from
+      // y 592), the name bar under it, and the ribbon crossing the photo
+      // box's corner (top edge (82,606)->(136,580), 13px thick).
+      over: [[0, 592], [59, 592], [59, 604], [82, 606], [136, 579], [136, 595], [112, 606],
+             [301, 604], [301, 652], [0, 652]],
       seconds: 5,
     },
     // The TOP 4 bar, measured from "prg br ss3 top 4 - BLANK/DEMO": four
@@ -727,6 +740,9 @@ const LAYOUTS = {
       win: { right: 244, y: 110, size: 18, ink: "#ee2517", face: "Supermolot Upright", weight: 800 },
       // Each card is this slice of the art: x 426..677, y 32..130.
       cardW: 252, pitch: 273, slice: 426,
+      // Drawn this much higher than the art has it, so the bar (y 32..131)
+      // clears the elimination card below it (y 101..306).
+      lift: 26,
     },
   },
 
@@ -750,7 +766,7 @@ const LAYOUTS = {
       logo: { dx: 19, y: 41, w: 50, h: 50 },
       bars: { dx: 153, y: 47, w: 16, h: 37, pitch: 22.7 },
       win: { right: 240, y: 106, size: 19, ink: "#111111", face: "SMBI", weight: 900 },
-      cardW: 252, pitch: 273,
+      cardW: 252, pitch: 273, lift: 26,
     },
     bg: "prg arrow alive status - blank.png",
     pipBase: "Live Stats/",
@@ -856,6 +872,25 @@ const LAYOUTS = {
 // Which package's artwork is on disk decides which layout is used, so
 // switching graphics packages on the dashboard switches this too with
 // nothing else to remember.
+/* CHIRAYU GOLD LEAGUE: the SS3 table, eliminated card, achievement
+   pop-up and Top 4 bar, copied -- same files, same geometry, the art in
+   CHIRAYU/ recoloured navy / slate / gold -- with the inks that sat on
+   the yellow moved to navy and the pale yellow ones to gold. It shares
+   SS3's Graphic Fixing nudges (placementKey "ss3"): same geometry. */
+LAYOUTS.CHIRAYU = (() => {
+  const c = JSON.parse(JSON.stringify(LAYOUTS.ss3));
+  c.accent = "#d4b25a"; c.accentGlow = "rgba(212, 178, 90, 0.9)";
+  c.accentFlash = ["rgba(212, 178, 90, 0)", "rgba(212, 178, 90, 0.5)"];
+  c.pipBars = Object.assign({}, c.pipBars, { dead: "#5d6f8f" });
+  if(c.elimCard) c.elimCard.rank.ink = "#f3d77e";
+  if(c.achievement){
+    c.achievement.title.ink = "#22345a";
+    c.achievement.label.ink = "#f3d77e";
+  }
+  if(c.top4) c.top4.win.ink = "#22345a";
+  return c;
+})();
+
 function aliveFolder(state){
   const ev = (state && state.event) || {};
   return ev.aliveAssetFolder || ev.assetFolder || "CLT";
@@ -1766,8 +1801,8 @@ function renderTop4(state, source){
   const on = !!(T && ((state.display && state.display.top4Visible) || _params.get("top4") === "1"));
   box.classList.toggle("show", on);
   box.querySelector(".t4bg").style.display = "none";   // each card carries its own slice now
-  if(!T){ box.querySelectorAll(".t4card").forEach(c => c.remove()); t4Order = []; return; }
-  if(!on){ t4Order = []; return; }
+  if(!T){ box.querySelectorAll(".t4card").forEach(c => c.remove()); t4Order = []; return false; }
+  if(!on){ t4Order = []; return false; }
   const base = assetBase(state);
 
   // The standing squads -- four at most, the four with most kills when
@@ -1820,6 +1855,7 @@ function renderTop4(state, source){
       setTimeout(() => card.style.setProperty("--enter", "0s"), 1200);
     }
     card.style.left = Math.round(x0 + i * pitch) + "px";
+    card.style.top = -(T.lift || 0) + "px";
     if(!T.kit){
       const art = `url("${base + encodeURI(T.bg)}")`;
       if(card.style.backgroundImage !== art){
@@ -1851,6 +1887,7 @@ function renderTop4(state, source){
     // "100%" is a digit wider than the box was set for: a size down.
     win.style.fontSize = (txt.length > 3 ? T.win.size - 3 : T.win.size) + "px";
   });
+  return true;
 }
 
 /* ---- SIDE POP-UPS ----------------------------------------------------
@@ -1859,6 +1896,19 @@ function renderTop4(state, source){
    one at a time; a second arriving while the first is up waits its turn. */
 const popQueue = [];
 let popTimer = null, popBusy = false;
+
+// The title wraps (two lines in the tab); a word too long for the tab
+// ("ELIMINATION") steps the size down until every line fits.
+function fitTitle(el, T){
+  let size = T.size, line = T.line || T.size * 1.25;
+  el.style.fontSize = size + "px";
+  el.style.lineHeight = line + "px";
+  while((el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1) && size > T.size * 0.6){
+    size -= 0.5; line = Math.max(size * 1.1, line - 0.5);
+    el.style.fontSize = size + "px";
+    el.style.lineHeight = line + "px";
+  }
+}
 
 function popPlace(id, box, extra){
   const el = document.getElementById(id);
@@ -1886,12 +1936,20 @@ function showNextPopup(){
   popPlace("popValue", A.value, Object.assign({ fontSize: A.value.size + "px", color: A.value.ink }, face(A.value))).textContent =
     pop.value == null ? "" : String(pop.value);
   popPlace("popLabel", A.label, Object.assign({ fontSize: A.label.size + "px", color: A.label.ink }, face(A.label))).textContent = pop.label || "";
+  fitName(document.getElementById("popLabel"), A.label.size);
+  fitTitle(document.getElementById("popTitle"), A.title);
   const name = pop.ign || (team && team.shortName) || pop.teamName || "";
   popPlace("popName", A.name, Object.assign({ fontSize: A.name.size + "px", color: A.name.ink }, face(A.name))).textContent = name;
   fitName(document.getElementById("popName"), A.name.size);
   const photo = pop.photo || roster.defaultPlayerPhoto || (team && team.groupPhoto) || "";
   const ph = popPlace("popPhoto", A.photo, { display: photo ? "block" : "none" });
   if(photo && ph.getAttribute("src") !== photo) ph.src = photo;
+  const over = document.getElementById("popOver");
+  if(A.over && photo){
+    if(over.getAttribute("src") !== art.getAttribute("src")) over.src = art.getAttribute("src");
+    over.style.clipPath = "polygon(" + A.over.map(([x, y]) => x + "px " + y + "px").join(", ") + ")";
+    over.style.display = "block";
+  } else over.style.display = "none";
   const lg = popPlace("popLogo", A.logo);
   const li = lg.querySelector("img");
   const logo = (team && team.logo) || "";
@@ -1935,9 +1993,15 @@ function apply(state){
 
   // The top bar has its own switch, so it can stay up with the side table
   // pulled down.
-  try { renderTop4(state, source); } catch(e){ console.error("top4:", e); }
+  let top4On = false;
+  try { top4On = renderTop4(state, source); } catch(e){ console.error("top4:", e); }
 
-  document.getElementById("stage").classList.toggle("show", !!visible && source.length > 0);
+  // While the Top 4 bar is up (it comes up by itself at four squads left)
+  // the side table steps aside: one alive graphic on screen, not two. The
+  // rows keep updating underneath, so the table is current the moment the
+  // bar goes down, and the elimination card still fires (it is not in
+  // #stage).
+  document.getElementById("stage").classList.toggle("show", !!visible && source.length > 0 && !top4On);
   if(!visible || !source.length){
     // SS3's eliminated card is THE elimination graphic for that package
     // (the separate lower third stands down), so it fires on a wipe

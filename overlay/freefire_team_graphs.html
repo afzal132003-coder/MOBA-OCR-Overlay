@@ -73,6 +73,15 @@
     border-top-color:#ff1e1e;
   }
   body.ss3 .kicker::before{ background:#ff1e1e; }
+  body.ss3.chirayu{ --surface:#131d32; --amber:#f3d77e; --grid:#2a3a5c; --text-3:#9fb0cc; }
+  body.ss3.chirayu #panel.bg{
+    background:
+      radial-gradient(120% 90% at 50% 0%, rgba(62,90,150,.45) 0%, rgba(19,29,50,0) 60%),
+      repeating-linear-gradient(115deg, rgba(127,151,187,.06) 0 2px, transparent 2px 22px),
+      var(--surface);
+    border-top-color:#cdaa4e;
+  }
+  body.ss3.chirayu .kicker::before{ background:#cdaa4e; }
   body.ss3 .title{ font-style:normal; }
 
   html,body{margin:0;padding:0;background:transparent;overflow:hidden;}
@@ -531,7 +540,7 @@ function drawBreakdown(svg, data, cfg, roster, head){
   head("Points Breakdown",
        (last ? data.games[data.games.length - 1] + " only" : "All " + data.games.length + " game(s)") +
        " · where each team's points came from",
-       [{label: "Placement points", colour: SERIES[0]}, {label: "Kill points", colour: SERIES[1]}]);
+       [{label: "Placement points", colour: SERIES[0]}, {label: "Elimination points", colour: SERIES[1]}]);
   const L = 250, R = 80;
   const pitch = Math.min(56, H / Math.max(1, rows.length));
   const bh = Math.min(24, pitch * 0.6);
@@ -573,7 +582,7 @@ function drawKills(svg, data, cfg, roster, head){
   const n = data.games.length;
   const cells = rows.flatMap(r => r.t.games.map(g => g ? g.kills : 0));
   const max = Math.max(1, ...cells);
-  head("Kills By Game", "Each team's kills in every game · darker = fewer, lighter = more", []);
+  head("Eliminations By Game", "Each team's eliminations in every game · darker = fewer, lighter = more", []);
   const L = 250, colW = Math.min(150, (W - L - 170) / Math.max(1, n));
   const pitch = Math.min(52, (H - 40) / Math.max(1, rows.length));
   const ch = pitch - 2;
@@ -611,7 +620,7 @@ function drawKills(svg, data, cfg, roster, head){
   const lx = W - 330, ly = H + 10;
   txt(svg, lx - 12, ly + 15, "0", {"text-anchor": "end", fill: "var(--text-3)", "font-size": 15});
   RAMP.forEach((c, k) => el("rect", {x: lx + k * 46, y: ly, width: 44, height: 18, rx: 3, fill: c}, svg));
-  txt(svg, lx + RAMP.length * 46 + 8, ly + 15, max + " kills", {fill: "var(--text-3)", "font-size": 15});
+  txt(svg, lx + RAMP.length * 46 + 8, ly + 15, max + " eliminations", {fill: "var(--text-3)", "font-size": 15});
 }
 
 function drawH2H(svg, data, cfg, roster, head){
@@ -650,7 +659,7 @@ function drawH2H(svg, data, cfg, roster, head){
   const metrics = [
     ["Total points", sa.total, sb.total, String],
     ["Placement points", sa.place, sb.place, String],
-    ["Kill points", sa.kills, sb.kills, String],
+    ["Elimination points", sa.kills, sb.kills, String],
     ["Booyahs", sa.booyahs, sb.booyahs, String],
     ["Points per game", sa.avg, sb.avg, v => v.toFixed(1)],
   ];
@@ -703,6 +712,11 @@ function render(state){
   let data = state.teamGraphs || { games: [], teams: [] };
   const demo = FORCE_DEMO || (PREVIEW && !(data.games || []).length);
   if(demo) data = sampleData(roster);
+  // Numbered from the game the operator picked (one game: that number),
+  // when the automatic numbering is not what is wanted.
+  const start = Number(cfg.gameStart) || 0;
+  if(start > 0 && (data.games || []).length)
+    data = Object.assign({}, data, { games: data.games.map((_, i) => "G" + (start + i)) });
 
   const panel = document.getElementById("panel");
   panel.classList.toggle("bg", !!cfg.bg);
@@ -710,9 +724,11 @@ function render(state){
   const ev = state.event || {};
   const themePick = String(_params.get("theme") || cfg.theme || "auto").toLowerCase();
   const theme = themePick === "auto"
-    ? (String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase() === "ss3" ? "ss3" : "arrow")
+    ? (["ss3", "chirayu"].includes(String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase()) ? "ss3" : "arrow")
     : themePick;
   document.body.classList.toggle("ss3", theme === "ss3");
+  document.body.classList.toggle("chirayu", theme === "ss3" &&
+    String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase() === "chirayu");
   panel.classList.toggle("on", visible);
   document.getElementById("sample").classList.toggle("on", demo);
   if(!visible){ lastSig = ""; return; }

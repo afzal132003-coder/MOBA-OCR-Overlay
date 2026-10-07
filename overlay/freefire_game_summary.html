@@ -146,8 +146,8 @@ function render(st){
   const m = g.mvp;
   const tiles = [
     ["MATCH MVP", m ? m.name : "--", null],
-    ["MVP ELIMS", m ? m.kills : null, ffTwo],
-    ["TOTAL KILLS", g.totalKills, v => String(v)],
+    ["MVP ELIMINATIONS", m ? m.kills : null, ffTwo],
+    ["TOTAL ELIMINATIONS", g.totalKills, v => String(v)],
     ["KNOCKS", g.totalKnocks, v => String(v)],
     ["GAME LENGTH", g.length, ffMmss],
   ];

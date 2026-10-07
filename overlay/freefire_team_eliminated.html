@@ -393,7 +393,7 @@ function apply(state){
   // "eliminated bug" art, team photo and all), so this one stands down
   // rather than doubling it. ARROW has no art for it and is drawn below.
   const pkg = String((state.event && (state.event.aliveAssetFolder || state.event.assetFolder)) || "").toLowerCase();
-  if(pkg === "ss3"){
+  if(pkg === "ss3" || pkg === "chirayu"){
     const c = document.getElementById("card");
     c.classList.remove("show", "anim-enter", "anim-exit");
     lastStatus = te.status;
@@ -448,10 +448,10 @@ function apply(state){
   fitName(nameEl);
 
   // A squad can genuinely go out on zero, so this is only hidden when the
-  // count is missing entirely -- "0 KILLS" is a real result, not a gap.
+  // count is missing entirely -- "0 ELIMINATIONS" is a real result, not a gap.
   const killsEl = document.getElementById("kills");
   killsEl.textContent = te.kills == null ? ""
-    : "TOTAL KILLS - " + te.kills;
+    : "TOTAL ELIMINATIONS - " + te.kills;
 
   if(hideTimer){ clearTimeout(hideTimer); hideTimer = null; }
 

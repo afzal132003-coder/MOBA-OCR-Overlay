@@ -2737,7 +2737,7 @@
       <p class="hint">Its own full-screen browser source (<code>overlay/freefire_team_graphs.html</code>), drawn from the
         committed games -- the same numbers as the points table. Four graphs: <strong>Points Race</strong>
         (cumulative points after each game), <strong>Points Breakdown</strong> (placement vs kill points, overall
-        or the last game), <strong>Kills By Game</strong> (every team, every game) and <strong>Head To
+        or the last game), <strong>Eliminations By Game</strong> (every team, every game) and <strong>Head To
         Head</strong> (two teams you pick). Background off makes it transparent for your designer's frame.</p>
       <div class="row" style="gap:10px;align-items:flex-end;flex-wrap:wrap;">
         <div class="team-form" style="max-width:200px;margin:0;">
@@ -2746,7 +2746,7 @@
             <option value="columns">Team Points (all teams, logos)</option>
             <option value="race">Points Race</option>
             <option value="breakdown">Points Breakdown</option>
-            <option value="kills">Kills By Game</option>
+            <option value="kills">Eliminations By Game</option>
             <option value="h2h">Head To Head</option>
           </select>
         </div>
@@ -2770,6 +2770,10 @@
         <label style="display:flex;align-items:center;gap:8px;margin:0 0 4px;">
           <input type="checkbox" id="ff_tgAnim" checked><span>Animation in &amp; out</span>
         </label>
+        <div class="team-form" style="max-width:170px;margin:0;">
+          <label for="ff_tgGameStart" title="How the games are numbered under the graph. Auto: by their place among the result files and the Current Game. Pick one to number them from it (one game shown: that number).">Game numbers</label>
+          <select id="ff_tgGameStart"><option value="0">Auto</option><option value="1">From G1</option><option value="2">From G2</option><option value="3">From G3</option><option value="4">From G4</option><option value="5">From G5</option><option value="6">From G6</option><option value="7">From G7</option><option value="8">From G8</option><option value="9">From G9</option><option value="10">From G10</option><option value="11">From G11</option><option value="12">From G12</option></select>
+        </div>
         <div class="team-form" style="max-width:150px;margin:0;">
           <label for="ff_tgTheme">Theme</label>
           <select id="ff_tgTheme"><option value="auto">Auto (package)</option>
@@ -3382,6 +3386,8 @@
       <div class="row" style="gap:10px;align-items:flex-end;flex-wrap:wrap;">
         <div class="team-form" style="max-width:340px;margin:0;"><label for="ff_pgGame">Game</label>
           <select id="ff_pgGame"><option value="">Latest finished game</option></select></div>
+        <div class="team-form" style="max-width:150px;margin:0;"><label for="ff_pgGameNo" title="Sets the label on the cards to GAME N">Game no.</label>
+          <select id="ff_pgGameNo"><option value="0">Auto / typed</option><option value="1">GAME 1</option><option value="2">GAME 2</option><option value="3">GAME 3</option><option value="4">GAME 4</option><option value="5">GAME 5</option><option value="6">GAME 6</option><option value="7">GAME 7</option><option value="8">GAME 8</option><option value="9">GAME 9</option><option value="10">GAME 10</option><option value="11">GAME 11</option><option value="12">GAME 12</option></select></div>
         <div class="team-form" style="max-width:200px;margin:0;"><label for="ff_pgLabel">Label on the cards</label>
           <input type="text" id="ff_pgLabel" placeholder="e.g. GAME 4"></div>
         <button class="secondary" id="ff_pgRefresh">Refresh</button>
@@ -3521,6 +3527,10 @@
           <label for="ff_mvTheme">Theme</label>
           <select id="ff_mvTheme"><option value="auto">Auto (package)</option><option value="arrow">Default</option>
             <option value="ss3">SS3</option></select>
+        </div>
+        <div class="team-form" style="max-width:150px;margin:0;">
+          <label for="ff_mvGameNo" title="The game number the graphic prints. Auto: the label typed below, else the event's Current Game.">Game no. on graphic</label>
+          <select id="ff_mvGameNo"><option value="0">Auto</option><option value="1">Game 1</option><option value="2">Game 2</option><option value="3">Game 3</option><option value="4">Game 4</option><option value="5">Game 5</option><option value="6">Game 6</option><option value="7">Game 7</option><option value="8">Game 8</option><option value="9">Game 9</option><option value="10">Game 10</option><option value="11">Game 11</option><option value="12">Game 12</option></select>
         </div>
         <label class="hint" style="display:flex;gap:6px;align-items:center;margin:0 0 8px;"><input type="checkbox" id="ff_mvBg" checked> Background</label>
         <label class="hint" style="display:flex;gap:6px;align-items:center;margin:0 0 8px;"><input type="checkbox" id="ff_mvAnim" checked> Animation in &amp; out</label>
@@ -7004,8 +7014,9 @@ function ffOpen(url){
         ffMvConfirmShow = null;
         if(msg.ok){
           ffMvGameDirty = false;
-          // a new game has new squads, so no team is picked yet
-          ffMvSend(Object.assign({ teams: [] }, show ? { visible: true } : {}));
+          // An engine from before one-step Confirm loads only: send the
+          // choices after it (a new game has new squads, so none picked).
+          if(!msg.applied) ffMvSend(Object.assign({ teams: [] }, show ? { visible: true } : {}));
           ffMvDirty = false;
           ffMvSay(show ? "Game loaded and map pushed up." : "Confirmed -- the graphic has this game and your choice.", "#4ade80");
         } else {
@@ -7014,7 +7025,7 @@ function ffOpen(url){
       }
       const el = document.getElementById("ff_mvLoaded");
       if(el) el.textContent = msg.ok
-        ? "Loaded: " + msg.mapName + " · " + msg.playedAt + " · " + msg.zones + " zones · " + msg.kills + " kills"
+        ? (msg.reused ? "Already loaded: " : "Loaded: ") + msg.mapName + " · " + msg.playedAt + " · " + msg.zones + " zones · " + msg.kills + " eliminations"
         : "⚠ " + (msg.error || "could not load that game");
     } else if(msg.type === "booyah_stats_result"){
       ffReplyArrived("booyahStats");
@@ -11132,11 +11143,17 @@ function ffSyncPlayerH2H(){
    request (map_view_match) because it reads files and takes a second. */
 function ffMvSend(extra){
   if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return false;
+  ffWs.send(JSON.stringify(ffMvChoice(extra)));
+  return true;
+}
+// Everything this card sets, as one map_view message.
+function ffMvChoice(extra){
   const show = {};
   document.querySelectorAll(".ff-mv-show").forEach(el => { show[el.dataset.k] = el.checked; });
   const teams = Array.from(document.querySelectorAll(".ff-mv-team")).filter(el => el.checked).map(el => Number(el.dataset.squad));
-  ffWs.send(JSON.stringify(Object.assign({
+  return Object.assign({
     type: "map_view",
+    gameNo: Number(document.getElementById("ff_mvGameNo").value) || 0,
     source: document.getElementById("ff_mvSource").value,
     template: document.getElementById("ff_mvTemplate").value,
     dropMap: document.getElementById("ff_mvDropMap").value ? Number(document.getElementById("ff_mvDropMap").value) : null,
@@ -11151,8 +11168,7 @@ function ffMvSend(extra){
     matchLabel: document.getElementById("ff_mvMatchLabel").value.trim(),
     mapLabel: document.getElementById("ff_mvMapLabel").value.trim(),
     roundLabel: document.getElementById("ff_mvRoundLabel").value.trim(),
-  }, extra || {})));
-  return true;
+  }, extra || {});
 }
 /* CONFIRM, NOT LIVE -- as for the team graphs. A change in this card is
    held until Confirm (or Push Map Up): that loads the picked game when
@@ -11167,10 +11183,12 @@ function ffMvConfirm(show){
   if(ffMvGameDirty || pick === ""){
     // the game first; everything else follows once it has loaded
     ffMvConfirmShow = !!show;
-    document.getElementById("ff_mvLoaded").textContent = "Reading the replay and the log...";
+    document.getElementById("ff_mvLoaded").textContent = "Checking the game...";
     ffAwaitReply("mapView", "ff_mvLoaded", "the game was never sent back", 25);
-    ffWs.send(JSON.stringify({ type: "map_view_match", matchId: pick || "" }));
-    ffMvSay("Loading the game...", "#9aa7b5");
+    const view = ffMvChoice(show ? { visible: true } : {});
+    delete view.type;
+    ffWs.send(JSON.stringify({ type: "map_view_match", matchId: pick || "", view }));
+    ffMvSay(show ? "Pushing..." : "Sending...", "#9aa7b5");
     return;
   }
   ffMvSend(show ? { visible: true } : {});
@@ -11270,6 +11288,7 @@ function ffSyncMapView(){
   ffMvDrawDrops();
   if(!ffMvListAsked) ffMvAskList();
   set("ff_mvZoom", mv.zoom || "map");
+  set("ff_mvGameNo", String(mv.gameNo || 0));
   set("ff_mvPathScope", mv.pathScope || "all");
   set("ff_mvTheme", mv.theme || "auto");
   set("ff_mvBg", mv.bg !== false, "checked");
@@ -11305,7 +11324,7 @@ function ffSyncMapView(){
 }
 (function ffWireMapView(){
   if(!document.getElementById("ff_mvSource")) return;
-  ["ff_mvSource", "ff_mvTemplate", "ff_mvDropMap", "ff_mvZoom", "ff_mvPathScope", "ff_mvTheme", "ff_mvBg", "ff_mvAnim", "ff_mvReplay", "ff_mvReplaySecs"].forEach(id =>
+  ["ff_mvSource", "ff_mvTemplate", "ff_mvGameNo", "ff_mvDropMap", "ff_mvZoom", "ff_mvPathScope", "ff_mvTheme", "ff_mvBg", "ff_mvAnim", "ff_mvReplay", "ff_mvReplaySecs"].forEach(id =>
     document.getElementById(id).addEventListener("change", ffMvStage));
   document.getElementById("ff_mvPick").addEventListener("change", () => { ffMvGameDirty = true; ffMvStage(); });
   const drops = (op, extra) => {
@@ -11381,6 +11400,7 @@ function ffTgSend(extra){
     bg: document.getElementById("ff_tgBg").checked,
     animate: document.getElementById("ff_tgAnim").checked,
     theme: document.getElementById("ff_tgTheme").value,
+    gameStart: Number(document.getElementById("ff_tgGameStart").value) || 0,
   }, extra || {});
   ffWs.send(JSON.stringify(msg));
   return true;
@@ -11420,7 +11440,7 @@ function ffTgShowFields(){
 }
 (function ffWireTeamGraphs(){
   if(!document.getElementById("ff_tgGraph")) return;
-  ["ff_tgGraph", "ff_tgScope", "ff_tgTop", "ff_tgA", "ff_tgB", "ff_tgBg", "ff_tgAnim", "ff_tgTheme"].forEach(id =>
+  ["ff_tgGraph", "ff_tgScope", "ff_tgTop", "ff_tgA", "ff_tgB", "ff_tgBg", "ff_tgAnim", "ff_tgTheme", "ff_tgGameStart"].forEach(id =>
     document.getElementById(id).addEventListener("change", () => { ffTgShowFields(); ffTgStage(); }));
   // ticking a game is a change like any other
   document.addEventListener("change", e => { if(e.target && e.target.classList && e.target.classList.contains("ff-tg-file")) ffTgStage(); });
@@ -11458,6 +11478,7 @@ function ffSyncTeamGraphs(){
   set("ff_tgBg", cfg.bg != null ? !!cfg.bg : null, "checked");
   set("ff_tgAnim", cfg.animate != null ? cfg.animate !== false : null, "checked");
   set("ff_tgTheme", cfg.theme || "auto");
+  set("ff_tgGameStart", String(cfg.gameStart || 0));
   ffTgShowFields();
   if(!ffTgDirty) ffTgSay(cfg.visible ? "On air." : "");
 }
@@ -13738,7 +13759,8 @@ const FFGFX_ELIM_BOXES_SS3 = {
 };
 function ffgfxElimPackage(){
   const ev = (ffState && ffState.event) || {};
-  return (ev.aliveAssetFolder || ev.assetFolder || "CLT") === "ss3" ? "ss3" : "";
+  // CHIRAYU is the SS3 package copied, same card geometry: SS3's nudges
+  return ["ss3", "CHIRAYU"].includes(ev.aliveAssetFolder || ev.assetFolder || "CLT") ? "ss3" : "";
 }
 // Where a page's nudge is stored: the SS3 card's under its own keys, and
 // the alive table's under the alive package's own (SS3 / PRG ARROW), so a
@@ -13747,7 +13769,7 @@ function ffgfxStoreKey(pageKey){
   if(FFGFX_ELIM_BOXES[pageKey] && ffgfxElimPackage()) return pageKey + "@" + ffgfxElimPackage();
   if(/^aliveStatus/.test(pageKey)){
     const ev = (ffState && ffState.event) || {};
-    const pk = { "ss3": "ss3", "PRG ARROW": "arrow" }[ev.aliveAssetFolder || ev.assetFolder || ""];
+    const pk = { "ss3": "ss3", "CHIRAYU": "ss3", "PRG ARROW": "arrow" }[ev.aliveAssetFolder || ev.assetFolder || ""];
     if(pk) return pageKey + "@" + pk;
   }
   return pageKey;
@@ -14286,6 +14308,9 @@ function ffSyncPostGame(ff){
   if(sel !== document.activeElement && sel.value !== (pg.matchId || "")) sel.value = pg.matchId || "";
   const lab = document.getElementById("ff_pgLabel");
   if(lab !== document.activeElement && lab.value !== (pg.label || "")) lab.value = pg.label || "";
+  const gn = document.getElementById("ff_pgGameNo");
+  const gm = /^GAME (\d{1,2})$/i.exec(pg.label || "");
+  if(gn && gn !== document.activeElement) gn.value = gm && Number(gm[1]) <= 12 ? gm[1] : "0";
   const g = pg.game || {};
   const st = document.getElementById("ff_pgStatus");
   if(st && !st.dataset.busy) st.textContent = g.teams
@@ -14304,6 +14329,11 @@ function ffSyncPostGame(ff){
   };
   document.getElementById("ff_pgGame").addEventListener("change", () => send());
   document.getElementById("ff_pgLabel").addEventListener("change", () => send());
+  document.getElementById("ff_pgGameNo").addEventListener("change", e => {
+    const n = Number(e.target.value) || 0;
+    document.getElementById("ff_pgLabel").value = n ? "GAME " + n : "";
+    send();
+  });
   document.getElementById("ff_pgRefresh").addEventListener("click", () => send());
 })();
 

@@ -35,6 +35,7 @@
     --accent:#f7941d; --zone:#ffffff; --next:#ffe97a; --pin:#ee1c25;
   }
   body.ss3{ --surface:#0e0e0e; --accent:#ff1e1e; --text-3:#b39b9b; }
+  body.ss3.chirayu{ --surface:#131d32; --accent:#d4b25a; --next:#f3d77e; --text-2:#c9d5ea; --text-3:#9fb0cc; }
   body.ss3, body.ss3 svg text, body.tpl-ss3, body.tpl-ss3 svg text{ font-family:'TacticSans',Arial,sans-serif !important; }
 
   html,body{margin:0;padding:0;background:transparent;overflow:hidden;}
@@ -60,6 +61,11 @@
     background:radial-gradient(120% 90% at 50% 0%, rgba(255,30,30,.28) 0%, rgba(14,14,14,0) 60%),
                repeating-linear-gradient(115deg, rgba(255,30,30,.05) 0 2px, transparent 2px 22px), var(--surface);
   }
+  body.ss3.chirayu #panel.bg{
+    background:radial-gradient(120% 90% at 50% 0%, rgba(62,90,150,.45) 0%, rgba(19,29,50,0) 60%),
+               repeating-linear-gradient(115deg, rgba(127,151,187,.06) 0 2px, transparent 2px 22px), var(--surface);
+    border-top-color:#cdaa4e;
+  }
   #panel:not(.bg) .side{ text-shadow:0 2px 6px rgba(0,0,0,.85); }
   #stdMap{width:808px;height:808px;flex:0 0 808px;position:relative;}
   #mapbox{position:relative;width:100%;height:100%;overflow:hidden;background:#0b1210;}
@@ -70,7 +76,10 @@
      circle by circle beside it. */
   body.stats #stdMap{width:700px;height:700px;flex:0 0 700px;}
   body.stats #panel{gap:36px;}
-  .cs{margin-top:16px;width:100%;border-collapse:separate;border-spacing:0 3px;font-weight:800;}
+  /* Fixed layout: every circle column the same width, so a line's length
+     reads as time survived. */
+  .cs{margin-top:16px;width:100%;border-collapse:separate;border-spacing:0 3px;font-weight:800;table-layout:fixed;}
+  .cs th.sq{width:290px;}
   .cs th{height:38px;font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:#111;white-space:nowrap;}
   .cs th.sq{text-align:left;padding-left:12px;color:var(--text-2);background:rgba(255,255,255,.06);}
   .cs th.c{background:var(--accent);}
@@ -89,8 +98,29 @@
   .cs .badge{display:inline-block;margin-left:5px;padding:3px 7px;border-radius:3px;font-size:12px;letter-spacing:.06em;color:#fff;
              vertical-align:middle;}
   .cs .badge.out{background:#c62f2f;}
-  .cs .badge.win{background:#1f9a4a;}
-  .stage.on .cs tr{animation:rowin .45s cubic-bezier(.2,.8,.3,1) both;}
+  .cs .badge.win{background:var(--next);color:#111;}
+  /* THE LIFE LINE: one per squad, drawn left to right through every circle
+     it was alive in -- to the middle of the circle it went OUT in, or on
+     to BOOYAH. Each cell holds its piece and starts it as the one before
+     finishes (--d, --seg), so it reads as one line growing. The number
+     and the badges sit on it in their own chips and pop as it reaches
+     them. */
+  .cs td.c .life{position:absolute;left:0;right:0;top:50%;height:4px;margin-top:-2px;
+                 background:var(--accent);transform-origin:left center;transform:scaleX(0);
+                 box-shadow:0 0 8px var(--accent);}
+  .cs td.c .life.half{right:50%;}
+  .cs td.c .life.win{background:var(--next);box-shadow:0 0 8px var(--next);}
+  .cs td.c > span{position:relative;z-index:1;}
+  .cs td.c .k{background:var(--surface);padding:2px 8px 2px 6px;border-radius:12px;
+              box-shadow:0 0 0 1px rgba(255,255,255,.08);}
+  .cs td.c .badge{position:relative;z-index:1;}
+  .cs td.sq .pl{width:30px;flex:0 0 30px;color:var(--text-3);font-size:15px;font-variant-numeric:tabular-nums;}
+  #panel.on .cs tr{animation:rowin .45s cubic-bezier(.2,.8,.3,1) both;}
+  #panel.on .cs .life{animation:grow var(--seg) linear var(--d) forwards;}
+  @keyframes grow{to{transform:scaleX(1);}}
+  #panel.on .cs td.c .k, #panel.on .cs td.c .badge{animation:chip .32s cubic-bezier(.2,.9,.3,1.3) var(--c) both;}
+  @keyframes chip{from{opacity:0;transform:scale(.4);}to{opacity:1;transform:none;}}
+  body.still .cs .life{transform:none;}
   .kicker{font-weight:800;font-size:18px;letter-spacing:.22em;text-transform:uppercase;color:var(--text-2);}
   .kicker::before{content:"";display:block;width:30px;height:4px;background:var(--accent);margin:0 0 9px;}
   .title{font-weight:900;font-style:italic;font-size:58px;line-height:1;margin-top:4px;text-transform:uppercase;color:var(--accent);}
@@ -221,7 +251,7 @@ const WS_URL = _relay
 // ?preview=1 draws whether or not it is on air (the dashboard's preview).
 const PREVIEW = _params.get("preview") === "1";
 const NS = "http://www.w3.org/2000/svg";
-const SS3_ART = "assets/freefire/ss3/" + encodeURI("prg br ss3 drop spot - BLANK.png");
+let SS3_ART = "assets/freefire/ss3/" + encodeURI("prg br ss3 drop spot - BLANK.png");   // per package
 
 const SQUAD_COLOURS = ["#4d9fff", "#ffa53d", "#4ade80", "#ff6b6b", "#b57bff", "#2dd4bf",
                        "#f472b6", "#facc15", "#60a5fa", "#fb923c", "#a3e635", "#e879f9"];
@@ -561,20 +591,36 @@ function sideStats(view, roster){
     return { s, per, total: per.reduce((a, b) => a + b, 0),
              out: s.place === 1 ? null : (s.out != null ? circleOf(s.out) : null) };
   });
-  rows.sort((a, b) => (b.total - a.total) || ((a.s.place || 99) - (b.s.place || 99)));
-  const head = `<tr><th class="sq">SQUAD<span style="float:right;margin-right:10px;">KILLS</span></th>` +
+  // In the order they finished, so the life lines step down the table:
+  // the winner's runs the whole way, the first out's stops first.
+  rows.sort((a, b) => ((a.s.place || 99) - (b.s.place || 99)) || (b.total - a.total));
+  const SEG = 0.28;
+  const head = `<tr><th class="sq">SQUAD<span style="float:right;margin-right:10px;">ELIMINATIONS</span></th>` +
     Array.from({ length: n }, (_, i) => `<th class="c">CIRCLE ${i + 1}</th>`).join("") + `</tr>`;
   const body = rows.map((r, ri) => {
     const team = teamFor(r.s.teamName, roster);
     const tag = (team && team.shortName) || r.s.teamName || ("SQUAD " + r.s.squad);
+    const win = r.s.place === 1;
+    // how far its line runs: through the circle it went out in (to the
+    // middle), the whole way for the winner, nowhere when not known
+    const reach = win ? n : (r.out || 0);
+    const start = .35 + ri * .05 + .35;
     const cells = r.per.map((v, i) => {
       const c = i + 1;
-      let html = v ? `<span class="k"><i></i>x${v}</span>` : "";
-      if(r.out === c) html += `<span class="badge out">OUT</span>`;
-      if(r.s.place === 1 && c === n) html += `<span class="badge win">BOOYAH</span>`;
+      const d = start + i * SEG;
+      let html = "";
+      if(c <= reach){
+        const half = !win && c === r.out;
+        html += `<b class="life${half ? " half end" : ""}${win ? " win" : ""}" style="--d:${d.toFixed(2)}s;--seg:${(half ? SEG / 2 : SEG).toFixed(2)}s"></b>`;
+      }
+      const at = `--c:${(d + SEG * .5).toFixed(2)}s`;
+      if(v) html += `<span class="k" style="${at}"><i></i>x${v}</span>`;
+      if(r.out === c) html += `<span class="badge out" style="${at}">OUT</span>`;
+      if(win && c === n) html += `<span class="badge win" style="--c:${(d + SEG).toFixed(2)}s">BOOYAH</span>`;
       return `<td class="c">${html}</td>`;
     }).join("");
     return `<tr style="animation-delay:${(.35 + ri * .05).toFixed(2)}s"><td class="sq"><div class="in">` +
+      `<span class="pl">${r.s.place ? "#" + r.s.place : ""}</span>` +
       (team && team.logo ? `<img src="${team.logo}">` : `<span style="width:30px"></span>`) +
       `<span class="nm">${esc(tag)}</span><span class="tk">${r.total}</span></div></td>${cells}</tr>`;
   }).join("");
@@ -596,7 +642,7 @@ function sideMatch(view, cfg, roster){
     const dim = !filtered && cfg.pathScope === "top4" && !picked.has(s.squad) && (cfg.show || {}).paths !== false;
     return `<div class="trow${s.place === 1 ? " win" : ""}${dim ? " dim" : ""}" style="animation-delay:${(.3 + i * .05).toFixed(2)}s">` +
            `<i style="background:${colourOf(s.squad)}"></i>${logo}` +
-           `<span class="nm">${esc(shortOf(s, roster))}</span><span class="k">${s.kills}<small>${s.kills === 1 ? "KILL" : "KILLS"}</small></span>` +
+           `<span class="nm">${esc(shortOf(s, roster))}</span><span class="k">${s.kills}<small>${s.kills === 1 ? "ELIMINATION" : "ELIMINATIONS"}</small></span>` +
            `<span class="p">${s.place ? "#" + s.place : ""}</span></div>`;
   }).join("");
   return zones + "<div class='teams'>" + rows + "</div>";
@@ -699,8 +745,9 @@ function ss3Frame(){
   if(art.getAttribute("src") !== SS3_ART) art.src = SS3_ART;
   // The frame border and both tags, put back over the map from the art.
   const over = document.getElementById("ss3Over");
-  if(over.dataset.ready) return;
-  over.dataset.ready = "1";
+  if(over.dataset.ready === SS3_ART) return;
+  over.dataset.ready = SS3_ART;
+  over.innerHTML = "";
   const strip = (x, y, w, h, cls, delay) => {
     const d = document.createElement("div");
     d.className = "sprite" + (cls ? " " + cls : "");
@@ -758,7 +805,7 @@ function legendHtml(mode, show){
   if(show.zones !== false) items.push(`<span><svg width="22" height="22"><circle cx="11" cy="11" r="8" fill="none" stroke="#fff" stroke-width="3"/></svg>Zone</span>`);
   if(show.plane !== false) items.push(`<span><svg width="30" height="10"><line x1="1" y1="5" x2="29" y2="5" stroke="#fff" stroke-width="3" stroke-dasharray="7 5"/></svg>Plane</span>`);
   if(mode === "match"){
-    if(show.kills !== false) items.push(`<span><svg width="16" height="16"><circle cx="8" cy="8" r="6" fill="#ffa53d" stroke="#000" stroke-width="2"/></svg>Kill (killer's colour)</span>`);
+    if(show.kills !== false) items.push(`<span><svg width="16" height="16"><circle cx="8" cy="8" r="6" fill="#ffa53d" stroke="#000" stroke-width="2"/></svg>Elimination (eliminator's colour)</span>`);
     if(show.paths !== false) items.push(`<span><svg width="44" height="16"><rect x="1" y="2" width="12" height="12" rx="2" fill="#111" stroke="#4d9fff" stroke-width="2"/><line x1="13" y1="8" x2="38" y2="8" stroke="#4d9fff" stroke-width="4"/><circle cx="38" cy="8" r="6" fill="#4d9fff"/></svg>Rotation: drop &rarr; zones &rarr; finish</span>`);
   }
   return items.join("");
@@ -774,8 +821,12 @@ function render(state){
   document.body.classList.toggle("still", !animate);
   const ev = state.event || {};
   const theme = String(_params.get("theme") || cfg.theme || "auto").toLowerCase();
-  const ss3Theme = theme === "ss3" || ((theme === "auto" || theme === "") &&
-                   String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase() === "ss3");
+  const pkg = String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase();
+  const ss3Theme = theme === "ss3" || ((theme === "auto" || theme === "") && (pkg === "ss3" || pkg === "chirayu"));
+  // CHIRAYU GOLD LEAGUE: the SS3 graphic with its own art and colours
+  const chirayu = pkg === "chirayu" && (ss3Theme || cfg.template === "ss3");
+  document.body.classList.toggle("chirayu", chirayu);
+  SS3_ART = "assets/freefire/" + (chirayu ? "CHIRAYU" : "ss3") + "/" + encodeURI("prg br ss3 drop spot - BLANK.png");
   const mode = ["match", "drops", "stats"].includes(cfg.source) ? cfg.source : "live";
   document.body.classList.toggle("stats", mode === "stats");
   // The SS3 artwork has "PREFERRED DROP SPOT" in it, so it is used for the
@@ -807,7 +858,9 @@ function render(state){
     pins = dropPins(state, cfg);
     view = m ? { image: m.image, mapName: m.name } : null;
   }
-  const sig = JSON.stringify([tpl, mode, view, pins, cfg.show, cfg.teams, cfg.replay, cfg.replaySeconds, cfg.shownAt,
+  // The game number: the operator's pick, else the typed label.
+  const gameLabel = cfg.gameNo ? "Game " + cfg.gameNo : (cfg.matchLabel || "");
+  const sig = JSON.stringify([tpl, mode, view, pins, cfg.show, cfg.teams, cfg.replay, cfg.replaySeconds, cfg.shownAt, cfg.gameNo,
                               cfg.zoom, ev.currentGame, ev.roundName, cfg.matchLabel, cfg.mapLabel, cfg.roundLabel,
                               ((roster.teams) || []).map(t => [t.name, t.shortName, t.displayName, !!t.logo])]);
   if(sig === lastSig) return;
@@ -839,7 +892,7 @@ function render(state){
   } else if(mode === "match"){
     document.getElementById("title").textContent = "Zone Map";
     document.getElementById("sub").textContent =
-      [view.mapName, view.playedAt ? view.playedAt.slice(11) : "", mmss(view.duration), (view.kills || []).length + " kills"]
+      [cfg.gameNo ? gameLabel : "", view.mapName, view.playedAt ? view.playedAt.slice(11) : "", mmss(view.duration), (view.kills || []).length + ((view.kills || []).length === 1 ? " elimination" : " eliminations")]
         .filter(Boolean).join(" · ");
     const replaying = !!cfg.replay;
     const nodes = drawMatch(svg, view, cfg, roster, animate && !replaying);
@@ -848,7 +901,7 @@ function render(state){
   } else if(mode === "stats"){
     document.getElementById("title").textContent = "Map & Team Stats";
     document.getElementById("sub").textContent =
-      [cfg.matchLabel, view.mapName, mmss(view.duration), (view.kills || []).length + " kills"].filter(Boolean).join(" · ");
+      [gameLabel, view.mapName, mmss(view.duration), (view.kills || []).length + ((view.kills || []).length === 1 ? " elimination" : " eliminations")].filter(Boolean).join(" · ");
     // the map: the zones and the plane, nothing over them
     // fitted to the first circle so the zones read large; Endgame still zooms in further
     drawMatch(svg, view, Object.assign({}, cfg, { zoom: cfg.zoom === "end" ? "end" : "zones",
@@ -870,7 +923,8 @@ function render(state){
   if(tpl === "ss3"){
     ss3Frame();
     // Typed in the dashboard wins; blank follows the event and the map.
-    document.getElementById("ss3Match").textContent = cfg.matchLabel || ("Match " + (ev.currentGame || 1));
+    document.getElementById("ss3Match").textContent = cfg.gameNo ? "Match " + cfg.gameNo
+                                                     : (cfg.matchLabel || ("Match " + (ev.currentGame || 1)));
     document.getElementById("ss3MapName").textContent = cfg.mapLabel || (view && view.mapName) || "";
     // The round bar is slanted at both ends and its text centred, so the
     // text's own width is measured against the straight part of the bar.

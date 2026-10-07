@@ -54,6 +54,7 @@
   #tName{ left:60px; top:607px; width:238px; height:42px; font-size:26px; white-space:nowrap; }
   .ss3 #tTitle, .ss3 #tValue, .ss3 #tName{ font-family:'SMBlack',Arial,sans-serif; }
   .ss3 #tLabel{ font-family:'SMXB',Arial,sans-serif; }
+  .chirayu #tTitle{ color:#22345a !important; } .chirayu #tLabel{ color:#f3d77e !important; }
   .ss3 #tTitle{ color:#ff1810; } .ss3 #tValue{ color:#fff; } .ss3 #tLabel{ color:#fff894; } .ss3 #tName{ color:#111; }
   /* ARROW draws what the SS3 art carries */
   #aPanel, #aTab, #aPhotoBox, #aPlate, #aLogoBox{ display:none; }
@@ -113,7 +114,7 @@ const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
 const WS_URL = _relay
   ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_headshot_hunter&rostercache=1"
   : "ws://localhost:8765?page=freefire_headshot_hunter&rostercache=1";
-const SS3_ART = "assets/freefire/ss3/" + encodeURI("prg br ss3 achivement - BLANK.png");
+let SS3_ART = "assets/freefire/ss3/" + encodeURI("prg br ss3 achivement - BLANK.png");   // per package
 let ws, _lastRoster = null;
 function connect(){
   ws = new WebSocket(WS_URL);
@@ -149,12 +150,16 @@ function hidePopup(el){
 function look(state){
   const ev = (state && state.event) || {};
   const f = String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase();
-  return f === "ss3" ? "ss3" : (f === "prg arrow" ? "arrow" : "");
+  return (f === "ss3" || f === "chirayu") ? "ss3" : (f === "prg arrow" ? "arrow" : "");
 }
 
 function fillThemed(hh, state, theme){
   document.body.classList.toggle("ss3", theme === "ss3");
   document.body.classList.toggle("arrow", theme === "arrow");
+  const ev = (state && state.event) || {};
+  const chirayu = theme === "ss3" && String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase() === "chirayu";
+  document.body.classList.toggle("chirayu", chirayu);
+  SS3_ART = "assets/freefire/" + (chirayu ? "CHIRAYU" : "ss3") + "/" + encodeURI("prg br ss3 achivement - BLANK.png");
   const art = document.getElementById("tArt");
   if(theme === "ss3" && art.getAttribute("src") !== SS3_ART) art.src = SS3_ART;
   const roster = (state && state.roster) || {};

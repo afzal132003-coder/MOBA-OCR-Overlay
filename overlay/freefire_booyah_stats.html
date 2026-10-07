@@ -138,8 +138,9 @@ const WS_URL = _relay
   ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_booyah_stats&rostercache=1"
   : "ws://localhost:8765?page=freefire_booyah_stats&rostercache=1";
 const PREVIEW = _params.get("preview") === "1";
-const ART1 = "assets/freefire/ss3/" + encodeURI("booyah team stats R - BLANK1.png");
-const ART2 = "assets/freefire/ss3/" + encodeURI("booyah team stats character R - BLANK.png");
+// The package's art: SS3's, or CHIRAYU's copy of it (set per render).
+let ART1 = "assets/freefire/ss3/" + encodeURI("booyah team stats R - BLANK1.png");
+let ART2 = "assets/freefire/ss3/" + encodeURI("booyah team stats character R - BLANK.png");
 const CARD_X = [502, 1181], CARD_Y = [336, 629];
 
 // Slide 2 boxes, relative to a card's corner.
@@ -350,11 +351,13 @@ function render(state){
 
   // SS3 draws on its own art; every other package on the ARROW kit.
   ARROW = ffApplyTheme(state) !== "ss3";
+  ART1 = ffArtDir(state) + encodeURI("booyah team stats R - BLANK1.png");
+  ART2 = ffArtDir(state) + encodeURI("booyah team stats character R - BLANK.png");
   const roster = state.roster || {};
   const rows = b.rows || {};
   const ev = state.event || {};
   const sig = JSON.stringify([ARROW, rows, b.roundLabel, ev.roundName, b.shownAt,
-                              ((roster.teams) || []).map(t => [t.name, !!t.logo])]);
+                              ((roster.teams) || []).map(t => [t.name, !!t.logo]), ART1]);
   if(sig !== lastSig){
     const replay = !lastSig || JSON.parse(lastSig)[4] !== b.shownAt;
     lastSig = sig;

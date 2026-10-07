@@ -93,6 +93,19 @@
                                       rgba(255,30,30,.15) 62%, #ff1e1e 100%);
   }
   body[data-theme="ss3"] .slot{ border-color:rgba(255,30,30,.35); }
+  body.chirayu[data-theme="ss3"]{ --amber:#f3d77e; --amber-deep:#cdaa4e; --green-0:#1c2b4d; --green-1:#0f1728;
+    --panel:#17233d; --panel-lit:#22345a; --muted:#9fb0cc; }
+  body.chirayu[data-theme="ss3"] #stage{
+    background:
+      radial-gradient(120% 180% at 50% 0%, rgba(62,90,150,.45) 0%, rgba(15,23,40,0) 68%),
+      repeating-linear-gradient(115deg, rgba(127,151,187,.07) 0 2px, transparent 2px 18px),
+      linear-gradient(180deg, var(--green-0) 0%, var(--green-1) 100%);
+    border-top-color:#cdaa4e;
+  }
+  body.chirayu[data-theme="ss3"] #stage::before{
+    background:linear-gradient(90deg, #cdaa4e 0%, rgba(205,170,78,.15) 38%, rgba(205,170,78,.15) 62%, #cdaa4e 100%);
+  }
+  body.chirayu[data-theme="ss3"] .slot{ border-color:rgba(127,151,187,.35); }
   /* Tactic Sans runs wider than Supermolot: "YET TO JOIN" was clipped. */
   body[data-theme="ss3"] .state{ font-size:11px; letter-spacing:.01em; gap:5px; }
   body[data-theme="ss3"] .head .title,
@@ -597,13 +610,16 @@ function lobbyTheme(ff){
   if(pick === "ss3" || pick === "arrow") return pick;
   const ev = ff.event || {};
   const folder = String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase();
-  return folder === "ss3" ? "ss3" : "arrow";
+  return (folder === "ss3" || folder === "chirayu") ? "ss3" : "arrow";
 }
 
 function render(ff){
   const teams = ((ff.roster || {}).teams) || [];
   const lobby = ff.lobby || {};
   document.body.dataset.theme = lobbyTheme(ff);
+  const lev = ff.event || {};
+  document.body.classList.toggle("chirayu", document.body.dataset.theme === "ss3" &&
+    String(lev.aliveAssetFolder || lev.assetFolder || "").toLowerCase() === "chirayu");
   timerState = lobby.timer || null;
   drawTimer();
   const joined = lobby.joined || {};

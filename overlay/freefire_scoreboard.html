@@ -568,7 +568,7 @@ function applyFreefire(ff){
 /* ---- SS3 / ARROW tables -------------------------------------------- */
 function themedPackage(ff){
   const f = String((ff.event && ff.event.assetFolder) || "").toLowerCase();
-  return f === "ss3" ? "ss3" : (f === "prg arrow" ? "arrow" : "");
+  return (f === "ss3" || f === "chirayu") ? "ss3" : (f === "prg arrow" ? "arrow" : "");
 }
 
 // Overall: the same games as the Team Graphs (picked result files or the

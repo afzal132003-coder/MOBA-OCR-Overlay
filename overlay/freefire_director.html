@@ -129,7 +129,7 @@
   </div>
   <div class="panel">
     <h2>Match</h2>
-    <div class="stat"><span class="k">Kill leader</span>
+    <div class="stat"><span class="k">Elimination leader</span>
       <span class="v" id="leader">—</span></div>
     <div class="stat"><span class="k">Squads up</span>
       <span class="v" id="up">—</span></div>
@@ -207,7 +207,7 @@ function render(d){
       "<div class='fteams'>" + tags(e.teamInfo, e.teams, "vs") + "</div>" +
       "<div class='fmeta'>" + (e.status === "live" ? "<span class='taglive'>LIVE</span>" : "") +
       "<span>" + e.knocks + " knocks &middot; " + e.kills +
-      " kills</span><span>" + e.secondsAgo + "s ago</span>" + where + "</div>" +
+      " eliminations</span><span>" + e.secondsAgo + "s ago</span>" + where + "</div>" +
       "<div class='bar'><i style='width:" +
       Math.max(6, Math.round(100 * e.weight / (top || 1))) + "%'></i></div></div>";
   }).join("") : "<div class='empty'>no fight going on right now</div>";

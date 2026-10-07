@@ -4623,12 +4623,12 @@ def roster_rows(roster_teams):
 # ---------------------------------------------------------------------------
 SIDE_POPUP_TYPES = {
     # key: (title on the card, label under the number)
-    "firstBlood": ("FIRST BLOOD", "ELIM"),
-    "killLeader": ("KILL LEADER", "ELIMS"),
-    "rampage":    ("RAMPAGE", "ELIMS IN 30s"),
-    "soloWipe":   ("SQUAD WIPE", "SOLO ELIMS"),
-    "clutch":     ("CLUTCH", "ELIMS"),
-    "headshot":   ("HEADSHOT", "ELIMS"),
+    "firstBlood": ("FIRST BLOOD", "ELIMINATION"),
+    "killLeader": ("ELIMINATION LEADER", "ELIMINATIONS"),
+    "rampage":    ("RAMPAGE", "ELIMINATIONS IN 30s"),
+    "soloWipe":   ("SQUAD WIPE", "SOLO ELIMINATIONS"),
+    "clutch":     ("CLUTCH", "ELIMINATIONS"),
+    "headshot":   ("HEADSHOT", "ELIMINATIONS"),
     "teamsLeft":  ("TEAMS LEFT", "REMAINING"),
 }
 RAMPAGE_WINDOW_SECONDS = 30.0
@@ -4891,6 +4891,8 @@ def detect_side_popups(new_events, live):
 
     def popup(kind, ev, value, ign=None, uid=None, gs=None):
         title, label = SIDE_POPUP_TYPES[kind]
+        if value == 1:
+            label = label.replace("ELIMINATIONS", "ELIMINATION")
         row = team_of.get(gs if gs is not None else ev.get("killerTeam")) or {}
         ign = ign if ign is not None else ev.get("killerIgn", "")
         uid = uid if uid is not None else ev.get("killerUid", "")
@@ -8880,6 +8882,9 @@ MAP_VIEW_DEFAULTS = {
     # The drop-spot graphic's own text, typed by the operator; blank =
     # "MATCH <current game>", the map's name, the event's round name.
     "matchLabel": "", "mapLabel": "", "roundLabel": "",
+    # The game number the graphic prints (MATCH 3 / GAME 3), picked by the
+    # operator; 0 = automatic (the label above, else the event's game).
+    "gameNo": 0,
     # Drop spots, per map and team, kept across games -- squads keep their
     # landing per map for an event, so they are set once per map:
     #   {"1": {"TSG ARMY": {"at": [u, v], "by": "hand" | "games"}}}
@@ -8893,6 +8898,26 @@ def map_view_state():
     for k, v in MAP_VIEW_DEFAULTS.items():
         mv.setdefault(k, dict(v) if isinstance(v, dict) else v)
     return mv
+
+
+MAP_VIEW_KEYS = ("visible", "source", "animate", "replay", "replaySeconds", "theme", "bg", "zoom",
+                 "template", "dropMap", "matchLabel", "mapLabel", "roundLabel", "pathScope", "gameNo")
+
+
+def apply_map_view_choice(mv, payload):
+    """The dashboard's choices for the map graphic, merged into mapView."""
+    for k in MAP_VIEW_KEYS:
+        if k in payload:
+            mv[k] = payload[k]
+    if isinstance(payload.get("show"), dict):
+        mv["show"] = dict(mv.get("show") or {}, **payload["show"])
+    if "teams" in payload:
+        mv["teams"] = [int(x) for x in (payload.get("teams") or [])
+                       if str(x).strip().lstrip("-").isdigit()]
+    # Stamped on every push, so pressing it again replays the draw-in
+    # rather than doing nothing.
+    if payload.get("visible"):
+        mv["shownAt"] = int(time.time() * 1000)
 
 
 def replays_folder():
@@ -11276,19 +11301,7 @@ async def handle_client(websocket, path=None):
                 # How the map graphic is drawn and whether it is up. The
                 # match it draws is loaded separately (map_view_match).
                 mv = map_view_state()
-                for k in ("visible", "source", "animate", "replay", "replaySeconds", "theme", "bg", "zoom",
-                          "template", "dropMap", "matchLabel", "mapLabel", "roundLabel", "pathScope"):
-                    if k in payload:
-                        mv[k] = payload[k]
-                if isinstance(payload.get("show"), dict):
-                    mv["show"] = dict(mv.get("show") or {}, **payload["show"])
-                if "teams" in payload:
-                    mv["teams"] = [int(x) for x in (payload.get("teams") or [])
-                                   if str(x).strip().lstrip("-").isdigit()]
-                # Stamped on every push, so pressing it again replays the
-                # draw-in rather than doing nothing.
-                if payload.get("visible"):
-                    mv["shownAt"] = int(time.time() * 1000)
+                apply_map_view_choice(mv, payload)
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") == "post_game":
@@ -11375,12 +11388,37 @@ async def handle_client(websocket, path=None):
             elif payload.get("type") == "map_view_match":
                 # Read in a worker: the log it scans for the zones is
                 # ~100 MB, and this loop is feeding a live broadcast.
+                #
+                # CONFIRM IN ONE STEP: the dashboard sends its choices with
+                # the load ("view"), applied together and broadcast once --
+                # loading and then sending the choices drew the graphic
+                # twice, the second entrance on top of the first. And the
+                # game already loaded is not read again: Confirm on "Latest
+                # finished game" used to re-read the replay and the log
+                # every press, seconds each time.
                 loop = asyncio.get_running_loop()
                 try:
-                    view = await loop.run_in_executor(None, build_map_view, payload.get("matchId"))
                     mv = map_view_state()
-                    mv["match"], mv["source"], mv["teams"] = view, "match", []
+                    want = str(payload.get("matchId") or "").strip()
+                    path = await loop.run_in_executor(None, map_analysis.find_replay, replays_folder(), want or None)
+                    held = mv.get("match") or {}
+                    reuse = bool(path and held and mv.get("matchFile") == path.name and not payload.get("reload")
+                                 and all(q.get("teamName") for q in held.get("squads") or []))
+                    if reuse:
+                        view = held
+                    else:
+                        view = await loop.run_in_executor(None, build_map_view, want or None)
+                        mv["match"], mv["teams"] = view, []
+                        mv["matchFile"] = path.name if path else ""
+                    if isinstance(payload.get("view"), dict):
+                        choice = dict(payload["view"])
+                        if not reuse:
+                            choice.pop("teams", None)      # a new game: no squad picked yet
+                        apply_map_view_choice(mv, choice)
+                    elif not reuse:
+                        mv["source"] = "match"
                     reply = {"type": "map_view_result", "ok": True,
+                             "applied": isinstance(payload.get("view"), dict), "reused": reuse,
                              "matchId": view["matchId"], "mapName": view["mapName"],
                              "playedAt": view["playedAt"], "zones": len(view["zones"]),
                              "kills": len(view["kills"]),
@@ -11430,7 +11468,7 @@ async def handle_client(websocket, path=None):
                 g = server_state["display"].setdefault("teamGraph", {
                     "visible": False, "graph": "race", "bg": True,
                     "scope": "overall", "top": 5, "teams": []})
-                for k in ("visible", "graph", "bg", "scope", "top", "teams", "animate", "theme"):
+                for k in ("visible", "graph", "bg", "scope", "top", "teams", "animate", "theme", "gameStart"):
                     if payload.get(k) is not None:
                         g[k] = payload[k]
                 server_state["display"]["teamGraphVisible"] = bool(g.get("visible"))

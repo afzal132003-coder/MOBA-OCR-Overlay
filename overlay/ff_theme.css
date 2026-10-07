@@ -51,6 +51,20 @@ body.still *{animation:none !important;transition:none !important;}
 .ss3 .ff-text{color:#fff;font-family:'SMXB',Arial,sans-serif;text-transform:uppercase;}
 .ss3 .ff-muted{color:#ffd9d0;font-family:'SMXB',Arial,sans-serif;text-transform:uppercase;}
 
+/* ---- CHIRAYU GOLD LEAGUE: the SS3 cards in the Chirayu colours ----
+   Same layout; the frame and zebra are the SS3 ones recoloured (navy /
+   slate blue for the red, gold for the yellow), the title navy because
+   it sits on the event's light background. */
+body.chirayu{ --ss3-red:#3e5a96; --ss3-label:#2b4272; --ss3-yellow:#f3d77e; --ss3-bar:#f3d98a; --ss3-black:#131d32; }
+.chirayu .ff-frame{background-image:url('assets/freefire/kit/chirayu_frame.png');}
+.chirayu .ff-title{
+  background:linear-gradient(180deg,#22345a 0%,#22345a 46%,rgba(34,52,90,0) 82%),
+             radial-gradient(circle,#22345a 0 1.7px,transparent 2.1px) 0 0/7px 7px;
+  -webkit-background-clip:text;background-clip:text;}
+.chirayu .ff-zebra{background:url('assets/freefire/kit/chirayu_zebra.png') center/cover,var(--ss3-red);}
+.chirayu .ff-black{box-shadow:inset 0 0 0 3px #3e5a96;}
+.chirayu .ff-muted{color:#c9d5ea;}
+
 /* ---- ARROW ---- */
 .arrow .ff-frame{position:absolute;left:150px;top:100px;width:1620px;height:880px;
   background:linear-gradient(115deg,rgba(255,255,255,.05) 0 18%,transparent 18% 60%,rgba(255,255,255,.035) 60% 64%,transparent 64%),

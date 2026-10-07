@@ -10,10 +10,23 @@ function ffTheme(state){
   // GC, used to fall to the green ARROW look).
   return pick.includes("arrow") ? "arrow" : "ss3";
 }
+// CHIRAYU GOLD LEAGUE is the SS3 package copied: the same cards, drawn
+// from its own recoloured art (assets/freefire/CHIRAYU/) and, on top of
+// body.ss3, body.chirayu for the kit's navy / slate / gold.
+function ffChirayu(state){
+  const ev = (state && state.event) || {};
+  return String(new URLSearchParams(location.search).get("theme") || ev.assetFolder || "")
+    .toLowerCase().includes("chirayu");
+}
+// The folder an SS3-layout card takes its art from.
+function ffArtDir(state){
+  return "assets/freefire/" + (ffChirayu(state) ? "CHIRAYU" : "ss3") + "/";
+}
 function ffApplyTheme(state){
   const t = ffTheme(state);
   document.body.classList.toggle("ss3", t === "ss3");
   document.body.classList.toggle("arrow", t !== "ss3");
+  document.body.classList.toggle("chirayu", t === "ss3" && ffChirayu(state));
   return t;
 }
 function ffTeam(name, roster){
