@@ -8798,12 +8798,35 @@ def _game_labels(ordered):
     """Each game by its number in the EVENT, not its place in this graph.
 
     Counting from one put "G1" under the night's fourth game whenever the
-    graph showed only the latest. Committed games carry their own number.
-    Picked result files do not, so they are numbered back from the Current
-    Game set in Event Setup: the newest is that game, the one before it
-    the game before, and so on. Counting from one only when that cannot
-    work (the current game is lower than the number of games)."""
+    graph showed only the latest. First choice: each game's place among
+    ALL the result files in the folder, counted back from the Current Game
+    in Event Setup -- the newest finished file is that game (or the one
+    before it while the next game is being played, whose file is not
+    written yet). So four games picked out of five are G1-G4, not G2-G5.
+    A result file's own "gameNumber" is no help here: it is whatever the
+    Current Game was when the file was READ. Then committed games' own
+    numbers; counting from one only when nothing else works."""
     n = len(ordered)
+    try:
+        current = int((server_state.get("event") or {}).get("currentGame") or 0)
+    except (TypeError, ValueError):
+        current = 0
+    stamps = [str(m.get("timestamp") or "") for m in ordered]
+    if current > 0 and n and all(stamps):
+        try:
+            folder = Path((server_state.get("settings") or {}).get("matchResultFolder") or "")
+            every = sorted({mm.group("timestamp") for f in folder.iterdir()
+                            for mm in [FREEFIRE_MATCH_FILENAME_REGEX.match(f.name)] if mm})
+            playing = bool(_live_match.get("teamNames") or _live_match.get("gsIgns"))                 and not _live_match.get("ended")
+            # mid-game the Current Game may or may not have been moved on
+            # yet: try it both ways, the likelier first
+            for newest in ([current - 1, current] if playing else [current]):
+                number = {st: newest - (len(every) - 1 - i) for i, st in enumerate(every)}
+                got = [number.get(st) for st in stamps]
+                if all(g and g > 0 for g in got) and len(set(got)) == n:
+                    return ["G%d" % g for g in got]
+        except Exception:
+            pass
     nums = []
     for m in ordered:
         try:
@@ -8812,10 +8835,6 @@ def _game_labels(ordered):
             nums.append(None)
     if n and all(x and x > 0 for x in nums) and len(set(nums)) == n:
         return ["G%d" % x for x in nums]
-    try:
-        current = int((server_state.get("event") or {}).get("currentGame") or 0)
-    except (TypeError, ValueError):
-        current = 0
     if current >= n:
         return ["G%d" % (current - (n - 1 - i)) for i in range(n)]
     return ["G%d" % (i + 1) for i in range(n)]
