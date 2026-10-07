@@ -9867,8 +9867,6 @@ def fmt_survival(seconds):
 
 def _sheet_row(team_name, ign, kills, knocks, heads, team_weight,
                team_heads, survival=None, photo=None):
-    # `survival` is accepted and not sent: the operator asked for survival
-    # time to stay out of the sheet. The graphics still have it.
     weight = 7 * (kills or 0) + 3 * (knocks or 0)
     return {
         "team": team_name or "",
@@ -9881,6 +9879,8 @@ def _sheet_row(team_name, ign, kills, knocks, heads, team_weight,
         "headRate": _pct(heads, kills) if heads is not None else None,
         "headContri": _pct(heads, team_heads) if heads is not None else None,
         "finContri": _pct(weight, team_weight),
+        # m:ss, sent as text (see the sheet script)
+        "survival": fmt_survival(survival),
     }
 
 

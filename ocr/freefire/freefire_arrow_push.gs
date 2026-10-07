@@ -16,6 +16,7 @@
  *                  D2:D5  player photo (its file path on the engine PC)
  *                  E2:E5  elims       F2:F5  knocks
  *                  G2:G5  head rate   H2:H5  finish contribution
+ *                  I2:I5  survival time (m:ss)
  *
  *   ARROW MVP      the match top 5, five rows:
  *                  N2:N6  team        P2:P6  player
@@ -29,9 +30,11 @@
  *                  F      elims       G      knocks
  *                  H      headshots   I      head contribution
  *                  J      finish contribution
+ *                  K      survival time, average per game (m:ss)
  *
- * Survival time is not written (columns I on BOOYAH-ARROW and K on
- * ARROW MVP are left alone).
+ * Survival times and photo paths go in as TEXT. "17:06" typed into a
+ * sheet becomes six minutes past five in the afternoon; set as text it
+ * stays seventeen minutes six seconds.
  *
  * EVERY BLOCK IS CLEARED BEFORE IT IS WRITTEN. A push of four Booyah
  * players over a previous five, or of eight totals over a previous
@@ -47,9 +50,7 @@ var MVP_TAB = "ARROW MVP";
 var BOOYAH_FIRST_ROW = 2;
 var BOOYAH_ROWS = 4;
 var BOOYAH_COLUMNS = {team: "A", ign: "C", photo: "D", elims: "E", knocks: "F",
-                      headRate: "G", finContri: "H"};
-// Survival time is no longer written: column I (and K below) are left
-// alone -- not cleared, not written -- for whatever the sheet keeps there.
+                      headRate: "G", finContri: "H", survival: "I"};
 
 // ARROW MVP, the match block: five players, rows 2-6.
 var MATCH_FIRST_ROW = 2;
@@ -60,7 +61,8 @@ var MATCH_COLUMNS = {team: "N", ign: "P", elims: "R", knocks: "S",
 // ARROW MVP, the totals block: row 2 downwards, however many there are.
 var TOTAL_FIRST_ROW = 2;
 var TOTAL_COLUMNS = {team: "B", ign: "D", photo: "E", elims: "F", knocks: "G",
-                     headshots: "H", headContri: "I", finContri: "J"};
+                     headshots: "H", headContri: "I", finContri: "J",
+                     survival: "K"};
 // How far down a clear reaches. Comfortably past a full lobby of 12
 // squads at four players, so a shorter push can never leave a longer
 // one's tail behind.
@@ -139,7 +141,8 @@ function pushBlock(sheetName, columns, firstRow, rowCount, rows, fields) {
 function pushBooyah(rows) {
   return pushBlock(BOOYAH_TAB, BOOYAH_COLUMNS, BOOYAH_FIRST_ROW,
                    BOOYAH_ROWS, rows,
-                   ["team", "ign", "photo", "elims", "knocks", "headRate", "finContri"]);
+                   ["team", "ign", "photo", "elims", "knocks", "headRate", "finContri",
+                    "survival"]);
 }
 
 function pushMatchTop(rows) {
@@ -153,7 +156,7 @@ function pushTotals(rows) {
   return pushBlock(MVP_TAB, TOTAL_COLUMNS, TOTAL_FIRST_ROW,
                    TOTAL_CLEAR_ROWS, rows,
                    ["team", "ign", "photo", "elims", "knocks", "headshots",
-                    "headContri", "finContri"]);
+                    "headContri", "finContri", "survival"]);
 }
 
 function clearTotals() {
