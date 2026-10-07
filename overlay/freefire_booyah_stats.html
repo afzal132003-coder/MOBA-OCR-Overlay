@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <script src="ff_embed.js"></script>
+<link rel="stylesheet" href="ff_theme.css">
+<script src="ff_theme.js"></script>
 <title>Free Fire Booyah Team Stats</title>
 <style>
   /* BOOYAH TEAM STATS -- the SS3 two-slide graphic for the winning squad.
@@ -30,6 +32,27 @@
   #stage.on{opacity:1;transform:none;}
   .art{position:absolute;left:0;top:0;width:1920px;height:1080px;}
   #art2{display:none;}
+
+  /* ---- ARROW: drawn from the theme kit -- the SS3 art carries the panels
+     and labels, so here each is a box of its own in the same place. */
+  #arwFrame, #arwTitle, #arwTeam{display:none;}
+  body.arrow #arwFrame, body.arrow #arwTitle, body.arrow #arwTeam{display:block;}
+  body.arrow #art1{display:none;}
+  body.arrow #arwFrame{left:140px;top:222px;width:1700px;height:690px;}
+  body.arrow #arwTitle{left:200px;top:234px;}
+  body.arrow #round{left:1250px;top:244px;width:560px;height:60px;justify-content:flex-end;font-family:'SMBI',Arial,sans-serif;color:#fff;}
+  #arwTeam > div{position:absolute;}
+  .arwLab{display:flex;align-items:center;justify-content:center;font-size:24px;}
+  body.arrow #tName{font-family:'SMBI',Arial,sans-serif;color:#111;}
+  body.arrow .big, body.arrow .val{font-family:'SMBI',Arial,sans-serif;}
+  body.arrow .pname{font-family:'SMBI',Arial,sans-serif;color:#111;}
+  body.arrow .clab{color:#111;font-family:'SMBI',Arial,sans-serif;}
+  body.arrow .clab.pet{color:#111;}
+  body.arrow .lo-text{font-family:'SMBI',Arial,sans-serif;}
+  .arw-half{position:absolute;left:261px;top:0;width:360px;height:242px;}
+  .arw-slab{position:absolute;display:flex;align-items:center;justify-content:center;font-size:20px;}
+  .arw-box{position:absolute;background:linear-gradient(160deg,#2a5a2c,#173a19);}
+  .arw-strip{position:absolute;}
   .sprite{position:absolute;background-repeat:no-repeat;background-size:1920px 1080px;}
   .abs{position:absolute;}
   .ctr{display:flex;align-items:center;justify-content:center;white-space:nowrap;}
@@ -87,6 +110,15 @@
 </head>
 <body data-slide="1">
 <div id="stage">
+  <div class="ff-frame fade" id="arwFrame"></div>
+  <div class="ff-title fade" id="arwTitle" style="animation-delay:.1s">BOOYAH TEAM STATS</div>
+  <div id="arwTeam">
+    <div class="ff-zebra rise" style="left:176px;top:337px;width:268px;height:276px;animation-delay:.2s"></div>
+    <div class="ff-yellow fromL" style="left:176px;top:613px;width:268px;height:40px;animation-delay:.3s"></div>
+    <div class="ff-black fade" style="left:176px;top:653px;width:268px;height:217px;animation-delay:.3s"></div>
+    <div class="arwLab ff-muted fade" style="left:176px;top:664px;width:268px;height:34px;animation-delay:.4s">TOTAL ELIMS</div>
+    <div class="arwLab ff-muted fade" style="left:176px;top:766px;width:268px;height:34px;animation-delay:.45s">TOTAL POINTS</div>
+  </div>
   <img class="art" id="art1" alt="">
   <img class="art" id="art2" alt="">
   <img class="abs pop" id="tLogo" alt="" style="animation-delay:.25s">
@@ -195,6 +227,7 @@ function countUp(node, to, suffix, delay){
   requestAnimationFrame(step);
 }
 
+let ARROW = false;
 function buildCards(rows, roster, team){
   const host = document.getElementById("cards");
   host.innerHTML = "";
@@ -211,15 +244,32 @@ function buildCards(rows, roster, team){
     img.dataset.fallback = (rp && rp.photo) || roster.defaultPlayerPhoto || "";
     const photo = photoCache[img.dataset.key] || img.dataset.fallback;
     if(photo) img.src = photo; else img.style.visibility = "hidden";
-    el("div", "sprite", { left: "0px", top: "204px", width: "260px", height: "38px",
-      backgroundImage: `url("${ART1}")`, backgroundPosition: `-${CARD_X[c]}px -${CARD_Y[r] + 204}px` }, card);
+    if(ARROW){
+      // the photo panel behind the photo, the name on a satin plate
+      const panel = el("div", "ff-zebra", { position: "absolute", left: "0px", top: "0px", width: "260px", height: "204px" });
+      card.insertBefore(panel, clip);
+      el("div", "ff-yellow", { position: "absolute", left: "0px", top: "204px", width: "260px", height: "38px" }, card);
+    } else {
+      el("div", "sprite", { left: "0px", top: "204px", width: "260px", height: "38px",
+        backgroundImage: `url("${ART1}")`, backgroundPosition: `-${CARD_X[c]}px -${CARD_Y[r] + 204}px` }, card);
+    }
     const nm = el("div", "abs ctr pname fromL", { animationDelay: (d0 + .1) + "s" }, card);
     setText(nm, p.ign || "", 240, 12);
 
     // Slide 1: the four numbers.
     const s1 = el("div", "s1", { position: "absolute", inset: "0" }, card);
     s1.style.setProperty("--d", (i * .1) + "s");
-    el("div", "half", { backgroundImage: `url("${ART1}")`, backgroundPosition: `-${CARD_X[c] + 260}px -${CARD_Y[r]}px` }, s1);
+    if(ARROW){
+      const h = el("div", "arw-half ff-black", {}, s1);
+      [["ELIMS", 354, 28], ["KNOCKS", 524, 28], ["HEADSHOT RATE", 354, 142], ["FINISH CONTRI.", 524, 142]].forEach(([t, x, y]) => {
+        const l = el("div", "arw-slab ff-muted", { left: (x - 261 - 80) + "px", top: (y - 14) + "px", width: "160px", height: "28px" }, h);
+        l.textContent = t;
+      });
+      el("div", "", { position: "absolute", left: "180px", top: "14px", width: "1px", height: "214px", background: "rgba(255,255,255,.15)" }, h);
+      el("div", "", { position: "absolute", left: "14px", top: "120px", width: "332px", height: "1px", background: "rgba(255,255,255,.15)" }, h);
+    } else {
+      el("div", "half", { backgroundImage: `url("${ART1}")`, backgroundPosition: `-${CARD_X[c] + 260}px -${CARD_Y[r]}px` }, s1);
+    }
     STAT_SPOTS.forEach(([key, x, y], k) => {
       const v = el("div", "abs ctr val", { left: (x - 85) + "px", top: (y - 26) + "px" }, s1);
       v.dataset.key = key; v.dataset.delay = (d0 + .35 + k * .08).toFixed(2);
@@ -229,7 +279,15 @@ function buildCards(rows, roster, team){
     // Slide 2: characters, pet, loadout.
     const s2 = el("div", "s2", { position: "absolute", inset: "0" }, card);
     s2.style.setProperty("--d", (i * .1) + "s");
-    el("div", "half", { backgroundImage: `url("${ART2}")`, backgroundPosition: `-${CARD_X[c] + 260}px -${CARD_Y[r]}px` }, s2);
+    if(ARROW){
+      el("div", "arw-half ff-black", {}, s2);
+      CHAR_BOXES.forEach(b => {
+        el("div", "arw-box", box(b.img), s2);
+        el("div", "arw-strip ff-label", box(b.lab), s2);
+      });
+    } else {
+      el("div", "half", { backgroundImage: `url("${ART2}")`, backgroundPosition: `-${CARD_X[c] + 260}px -${CARD_Y[r]}px` }, s2);
+    }
     const lo = p.loadout || {};
     CHAR_BOXES.forEach((b, k) => {
       const v = lo[b.slot];
@@ -290,13 +348,15 @@ function render(state){
   stage.classList.toggle("on", visible);
   if(!visible){ lastSig = ""; shownSlide = 0; clearTimeout(autoTimer); return; }
 
+  // SS3 draws on its own art; every other package on the ARROW kit.
+  ARROW = ffApplyTheme(state) !== "ss3";
   const roster = state.roster || {};
   const rows = b.rows || {};
   const ev = state.event || {};
-  const sig = JSON.stringify([rows, b.roundLabel, ev.roundName, b.shownAt,
+  const sig = JSON.stringify([ARROW, rows, b.roundLabel, ev.roundName, b.shownAt,
                               ((roster.teams) || []).map(t => [t.name, !!t.logo])]);
   if(sig !== lastSig){
-    const replay = !lastSig || JSON.parse(lastSig)[3] !== b.shownAt;
+    const replay = !lastSig || JSON.parse(lastSig)[4] !== b.shownAt;
     lastSig = sig;
     for(const [id, src] of [["art1", ART1], ["art2", ART2]]){
       const a = document.getElementById(id); if(a.getAttribute("src") !== src) a.src = src;

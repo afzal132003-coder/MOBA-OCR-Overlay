@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <script src="ff_embed.js"></script>
+<link rel="stylesheet" href="ff_theme.css">
+<script src="ff_theme.js"></script>
 <title>Free Fire Player Head To Head</title>
 <style>
   /* PLAYER HEAD TO HEAD -- two players from different teams, from the SS3
@@ -47,6 +49,26 @@
          text-transform:uppercase;white-space:nowrap;}
   #scope:empty{display:none;}
 
+  /* ---- ARROW: the same layout drawn from the theme kit -- green board,
+     satin plates for the names and the four labels -- since the art is
+     SS3's. Everything the SS3 art carries is drawn here instead. */
+  #arwFrame, #arwTitle, #arwPanels{display:none;}
+  body.arrow #arwFrame, body.arrow #arwTitle, body.arrow #arwPanels{display:block;}
+  body.arrow #art{display:none;}
+  body.arrow #arwFrame{top:240px;height:720px;}
+  body.arrow #arwTitle{top:252px;}
+  #arwPanels > div{position:absolute;}
+  #arwPanels .lab{display:flex;align-items:center;justify-content:center;font-size:34px;
+                  clip-path:polygon(14px 0,100% 0,calc(100% - 14px) 100%,0 100%);}
+  /* no heads above the panel on the board: the photo sits inside it */
+  body.arrow .clip{top:417px !important;height:451px !important;}
+  body.arrow .clip .photo{top:auto !important;bottom:0;height:451px !important;}
+  body.arrow .name{font-family:'SMBI',Arial,sans-serif;color:#121212;}
+  body.arrow .val{font-family:'SMBI',Arial,sans-serif;color:#fff;}
+  body.arrow .val.lead{color:var(--ar-gold);text-shadow:none;}
+  body.arrow #round{left:1180px;top:262px;width:540px;height:60px;justify-content:flex-end;font-family:'SMBI',Arial,sans-serif;color:#fff;}
+  body.arrow #scope{background:var(--ar-gold);color:#111;font-family:'SMBI',Arial,sans-serif;top:874px;}
+
   /* Entrance: photos rise into their panels, logos pop, names slide in
      from their own side, then the numbers come up row by row. */
   #stage.on .rise{animation:rise .7s cubic-bezier(.2,.85,.25,1.05) both;}
@@ -65,6 +87,17 @@
 </head>
 <body>
 <div id="stage">
+  <div class="ff-frame fade" id="arwFrame"></div>
+  <div class="ff-title fade" id="arwTitle" style="animation-delay:.1s">HEAD TO HEAD</div>
+  <div id="arwPanels">
+    <div class="ff-zebra rise" style="left:124px;top:417px;width:499px;height:451px;animation-delay:.2s"></div>
+    <div class="ff-zebra rise" style="left:1296px;top:417px;width:499px;height:451px;animation-delay:.25s"></div>
+    <div class="ff-black fade" style="left:623px;top:461px;width:673px;height:372px;animation-delay:.3s"></div>
+    <div class="lab ff-label fromR" style="left:822px;top:473px;width:277px;height:78px;animation-delay:.45s">RANK</div>
+    <div class="lab ff-label fromR" style="left:822px;top:563px;width:277px;height:78px;animation-delay:.52s">ELIMINATION</div>
+    <div class="lab ff-label fromR" style="left:822px;top:653px;width:277px;height:78px;animation-delay:.59s">PLACEMENT</div>
+    <div class="lab ff-label fromR" style="left:822px;top:741px;width:277px;height:78px;animation-delay:.66s">TOTAL POINTS</div>
+  </div>
   <img id="art" alt="">
   <!-- left -->
   <img class="logo pop" id="logoA" alt="" style="left:132px;top:410px;width:190px;height:190px;animation-delay:.45s">
@@ -158,24 +191,32 @@ function render(state){
   stage.classList.toggle("on", visible);
   if(!visible){ lastSig = ""; return; }
 
+  // SS3 draws on its own art; every other package on the ARROW kit.
+  const theme = ffApplyTheme(state);
+  document.getElementById("stage").classList.toggle("ff-stage", false);
   const art = document.getElementById("art");
   if(art.getAttribute("src") !== ART) art.src = ART;
   ["A", "B"].forEach(k => {
     const bar = document.getElementById("bar" + k);
-    if(!bar.style.backgroundImage){
+    if(theme === "ss3"){
+      bar.className = "sprite";
       bar.style.backgroundImage = `url("${ART}")`;
       bar.style.backgroundPosition = `-${parseInt(bar.style.left)}px -${parseInt(bar.style.top)}px`;
+    } else {
+      bar.className = "sprite ff-yellow";
+      bar.style.backgroundImage = "";
+      bar.style.backgroundPosition = "";
     }
   });
 
   const roster = state.roster || {};
   const rows = h.rows || {};
   const ev = state.event || {};
-  const sig = JSON.stringify([rows, h.roundLabel, ev.roundName, h.shownAt, h.a, h.b,
+  const sig = JSON.stringify([theme, rows, h.roundLabel, ev.roundName, h.shownAt, h.a, h.b,
                               photoCache[(h.a || {}).uid || (h.a || {}).ign], photoCache[(h.b || {}).uid || (h.b || {}).ign],
                               ((roster.teams) || []).map(t => [t.name, !!t.logo])]);
   if(sig === lastSig) return;
-  const replay = lastSig === "" || JSON.parse(lastSig)[3] !== h.shownAt;
+  const replay = lastSig === "" || JSON.parse(lastSig)[4] !== h.shownAt;
   lastSig = sig;
   if(replay){ stage.classList.remove("on"); void stage.offsetWidth; stage.classList.add("on"); }
 
