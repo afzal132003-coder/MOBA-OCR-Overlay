@@ -619,6 +619,11 @@ const LAYOUTS = {
   ss3: {
     bg: "prg ss s3 alive - BLANK.png",
     pipBase: "Live Stats/",
+    // Four bars drawn on whole pixels (5 wide, 3 apart, filling the 29px
+    // box) rather than the 500px icons shrunk to 43px: at that scale each
+    // 70px bar landed 6.04px wide at a fraction of a pixel, and the bars
+    // came out visibly unequal.
+    pipBars: { w: 5, gap: 3, alive: "#ffffff", dead: "#000000" },
     rowTops: [287, 333, 379, 425, 471, 517, 564, 610, 656, 702, 748, 794],
     row: { x: 1602, w: 318, h: 45 },
     ink: "#ffffff",
@@ -700,6 +705,11 @@ const LAYOUTS = {
   "PRG ARROW": {
     bg: "prg arrow alive status - blank.png",
     pipBase: "Live Stats/",
+    // Four bars drawn on whole pixels (5 wide, 3 apart, filling the 29px
+    // box) rather than the 500px icons shrunk to 43px: at that scale each
+    // 70px bar landed 6.04px wide at a fraction of a pixel, and the bars
+    // came out visibly unequal.
+    pipBars: { w: 5, gap: 3, alive: "#ffffff", dead: "#000000" },
     rowTops: [287, 333, 379, 425, 471, 517, 564, 610, 656, 702, 748, 794],
     row: { x: 1602, w: 318, h: 45 },
     ink: "#d5dbd5",
@@ -1865,8 +1875,22 @@ function apply(state){
     // it -- see fillFromRoster, and aliveUnknown above for the row that
     // IS being published but has no count anyone could stand behind.
     pip.style.visibility = (row.statusUnknown || aliveUnknown) ? "hidden" : "";
+    if(L.pipBars){
+      const B = L.pipBars;
+      if(pip.dataset.bars !== "4"){
+        pip.dataset.bars = "4";
+        pip.style.backgroundImage = "none";
+        pip.innerHTML = [0, 1, 2, 3].map(i =>
+          `<i style="position:absolute;top:0;bottom:0;left:${i * (B.w + B.gap)}px;width:${B.w}px;"></i>`).join("");
+      }
+      const sig = String(alive);
+      if(pip.dataset.alive !== sig){
+        pip.dataset.alive = sig;
+        pip.querySelectorAll("i").forEach((bar, i) => { bar.style.background = i < alive ? B.alive : B.dead; });
+      }
+    }
     const pipSrc = `url('${base}${art}')`;
-    if(pip.style.backgroundImage !== pipSrc){
+    if(!L.pipBars && pip.style.backgroundImage !== pipSrc){
       pip.style.backgroundImage = pipSrc;
       // The crop belongs to the ICON, not the row, so it is set here
       // rather than as a shared custom property -- every row is showing a
