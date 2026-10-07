@@ -2792,6 +2792,7 @@
           were played.</p>
       </div>
       <div class="row" style="gap:8px;margin-top:10px;">
+        <button id="ff_tgConfirm" title="Send the choices above (and any ticked games) to the graphic">Confirm</button>
         <button id="ff_tgShow">Push Graph Up</button>
         <button class="secondary" id="ff_tgHide">Pull Graph Down</button>
         <span class="hint" id="ff_tgStatus" style="align-self:center;"></span>
@@ -2827,6 +2828,7 @@
       </div>
       <div class="hint" id="ff_h2hPreview" style="margin-top:8px;font-family:ui-monospace,monospace;"></div>
       <div class="row" style="gap:8px;margin-top:10px;">
+        <button id="ff_h2hConfirm" title="Send the two players and choices above to the graphic">Confirm</button>
         <button id="ff_h2hShow">Push Head To Head Up</button>
         <button class="secondary" id="ff_h2hHide">Pull Down</button>
         <span class="hint" id="ff_h2hStatus" style="align-self:center;"></span>
@@ -2856,6 +2858,7 @@
       </div>
       <div class="hint" id="ff_bsPreview" style="margin-top:8px;"></div>
       <div class="row" style="gap:8px;margin-top:10px;">
+        <button id="ff_bsConfirm" title="Send the game and choices above to the graphic">Confirm</button>
         <button id="ff_bsShow">Push Booyah Stats Up</button>
         <button class="secondary" id="ff_bsHide">Pull Down</button>
         <span class="hint" id="ff_bsStatus" style="align-self:center;"></span>
@@ -3526,7 +3529,7 @@
         <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;">
           <span class="hint" style="margin:0;">Game</span>
           <select id="ff_mvPick" style="width:auto;min-width:340px;"><option value="">Latest finished game</option></select>
-          <button id="ff_mvLoad">Load</button>
+          <button id="ff_mvLoad" title="Load the picked game and send every choice in this card to the graphic">Confirm</button>
           <button class="secondary" id="ff_mvList" title="Read the Replays folder again">Refresh List</button>
           <span class="hint" id="ff_mvLoaded"></span>
         </div>
@@ -6996,6 +6999,19 @@ function ffOpen(url){
       ffShowResultsPushResult(msg);
     } else if(msg.type === "map_view_result"){
       ffReplyArrived("mapView");
+      if(ffMvConfirmShow !== null){
+        const show = ffMvConfirmShow;
+        ffMvConfirmShow = null;
+        if(msg.ok){
+          ffMvGameDirty = false;
+          // a new game has new squads, so no team is picked yet
+          ffMvSend(Object.assign({ teams: [] }, show ? { visible: true } : {}));
+          ffMvDirty = false;
+          ffMvSay(show ? "Game loaded and map pushed up." : "Confirmed -- the graphic has this game and your choice.", "#4ade80");
+        } else {
+          ffMvSay("NOT applied -- the game did not load (see beside the game picker).", "#f87171");
+        }
+      }
       const el = document.getElementById("ff_mvLoaded");
       if(el) el.textContent = msg.ok
         ? "Loaded: " + msg.mapName + " · " + msg.playedAt + " · " + msg.zones + " zones · " + msg.kills + " kills"
@@ -10924,6 +10940,23 @@ function ffBsSend(extra){
   }, extra || {})));
   return true;
 }
+/* CONFIRM, NOT LIVE (as the team graphs and the map): the game picker and
+   the options are held here until Confirm or Push, so nothing changes on
+   air mid-click. Slide 1 / Slide 2 stay instant -- they are the presses. */
+let ffBsDirty = false, ffBsGameDirty = false;
+function ffBsSay(t, c){ const el = document.getElementById("ff_bsStatus"); if(el){ el.textContent = t; el.style.color = c || ""; } }
+function ffBsStage(){ ffBsDirty = true; ffBsSay("Changed -- press Confirm to send it to the graphic.", "#fbbf24"); }
+function ffBsConfirm(show){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)){ ffBsSay("Not connected to the Free Fire engine.", "#f87171"); return; }
+  const extra = show ? { visible: true, refresh: true } : {};
+  if(ffBsGameDirty) extra.matchId = document.getElementById("ff_bsGame").value;
+  if(extra.matchId !== undefined || extra.refresh){
+    ffAwaitReply("booyahStats", "ff_bsStatus", "the Booyah stats were never sent back", 25);
+  }
+  ffBsSend(extra);
+  ffBsDirty = ffBsGameDirty = false;
+  ffBsSay(show ? "Pushed up." : "Confirmed -- the graphic has your choice.", "#4ade80");
+}
 let ffBsGamesKey = "";
 function ffSyncBooyahStats(){
   if(!ffState || !document.getElementById("ff_bsGame")) return;
@@ -10943,6 +10976,7 @@ function ffSyncBooyahStats(){
     if(Array.from(sel.options).some(o => o.value === keep)) sel.value = keep;
   }
   const set = (id, v, prop) => {
+    if(ffBsDirty) return;                  // a choice in progress is not reset
     const el = document.getElementById(id);
     if(el && document.activeElement !== el && v != null && el[prop || "value"] !== v) el[prop || "value"] = v;
   };
@@ -10970,17 +11004,19 @@ function ffSyncBooyahStats(){
   if(!document.getElementById("ff_bsGame")) return;
   const busy = () => { document.getElementById("ff_bsStatus").textContent = "Reading...";
                        ffAwaitReply("booyahStats", "ff_bsStatus", "the Booyah stats were never sent back", 25); };
-  document.getElementById("ff_bsGame").addEventListener("change", e => { busy(); ffBsSend({ matchId: e.target.value }); });
+  document.getElementById("ff_bsGame").addEventListener("change", () => { ffBsGameDirty = true; ffBsStage(); });
   document.getElementById("ff_bsRefresh").addEventListener("click", () => { busy(); ffBsSend({ refresh: true }); });
   ["ff_bsRound", "ff_bsAnim", "ff_bsAuto", "ff_bsAutoSecs"].forEach(id =>
-    document.getElementById(id).addEventListener("change", () => ffBsSend()));
+    document.getElementById(id).addEventListener("change", ffBsStage));
+  document.getElementById("ff_bsConfirm").addEventListener("click", () => ffBsConfirm(false));
   document.getElementById("ff_bsSlide1").addEventListener("click", () => ffBsSend({ slide: 1, auto: false }));
   document.getElementById("ff_bsSlide2").addEventListener("click", () => ffBsSend({ slide: 2, auto: false }));
-  document.getElementById("ff_bsShow").addEventListener("click", () => {
-    if(ffBsSend({ visible: true, refresh: true })) document.getElementById("ff_bsStatus").textContent = "Pushed up.";
-  });
+  document.getElementById("ff_bsShow").addEventListener("click", () => ffBsConfirm(true));
   document.getElementById("ff_bsHide").addEventListener("click", () => {
-    if(ffBsSend({ visible: false })) document.getElementById("ff_bsStatus").textContent = "Pulled down.";
+    // down only: an unconfirmed change is not sent with it
+    if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+    ffWs.send(JSON.stringify({ type: "booyah_stats", visible: false }));
+    ffBsSay("Pulled down.");
   });
 })();
 
@@ -10994,6 +11030,15 @@ function ffH2hWho(sel){
   const v = document.getElementById(sel).value;
   const p = v === "" ? null : ffH2hPlayers[Number(v)];
   return p ? { uid: p.uid, ign: p.ign, team: p.team } : null;
+}
+/* CONFIRM, NOT LIVE (as the team graphs and the map). */
+let ffH2hDirty = false;
+function ffH2hSay(t, c){ const el = document.getElementById("ff_h2hStatus"); if(el){ el.textContent = t; el.style.color = c || ""; } }
+function ffH2hStage(){ ffH2hDirty = true; ffH2hSay("Changed -- press Confirm to send it to the graphic.", "#fbbf24"); }
+function ffH2hConfirm(show){
+  if(!ffH2hSend(show ? { visible: true } : {})){ ffH2hSay("Not connected to the Free Fire engine.", "#f87171"); return; }
+  ffH2hDirty = false;
+  setTimeout(() => ffH2hSay(show ? "Pushed up." : "Confirmed -- the graphic has your choice.", "#4ade80"), 600);
 }
 function ffH2hSend(extra){
   if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return false;
@@ -11031,12 +11076,13 @@ function ffSyncPlayerH2H(){
   }
   const pick = (id, who) => {
     const el = document.getElementById(id);
-    if(el === document.activeElement || !who) return;
+    if(ffH2hDirty || el === document.activeElement || !who) return;
     const i = ffH2hPlayers.findIndex(p => (who.uid && p.uid === who.uid) || (!who.uid && p.ign === who.ign));
     if(i >= 0 && el.value !== String(i)) el.value = String(i);
   };
   pick("ff_h2hA", h.a); pick("ff_h2hB", h.b);
   const set = (id, v, prop) => {
+    if(ffH2hDirty) return;                 // a choice in progress is not reset
     const el = document.getElementById(id);
     if(el && document.activeElement !== el && v != null && el[prop || "value"] !== v) el[prop || "value"] = v;
   };
@@ -11069,12 +11115,14 @@ function ffSyncPlayerH2H(){
 (function ffWireH2H(){
   if(!document.getElementById("ff_h2hA")) return;
   ["ff_h2hA", "ff_h2hB", "ff_h2hGames", "ff_h2hLatest", "ff_h2hScope", "ff_h2hGame", "ff_h2hTotal", "ff_h2hRound", "ff_h2hAnim"]
-    .forEach(id => document.getElementById(id).addEventListener("change", () => ffH2hSend()));
-  document.getElementById("ff_h2hShow").addEventListener("click", () => {
-    if(ffH2hSend({ visible: true })) setTimeout(() => { document.getElementById("ff_h2hStatus").textContent = "Pushed up."; }, 600);
-  });
+    .forEach(id => document.getElementById(id).addEventListener("change", ffH2hStage));
+  document.getElementById("ff_h2hConfirm").addEventListener("click", () => ffH2hConfirm(false));
+  document.getElementById("ff_h2hShow").addEventListener("click", () => ffH2hConfirm(true));
   document.getElementById("ff_h2hHide").addEventListener("click", () => {
-    if(ffH2hSend({ visible: false })) setTimeout(() => { document.getElementById("ff_h2hStatus").textContent = "Pulled down."; }, 600);
+    // down only: an unconfirmed change is not sent with it
+    if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+    ffWs.send(JSON.stringify({ type: "player_h2h", visible: false }));
+    ffH2hSay("Pulled down.");
   });
 })();
 
@@ -11105,6 +11153,29 @@ function ffMvSend(extra){
     roundLabel: document.getElementById("ff_mvRoundLabel").value.trim(),
   }, extra || {})));
   return true;
+}
+/* CONFIRM, NOT LIVE -- as for the team graphs. A change in this card is
+   held until Confirm (or Push Map Up): that loads the picked game when
+   one was picked (or the latest finished game, when that is what the
+   picker says), then sends every choice in one go. */
+let ffMvDirty = false, ffMvGameDirty = false, ffMvConfirmShow = null;
+function ffMvSay(t, c){ const el = document.getElementById("ff_mvStatus"); if(el){ el.textContent = t; el.style.color = c || ""; } }
+function ffMvStage(){ ffMvDirty = true; ffMvSay("Changed -- press Confirm to send it to the graphic.", "#fbbf24"); }
+function ffMvConfirm(show){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)){ ffMvSay("Not connected to the Free Fire engine.", "#f87171"); return; }
+  const pick = document.getElementById("ff_mvPick").value;
+  if(ffMvGameDirty || pick === ""){
+    // the game first; everything else follows once it has loaded
+    ffMvConfirmShow = !!show;
+    document.getElementById("ff_mvLoaded").textContent = "Reading the replay and the log...";
+    ffAwaitReply("mapView", "ff_mvLoaded", "the game was never sent back", 25);
+    ffWs.send(JSON.stringify({ type: "map_view_match", matchId: pick || "" }));
+    ffMvSay("Loading the game...", "#9aa7b5");
+    return;
+  }
+  ffMvSend(show ? { visible: true } : {});
+  ffMvDirty = false;
+  ffMvSay(show ? "Map pushed up." : "Confirmed -- the graphic has your choice.", "#4ade80");
 }
 function ffMvFillPick(rows){
   const sel = document.getElementById("ff_mvPick");
@@ -11163,6 +11234,7 @@ function ffSyncMapView(){
   if(!ffState || !document.getElementById("ff_mvSource")) return;
   const mv = ffState.mapView || {};
   const set = (id, v, prop) => {
+    if(ffMvDirty) return;                  // a choice in progress is not reset
     const el = document.getElementById(id);
     if(el && document.activeElement !== el && v != null && el[prop || "value"] !== v) el[prop || "value"] = v;
   };
@@ -11205,7 +11277,7 @@ function ffSyncMapView(){
   set("ff_mvReplay", !!mv.replay, "checked");
   set("ff_mvReplaySecs", String(mv.replaySeconds || 30));
   const show = mv.show || {};
-  document.querySelectorAll(".ff-mv-show").forEach(el => {
+  if(!ffMvDirty) document.querySelectorAll(".ff-mv-show").forEach(el => {
     if(el !== document.activeElement && show[el.dataset.k] != null) el.checked = !!show[el.dataset.k];
   });
   document.getElementById("ff_mvMatchBox").style.opacity = (mv.source === "match") ? "1" : "0.55";
@@ -11224,24 +11296,25 @@ function ffSyncMapView(){
       `<input type="checkbox" class="ff-mv-team" data-squad="${q.squad}"${picked.has(q.squad) ? " checked" : ""}>` +
       `${q.place ? "#" + q.place + " " : ""}${(q.teamName || "Squad " + q.squad).replace(/</g, "&lt;")} · ${q.kills}K</label>`).join("") ||
       `<span class="hint">Load a game to pick teams.</span>`;
-    document.querySelectorAll(".ff-mv-team").forEach(el => el.addEventListener("change", () => ffMvSend()));
-  } else {
+    document.querySelectorAll(".ff-mv-team").forEach(el => el.addEventListener("change", ffMvStage));
+  } else if(!ffMvDirty){
     document.querySelectorAll(".ff-mv-team").forEach(el => { el.checked = picked.has(Number(el.dataset.squad)); });
   }
   const st = document.getElementById("ff_mvStatus");
-  if(st && !st.dataset.busy) st.textContent = mv.visible ? "On air." : "";
+  if(st && !st.dataset.busy && !ffMvDirty && ffMvConfirmShow === null) ffMvSay(mv.visible ? "On air." : "");
 }
 (function ffWireMapView(){
   if(!document.getElementById("ff_mvSource")) return;
   ["ff_mvSource", "ff_mvTemplate", "ff_mvDropMap", "ff_mvZoom", "ff_mvPathScope", "ff_mvTheme", "ff_mvBg", "ff_mvAnim", "ff_mvReplay", "ff_mvReplaySecs"].forEach(id =>
-    document.getElementById(id).addEventListener("change", () => ffMvSend()));
+    document.getElementById(id).addEventListener("change", ffMvStage));
+  document.getElementById("ff_mvPick").addEventListener("change", () => { ffMvGameDirty = true; ffMvStage(); });
   const drops = (op, extra) => {
     if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return false;
     ffWs.send(JSON.stringify(Object.assign({ type: "map_drops", op, map: Number(ffMvDropMapId()) }, extra || {})));
     return true;
   };
   document.getElementById("ff_mvDropTeam").addEventListener("change", ffMvDrawDrops);
-  document.querySelectorAll(".ff-mv-label").forEach(el => el.addEventListener("change", () => ffMvSend()));
+  document.querySelectorAll(".ff-mv-label").forEach(el => el.addEventListener("change", ffMvStage));
   document.getElementById("ff_mvDropPad").addEventListener("click", e => {
     const pad = e.currentTarget.getBoundingClientRect();
     const at = [(e.clientX - pad.left) / pad.width, (e.clientY - pad.top) / pad.height];
@@ -11270,7 +11343,7 @@ function ffSyncMapView(){
     drops("fill", { games });
     setTimeout(() => { delete note.dataset.hold; }, 8000);
   });
-  document.querySelectorAll(".ff-mv-show").forEach(el => el.addEventListener("change", () => ffMvSend()));
+  document.querySelectorAll(".ff-mv-show").forEach(el => el.addEventListener("change", ffMvStage));
   const load = matchId => {
     if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
     document.getElementById("ff_mvLoaded").textContent = "Reading the replay and the log...";
@@ -11278,18 +11351,19 @@ function ffSyncMapView(){
     ffAwaitReply("mapView", "ff_mvLoaded", "the game was never sent back", 25);
     ffWs.send(JSON.stringify({ type: "map_view_match", matchId: matchId || "" }));
   };
-  document.getElementById("ff_mvLoad").addEventListener("click", () => load(document.getElementById("ff_mvPick").value));
+  document.getElementById("ff_mvLoad").addEventListener("click", () => ffMvConfirm(false));
   document.getElementById("ff_mvList").addEventListener("click", () => {
     document.getElementById("ff_mvLoaded").textContent = "Listing games...";
     ffAwaitReply("mapList", "ff_mvLoaded", "the list was never sent back");
     if(ffMvAskList()) setTimeout(() => { const l = document.getElementById("ff_mvLoaded");
       if(l.textContent === "Listing games...") l.textContent = ""; }, 3000);
   });
-  document.getElementById("ff_mvShow").addEventListener("click", () => {
-    if(ffMvSend({ visible: true })) document.getElementById("ff_mvStatus").textContent = "Map pushed up.";
-  });
+  document.getElementById("ff_mvShow").addEventListener("click", () => ffMvConfirm(true));
   document.getElementById("ff_mvHide").addEventListener("click", () => {
-    if(ffMvSend({ visible: false })) document.getElementById("ff_mvStatus").textContent = "Map pulled down.";
+    // down only: an unconfirmed change is not sent with it
+    if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+    ffWs.send(JSON.stringify({ type: "map_view", visible: false }));
+    ffMvSay("Map pulled down.");
   });
 })();
 
@@ -11311,6 +11385,32 @@ function ffTgSend(extra){
   ffWs.send(JSON.stringify(msg));
   return true;
 }
+/* CONFIRM, NOT LIVE. Every control here used to go to the graphic the
+   moment it changed -- while it was on air -- and the sync put the
+   engine's copy back over a choice in progress, so what was clicked and
+   what went out drifted apart. Now a change is held here until Confirm
+   (or Push Graph Up), which sends the whole choice, and the ticked games
+   with it, in one go. */
+let ffTgDirty = false;
+function ffTgSay(t, c){ const el = document.getElementById("ff_tgStatus"); if(el){ el.textContent = t; el.style.color = c || ""; } }
+function ffTgStage(){ ffTgDirty = true; ffTgSay("Changed -- press Confirm to send it to the graphic.", "#fbbf24"); }
+function ffTgTickedChanged(){
+  const box = document.getElementById("ff_tgFiles");
+  if(!box || box.style.display === "none" || ffTgFiles === null) return null;
+  const ids = Array.from(document.querySelectorAll(".ff-tg-file:checked")).map(x => x.value);
+  const cfg = (ffState && ffState.display && ffState.display.teamGraph) || {};
+  const now = cfg.source === "files" ? (cfg.matchIds || []) : [];
+  const same = ids.length === now.length && ids.every(id => now.includes(id));
+  return (ids.length && !same) ? ids : null;
+}
+function ffTgConfirm(show){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)){ ffTgSay("Not connected to the Free Fire engine.", "#f87171"); return; }
+  const ids = ffTgTickedChanged();
+  if(ids) ffTgGames({ matchIds: ids });
+  ffTgSend(show ? { visible: true } : {});
+  ffTgDirty = false;
+  ffTgSay(show ? "Graph pushed up." : "Confirmed -- the graphic has your choice.", "#4ade80");
+}
 function ffTgShowFields(){
   const g = document.getElementById("ff_tgGraph").value;
   document.getElementById("ff_tgScopeWrap").style.display = (g === "breakdown" || g === "columns") ? "" : "none";
@@ -11321,12 +11421,16 @@ function ffTgShowFields(){
 (function ffWireTeamGraphs(){
   if(!document.getElementById("ff_tgGraph")) return;
   ["ff_tgGraph", "ff_tgScope", "ff_tgTop", "ff_tgA", "ff_tgB", "ff_tgBg", "ff_tgAnim", "ff_tgTheme"].forEach(id =>
-    document.getElementById(id).addEventListener("change", () => { ffTgShowFields(); ffTgSend(); }));
-  document.getElementById("ff_tgShow").addEventListener("click", () => {
-    if(ffTgSend({ visible: true })) document.getElementById("ff_tgStatus").textContent = "Graph pushed up.";
-  });
+    document.getElementById(id).addEventListener("change", () => { ffTgShowFields(); ffTgStage(); }));
+  // ticking a game is a change like any other
+  document.addEventListener("change", e => { if(e.target && e.target.classList && e.target.classList.contains("ff-tg-file")) ffTgStage(); });
+  document.getElementById("ff_tgConfirm").addEventListener("click", () => ffTgConfirm(false));
+  document.getElementById("ff_tgShow").addEventListener("click", () => ffTgConfirm(true));
   document.getElementById("ff_tgHide").addEventListener("click", () => {
-    if(ffTgSend({ visible: false })) document.getElementById("ff_tgStatus").textContent = "Graph pulled down.";
+    // down only: an unconfirmed change is not sent with it
+    if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+    ffWs.send(JSON.stringify({ type: "team_graph", visible: false }));
+    ffTgSay("Graph pulled down.");
   });
   ffTgShowFields();
 })();
@@ -11334,6 +11438,7 @@ function ffSyncTeamGraphs(){
   if(!ffState || !document.getElementById("ff_tgGraph")) return;
   const cfg = (ffState.display && ffState.display.teamGraph) || {};
   const set = (id, v, prop) => {
+    if(ffTgDirty) return;                  // a choice in progress is not reset
     const el = document.getElementById(id);
     if(el && document.activeElement !== el && v != null && el[prop || "value"] !== v) el[prop || "value"] = v;
   };
@@ -11354,7 +11459,7 @@ function ffSyncTeamGraphs(){
   set("ff_tgAnim", cfg.animate != null ? cfg.animate !== false : null, "checked");
   set("ff_tgTheme", cfg.theme || "auto");
   ffTgShowFields();
-  document.getElementById("ff_tgStatus").textContent = cfg.visible ? "On air." : "";
+  if(!ffTgDirty) ffTgSay(cfg.visible ? "On air." : "");
 }
 
 /* ---------- Event profiles ----------

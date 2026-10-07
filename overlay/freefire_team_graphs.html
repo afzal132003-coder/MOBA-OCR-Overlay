@@ -312,8 +312,18 @@ const W = 1488;   // inner width of the panel
 const H = 640;    // chart height under the header
 
 function drawRace(svg, data, cfg, roster, head){
+  // One game is still a race: from nought at the START to that game's
+  // totals. It used to give way to the columns graph instead, which is
+  // what "Points Race sometimes doesn't work" was -- the night's first
+  // game, or Latest Finished Game.
+  if(data.games.length === 1){
+    data = Object.assign({}, data, {
+      games: ["START"].concat(data.games),
+      teams: data.teams.map(t => Object.assign({}, t, { games: [null].concat(t.games) })),
+    });
+  }
   if(data.games.length < 2)
-    return drawColumns(svg, data, cfg, roster, head, "Points race needs two games");
+    return drawColumns(svg, data, cfg, roster, head, "No games to race yet");
   const top = Math.max(2, Math.min(8, Number(cfg.top) || 5));
   const teams = data.teams.map(t => {
     let acc = 0;
@@ -366,10 +376,15 @@ function drawRace(svg, data, cfg, roster, head){
       : null;
     const dot = el("circle", {cx: x(0), cy: y(e.t.cum[0]), r: 7, fill: c, stroke: SURFACE,
                               "stroke-width": 2}, svg);
-    const label = txt(svg, x(0) + 28, y(e.t.cum[0]) + 6, e.t.short, {"font-size": 20});
+    // the team's logo ahead of its name, riding with it
+    const src = logoOf(e.t, roster);
+    const logo = src ? el("image", {href: src, x: x(0) + 18, y: y(e.t.cum[0]) - 13, width: 26, height: 26,
+                                    preserveAspectRatio: "xMidYMid meet"}, svg) : null;
+    const gap = logo ? 52 : 28;
+    const label = txt(svg, x(0) + gap, y(e.t.cum[0]) + 6, e.t.short, {"font-size": 20});
     const v = el("tspan", {fill: "var(--text-2)", dx: 10}, label);
     v.textContent = "0";
-    return { e, dot, label, v, leader, line: lines.get(e.t.key), delay: i * 90 };
+    return { e, dot, logo, gap, label, v, leader, line: lines.get(e.t.key), delay: i * 90 };
   });
   // THE RIDE: every line draws from G1 to the latest game together, its dot
   // and label riding the tip and the total counting up the way it was
@@ -393,7 +408,8 @@ function drawRace(svg, data, cfg, roster, head){
       // settle into the collision-free slot over the last fifth of the ride
       const settle = Math.max(0, (p - 0.8) / 0.2);
       const ly = pt.y + (r.e.ly - r.e.y) * settle;
-      r.label.setAttribute("x", pt.x + 28); r.label.setAttribute("y", ly + 6);
+      r.label.setAttribute("x", pt.x + r.gap); r.label.setAttribute("y", ly + 6);
+      if(r.logo){ r.logo.setAttribute("x", pt.x + 18); r.logo.setAttribute("y", ly - 13); }
       r.v.textContent = String(Math.round(p >= 1 ? r.e.t.final : valueAt(r.e.t, pt.x)));
       if(r.leader) r.leader.setAttribute("opacity", p >= 1 ? 1 : 0);
     });
