@@ -112,7 +112,8 @@
   .trow i{width:7px;align-self:stretch;border-radius:4px 0 0 4px;flex:0 0 7px;}
   .trow img{width:30px;height:30px;object-fit:contain;flex:0 0 30px;}
   .trow .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:uppercase;}
-  .trow .k{color:var(--text-2);width:70px;text-align:right;font-size:17px;}
+  .trow .k{color:var(--text-2);width:96px;text-align:right;font-size:17px;white-space:nowrap;}
+  .trow .k small{font-size:12px;letter-spacing:.06em;margin-left:4px;opacity:.8;}
   .trow .p{width:48px;text-align:right;color:var(--text-1);}
   .trow.dim{opacity:.42;}
   .trow.win .p{color:var(--next);}
@@ -547,7 +548,7 @@ function sideStats(view, roster){
              out: s.place === 1 ? null : (s.out != null ? circleOf(s.out) : null) };
   });
   rows.sort((a, b) => (b.total - a.total) || ((a.s.place || 99) - (b.s.place || 99)));
-  const head = `<tr><th class="sq">SQUAD</th>` +
+  const head = `<tr><th class="sq">SQUAD<span style="float:right;margin-right:10px;">KILLS</span></th>` +
     Array.from({ length: n }, (_, i) => `<th class="c">CIRCLE ${i + 1}</th>`).join("") + `</tr>`;
   const body = rows.map((r, ri) => {
     const team = teamFor(r.s.teamName, roster);
@@ -581,7 +582,7 @@ function sideMatch(view, cfg, roster){
     const dim = !filtered && cfg.pathScope === "top4" && !picked.has(s.squad) && (cfg.show || {}).paths !== false;
     return `<div class="trow${s.place === 1 ? " win" : ""}${dim ? " dim" : ""}" style="animation-delay:${(.3 + i * .05).toFixed(2)}s">` +
            `<i style="background:${colourOf(s.squad)}"></i>${logo}` +
-           `<span class="nm">${esc(shortOf(s, roster))}</span><span class="k">${s.kills} K</span>` +
+           `<span class="nm">${esc(shortOf(s, roster))}</span><span class="k">${s.kills}<small>${s.kills === 1 ? "KILL" : "KILLS"}</small></span>` +
            `<span class="p">${s.place ? "#" + s.place : ""}</span></div>`;
   }).join("");
   return zones + "<div class='teams'>" + rows + "</div>";

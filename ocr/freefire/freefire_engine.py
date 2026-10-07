@@ -4654,6 +4654,7 @@ _photo_index = {"folder": None, "at": 0.0, "uid": {}, "ign": {}, "teams": [], "d
 _photo_cache = {}
 PHOTO_TYPES = (".png", ".jpg", ".jpeg", ".webp")
 TEAM_PHOTO_STEM = re.compile(r"(?i)^team[ _-]?(photo|image|name|pic)$")
+TEAM_LOGO_STEM = re.compile(r"(?i)^(team[ _-]?)?logo$")
 
 
 def _photo_scan(folder):
@@ -4669,7 +4670,7 @@ def _photo_scan(folder):
             subdirs = []
         # the top level first: a photo there wins over one in a team folder
         for d in [root] + subdirs:
-            team = {"dir": d, "photo": None, "uids": set(), "igns": set()}
+            team = {"dir": d, "photo": None, "logo": None, "uids": set(), "igns": set()}
             try:
                 files = sorted(d.iterdir())
             except OSError:
@@ -4681,6 +4682,9 @@ def _photo_scan(folder):
                 stem = f.stem.strip()
                 if TEAM_PHOTO_STEM.match(stem):
                     team["photo"] = team["photo"] or f
+                    continue
+                if TEAM_LOGO_STEM.match(stem):
+                    team["logo"] = team["logo"] or f
                     continue
                 if is_default:
                     # stand-ins for a player with no photo of their own
@@ -4753,10 +4757,10 @@ def _photo_lookup(uid, ign):
     return _photo_cache[key]
 
 
-def _team_photo_path(team, idx):
-    """A roster team's Team_Photo: the team folder holding most of its
-    players (by UID, then IGN) -- so a folder called "TSG ARMY" still
-    serves "TSG PROS" -- else a folder named after it."""
+def _team_photo_path(team, idx, want="photo"):
+    """A roster team's Team_Photo (or Logo, want="logo"): the team folder
+    holding most of its players (by UID, then IGN) -- so a folder called
+    "TSG ARMY" still serves "TSG PROS" -- else a folder named after it."""
     players = team.get("players") or []
     uids = {str(p.get("uid")).strip() for p in players if str(p.get("uid") or "").strip()}
     igns = {_ign_key(p.get("ign")) for p in players if _ign_key(p.get("ign"))}
@@ -4765,13 +4769,13 @@ def _team_photo_path(team, idx):
         n = len(t["uids"] & uids) + len(t["igns"] & igns)
         if n > score:
             best, score = t, n
-    if best is not None and score >= 2 and best["photo"]:
-        return best["photo"]
+    if best is not None and score >= 2:
+        return best.get(want)
     names = {_ign_key(team.get(k)) for k in ("name", "displayName", "shortName")} - {""}
     for t in idx["teams"]:
         k = _ign_key(t["dir"].name)
-        if t["photo"] and k and any(k == n or (min(len(k), len(n)) >= 4 and (n in k or k in n)) for n in names):
-            return t["photo"]
+        if t.get(want) and k and any(k == n or (min(len(k), len(n)) >= 4 and (n in k or k in n)) for n in names):
+            return t[want]
     return None
 
 
@@ -4792,6 +4796,48 @@ def _team_photo_data(path):
             print("[photos] could not read team photo %s: %s" % (path, e))
             _photo_cache[key] = ""
     return _photo_cache[key]
+
+
+def _team_logo_data(path):
+    """A team folder's Logo.png as the roster carries a logo: a PNG data
+    URL, fitted inside 200x200 (no graphic draws one bigger)."""
+    key = ("logo", str(path), path.stat().st_mtime if path.exists() else 0)
+    if key not in _photo_cache:
+        try:
+            from PIL import Image as _Img
+            im = _Img.open(path).convert("RGBA")
+            bb = im.split()[-1].getbbox()
+            if bb:
+                im = im.crop(bb)
+            im.thumbnail((200, 200), _Img.LANCZOS)
+            buf = io.BytesIO()
+            im.save(buf, format="PNG", optimize=True)
+            _photo_cache[key] = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+        except Exception as e:
+            print("[photos] could not read logo %s: %s" % (path, e))
+            _photo_cache[key] = ""
+    return _photo_cache[key]
+
+
+def fill_roster_logos():
+    """A roster team with no logo takes Logo.png from its team folder in
+    the photo folder. Only ever fills a blank one: a logo uploaded in Team
+    Info always wins. True when the roster changed."""
+    folder = _photo_folder()
+    if not folder:
+        return False
+    idx = _photo_scan(folder)
+    changed = False
+    for team in (server_state.get("roster") or {}).get("teams") or []:
+        if team.get("logo") or not (team.get("name") or "").strip():
+            continue
+        path = _team_photo_path(team, idx, want="logo")
+        data = _team_logo_data(path) if path else ""
+        if data:
+            team["logo"] = data
+            changed = True
+            print("[photos] %s: logo from %s" % (team.get("name"), path))
+    return changed
 
 
 def team_photos():
@@ -9240,6 +9286,12 @@ async def h2h_photo_heartbeat():
     while True:
         await asyncio.sleep(10)
         tick += 1
+        try:
+            if await asyncio.get_running_loop().run_in_executor(None, fill_roster_logos):
+                save_state()
+                await broadcast_state_sync()
+        except Exception as e:
+            print("[photos] logo fill failed: %s" % e)
         try:
             photos = await asyncio.get_running_loop().run_in_executor(None, team_photos)
             sig = tuple(sorted((k, len(v)) for k, v in photos.items()))

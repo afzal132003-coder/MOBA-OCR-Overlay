@@ -101,6 +101,19 @@ def main():
         raw = base64.b64decode(tp["TSG PROS"].split(",", 1)[1])
         check("sent at the eliminated strip's size (416 wide, WebP)",
               Image.open(io.BytesIO(raw)).size == (416, 137) and tp["TSG PROS"].startswith("data:image/webp"))
+        print("team logos")
+        put(os.path.join(tmp, "TSG ARMY"), "Logo.png", (200, 10, 10), (400, 300))
+        ff._photo_index["folder"] = None
+        check("a Logo.png is not taken for a player", ff._photo_index["ign"].get("logo") is None)
+        ff.server_state["roster"]["teams"][2]["logo"] = "data:image/png;base64,UPLOADED"
+        check("a blank logo is filled from the team folder", ff.fill_roster_logos() is True)
+        tsg = ff.server_state["roster"]["teams"][0]
+        raw = base64.b64decode(tsg["logo"].split(",", 1)[1])
+        im = Image.open(io.BytesIO(raw))
+        check("fitted inside 200x200, aspect kept", im.size == (200, 150), str(im.size))
+        check("an uploaded logo is never replaced",
+              ff.server_state["roster"]["teams"][2]["logo"] == "data:image/png;base64,UPLOADED")
+        check("nothing new to fill: no change reported", ff.fill_roster_logos() is False)
         ff.server_state["settings"]["playerPhotoFolder"] = ""
         check("no folder set: no team photos", ff.team_photos() == {})
     finally:
