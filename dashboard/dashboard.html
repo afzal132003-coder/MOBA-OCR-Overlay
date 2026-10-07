@@ -6757,7 +6757,9 @@ function connect(){
           : msg.what === "clearTotals"
             ? "Cleared the totals block on '" + r.tab + "'."
             : "Wrote " + r.written + " row(s) of " + label + " to '" + r.tab + "'.")
-        : "FAILED (" + label + "): " + (r.error || "no answer from the script.");
+        : "FAILED (" + label + "): " + (/Unknown 'what'/.test(r.error || "")
+            ? "the ARROW sheet script is an older version without this step. Redeploy it from ocr/freefire/freefire_arrow_push.gs (Deploy > Manage deployments > edit > New version)."
+            : (r.error || "no answer from the script."));
     } else if(msg.type === "crop_preview"){
       const img = document.getElementById(`crop-${msg.region}`);
       if(img) img.src = msg.image;
@@ -13761,7 +13763,9 @@ function ffOcStep(n, state, text){
 function ffOcArrowText(msg){
   const r = (msg && msg.result) || {};
   if(!msg) return [false, "no answer from the engine"];
-  if(!r.ok) return [false, r.error || "the script did not answer"];
+  if(!r.ok) return [false, /Unknown 'what'/.test(r.error || "")
+    ? "the ARROW sheet script is an older version without this step -- redeploy it (Deploy > Manage deployments > edit > New version) from ocr/freefire/freefire_arrow_push.gs"
+    : (r.error || "the script did not answer")];
   if(msg.what === "matchMvp") return [true, "'" + r.value + "' into " + r.tab + "!" + r.cell];
   return [true, (r.written != null ? r.written + " row(s)" : "written") + " to '" + r.tab + "'"];
 }
