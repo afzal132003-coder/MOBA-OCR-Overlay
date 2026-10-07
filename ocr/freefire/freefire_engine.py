@@ -9273,6 +9273,12 @@ def refresh_booyah_stats():
             mid = result_file_key(nm.group("match_id"), nm.group("timestamp")) if nm else ""
         match = _h2h_result(mid) if mid else {}
         b["rows"] = compute_booyah_stats(match)
+        # its number in the event ("G4"), for the MATCH 4 beside the round bar
+        try:
+            if match and isinstance(b["rows"], dict):
+                b["rows"]["gameLabel"] = _game_labels([match])[0]
+        except Exception:
+            pass
     except Exception as e:
         print("[booyah stats] could not build: %s" % e)
         b["rows"] = {"error": str(e)}
@@ -11322,7 +11328,7 @@ async def handle_client(websocket, path=None):
             elif payload.get("type") == "booyah_stats":
                 b = booyah_stats_state()
                 rebuild = "matchId" in payload or payload.get("refresh") or not b.get("rows")
-                for k in ("visible", "slide", "auto", "autoSeconds", "matchId", "animate", "roundLabel"):
+                for k in ("visible", "slide", "auto", "autoSeconds", "matchId", "animate", "roundLabel", "gameNo"):
                     if k in payload:
                         b[k] = payload[k]
                 if payload.get("visible"):

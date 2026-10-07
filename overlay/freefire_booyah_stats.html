@@ -62,6 +62,12 @@
   #tName{left:176px;top:613px;width:268px;height:40px;font-family:'SMXB',Arial,sans-serif;font-size:25px;color:#111;text-transform:uppercase;}
   .big{font-family:'SMBlack',Arial,sans-serif;font-size:60px;color:#fff;line-height:1;font-variant-numeric:tabular-nums;}
   #round{left:743px;top:240px;width:278px;height:36px;font-family:'TacticSans',Arial,sans-serif;font-size:24px;color:#171717;text-transform:uppercase;}
+  /* MATCH N, right of the round bar, as the demo sets it: white, cap
+     height 26px, from x 1037. */
+  #match{left:1037px;top:240px;width:300px;height:36px;font-family:'TacticSans',Arial,sans-serif;font-size:35px;color:#fff;
+         text-transform:uppercase;white-space:nowrap;}
+  body.chirayu #match{color:#111;}
+  body.arrow #match{display:none;}
 
   /* player cards */
   .card{position:absolute;width:620px;height:243px;}
@@ -126,6 +132,7 @@
   <div class="abs ctr big fade" id="tElims" style="left:226px;top:698px;width:168px;height:50px;animation-delay:.45s"></div>
   <div class="abs ctr big fade" id="tPoints" style="left:226px;top:800px;width:168px;height:50px;animation-delay:.55s"></div>
   <div class="abs ctr fade" id="round" style="animation-delay:.2s"></div>
+  <div class="abs left fade" id="match" style="animation-delay:.25s"></div>
   <div id="cards"></div>
 </div>
 
@@ -357,7 +364,7 @@ function render(state){
   const rows = b.rows || {};
   const ev = state.event || {};
   const sig = JSON.stringify([ARROW, rows, b.roundLabel, ev.roundName, b.shownAt,
-                              ((roster.teams) || []).map(t => [t.name, !!t.logo]), ART1]);
+                              ((roster.teams) || []).map(t => [t.name, !!t.logo]), ART1, b.gameNo]);
   if(sig !== lastSig){
     const replay = !lastSig || JSON.parse(lastSig)[4] !== b.shownAt;
     lastSig = sig;
@@ -369,6 +376,10 @@ function render(state){
     if(team && team.logo){ logo.src = team.logo; logo.style.visibility = ""; } else logo.style.visibility = "hidden";
     setText(document.getElementById("tName"), (team && (team.displayName || team.name)) || rows.teamName || "", 250, 12);
     setText(document.getElementById("round"), b.roundLabel || ev.roundName || "", 250, 12);
+    // the operator's pick, else the game's own number among the result files
+    const gm = /^G(\d+)$/.exec(String(rows.gameLabel || ""));
+    const gameNo = Number(b.gameNo) || (gm ? Number(gm[1]) : 0);
+    document.getElementById("match").textContent = gameNo ? "MATCH " + gameNo : "";
     buildCards(rows, roster, team);
     if(replay){ stage.classList.remove("on"); void stage.offsetWidth; stage.classList.add("on"); shownSlide = 0; }
     countUp(document.getElementById("tElims"), rows.totalElims, "", .5);

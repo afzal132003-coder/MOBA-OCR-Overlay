@@ -2852,6 +2852,8 @@
         <button class="secondary" id="ff_bsRefresh" title="Read the result file and the captures again">Refresh</button>
         <div class="team-form" style="max-width:240px;margin:0;"><label for="ff_bsRound">Round text</label>
           <input type="text" id="ff_bsRound" placeholder="Round name"></div>
+        <div class="team-form" style="max-width:150px;margin:0;"><label for="ff_bsGameNo" title="MATCH N beside the round bar. Auto: the game's number among the result files.">Match no.</label>
+          <select id="ff_bsGameNo"><option value="0">Auto</option><option value="1">Match 1</option><option value="2">Match 2</option><option value="3">Match 3</option><option value="4">Match 4</option><option value="5">Match 5</option><option value="6">Match 6</option><option value="7">Match 7</option><option value="8">Match 8</option><option value="9">Match 9</option><option value="10">Match 10</option><option value="11">Match 11</option><option value="12">Match 12</option></select></div>
         <label class="hint" style="display:flex;gap:6px;align-items:center;margin:0 0 8px;"><input type="checkbox" id="ff_bsAnim" checked> Animation in &amp; out</label>
       </div>
       <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;">
@@ -10947,6 +10949,7 @@ function ffBsSend(extra){
     auto: document.getElementById("ff_bsAuto").checked,
     autoSeconds: Math.max(3, Math.min(60, Number(document.getElementById("ff_bsAutoSecs").value) || 8)),
     roundLabel: document.getElementById("ff_bsRound").value.trim(),
+    gameNo: Number(document.getElementById("ff_bsGameNo").value) || 0,
     animate: document.getElementById("ff_bsAnim").checked,
   }, extra || {})));
   return true;
@@ -10993,6 +10996,7 @@ function ffSyncBooyahStats(){
   };
   set("ff_bsGame", b.matchId || "");
   set("ff_bsRound", b.roundLabel || "");
+  set("ff_bsGameNo", String(b.gameNo || 0));
   set("ff_bsAnim", b.animate !== false, "checked");
   set("ff_bsAuto", !!b.auto, "checked");
   set("ff_bsAutoSecs", String(b.autoSeconds || 8));
@@ -11017,7 +11021,7 @@ function ffSyncBooyahStats(){
                        ffAwaitReply("booyahStats", "ff_bsStatus", "the Booyah stats were never sent back", 25); };
   document.getElementById("ff_bsGame").addEventListener("change", () => { ffBsGameDirty = true; ffBsStage(); });
   document.getElementById("ff_bsRefresh").addEventListener("click", () => { busy(); ffBsSend({ refresh: true }); });
-  ["ff_bsRound", "ff_bsAnim", "ff_bsAuto", "ff_bsAutoSecs"].forEach(id =>
+  ["ff_bsRound", "ff_bsGameNo", "ff_bsAnim", "ff_bsAuto", "ff_bsAutoSecs"].forEach(id =>
     document.getElementById(id).addEventListener("change", ffBsStage));
   document.getElementById("ff_bsConfirm").addEventListener("click", () => ffBsConfirm(false));
   document.getElementById("ff_bsSlide1").addEventListener("click", () => ffBsSend({ slide: 1, auto: false }));
