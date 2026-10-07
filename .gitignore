@@ -9,6 +9,8 @@ __pycache__/
 ocr/*/valorant_state.json
 ocr/*/freefire_state.json
 ocr/*/moba_state.json
+# The event's team bank: real players' names and UIDs. Kept local.
+ocr/freefire/team_bank.json
 
 # Loadout crops captured during a match -- large, regenerated per event.
 ocr/freefire/captures/

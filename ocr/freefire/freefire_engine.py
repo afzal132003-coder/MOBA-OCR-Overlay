@@ -4521,6 +4521,74 @@ def claim_finish_rank(key, rows):
     return pos
 
 
+# ---------------------------------------------------------------------------
+# TEAM BANK: every team in the event (24 for SS3) with its players and UIDs,
+# kept beside this file in team_bank.json -- out of git, since this repo is
+# public and these are real players' ids. The lobby holds twelve of them; the
+# dashboard's Room Slots pick which, and Team Info is filled from here in
+# slot order. Not part of server_state: it would ride in every state_sync.
+# ---------------------------------------------------------------------------
+TEAM_BANK_PATH = Path(__file__).with_name("team_bank.json")
+
+
+def read_team_bank():
+    try:
+        with open(TEAM_BANK_PATH, "r", encoding="utf-8") as f:
+            bank = json.load(f)
+        return bank if isinstance(bank, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_team_bank(bank):
+    tmp = TEAM_BANK_PATH.with_suffix(".json.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(bank, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, TEAM_BANK_PATH)
+
+
+def parse_team_sheet(text):
+    """The organiser's team sheet as exported to CSV: a row per team
+    ("1, COSMIC ESPORT, CSM, ...": number, name, short name), then a row
+    per player ("", "Player - 1 -", "", IGN, UID, ROLE). Also plain rows of
+    "team,short,ign,uid" or "team,ign,uid". Returns the teams in order."""
+    import csv as _csv
+    rows = list(_csv.reader(io.StringIO(text or "")))
+    cell = lambda r, i: (r[i] if i < len(r) else "").strip()
+    teams, cur = [], None
+    for r in rows:
+        a, b = cell(r, 0), cell(r, 1)
+        if a.isdigit() and b and not b.lower().startswith("player"):
+            cur = {"no": int(a), "name": b, "shortName": cell(r, 2), "note": "", "players": []}
+            teams.append(cur)
+            continue
+        if cur is not None and b.lower().startswith("player"):
+            ign, uid = cell(r, 3), re.sub(r"\D", "", cell(r, 4))
+            if ign:
+                cur["players"].append({"ign": ign, "uid": uid, "role": cell(r, 5)})
+            if any("ELIMINATED" in (c or "").upper() for c in r):
+                cur["note"] = "ELIMINATED"
+    if teams:
+        return [t for t in teams if t["name"]]
+    # plain rows: team,short,ign,uid  or  team,ign,uid
+    by = {}
+    for r in rows:
+        vals = [c.strip() for c in r]
+        if len([v for v in vals if v]) < 2 or vals[0].lower() in ("team", "team name"):
+            continue
+        if len(vals) >= 4 and re.sub(r"\D", "", vals[3]) == vals[3].strip():
+            name, short, ign, uid = vals[0], vals[1], vals[2], vals[3]
+        else:
+            name, short, ign, uid = vals[0], "", vals[1] if len(vals) > 1 else "", vals[2] if len(vals) > 2 else ""
+        t = by.get(name.upper())
+        if t is None:
+            t = by[name.upper()] = {"no": len(by) + 1, "name": name, "shortName": short, "note": "", "players": []}
+        t["shortName"] = t["shortName"] or short
+        if ign:
+            t["players"].append({"ign": ign, "uid": re.sub(r"\D", "", uid), "role": ""})
+    return list(by.values())
+
+
 def roster_rows(roster_teams):
     """The alive table as a fresh lobby of these teams: everyone alive,
     nothing scored, in roster order -- the shape the log's own rows have,
@@ -11683,6 +11751,31 @@ async def handle_client(websocket, path=None):
                     joins[str(tid)] = gs_team
                 await broadcast({"type": "state_sync", "data": server_state,
                                  "locked": list(locked_fields)})
+            elif payload.get("type") in ("freefire_team_bank_get", "freefire_team_bank_import",
+                                         "freefire_team_bank_clear"):
+                # The event's team bank: read, replaced from a pasted /
+                # uploaded sheet, or cleared. Answered to the asker only.
+                kind = payload.get("type")
+                note = ""
+                try:
+                    if kind == "freefire_team_bank_import":
+                        teams = parse_team_sheet(payload.get("text") or "")
+                        if not teams:
+                            note = "No teams found in that sheet -- nothing changed."
+                        else:
+                            write_team_bank({"event": (payload.get("event") or "").strip(),
+                                             "importedAt": _datetime.datetime.now().isoformat(timespec="seconds"),
+                                             "teams": teams})
+                            note = "Imported %d teams, %d players." % (
+                                len(teams), sum(len(t["players"]) for t in teams))
+                    elif kind == "freefire_team_bank_clear":
+                        if TEAM_BANK_PATH.exists():
+                            TEAM_BANK_PATH.unlink()
+                        note = "Team bank cleared."
+                except Exception as e:
+                    note = "Team bank: %s" % e
+                await websocket.send(json.dumps({"type": "freefire_team_bank", "bank": read_team_bank(),
+                                                 "note": note}))
             elif payload.get("type") == "freefire_clear_roster":
                 # Wipes the teams ON THE ENGINE, which the dashboard's own
                 # clear could not do: that one emptied twelve boxes in the
