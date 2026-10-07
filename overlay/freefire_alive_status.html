@@ -61,6 +61,11 @@
   /* Upright, for the Top 4 win rate -- the demo sets it straight, and
      'Supermolot' above is the italic cut. */
   @font-face {
+    font-family: 'Supermolot Black';
+    src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
+    font-weight: 400 900; font-style: normal; font-display: block;
+  }
+  @font-face {
     font-family: 'Supermolot Upright';
     src: url('assets/fonts/TT Supermolot Neue Trial ExtraBold.ttf') format('truetype');
     font-weight: 400 900; font-style: normal; font-display: block;
@@ -657,8 +662,10 @@ const LAYOUTS = {
       photo: { x: 764, y: 108, w: 416, h: 137 },
       logo: { x: 770, y: 250, w: 58, h: 50 },
       // The bar is wide: the full team name, as the demo has it.
-      name: { x: 836, y: 253, w: 334, h: 42, size: 24, ink: "#151515", full: true },
-      rank: { x: 1148, y: 101, w: 42, h: 45, size: 24, ink: "#fff38a" },
+      // Upright, as the demo sets them: the name 14px tall, centred on the
+      // bar's clear part (x 845..1118); the "#N" 23px tall in its box.
+      name: { x: 845, y: 253, w: 273, h: 42, size: 20, ink: "#151515", full: true, face: "Supermolot Upright" },
+      rank: { x: 1148, y: 101, w: 42, h: 45, size: 32, ink: "#fff38a", face: "Supermolot Black" },
       seconds: 4,
     },
     // The ACHIEVEMENT card (side pop-ups), from "prg br ss3 achivement":
@@ -669,12 +676,16 @@ const LAYOUTS = {
     achievement: {
       art: "prg br ss3 achivement - BLANK.png",
       travel: -360,
-      title: { x: 145, y: 452, w: 164, h: 47, size: 16, ink: "#ff1810" },
+      // Text as the demo sets it, upright: title lines 12px tall 20px
+      // apart; the number 52px tall; the label 12px in the art's pale
+      // yellow; the name 19px tall.
+      // Narrower than the tab so a two-word title breaks as the demo's does.
+      title: { x: 166, y: 452, w: 122, h: 47, size: 16, line: 20, ink: "#ff1810", face: "Supermolot Black" },
       photo: { x: 1, y: 463, w: 133, h: 141 },
-      value: { x: 136, y: 500, w: 164, h: 76, size: 64, ink: "#ffffff" },
-      label: { x: 136, y: 574, w: 164, h: 22, size: 15, ink: "#ffffff" },
+      value: { x: 136, y: 505, w: 164, h: 76, size: 72, ink: "#ffffff", face: "Supermolot Black" },
+      label: { x: 136, y: 572, w: 164, h: 22, size: 17, ink: "#fff894", face: "Supermolot Upright" },
       logo: { x: 4, y: 596, w: 50, h: 50 },
-      name: { x: 60, y: 607, w: 238, h: 42, size: 24, ink: "#111111" },
+      name: { x: 60, y: 607, w: 238, h: 42, size: 26, ink: "#111111", face: "Supermolot Black" },
       seconds: 5,
     },
     // The TOP 4 bar, measured from "prg br ss3 top 4 - BLANK/DEMO": four
@@ -1330,6 +1341,9 @@ function applyElimCardLayout(C, state){
   r.setProperty("--elim-rank-h", C.rank.h + "px");
   r.setProperty("--elim-rank-size", C.rank.size + "px");
   r.setProperty("--elim-rank-ink", C.rank.ink || "#ffffff");
+  const face = f => f ? `'${f}', Arial, sans-serif` : "";
+  document.getElementById("elimName").style.fontFamily = face(C.name.face);
+  document.getElementById("elimRank").style.fontFamily = face(C.rank.face);
 
   // The same placement keys the dashboard's Graphic Fixing pages save,
   // so dragging the card there moves it here.
@@ -1592,8 +1606,10 @@ function teamLabel(team, row, state){
    clips -- "MENTALIST ESP" went out as "MENTALIST". So a name that does
    not fit is stepped down in size until it does, to no less than 60% of
    the package's own size; a short name never needs it and is untouched. */
-function fitName(el){
-  el.style.fontSize = "";
+function fitName(el, size0){
+  // A size set for this element (the pop-up's) is where fitting starts;
+  // resetting it to the stylesheet's dropped the name to a small default.
+  el.style.fontSize = size0 ? size0 + "px" : "";
   if(!el.clientWidth) return;
   const base = parseFloat(getComputedStyle(el).fontSize) || 16;
   let size = base;
@@ -1715,13 +1731,15 @@ function showNextPopup(){
   document.documentElement.style.setProperty("--pop-travel", (A.travel || -360) + "px");
   const team = logoFor(pop.teamName, lastState.roster);
   const roster = lastState.roster || {};
-  popPlace("popTitle", A.title, { fontSize: A.title.size + "px", color: A.title.ink }).textContent = pop.title || "";
-  popPlace("popValue", A.value, { fontSize: A.value.size + "px", color: A.value.ink }).textContent =
+  const face = b => (b.face ? { fontFamily: `'${b.face}', Arial, sans-serif`, fontWeight: 400 } : {});
+  popPlace("popTitle", A.title, Object.assign({ fontSize: A.title.size + "px", color: A.title.ink,
+           lineHeight: A.title.line ? A.title.line + "px" : "" }, face(A.title))).textContent = pop.title || "";
+  popPlace("popValue", A.value, Object.assign({ fontSize: A.value.size + "px", color: A.value.ink }, face(A.value))).textContent =
     pop.value == null ? "" : String(pop.value);
-  popPlace("popLabel", A.label, { fontSize: A.label.size + "px", color: A.label.ink }).textContent = pop.label || "";
+  popPlace("popLabel", A.label, Object.assign({ fontSize: A.label.size + "px", color: A.label.ink }, face(A.label))).textContent = pop.label || "";
   const name = pop.ign || (team && team.shortName) || pop.teamName || "";
-  popPlace("popName", A.name, { fontSize: A.name.size + "px", color: A.name.ink }).textContent = name;
-  fitName(document.getElementById("popName"));
+  popPlace("popName", A.name, Object.assign({ fontSize: A.name.size + "px", color: A.name.ink }, face(A.name))).textContent = name;
+  fitName(document.getElementById("popName"), A.name.size);
   const photo = pop.photo || roster.defaultPlayerPhoto || (team && team.groupPhoto) || "";
   const ph = popPlace("popPhoto", A.photo, { display: photo ? "block" : "none" });
   if(photo && ph.getAttribute("src") !== photo) ph.src = photo;
