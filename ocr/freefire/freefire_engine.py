@@ -8004,7 +8004,14 @@ def link_live_teams(live, roster):
             # it simply has no team yet.
             "claimedBy": denied.get(gs_team, ""),
         })
-    return {"rows": rows, "gsNames": gs_names, "unresolved": unresolved}
+    # The pairing the engine worked out for itself (timing, tags, the
+    # last elimination, the operator's stated joins): squad -> the name
+    # the client printed for it. The lobby list names squads from this
+    # where the roster does not know their players yet.
+    gs_inferred = {gs: team_names[tid] for tid, gs in inferred.items()
+                   if tid in team_names and gs is not None}
+    return {"rows": rows, "gsNames": gs_names, "unresolved": unresolved,
+            "gsInferred": gs_inferred}
 
 
 def live_lobby_players(live, id_map, linked=None):
@@ -8026,6 +8033,19 @@ def live_lobby_players(live, id_map, linked=None):
     it resolved to none, which is exactly the case worth showing.
     """
     gs_names = (linked or {}).get("gsNames") or {}
+    # Squads the roster cannot name yet (a new lobby): the engine's own
+    # pairing from the running match, under the roster's spelling of that
+    # team where it has one, else the client's.
+    inferred = (linked or {}).get("gsInferred") or {}
+    roster_teams = ((server_state.get("roster") or {}).get("teams") or [])
+    def _named(gs):
+        if gs_names.get(gs):
+            return gs_names[gs]
+        raw = inferred.get(gs) or ""
+        if not raw:
+            return ""
+        hit = match_roster_team(raw, roster_teams) if roster_teams else None
+        return ((hit or {}).get("name") or raw).strip()
     out = []
     for gs_team, players in sorted((live.get("gsIgns") or {}).items()):
         for pid, ign in sorted(players.items()):
@@ -8038,7 +8058,7 @@ def live_lobby_players(live, id_map, linked=None):
                 # line's, which is abbreviated on some client builds.
                 "ign": (entry.get("ign") or ign or "").strip(),
                 "gsTeam": gs_team,
-                "team": gs_names.get(gs_team) or "",
+                "team": _named(gs_team),
             })
     return out
 

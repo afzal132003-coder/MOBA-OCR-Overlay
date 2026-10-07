@@ -2241,6 +2241,7 @@
       <div class="row" style="gap:8px;align-items:center;">
         <button class="secondary" id="ff_lobbyFetch">Fetch from the lobby</button>
         <button id="ff_lobbyFill">Add these players to the roster</button>
+        <button id="ff_lobbyFetchFill" title="Once the match is running each squad is named by the engine itself (kill timing, tags, eliminations) -- this reads the lobby and adds every named squad's players to its team in one go">Fetch Teams + Players &amp; Add</button>
       </div>
       <div id="ff_lobbySquads" style="margin-top:10px;"></div>
     </div>
@@ -13208,6 +13209,24 @@ document.getElementById("ff_lobbyFill").addEventListener("click", () => {
     type: "freefire_fill_roster_from_lobby", assignments }));
   el.style.color = "#9aa7b5";
   el.textContent = "Adding…";
+});
+
+// Fetch and add in one: every squad the engine has a team for goes in;
+// a squad still unnamed (no fight yet, no tag) is left for its dropdown.
+document.getElementById("ff_lobbyFetchFill").addEventListener("click", () => {
+  document.getElementById("ff_lobbyFetch").click();
+  const squads = ffLobbySquads();
+  const named = squads.filter(sq => ffLobbyAssign[sq.gsTeam] || sq.team).length;
+  const el = document.getElementById("ff_lobbyStatus");
+  if(!squads.length) return;
+  document.getElementById("ff_lobbyFill").click();
+  if(el && named < squads.length){
+    setTimeout(() => {
+      el.innerHTML += "<div style='margin-top:4px;color:#fbbf24;'>" + (squads.length - named) +
+        " squad(s) not named yet -- they have not fought, so the game has not shown which team they are. " +
+        "Pick them below, or press again later in the match.</div>";
+    }, 1500);
+  }
 });
 
 function ffShowLobbyFillResult(msg){
