@@ -341,7 +341,8 @@ def list_replays(replays_dir, limit=30):
     files = []
     for p in folder.glob("ReplayInfo_*.json"):
         m = REPLAY_NAME_RE.search(p.name)
-        if m:
+        # a match still being played (or abandoned) has nothing to draw
+        if m and replay_finished(p):
             files.append((m["stamp"], m["id"], p))
     files.sort(reverse=True)
     out = []
@@ -357,12 +358,30 @@ def list_replays(replays_dir, limit=30):
     return out
 
 
+# A replay's .json is a few hundred bytes from the moment a match starts
+# and only filled in when it ends (a finished one is 100-350 KB), so the
+# game being played -- or one abandoned at the start -- is this small.
+REPLAY_FINISHED_BYTES = 4096
+
+
+def replay_finished(path):
+    try:
+        return Path(path).stat().st_size >= REPLAY_FINISHED_BYTES
+    except OSError:
+        return False
+
+
 def find_replay(replays_dir, match_id=None):
+    """A match's replay by id; with no id, the newest FINISHED one -- it
+    used to be simply the newest, which during a match is the match being
+    played, with nothing in it yet."""
     folder = Path(replays_dir) if replays_dir else None
     if not folder or not folder.is_dir():
         return None
     pattern = "ReplayInfo_%s_*.json" % match_id if match_id else "ReplayInfo_*.json"
     found = sorted(folder.glob(pattern), key=lambda p: p.name.split("_")[-1])
+    if not match_id:
+        found = [p for p in found if replay_finished(p)]
     return found[-1] if found else None
 
 
