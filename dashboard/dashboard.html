@@ -7790,30 +7790,106 @@ function ffFlattenRosterPlayers(roster){
  * currentGame is the one that matters mid-event: the engine stamps it onto
  * every Num5 capture and every fetched result, so switching it between
  * games is what keeps game 1's data from mixing into game 2's. */
+/* EDITS IN PROGRESS ARE NEVER REDRAWN AWAY. This form is refilled from the
+   engine on every state sync -- several a second during a game -- and it
+   used to spare only the box with the cursor in it. Type a Match Title,
+   click into Total Games, and the next sync put the old title back before
+   Save could read it; a ticked checkbox flipped straight back. So a field
+   the operator has touched is theirs until the engine echoes what Save
+   sent (or Save is abandoned), the way the Room Slots grid already works. */
+const FF_EVENT_FIELDS = ["ff_eventTitle", "ff_eventRound", "ff_eventRoomType", "ff_eventTotalGames",
+  "ff_eventCurrentGame", "ff_eventMap", "ff_unmatchedPolicy", "ff_autoTeamEliminated", "ff_autoFetchOnMatchEnd"];
+const ffEventDirty = {};
+let ffEventSent = null;      // what Save sent, until the engine shows it back
+
+function ffEventFormValues(){
+  const v = id => document.getElementById(id);
+  return {
+    matchTitle: v("ff_eventTitle").value.trim(), roundName: v("ff_eventRound").value.trim(),
+    roomType: v("ff_eventRoomType").value === "normal" ? "normal" : "league",
+    totalGames: Math.max(1, Number(v("ff_eventTotalGames").value) || 6),
+    currentGame: Number(v("ff_eventCurrentGame").value) || 1,
+    map: v("ff_eventMap").value.trim(),
+    unmatchedPolicy: v("ff_unmatchedPolicy").value,
+    autoTeamEliminated: v("ff_autoTeamEliminated").checked,
+    autoFetchOnMatchEnd: v("ff_autoFetchOnMatchEnd").checked,
+  };
+}
+
+function ffEventEngineValues(ff){
+  const ev = ff.event || {}, st = ff.settings || {};
+  const current = Number(ev.currentGame) || 1;
+  return {
+    matchTitle: ev.matchTitle || "", roundName: ev.roundName || "",
+    roomType: ev.roomType === "normal" ? "normal" : "league",
+    totalGames: Number(ev.totalGames) || 6, currentGame: current,
+    map: (ev.maps || [])[current - 1] || "",
+    unmatchedPolicy: st.unmatchedPolicy || "flag",
+    autoTeamEliminated: st.autoTeamEliminated !== false,
+    autoFetchOnMatchEnd: st.autoFetchOnMatchEnd !== false,
+  };
+}
+
+function ffEventNote(text, colour){
+  const status = document.getElementById("ff_eventStatus");
+  if(!status) return;
+  status.textContent = text;
+  status.style.color = colour || "";
+}
+
+function ffBuildGameSelect(total, current){
+  const gameSel = document.getElementById("ff_eventCurrentGame");
+  if(!gameSel) return;
+  current = Math.min(Math.max(1, current), total);
+  const html = Array.from({length: total}, (_, i) =>
+    `<option value="${i+1}" ${i+1 === current ? "selected" : ""}>Game ${i+1}</option>`).join("");
+  if(gameSel.dataset.sig !== html){ gameSel.innerHTML = html; gameSel.dataset.sig = html; }
+  gameSel.value = String(current);
+}
+
 function ffRenderEvent(ff){
   const ev = ff.event || {};
   const active = document.activeElement ? document.activeElement.id : "";
+  // Save sent something: once the engine shows all of it back, the form is
+  // the engine's again. If it never does, say so rather than quietly
+  // putting the old values back.
+  if(ffEventSent){
+    const now = ffEventEngineValues(ff);
+    const same = Object.keys(ffEventSent.values).every(k => ffEventSent.values[k] === now[k]);
+    if(same){
+      FF_EVENT_FIELDS.forEach(id => { delete ffEventDirty[id]; });
+      ffEventNote("Saved \u2014 now capturing as Game " + now.currentGame + ".", "#4ade80");
+      setTimeout(() => { if(!ffEventSent) ffEventNote(""); }, 4000);
+      ffEventSent = null;
+    } else if(Date.now() - ffEventSent.at > 8000){
+      ffEventSent = null;
+      ffEventNote("NOT saved \u2014 the engine did not take it within 8s. Your edits are still in the boxes; " +
+                  "check the engine is connected and press Save again.", "#f87171");
+    }
+  }
+  const free = id => active !== id && !ffEventDirty[id];
   const setIfFree = (id, value) => {
     const el = document.getElementById(id);
-    if(el && active !== id) el.value = value;
+    if(el && free(id)) el.value = value;
   };
   setIfFree("ff_eventTitle", ev.matchTitle || "");
   setIfFree("ff_eventRound", ev.roundName || "");
   setIfFree("ff_eventRoomType", ev.roomType === "normal" ? "normal" : "league");
   setIfFree("ff_eventTotalGames", ev.totalGames || 6);
 
-  const gameSel = document.getElementById("ff_eventCurrentGame");
-  if(gameSel && active !== "ff_eventCurrentGame"){
-    const total = Number(ev.totalGames) || 6;
-    const current = Number(ev.currentGame) || 1;
-    gameSel.innerHTML = Array.from({length: total}, (_, i) =>
-      `<option value="${i+1}" ${i+1 === current ? "selected" : ""}>Game ${i+1}</option>`).join("");
+  if(free("ff_eventCurrentGame")){
+    const total = free("ff_eventTotalGames") ? (Number(ev.totalGames) || 6)
+      : Math.max(1, Number(document.getElementById("ff_eventTotalGames").value) || 6);
+    ffBuildGameSelect(total, Number(ev.currentGame) || 1);
   }
+  // the map box follows the game chosen in the form, even before it is saved
   const maps = ev.maps || [];
-  setIfFree("ff_eventMap", maps[(Number(ev.currentGame) || 1) - 1] || "");
+  const shownGame = free("ff_eventCurrentGame") ? (Number(ev.currentGame) || 1)
+    : (Number(document.getElementById("ff_eventCurrentGame").value) || 1);
+  setIfFree("ff_eventMap", maps[shownGame - 1] || "");
 
   const policySel = document.getElementById("ff_unmatchedPolicy");
-  if(policySel && active !== "ff_unmatchedPolicy"){
+  if(policySel && free("ff_unmatchedPolicy")){
     policySel.value = (ff.settings && ff.settings.unmatchedPolicy) || "flag";
   }
 
@@ -7867,19 +7943,36 @@ function ffRenderEvent(ff){
   const st = ff.settings || {};
   // Default true to match the engine: a state saved before these existed
   // has neither key, and the engine treats missing as on.
-  document.getElementById("ff_autoTeamEliminated").checked =
-    st.autoTeamEliminated !== false;
-  document.getElementById("ff_autoFetchOnMatchEnd").checked =
-    st.autoFetchOnMatchEnd !== false;
+  if(!ffEventDirty.ff_autoTeamEliminated)
+    document.getElementById("ff_autoTeamEliminated").checked = st.autoTeamEliminated !== false;
+  if(!ffEventDirty.ff_autoFetchOnMatchEnd)
+    document.getElementById("ff_autoFetchOnMatchEnd").checked = st.autoFetchOnMatchEnd !== false;
   ffRenderPopupControls(ff);
 }
 
+// Anything typed, picked or ticked here is the operator's until saved.
+FF_EVENT_FIELDS.forEach(id => {
+  const el = document.getElementById(id);
+  if(!el) return;
+  const mark = () => {
+    ffEventDirty[id] = true;
+    if(!ffEventSent) ffEventNote("Unsaved changes \u2014 press Save Event Setup.", "#fbbf24");
+  };
+  el.addEventListener("input", mark);
+  el.addEventListener("change", mark);
+});
+
 document.getElementById("ff_eventSave").addEventListener("click", () => {
-  const totalGames = Math.max(1, Number(document.getElementById("ff_eventTotalGames").value) || 6);
-  const currentGame = Number(document.getElementById("ff_eventCurrentGame").value) || 1;
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN) || !ffState){
+    ffEventNote("NOT saved \u2014 not connected to the Free Fire engine.", "#f87171");
+    return;
+  }
+  const form = ffEventFormValues();
+  const totalGames = form.totalGames;
+  const currentGame = Math.min(form.currentGame, totalGames);
   const maps = ((ffState && ffState.event && ffState.event.maps) || []).slice();
   while(maps.length < totalGames) maps.push("");
-  maps[currentGame - 1] = document.getElementById("ff_eventMap").value.trim();
+  maps[currentGame - 1] = form.map;
 
   const settings = Object.assign({}, (ffState && ffState.settings) || {}, {
     unmatchedPolicy: document.getElementById("ff_unmatchedPolicy").value,
@@ -7901,9 +7994,10 @@ document.getElementById("ff_eventSave").addEventListener("click", () => {
     }),
     settings,
   }}}));
-  const status = document.getElementById("ff_eventStatus");
-  status.textContent = `Saved — now capturing as Game ${currentGame}.`;
-  setTimeout(() => { status.textContent = ""; }, 4000);
+  // Every touched field stays as typed until the engine shows this back.
+  FF_EVENT_FIELDS.forEach(id => { ffEventDirty[id] = true; });
+  ffEventSent = { at: Date.now(), values: Object.assign({}, form, { currentGame }) };
+  ffEventNote("Saving\u2026", "#9aa7b5");
 });
 
 /* Switching game re-renders immediately so the map field follows, without
@@ -7916,11 +8010,9 @@ document.getElementById("ff_eventCurrentGame").addEventListener("change", () => 
   document.getElementById("ff_eventMap").value = maps[g-1] || "";
 });
 document.getElementById("ff_eventTotalGames").addEventListener("change", () => {
-  if(ffState) ffRenderEvent(Object.assign({}, ffState, {
-    event: Object.assign({}, ffState.event, {
-      totalGames: Number(document.getElementById("ff_eventTotalGames").value) || 6,
-    }),
-  }));
+  // the game list follows the new total at once, keeping the game picked
+  const total = Math.max(1, Number(document.getElementById("ff_eventTotalGames").value) || 6);
+  ffBuildGameSelect(total, Number(document.getElementById("ff_eventCurrentGame").value) || 1);
 });
 
 const FF_SLOT_LABELS = {
