@@ -45,7 +45,7 @@
   /* ---- standard panel ---- */
   #panel{position:absolute;left:160px;top:96px;width:1600px;height:888px;box-sizing:border-box;
          padding:40px 56px 40px;display:flex;gap:48px;
-         opacity:0;transform:translateY(28px);pointer-events:none;
+         opacity:.004;transform:translateY(28px);pointer-events:none;
          transition:opacity .45s ease, transform .55s cubic-bezier(.16,.84,.34,1);}
   #panel.on{opacity:1;transform:translateY(0);}
   #panel:not(.on){transition:opacity .35s ease, transform .45s cubic-bezier(.5,0,.75,0);
@@ -136,7 +136,7 @@
      1284 / 1477 / 1672 and y 662 / 799 / 935. The ribbons cross the frame,
      so the art goes BEHIND the map, and the border and tags are put back
      on top from the same image (.sprite). */
-  #ss3{position:absolute;inset:0;opacity:0;pointer-events:none;transition:opacity .35s ease;}
+  #ss3{position:absolute;inset:0;opacity:.004;pointer-events:none;transition:opacity .35s ease;}
   #ss3.on{opacity:1;}
   #ss3Art{position:absolute;left:0;top:0;width:1920px;height:1080px;}
   #ss3Map{position:absolute;left:65px;top:58px;width:940px;height:940px;}
@@ -182,6 +182,10 @@
   /* The next circle, live: its dashes march while it waits to close. */
   .march{animation:march 1.6s linear infinite;}
   @keyframes march{to{stroke-dashoffset:var(--step);}}
+  /* Nothing animates while the layout is hidden: a push builds the whole
+     map and table first (a quarter of a second of work), and the entrance
+     used to start during it and stutter. Everything waits, then plays. */
+  #panel:not(.on) *, #ss3:not(.on) *{animation-play-state:paused !important;}
 </style>
 </head>
 <body>
@@ -787,9 +791,11 @@ function render(state){
   if(box.parentNode !== host) host.appendChild(box);
   const panel = document.getElementById("panel"), ss3 = document.getElementById("ss3");
   panel.classList.toggle("bg", cfg.bg !== false);
-  panel.classList.toggle("on", visible && tpl === "std");
-  ss3.classList.toggle("on", visible && tpl === "ss3");
-  if(!visible){ lastSig = ""; stopReplay(); return; }
+  if(!visible || tpl !== "std") panel.classList.remove("on");
+  if(!visible || tpl !== "ss3") ss3.classList.remove("on");
+  if(!visible){ lastSig = ""; revealToken++; revealPending = false; stopReplay(); return; }
+  // shown at once unless a fresh draw is still being built (see reveal)
+  if(!revealPending) (tpl === "ss3" ? ss3 : panel).classList.add("on");
 
   const roster = state.roster || {};
   const maps = state.ffMaps || {};
@@ -809,8 +815,9 @@ function render(state){
   const firstDraw = !lastSig || mode !== "live";
   lastSig = sig;
   stopReplay();
-  // Restart the layout's own entrance (the CSS animations on it).
-  if(firstDraw){ [panel, ss3].forEach(n => { if(n.classList.contains("on")){ n.classList.remove("on"); void n.offsetWidth; n.classList.add("on"); } }); }
+  // A fresh draw is built hidden, and its entrance played once it is
+  // ready (reveal, at the end of this function).
+  if(firstDraw){ panel.classList.remove("on"); ss3.classList.remove("on"); revealPending = true; }
 
   const svg = document.getElementById("map");
   box.querySelectorAll(".nomap").forEach(n => n.remove());
@@ -888,6 +895,31 @@ function render(state){
     }
     ss3Grid(teams, roster);
   }
+  if(revealPending) reveal(view && view.image, tpl);
+}
+
+/* The entrance, once the draw is built AND its map image decoded (or
+   400ms, whichever first), on a clean frame -- so it plays smoothly from
+   its first frame instead of stuttering through the build. */
+let revealToken = 0, revealPending = false;
+function reveal(src, tpl){
+  const token = ++revealToken;
+  let done = false;
+  const go = () => {
+    if(done || token !== revealToken) return;
+    done = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if(token !== revealToken) return;
+      revealPending = false;
+      document.getElementById(tpl === "ss3" ? "ss3" : "panel").classList.add("on");
+    }));
+  };
+  if(src){
+    const im = new Image();
+    im.src = src;
+    (im.decode ? im.decode() : Promise.resolve()).then(go, go);
+    setTimeout(go, 400);
+  } else go();
 }
 
 /* The animated replay: the match played forward in replaySeconds. Each
