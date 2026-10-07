@@ -32,6 +32,9 @@
  *                  J      finish contribution
  *                  K      survival time, average per game (m:ss)
  *
+ *   ARROW MVP MATCH  D2  the match MVP's name, picked in the dashboard
+ *                        (tab and cell can be changed there)
+ *
  * Survival times and photo paths go in as TEXT. "17:06" typed into a
  * sheet becomes six minutes past five in the afternoon; set as text it
  * stays seventeen minutes six seconds.
@@ -45,6 +48,9 @@
 
 var BOOYAH_TAB = "BOOYAH-ARROW";
 var MVP_TAB = "ARROW MVP";
+// The match MVP's name: one cell, its tab and address sent with each push.
+var MVP_MATCH_TAB = "ARROW MVP MATCH";
+var MVP_MATCH_CELL = "D2";
 
 // BOOYAH-ARROW: four players, rows 2-5.
 var BOOYAH_FIRST_ROW = 2;
@@ -76,6 +82,7 @@ function doPost(e) {
     if (what === "matchTop")    return reply(pushMatchTop(body.rows || []));
     if (what === "totals")      return reply(pushTotals(body.rows || []));
     if (what === "clearTotals") return reply(clearTotals());
+    if (what === "matchMvp")    return reply(pushMatchMvp(body));
     return reply({ok: false, error: "Unknown 'what': " + what});
   } catch (err) {
     return reply({ok: false, error: String(err)});
@@ -159,6 +166,16 @@ function pushTotals(rows) {
                     "headContri", "finContri", "survival"]);
 }
 
+function pushMatchMvp(body) {
+  var name = String(body.tab || MVP_MATCH_TAB);
+  var a1 = String(body.cell || MVP_MATCH_CELL).toUpperCase().replace(/\s+/g, "");
+  if (!/^[A-Z]{1,3}[0-9]{1,6}$/.test(a1)) throw new Error("Not a cell address: " + a1);
+  var range = tab(name).getRange(a1);
+  range.setNumberFormat("@");
+  range.setValue(cell(body.value));
+  return {ok: true, tab: name, cell: a1, written: 1, value: body.value};
+}
+
 function clearTotals() {
   var sheet = tab(MVP_TAB);
   clearColumns(sheet, TOTAL_COLUMNS, TOTAL_FIRST_ROW, TOTAL_CLEAR_ROWS);
@@ -176,7 +193,7 @@ function authorize() {
   Logger.log("Tabs: " + ss.getSheets().map(function (s) {
     return "'" + s.getName() + "'";
   }).join(", "));
-  [BOOYAH_TAB, MVP_TAB].forEach(function (name) {
+  [BOOYAH_TAB, MVP_TAB, MVP_MATCH_TAB].forEach(function (name) {
     Logger.log(ss.getSheetByName(name)
         ? "FOUND  '" + name + "'"
         : "MISSING '" + name + "'  <-- fix the name above or the tab");

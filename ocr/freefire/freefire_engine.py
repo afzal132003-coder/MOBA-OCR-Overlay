@@ -10771,6 +10771,38 @@ async def handle_client(websocket, path=None):
                 # write whatever the browser last happened to receive --
                 # including a tab left open from the previous match.
                 what = payload.get("what") or ""
+                if what == "matchMvp":
+                    # One cell: the match MVP's name, picked by the
+                    # operator from the Booyah squad. Its tab and cell are
+                    # remembered for next time.
+                    settings = server_state.setdefault("settings", {})
+                    value = str(payload.get("value") or "").strip()
+                    mtab = (str(payload.get("tab") or "").strip()
+                            or settings.get("arrowMvpTab") or "ARROW MVP MATCH")
+                    mcell = (str(payload.get("cell") or "").strip().upper()
+                             or settings.get("arrowMvpCell") or "D2")
+                    settings["arrowMvpTab"], settings["arrowMvpCell"] = mtab, mcell
+                    save_state()
+                    url = (settings.get("arrowWebhookUrl") or "").strip()
+                    if not value:
+                        result = {"ok": False, "error": "No player picked."}
+                    elif not url:
+                        result = {"ok": False, "error": "No ARROW sheet web app URL set."}
+                    else:
+                        try:
+                            raw = await asyncio.get_running_loop().run_in_executor(
+                                None, _post_sheet_payload, url,
+                                {"what": "matchMvp", "value": value, "tab": mtab, "cell": mcell})
+                            try:
+                                result = json.loads(raw)
+                            except Exception:
+                                result = {"ok": False, "error": (raw or "")[:200]}
+                        except Exception as e:
+                            result = {"ok": False, "error": str(e)}
+                    await websocket.send(json.dumps({
+                        "type": "freefire_arrow_result", "what": what,
+                        "rows": 1 if result.get("ok") else 0, "result": result}))
+                    continue
                 matches = server_state.get("matches", []) or []
                 # A match that has been FETCHED but not yet committed is
                 # the usual thing to push: the operator reviews the result

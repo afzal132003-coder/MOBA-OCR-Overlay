@@ -2871,6 +2871,51 @@
       </div>
     </div>
 
+    <div class="card" id="ff_oneClickCard">
+      <h2 data-ov="postmatch">Post-Match &mdash; One Click</h2>
+      <p class="hint" style="margin-top:0;">One press, in order: <b>fetch the latest match</b> &rarr; <b>fill the rows</b>
+        from its result &rarr; <b>push the RESULTS tab</b> (match column and tab below) &rarr; push the same score to
+        a <b>second tab as match 1</b> &rarr; <b>push Booyah stats</b> &rarr; push the <b>MVP's name</b> &rarr;
+        <b>push the series totals</b> with this game ticked. Each step reports below; a step that fails does not stop
+        the ones after it.</p>
+      <div class="row" style="gap:12px;align-items:flex-end;flex-wrap:wrap;">
+        <div class="team-form" style="max-width:130px;margin:0;">
+          <label for="ff_ocMatch" title="The RESULTS tab's match column pair (match 1 = D/E, 2 = G/H ...). Same box as in Export for Sheet.">RESULTS match column</label>
+          <input type="number" id="ff_ocMatch" min="1" max="10" step="1" value="1">
+        </div>
+        <div class="team-form" style="max-width:170px;margin:0;">
+          <label for="ff_ocTab">RESULTS tab name</label>
+          <input type="text" id="ff_ocTab" placeholder="RESULTS">
+        </div>
+        <div class="team-form" style="max-width:190px;margin:0;">
+          <label for="ff_resultsTab2" title="The same placement & elimination score, also written to this tab, always into match 1's columns (overwritten each game). Blank = skip.">Also score to tab (match 1)</label>
+          <input type="text" id="ff_resultsTab2" placeholder="e.g. MATCH SCORE">
+        </div>
+        <label class="hint" style="display:flex;gap:6px;align-items:center;margin:0 0 8px;">
+          <input type="checkbox" id="ff_ocTotals" checked> Add this game to the series totals</label>
+      </div>
+      <div class="row" style="gap:12px;align-items:flex-end;flex-wrap:wrap;margin-top:10px;">
+        <div class="team-form" style="max-width:260px;margin:0;">
+          <label for="ff_ocMvp" title="The Booyah squad's players; the top fragger is picked to start with">MVP player (Booyah squad)</label>
+          <select id="ff_ocMvp"><option value="">— fetch a match first —</option></select>
+        </div>
+        <div class="team-form" style="max-width:170px;margin:0;">
+          <label for="ff_arrowMvpTab">MVP tab</label>
+          <input type="text" id="ff_arrowMvpTab" placeholder="ARROW MVP MATCH">
+        </div>
+        <div class="team-form" style="max-width:80px;margin:0;">
+          <label for="ff_arrowMvpCell">Cell</label>
+          <input type="text" id="ff_arrowMvpCell" placeholder="D2">
+        </div>
+        <button class="secondary" id="ff_ocMvpPush" title="Write just the MVP name now">Push MVP Name</button>
+      </div>
+      <div class="row" style="gap:8px;margin-top:12px;align-items:center;">
+        <button id="ff_oneClick" style="font-weight:700;">Run Post-Match (1 click)</button>
+        <span class="hint" id="ff_oneClickNote"></span>
+      </div>
+      <div id="ff_oneClickSteps" style="margin-top:8px;font-size:12px;line-height:1.7;"></div>
+    </div>
+
     <div class="card">
       <h2>File &amp; OCR Management</h2>
       <p class="hint">Free Fire's own game client writes these files directly to disk — no screenshots, no OCR
@@ -6704,9 +6749,11 @@ function connect(){
       const r = msg.result || {};
       const label = {booyah: "Booyah stats",
                      totals: "series totals",
-                     clearTotals: "totals block"}[msg.what] || msg.what;
+                     clearTotals: "totals block",
+                     matchMvp: "MVP name"}[msg.what] || msg.what;
       el.textContent = r.ok
-        ? (msg.what === "clearTotals"
+        ? (msg.what === "matchMvp" ? "Wrote '" + r.value + "' to " + r.tab + "!" + r.cell + "."
+          : msg.what === "clearTotals"
             ? "Cleared the totals block on '" + r.tab + "'."
             : "Wrote " + r.written + " row(s) of " + label + " to '" + r.tab + "'.")
         : "FAILED (" + label + "): " + (r.error || "no answer from the script.");
@@ -6856,6 +6903,8 @@ function ffOpen(url){
   ffWs.onerror = () => ffWs.close();
   ffWs.onmessage = (evt) => {
     const msg = JSON.parse(evt.data);
+    // the one-click post-match waits on replies; it reads them, never eats them
+    if(typeof ffFeedWaiters === "function") ffFeedWaiters(msg);
     if(msg.type === "whoami"){
       /* The relay drops anything a viewer sends, without a word. That is
          right for an overlay and disastrous for a dashboard: it showed
@@ -7975,6 +8024,7 @@ function ffRenderEvent(ff){
   setIfFree("ff_afterGameLabel", ev.afterGameLabel || "");
   setIfFree("ff_debuggerStartAt", (ff.settings && ff.settings.debuggerStartAt) || "");
   setIfFree("ff_resultsTab", (ff.settings && ff.settings.resultsTab) || "");
+  if(typeof ffSyncOneClick === "function") ffSyncOneClick(ff);
   setIfFree("ff_sheetWebhookUrl", (ff.settings && ff.settings.sheetWebhookUrl) || "");
   setIfFree("ff_arrowWebhookUrl", (ff.settings && ff.settings.arrowWebhookUrl) || "");
   setIfFree("ff_lobbyTitle", (ff.lobby && ff.lobby.title) || "");
@@ -13633,6 +13683,223 @@ document.getElementById("ff_resultsPush").addEventListener("click", () => {
     (booyah ? " (Booyah: " + booyah.team + ")" : " (no Booyah in that result)") +
     " to match " + match + " (columns " + ffResultsColumnPair(match) + ")\u2026";
 });
+
+
+/* ---------- POST-MATCH IN ONE CLICK ----------
+   The same buttons the operator presses one by one, pressed in order,
+   each waiting for the engine's own answer before the next goes. Nothing
+   here builds a payload of its own except the second-tab score, which is
+   the RESULTS push's payload sent again to another tab as match 1. */
+const ffWaiters = [];
+function ffWaitFor(type, ms, test){
+  return new Promise(resolve => {
+    const w = { type, test, resolve };
+    w.timer = setTimeout(() => { const i = ffWaiters.indexOf(w); if(i >= 0) ffWaiters.splice(i, 1); resolve(null); }, ms || 20000);
+    ffWaiters.push(w);
+  });
+}
+function ffFeedWaiters(msg){
+  for(let i = 0; i < ffWaiters.length; i++){
+    const w = ffWaiters[i];
+    if(w.type === msg.type && (!w.test || w.test(msg))){
+      clearTimeout(w.timer); ffWaiters.splice(i, 1); i--;
+      w.resolve(msg);
+    }
+  }
+}
+
+// The MVP picker: the Booyah squad of the game being pushed, top fragger first.
+let ffOcMvpKey = "";
+function ffOcRenderMvp(){
+  const sel = document.getElementById("ff_ocMvp");
+  if(!sel || document.activeElement === sel) return;
+  const source = (typeof ffResultsSelectedSource === "function") ? ffResultsSelectedSource() : null;
+  const block = source ? ffBooyahBlockFor(source) : null;
+  const players = block ? block.players.slice().sort((a, b) => (b.kills || 0) - (a.kills || 0)) : [];
+  const key = (block ? block.team : "") + "|" + players.map(p => p.ign).join(",");
+  if(key === ffOcMvpKey) return;
+  ffOcMvpKey = key;
+  const keep = sel.value;
+  sel.innerHTML = players.length
+    ? players.map(p => '<option value="' + ffEscapeHtml(p.ign) + '">' + ffEscapeHtml(p.ign) +
+        (p.kills != null ? " (" + p.kills + " elim" + (p.kills === 1 ? "" : "s") + ")" : "") + '</option>').join("") +
+      '<option value="">— none —</option>'
+    : '<option value="">— fetch a match first —</option>';
+  if(players.some(p => p.ign === keep)) sel.value = keep;
+  const note = document.getElementById("ff_oneClickNote");
+  if(note && block) note.textContent = "Booyah: " + block.team;
+}
+
+function ffOcStep(n, state, text){
+  const box = document.getElementById("ff_oneClickSteps");
+  let row = document.getElementById("ff_ocStep" + n);
+  if(!row){ row = document.createElement("div"); row.id = "ff_ocStep" + n; box.appendChild(row); }
+  const mark = { run: "⏳", ok: "✅", warn: "⚠️", fail: "❌", skip: "➖" }[state] || "";
+  row.style.color = { ok: "#4ade80", warn: "#fbbf24", fail: "#f87171", skip: "#7d8b9c" }[state] || "#9aa7b5";
+  row.textContent = mark + " " + text;
+}
+
+function ffOcArrowText(msg){
+  const r = (msg && msg.result) || {};
+  if(!msg) return [false, "no answer from the engine"];
+  if(!r.ok) return [false, r.error || "the script did not answer"];
+  if(msg.what === "matchMvp") return [true, "'" + r.value + "' into " + r.tab + "!" + r.cell];
+  return [true, (r.written != null ? r.written + " row(s)" : "written") + " to '" + r.tab + "'"];
+}
+
+async function ffPostMatchOneClick(){
+  const btn = document.getElementById("ff_oneClick");
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)){
+    document.getElementById("ff_oneClickNote").textContent = "Not connected to the Free Fire engine.";
+    return;
+  }
+  btn.disabled = true;
+  document.getElementById("ff_oneClickSteps").innerHTML = "";
+  try {
+    // 1. the latest match
+    ffOcStep(1, "run", "Fetching the latest match result…");
+    const p1 = ffWaitFor("freefire_match_result", 25000);
+    ffWs.send(JSON.stringify({ type: "freefire_fetch_match", folder: document.getElementById("ff_matchFolder").value }));
+    const r1 = await p1;
+    if(!r1 || (r1.error && !(r1.teams || []).length)){
+      ffOcStep(1, "fail", "Fetch: " + ((r1 && r1.error) || "no answer from the engine") + " — stopped here.");
+      return;
+    }
+    const won = (r1.teams || []).find(t => Number(t.rank) === 1);
+    ffOcStep(1, "ok", "Fetched " + (r1.fileName || r1.matchId || "the latest match") + " — " + (r1.teams || []).length +
+             " teams, Booyah " + ((won && (won.teamName || won.fileTeamName)) || "?"));
+
+    // 2. the export rows
+    document.getElementById("ff_qmeFillFromResult").click();
+    const fill = document.getElementById("ff_qmeFillStatus");
+    ffOcStep(2, /no roster match/.test(fill.textContent) ? "warn" : "ok", "Rows: " + (fill.textContent || "filled"));
+
+    // 3. RESULTS: this game, into the match column set above
+    const sel = document.getElementById("ff_resultsPushSource");
+    ffRenderResultsSources();
+    if(Array.from(sel.options).some(o => o.value === "pending")){ sel.value = "pending"; sel.dataset.touched = "1"; }
+    if(typeof ffRenderBooyahCard === "function") ffRenderBooyahCard();
+    const matchNo = Math.max(1, Number(document.getElementById("ff_ocMatch").value) || 1);
+    const mi = document.getElementById("ff_resultsPushMatch");
+    mi.value = matchNo; mi.dataset.touched = "1";
+    if(typeof ffUpdateResultsPushTarget === "function") ffUpdateResultsPushTarget();
+    ffOcRenderMvp();
+    ffOcStep(3, "run", "Pushing to the RESULTS tab, match " + matchNo + "…");
+    const p3 = ffWaitFor("freefire_results_push_result", 40000);
+    document.getElementById("ff_resultsPush").click();
+    const r3 = await p3;
+    if(!r3) ffOcStep(3, "fail", "RESULTS: no answer from the sheet.");
+    else if(r3.needsConfirm) ffOcStep(3, "warn", "RESULTS: match " + matchNo + " already has scores — nothing written. Check the match column, then use Overwrite in Export for Sheet.");
+    else ffOcStep(3, r3.ok ? "ok" : "fail", "RESULTS match " + matchNo + ": " + (r3.ok ? ((r3.matched != null ? r3.matched + " team(s) written" : "written") + (r3.tab ? " to '" + r3.tab + "'" : "")) : (r3.error || "failed")));
+
+    // 4. the same score, a second tab, always match 1
+    const tab2 = document.getElementById("ff_resultsTab2").value.trim();
+    if(tab2 && ffLastPushPayload){
+      ffOcStep(4, "run", "Pushing the score to '" + tab2 + "' (match 1)…");
+      const p4 = ffWaitFor("freefire_results_push_result", 40000);
+      ffWs.send(JSON.stringify(Object.assign({}, ffLastPushPayload, { tab: tab2, match: 1, overwrite: true, booyah: null })));
+      const r4 = await p4;
+      ffOcStep(4, r4 && r4.ok ? "ok" : "fail", "'" + tab2 + "' match 1: " + (!r4 ? "no answer" : r4.ok ? ((r4.matched != null ? r4.matched + " team(s)" : "") + " written") : (r4.error || "failed")));
+    } else ffOcStep(4, "skip", "Second score tab: none set — skipped.");
+
+    // 5. Booyah stats (ARROW)
+    ffOcStep(5, "run", "Pushing Booyah stats…");
+    const p5 = ffWaitFor("freefire_arrow_result", 40000, m => m.what === "booyah");
+    document.getElementById("ff_pushBooyah").click();
+    const [ok5, t5] = ffOcArrowText(await p5);
+    ffOcStep(5, ok5 ? "ok" : "fail", "Booyah stats: " + t5);
+
+    // 6. the MVP's name
+    const mvp = document.getElementById("ff_ocMvp").value;
+    if(mvp){
+      ffOcStep(6, "run", "Pushing the MVP name…");
+      const p6 = ffWaitFor("freefire_arrow_result", 40000, m => m.what === "matchMvp");
+      ffOcPushMvp();
+      const [ok6, t6] = ffOcArrowText(await p6);
+      ffOcStep(6, ok6 ? "ok" : "fail", "MVP: " + t6);
+    } else ffOcStep(6, "skip", "MVP name: no player picked — skipped.");
+
+    // 7. series totals, this game ticked
+    if(document.getElementById("ff_ocTotals").checked){
+      ffOcStep(7, "run", "Listing the result files…");
+      if(ffArrowFiles === null) ffArrowFiles = [];
+      const p7a = ffWaitFor("freefire_match_list", 20000);
+      ffWs.send(JSON.stringify({ type: "freefire_list_matches", folder: document.getElementById("ff_matchFolder").value }));
+      const list = await p7a;
+      const files = ((list && list.files) || []).slice();
+      ffDrawArrowFiles();
+      const pend = String((ffPendingMatch && ffPendingMatch.matchId) || "");
+      const mine = files.find(f => String(f.matchId) === pend || String(f.matchId).split("@")[0] === pend.split("@")[0]) ||
+                   files.slice().sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")))[0];
+      if(mine){
+        const box = Array.from(document.querySelectorAll(".ff-arrow-file")).find(el => el.dataset.matchid === String(mine.matchId));
+        if(box) box.checked = true;
+      }
+      const ids = ffArrowTickedMatchIds();
+      if(!ids.length){ ffOcStep(7, "fail", "Series totals: no games ticked."); }
+      else {
+        ffOcStep(7, "run", "Pushing series totals over " + ids.length + " game(s)…");
+        const p7 = ffWaitFor("freefire_arrow_result", 60000, m => m.what === "totals");
+        ffArrowSend("totals", { matchIds: ids });
+        const [ok7, t7] = ffOcArrowText(await p7);
+        ffOcStep(7, ok7 ? "ok" : "fail", "Series totals (" + ids.length + " game(s)): " + t7);
+      }
+    } else ffOcStep(7, "skip", "Series totals: not ticked — skipped.");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function ffOcPushMvp(){
+  ffArrowSend("matchMvp", {
+    value: document.getElementById("ff_ocMvp").value,
+    tab: document.getElementById("ff_arrowMvpTab").value.trim(),
+    cell: document.getElementById("ff_arrowMvpCell").value.trim(),
+  });
+}
+
+(function ffWireOneClick(){
+  if(!document.getElementById("ff_oneClick")) return;
+  document.getElementById("ff_oneClick").addEventListener("click", ffPostMatchOneClick);
+  document.getElementById("ff_ocMvpPush").addEventListener("click", ffOcPushMvp);
+  // The match column and tab are the Export for Sheet boxes, mirrored.
+  const mirror = (a, b, ev) => document.getElementById(a).addEventListener(ev, e => {
+    const t = document.getElementById(b);
+    t.value = e.target.value; t.dataset.touched = "1";
+    t.dispatchEvent(new Event(ev === "input" ? "input" : "change"));
+  });
+  mirror("ff_ocMatch", "ff_resultsPushMatch", "input");
+  mirror("ff_ocTab", "ff_resultsTab", "change");
+  ["ff_resultsTab2", "ff_arrowMvpTab", "ff_arrowMvpCell"].forEach(id => {
+    const el = document.getElementById(id);
+    el.addEventListener("input", () => { ffHeldInputs[id] = Date.now(); });
+    el.addEventListener("change", () => {
+      if(!(ffWs && ffWs.readyState === WebSocket.OPEN && ffState)) return;
+      const key = { ff_resultsTab2: "resultsTab2", ff_arrowMvpTab: "arrowMvpTab", ff_arrowMvpCell: "arrowMvpCell" }[id];
+      const settings = Object.assign({}, ffState.settings || {}, { [key]: el.value.trim() });
+      ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { settings } } }));
+    });
+  });
+})();
+
+// Kept in step with the engine and the Export for Sheet boxes.
+function ffSyncOneClick(ff){
+  const s = (ff && ff.settings) || {};
+  const setFree = (id, v) => {
+    const el = document.getElementById(id);
+    if(!el || document.activeElement === el) return;
+    if(ffHeldInputs[id] && Date.now() - ffHeldInputs[id] < 8000) return;
+    if(el.value !== v) el.value = v;
+  };
+  setFree("ff_resultsTab2", s.resultsTab2 || "");
+  setFree("ff_arrowMvpTab", s.arrowMvpTab || "");
+  setFree("ff_arrowMvpCell", s.arrowMvpCell || "");
+  const m = document.getElementById("ff_resultsPushMatch"), om = document.getElementById("ff_ocMatch");
+  if(m && om && document.activeElement !== om && om.value !== m.value) om.value = m.value;
+  const t = document.getElementById("ff_resultsTab"), ot = document.getElementById("ff_ocTab");
+  if(t && ot && document.activeElement !== ot && ot.value !== t.value) ot.value = t.value;
+  ffOcRenderMvp();
+}
 
 document.getElementById("ff_qmeCopy").addEventListener("click", async () => {
   const statusEl = document.getElementById("ff_qmeStatus");
