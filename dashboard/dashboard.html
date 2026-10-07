@@ -41,14 +41,25 @@
   #status.connected{background:#1b5e3a;color:#a4f5c4;}
   #status.disconnected{background:#5e1b1b;color:#f5a4a4;}
   .hint{font-size:12px;color:#7d8b9c;margin-top:-4px;}
-  /* the OBS link under a card's hint (renderCardOverlayLinks) */
-  .ov-card-links{display:flex;flex-direction:column;gap:5px;margin:2px 0 12px;}
-  .ov-card-link{display:flex;align-items:center;gap:6px;}
-  .ov-card-link .ov-lab{font-size:11px;font-weight:700;color:#9aa7b5;white-space:nowrap;min-width:150px;}
-  .ov-card-links .ov-card-link input[type="text"]{flex:1;height:auto;line-height:1.3;min-width:0;font-family:monospace;font-size:11px;background:#06090c;color:#c8cede;
-                      border:1px solid #1b2430;border-radius:4px;padding:4px 6px;margin:0;}
-  .ov-card-links .ov-card-link button{padding:5px 12px;margin:0;font-size:12px;white-space:nowrap;}
-  .ov-card-link .ov-warn{font-size:10px;color:#fbbf24;white-space:nowrap;}
+  /* "Copy OBS link" beside a card's header (renderHeaderOverlayLinks): top
+     right of the card on the header's line -- kept out of the h2 itself,
+     whose text names the card in the index and the fold memory. */
+  .card.ov-has-head{position:relative;}
+  .card > h2[data-ov]{padding-right:250px;}
+  .card > h2[data-ov="both"]{padding-right:480px;}
+  .ov-head{position:absolute;top:19px;right:22px;display:flex;gap:6px;z-index:2;}
+  .card.folded > .ov-head{display:flex !important;}
+  h3 .ov-head-inline{display:inline-flex;gap:6px;margin-left:12px;vertical-align:middle;}
+  .ov-head .ov-chip, .ov-head-inline .ov-chip{height:28px;min-height:0;box-shadow:none;}
+  .ov-chip{display:inline-flex;align-items:center;gap:6px;margin:0;padding:0 10px;border-radius:6px;cursor:pointer;
+           font-family:inherit;font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:none;line-height:1.2;
+           background:#12202e;color:#cfe3ff;border:1px solid #2b4560;white-space:nowrap;}
+  .ov-chip:hover{background:#18304a;border-color:#4d9fff;}
+  .ov-chip .ov-src{color:#4d9fff;font-weight:800;}
+  .ov-chip.ov-notoken .ov-src::after{content:" !";color:#fbbf24;}
+  .ov-chip.ov-copied{background:#123222;border-color:#4ade80;color:#4ade80;}
+  @media (max-width:900px){ .ov-head{position:static;margin:-6px 0 10px;flex-wrap:wrap;}
+                            .card > h2[data-ov], .card > h2[data-ov="both"]{padding-right:0;} }
   #tso_status{transition:opacity 0.6s ease; margin-top:8px;}
 
   .brand-title{font-family:var(--nav);font-size:28px;font-weight:700;letter-spacing:0.1em;margin:0 0 2px;color:#4d9fff;}
@@ -2192,7 +2203,7 @@
     </div>
 
     <div class="card">
-      <h2>Lobby Join Status &mdash; Graphic</h2>
+      <h2 data-ov="freefire_lobby_status.html">Lobby Join Status &mdash; Graphic</h2>
       <p class="hint">Tick each squad as it turns up in the room. The strip below the stream updates straight
         away: <strong style="color:#7ee2a8;">JOINED</strong> in light green,
         <strong style="color:#ff8d8d;">YET TO JOIN</strong> in light red, with the words there too so it reads
@@ -2548,13 +2559,13 @@
     </div>
 
     <div class="card">
-      <h2>Popup Triggers</h2>
+      <h2 data-ov="ingame">Popup Triggers</h2>
       <p class="hint">Nothing in the game feed reliably signals a headshot milestone or a team elimination on its
         own yet, so these are manual — pick the player/team, optionally drop in a photo, and hit Show. Both
         auto-hide after a few seconds, or hide them yourself.</p>
       <div class="two-col">
         <div class="col">
-          <h3>Headshot Hunter</h3>
+          <h3 data-ov="ingame">Headshot Hunter</h3>
           <label>Player</label>
           <select id="hh_player"></select>
           <label>Headshots</label>
@@ -2568,7 +2579,7 @@
           </div>
         </div>
         <div class="col">
-          <h3>Team Eliminated</h3>
+          <h3 data-ov="ingame">Team Eliminated</h3>
           <label>Team</label>
           <select id="te_team"></select>
           <label>Placement Rank</label>
@@ -2679,7 +2690,7 @@
   <!-- ===================== POST-MATCH ===================== -->
   <div class="ff-tab-panel" id="fftab-postmatch">
     <div class="card">
-      <h2>Team Graphs</h2>
+      <h2 data-ov="postmatch">Team Graphs</h2>
       <p class="hint">Its own full-screen browser source (<code>overlay/freefire_team_graphs.html</code>), drawn from the
         committed games -- the same numbers as the points table. Four graphs: <strong>Points Race</strong>
         (cumulative points after each game), <strong>Points Breakdown</strong> (placement vs kill points, overall
@@ -2745,7 +2756,7 @@
     </div>
 
     <div class="card">
-      <h2>Player Head To Head</h2>
+      <h2 data-ov="postmatch">Player Head To Head</h2>
       <p class="hint">Its own browser source: <code>overlay/freefire_player_h2h.html</code> (SS3 art). Two players from
         different teams: <strong>Rank</strong> (their team's finish in that game, or its place in the standings over
         the games chosen), <strong>Elimination</strong> (the player's own kills), <strong>Placement</strong> and
@@ -2780,7 +2791,7 @@
     </div>
 
     <div class="card">
-      <h2>Booyah Team Stats (SS3, two slides)</h2>
+      <h2 data-ov="postmatch">Booyah Team Stats (SS3, two slides)</h2>
       <p class="hint">Its own browser source: <code>overlay/freefire_booyah_stats.html</code>. The game's winning squad.
         <strong>Slide 1</strong>: each player's elims, knocks, headshot rate (headshots / kills) and finish contribution
         (their share of the team's kills), with the team's total elims and points. <strong>Slide 2</strong>: their
@@ -3113,7 +3124,7 @@
   <!-- ===================== GRAPHIC ===================== -->
   <div class="ff-tab-panel" id="fftab-graphic">
     <div class="card">
-      <h2>Preview &amp; Push</h2>
+      <h2 data-ov="both">Preview &amp; Push</h2>
       <p class="hint">Every Free Fire graphic, rendered here from the same live state OBS is fed — so what you see
         is what would go out. Check it, then push. The preview shows the graphic whether or not it's currently on
         air, so you can QC something before anyone sees it.</p>
@@ -3190,7 +3201,7 @@
     </div>
 
     <div class="card">
-      <h2>Graphics Package</h2>
+      <h2 data-ov="both">Graphics Package</h2>
       <p class="hint">The folder under <code>overlay/assets/freefire/</code> every Free Fire overlay draws its
         artwork from. Two or three companies' events can run on the same day with different graphics, so each one
         gets its own folder and you name it here — the overlays follow without being reconfigured.</p>
@@ -3245,7 +3256,7 @@
     </div>
 
     <div class="card">
-      <h2>Graphics</h2>
+      <h2 data-ov="postmatch">Graphics</h2>
       <p class="hint"><strong>One browser source</strong> — <code>overlay/freefire_scoreboard.html</code> — carries
         both the match scoreboard and the overall points table. Pushing either one pulls the other down, since they
         share the source. An older source pointing at <code data-nolink>freefire_points_table.html</code> still works; it
@@ -3261,7 +3272,7 @@
       </div>
       <div class="hint" id="ff_modeStatus"></div>
 
-      <h3 style="margin-top:18px;">Overall Points Table</h3>
+      <h3 data-ov="postmatch" style="margin-top:18px;">Overall Points Table</h3>
       <p class="hint">Rendered on the selected graphics package's <code>POINTS TABLE.png</code> and filled from
         the committed standings — ranks 1-6 on the left, 7-12 on the right. Shares the scoreboard's browser source,
         so pushing it up pulls the scoreboard down. It doesn't appear on its own just because the numbers
@@ -3282,7 +3293,7 @@
       </div>
       <div class="hint" id="ff_pointsTableStatus" style="margin-top:6px;"></div>
 
-      <h3 style="margin-top:18px;">Live Alive Status</h3>
+      <h3 data-ov="ingame" style="margin-top:18px;">Live Alive Status</h3>
       <p class="hint">The 12-team side table (<code>overlay/freefire_alive_status.html</code>), fed by the game client's own
         match log rather than by reading the screen — team names, who is still up, and who has been wiped. It needs
         no calibration. Rank order follows the committed standings; before game one it follows the order the client
@@ -3294,10 +3305,10 @@
       </div>
       <div class="hint" id="ff_aliveStatusStatus" style="margin-top:6px;"></div>
 
-      <h3 style="margin-top:18px;">Team Graphs</h3>
+      <h3 data-ov="postmatch" style="margin-top:18px;">Team Graphs</h3>
       <p class="hint">Pushed and pulled from the <strong>Post-Match</strong> tab, at the top.</p>
 
-      <h3 style="margin-top:18px;">Booyah Team Stats</h3>
+      <h3 data-ov="postmatch" style="margin-top:18px;">Booyah Team Stats</h3>
       <p class="hint">Its own browser source (<code>overlay/freefire_booyah.html</code>) — the winning squad of the last
         committed match, four cards with eliminations, knockdowns and contribution. Knockdowns come from the game
         log during that match; the character portraits come from the Num5 loadout capture, so a player who wasn't
@@ -3308,7 +3319,7 @@
       </div>
       <div class="hint" id="ff_booyahStatsStatus" style="margin-top:6px;"></div>
 
-      <h3 style="margin-top:18px;">Booyah Loadout (Slide 2)</h3>
+      <h3 data-ov="postmatch" style="margin-top:18px;">Booyah Loadout (Slide 2)</h3>
       <p class="hint">Second Booyah slide — the winning squad's captured loadout (active/passive/pet/equipment)
         instead of eliminations/knockdowns/contribution. Its own browser source
         (<code>overlay/freefire_booyah_loadout.html</code>), so it doesn't contend with the stats slide above — shown one at a
@@ -3319,7 +3330,7 @@
       </div>
       <div class="hint" id="ff_booyahLoadoutStatus" style="margin-top:6px;"></div>
 
-      <h3 style="margin-top:18px;">MVP, Game Summary &amp; Elimination Report -- which game</h3>
+      <h3 data-ov="postmatch" style="margin-top:18px;">MVP, Game Summary &amp; Elimination Report -- which game</h3>
       <p class="hint">These three cards describe one game: the newest result file (follows each new game by itself)
         or one you pick. They draw in the event's graphics package (SS3 or ARROW).</p>
       <div class="row" style="gap:10px;align-items:flex-end;flex-wrap:wrap;">
@@ -3331,7 +3342,7 @@
         <span class="hint" id="ff_pgStatus"></span>
       </div>
 
-      <h3 style="margin-top:18px;">MVP</h3>
+      <h3 data-ov="postmatch" style="margin-top:18px;">MVP</h3>
       <p class="hint">The standout player of that game -- most kills, then knocks, then survival; override below to
         pick someone else by hand.</p>
       <div class="row" style="gap:16px;align-items:flex-end;">
@@ -3347,7 +3358,7 @@
       </div>
       <div class="hint" id="ff_mvpStatus" style="margin-top:6px;"></div>
 
-      <h3 style="margin-top:18px;">Game Summary</h3>
+      <h3 data-ov="postmatch" style="margin-top:18px;">Game Summary</h3>
       <p class="hint">Map, Booyah team, top 6, MVP, total kills and knocks, game length -- one card.</p>
       <div class="row" style="gap:8px;">
         <button id="ff_gameSummaryShow">Push Game Summary Up</button>
@@ -3355,7 +3366,7 @@
       </div>
       <div class="hint" id="ff_gameSummaryStatus" style="margin-top:6px;"></div>
 
-      <h3 style="margin-top:18px;">Elimination Report</h3>
+      <h3 data-ov="postmatch" style="margin-top:18px;">Elimination Report</h3>
       <p class="hint">The game's top 12 players: elims, knocks, headshots, survival. The game records no damage; a
         DMG column appears only if damage was typed in during review.</p>
       <div class="row" style="gap:8px;">
@@ -3437,7 +3448,7 @@
   <div class="ff-tab-panel" id="fftab-analysis">
 
     <div class="card">
-      <h2>Zone Map &amp; Drop Spots (on air)</h2>
+      <h2 data-ov="freefire_map.html">Zone Map &amp; Drop Spots (on air)</h2>
       <p class="hint">Its own full-screen browser source: <code>overlay/freefire_map.html</code>.
         <strong>Live</strong> draws the circle as the game announces it -- every circle so far, the next one,
         the plane -- on the map the match loaded. <strong>Match</strong> draws a finished game from its replay
@@ -15889,7 +15900,7 @@ function buildOverlayLinksTable(){
   container.querySelectorAll(".overlay-link-copy").forEach(btn => {
     btn.addEventListener("click", () => copyOverlayLink(btn, btn.dataset.link));
   });
-  renderCardOverlayLinks();
+  renderHeaderOverlayLinks();
 }
 
 /* An overlay's browser-source link: this site, the relay, and the VIEWER
@@ -15909,10 +15920,10 @@ function overlayLinkFor(file){
 
 function copyOverlayLink(btn, link, input){
   const done = () => {
-    const old = btn.dataset.label || btn.textContent;
+    const old = btn.dataset.label || btn.innerHTML;
     btn.dataset.label = old;
     btn.textContent = "Copied!";
-    setTimeout(() => { btn.textContent = old; }, 1200);
+    setTimeout(() => { btn.innerHTML = old; }, 1200);
   };
   const fallback = () => {
     // plain http / file pages have no clipboard API: copy the selection
@@ -15929,41 +15940,49 @@ function copyOverlayLink(btn, link, input){
   }
 }
 
-/* Each card's own OBS link, right under the hint that names its overlay
-   file -- the same link as the Overlay Links table, so it can be copied
-   from where the graphic is driven. Rebuilt with the table (a new viewer
-   token shows up in both). */
-function renderCardOverlayLinks(){
-  const hosts = new Map();
-  document.querySelectorAll(".hint code:not([data-nolink])").forEach(code => {
-    const m = /^(?:overlay\/)?(freefire_[a-z0-9_]+\.html)$/.exec(code.textContent.trim());
-    if(!m) return;
-    const host = code.closest(".hint");
-    if(!hosts.has(host)) hosts.set(host, []);
-    const file = "overlay/" + m[1];
-    if(!hosts.get(host).includes(file)) hosts.get(host).push(file);
-  });
+/* "Copy OBS link" beside every Free Fire card's header: the link of the
+   OBS source the card's graphic is on. Most of them share one -- the
+   POST-MATCH or IN-GAME source -- and the chip says which; the rest (zone
+   map, lobby strip) are their own page. Rebuilt with the Overlay Links
+   table, so a newly saved viewer token shows up here too. */
+const FF_OV_SOURCES = {
+  postmatch: { file: "overlay/freefire_postmatch.html", label: "POST-MATCH SOURCE" },
+  ingame: { file: "overlay/freefire_ingame.html", label: "IN-GAME SOURCE" },
+};
+
+function renderHeaderOverlayLinks(){
   const noToken = !!_relay && !overlayViewerToken();
-  hosts.forEach((files, host) => {
-    let box = host.nextElementSibling;
-    if(!box || !box.classList.contains("ov-card-links")){
-      box = document.createElement("div");
-      box.className = "ov-card-links";
-      host.after(box);
+  document.querySelectorAll("h2[data-ov], h3[data-ov]").forEach(head => {
+    const ov = head.dataset.ov;
+    const sources = ov === "both" ? [FF_OV_SOURCES.postmatch, FF_OV_SOURCES.ingame]
+      : FF_OV_SOURCES[ov] ? [FF_OV_SOURCES[ov]]
+      : [{ file: "overlay/" + ov, label: ov }];
+    let box;
+    if(head.tagName === "H2" && head.parentElement.classList.contains("card")){
+      const card = head.parentElement;
+      card.classList.add("ov-has-head");
+      box = card.querySelector(":scope > .ov-head");
+      if(!box){ box = document.createElement("div"); box.className = "ov-head"; head.after(box); }
+    } else {
+      box = head.querySelector(".ov-head-inline");
+      if(!box){ box = document.createElement("span"); box.className = "ov-head-inline"; head.appendChild(box); }
     }
     box.innerHTML = "";
-    files.forEach(file => {
-      const link = overlayLinkFor(file);
-      const row = document.createElement("div");
-      row.className = "ov-card-link";
-      row.innerHTML = `<span class="ov-lab">OBS link · ${file.replace("overlay/", "")}</span>` +
-        `<input type="text" readonly onclick="this.select();">` +
-        `<button type="button" class="secondary">Copy</button>` +
-        (noToken ? `<span class="ov-warn" title="Save the VIEWER token under Overlay Links first">no viewer token yet</span>` : "");
-      const input = row.querySelector("input");
-      input.value = link;
-      row.querySelector("button").addEventListener("click", e => copyOverlayLink(e.currentTarget, link, input));
-      box.appendChild(row);
+    sources.forEach(src => {
+      const link = overlayLinkFor(src.file);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "ov-chip" + (noToken ? " ov-notoken" : "");
+      btn.title = (noToken ? "No viewer token saved yet (Overlay Links) -- this link will show DISCONNECTED.\n" : "")
+        + "Copies the OBS browser-source link for " + src.file.replace("overlay/", "");
+      btn.innerHTML = `&#10697; Copy OBS link <span class="ov-src">${src.label}</span>`;
+      btn.addEventListener("click", e => {
+        e.preventDefault(); e.stopPropagation();
+        copyOverlayLink(btn, link);
+        btn.classList.add("ov-copied");
+        setTimeout(() => btn.classList.remove("ov-copied"), 1200);
+      });
+      box.appendChild(btn);
     });
   });
 }
