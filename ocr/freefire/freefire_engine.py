@@ -4731,14 +4731,20 @@ def _photo_folder():
     return ((server_state.get("settings") or {}).get("playerPhotoFolder") or "").strip()
 
 
-def _photo_lookup(uid, ign):
+def _photo_path(uid, ign):
+    """A player's photo file -- their own, else a DEFAULT stand-in -- or
+    None with no photo folder set. The sheet is sent this path."""
     folder = _photo_folder()
     if not folder:
-        return ""
+        return None
     idx = _photo_scan(folder)
-    path = (idx["uid"].get(str(uid or "").strip())
+    return (idx["uid"].get(str(uid or "").strip())
             or idx["ign"].get(_ign_key(ign or ""))
             or _default_photo_path(uid, ign, idx))
+
+
+def _photo_lookup(uid, ign):
+    path = _photo_path(uid, ign)
     if not path:
         return ""
     key = (str(path), path.stat().st_mtime if path.exists() else 0)
@@ -6822,14 +6828,19 @@ def _ign_key(text):
     return re.sub(r"[^a-z0-9]", "", (text or "").lower())
 
 
-def resolve_team_from_igns(igns, roster):
+def resolve_team_from_igns(igns, roster, player_uids=None):
     """The roster team most of these players belong to, or "".
 
     A squad is identified by who is in it rather than by the number the
-    client gave it, because those numbers are reassigned every match."""
+    client gave it, because those numbers are reassigned every match.
+    `player_uids` are the same players' UIDs from the log, when known: a UID in
+    the roster is the surest match there is (in-game names drift from the
+    registered ones -- "TGT.Sidddd!!" for "TGT.Siddddd!!", a whole squad
+    playing under another org's tag), so each one counts double."""
     roster_teams = (roster or {}).get("teams", []) or []
     aliases = player_aliases()
     taught = squad_aliases()
+    squad_uids = {str(u or "").strip() for u in (player_uids or [])} - {""}
     votes = {}
     for index, team in enumerate(roster_teams):
         name = (team.get("name") or "").strip()
@@ -6844,6 +6855,10 @@ def resolve_team_from_igns(igns, roster):
             # actually identifies someone across an IGN change.
             if key in keys or aliases.get(key) in uids:
                 votes[index] = votes.get(index, 0) + 1
+        uids.discard("")
+        for uid in squad_uids:
+            if uid in uids:
+                votes[index] = votes.get(index, 0) + 2
     if not votes:
         return ""
     return (roster_teams[max(votes, key=votes.get)] or {}).get("name") or ""
@@ -6899,7 +6914,8 @@ def apply_log_alive(rows, live, roster):
     claimed = {}
     for gs, squad in gs_igns.items():
         igns = list(squad.values())
-        name = resolve_team_from_igns(igns, roster)
+        uids = [(_debugger_id_map.get(str(pid)) or {}).get("uid") for pid in squad]
+        name = resolve_team_from_igns(igns, roster, uids)
         key = _ign_key(name)
         if not key:
             notes.append({"gsTeam": gs, "igns": igns,
@@ -7698,11 +7714,15 @@ def link_live_teams(live, roster):
     which are the half that needs the join."""
     roster_teams = (roster or {}).get("teams", []) or []
     ign_to_team = {}
+    uid_to_team = {}
     for index, team in enumerate(roster_teams):
         for player in team.get("players", []) or []:
             key = _ign_key(player.get("ign"))
             if key:
                 ign_to_team[key] = index
+            uid = str(player.get("uid") or "").strip()
+            if uid:
+                uid_to_team[uid] = index
 
     taught = squad_aliases()
     name_to_index = {(t.get("name") or "").strip(): i
@@ -7711,8 +7731,15 @@ def link_live_teams(live, roster):
     gs_votes = {}
     for gs_team, players in live.get("gsIgns", {}).items():
         votes = {}
-        for ign in players.values():
-            index = ign_to_team.get(_ign_key(ign))
+        for pid, ign in players.items():
+            # The player's UID first: the log gives it on every join, and
+            # unlike the in-game name it never drifts from the one the
+            # team registered ("TGT.Sidddd!!" for "TGT.Siddddd!!", a whole
+            # squad playing under another org's tag).
+            uid = str((_debugger_id_map.get(str(pid)) or {}).get("uid") or "").strip()
+            index = uid_to_team.get(uid) if uid else None
+            if index is None:
+                index = ign_to_team.get(_ign_key(ign))
             if index is None:
                 index = name_to_index.get(taught.get(_ign_key(ign)))
             if index is not None:
@@ -9768,12 +9795,15 @@ def fmt_survival(seconds):
 
 
 def _sheet_row(team_name, ign, kills, knocks, heads, team_weight,
-               team_heads, survival=None):
+               team_heads, survival=None, photo=None):
+    # `survival` is accepted and not sent: the operator asked for survival
+    # time to stay out of the sheet. The graphics still have it.
     weight = 7 * (kills or 0) + 3 * (knocks or 0)
     return {
-        "survival": fmt_survival(survival),
         "team": team_name or "",
         "ign": ign or "",
+        # the player's photo file, for graphics driven from the sheet
+        "photo": str(photo) if photo else "",
         "elims": kills or 0,
         "knocks": knocks or 0,
         "headshots": heads,
@@ -9806,7 +9836,8 @@ def booyah_sheet_rows(matches, roster_teams=None):
     heads_total = sum(p["headshots"] for p in players
                       if p.get("headshots") is not None)
     return [_sheet_row(name, p.get("name"), p.get("kills"), p.get("knocks"),
-                       p.get("headshots"), weight, heads_total, p.get("survival"))
+                       p.get("headshots"), weight, heads_total, p.get("survival"),
+                       photo=_photo_path(p.get("uid"), p.get("name")))
             for p in players]
 
 
@@ -9840,7 +9871,7 @@ def total_fragger_rows(matches, games=None, roster_teams=None):
             r["teamName"], r["ign"], r["totalKills"], r["totalKnocks"],
             r["totalHeadshots"] if r["hsGames"] else None,
             team_weight.get(key, 0), team_heads.get(key, 0),
-            r.get("avgSurvival")))
+            r.get("avgSurvival"), photo=_photo_path(r.get("uid"), r.get("ign"))))
     return out
 
 
@@ -10248,16 +10279,35 @@ POSTMATCH_GRAPHICS = [
     ("damageReport", lambda: _disp().get("damageReportVisible"), lambda v: _disp().__setitem__("damageReportVisible", v)),
     ("matchInsights", lambda: _disp().get("matchInsightsVisible"), lambda v: _disp().__setitem__("matchInsightsVisible", v)),
 ]
-_postmatch_up = set()
+def _postmatch_visible():
+    return {name for name, read, _ in POSTMATCH_GRAPHICS if read()}
+
+
+# What is already up when the engine starts counts as up, not as newly
+# pushed. It started empty, so after a restart with (say) Team Graphs left
+# up, the first push of anything else tied with it as "new" -- and the tie
+# went to whichever came first in the list above, so pushing Booyah stats
+# pulled Booyah stats straight back down and left Team Graphs on air.
+_postmatch_up = _postmatch_visible()
+
+
+def _postmatch_pushed_at(name):
+    """When a graphic was pushed, where its state says (0 if it does not)."""
+    if name in ("booyahStats", "playerH2H"):
+        return (server_state.get(name) or {}).get("shownAt") or 0
+    return 0
 
 
 def postmatch_one_at_a_time():
     """Whatever was pushed most recently stays up; the rest come down."""
     global _postmatch_up
-    up = {name for name, read, _ in POSTMATCH_GRAPHICS if read()}
+    up = _postmatch_visible()
     new = up - _postmatch_up
     if new:
-        keep = next(name for name, _, _ in POSTMATCH_GRAPHICS if name in new)
+        order = [name for name, _, _ in POSTMATCH_GRAPHICS]
+        # two new at once: the one pushed last (by its own timestamp), and
+        # only then the list order
+        keep = max(new, key=lambda n: (_postmatch_pushed_at(n), -order.index(n)))
         for name, read, write in POSTMATCH_GRAPHICS:
             if name != keep and read():
                 write(False)

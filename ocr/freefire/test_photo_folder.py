@@ -73,6 +73,8 @@ def main():
         print("player photos, in team folders")
         check("by UID inside a team folder", colour_of(ff._photo_lookup("2451778281", "")) == (255, 0, 0))
         check("by IGN when the file has no UID", colour_of(ff._photo_lookup("", "iQOO.TG.MAFIA")) == (255, 255, 0))
+        check("the file path, as the sheet is sent it",
+              str(ff._photo_path("2451778281", "")).endswith(os.path.join("TSG ARMY", "2451778281.png")))
         check("a Team_Photo is never taken for a player", ff._photo_index["ign"].get("teamphoto") is None)
 
         print("no photo of their own: the DEFAULT pictures, by roster slot")

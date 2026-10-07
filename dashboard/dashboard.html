@@ -2094,6 +2094,10 @@
             <option value="normal">Normal room</option>
           </select>
         </div>
+        <div class="team-form" style="max-width:220px;">
+          <label for="ff_eventPackage">Graphics package</label>
+          <select id="ff_eventPackage" title="The event's artwork: every graphic draws in this look"></select>
+        </div>
       </div>
       <p class="hint" style="margin:8px 0 0;">A <strong>league room</strong> writes each team's name into the
         log and the result file, and everything lines up on its own &mdash; nothing changes there. A
@@ -7798,8 +7802,16 @@ function ffFlattenRosterPlayers(roster){
    the operator has touched is theirs until the engine echoes what Save
    sent (or Save is abandoned), the way the Room Slots grid already works. */
 const FF_EVENT_FIELDS = ["ff_eventTitle", "ff_eventRound", "ff_eventRoomType", "ff_eventTotalGames",
-  "ff_eventCurrentGame", "ff_eventMap", "ff_unmatchedPolicy", "ff_autoTeamEliminated", "ff_autoFetchOnMatchEnd"];
+  "ff_eventCurrentGame", "ff_eventMap", "ff_unmatchedPolicy", "ff_autoTeamEliminated", "ff_autoFetchOnMatchEnd",
+  "ff_eventPackage"];
 const ffEventDirty = {};
+// the Graphics Package card's dropdown: true while picked, then
+// {folder, at} once applied, until the engine shows it (or 8s pass)
+const ffPackDirty = {};
+// Boxes saved on their own (on change, or by their own button), held as
+// typed for up to two minutes or until the engine shows that same value
+// back -- see FF_HELD_INPUTS.
+const ffHeldInputs = {};
 let ffEventSent = null;      // what Save sent, until the engine shows it back
 
 function ffEventFormValues(){
@@ -7813,6 +7825,7 @@ function ffEventFormValues(){
     unmatchedPolicy: v("ff_unmatchedPolicy").value,
     autoTeamEliminated: v("ff_autoTeamEliminated").checked,
     autoFetchOnMatchEnd: v("ff_autoFetchOnMatchEnd").checked,
+    assetFolder: v("ff_eventPackage").value || "CLT",
   };
 }
 
@@ -7827,6 +7840,7 @@ function ffEventEngineValues(ff){
     unmatchedPolicy: st.unmatchedPolicy || "flag",
     autoTeamEliminated: st.autoTeamEliminated !== false,
     autoFetchOnMatchEnd: st.autoFetchOnMatchEnd !== false,
+    assetFolder: ev.assetFolder || "CLT",
   };
 }
 
@@ -7870,7 +7884,13 @@ function ffRenderEvent(ff){
   const free = id => active !== id && !ffEventDirty[id];
   const setIfFree = (id, value) => {
     const el = document.getElementById(id);
-    if(el && free(id)) el.value = value;
+    if(!el || !free(id)) return;
+    const held = ffHeldInputs[id];
+    if(held){
+      if(String(el.value) === String(value) || Date.now() - held > 120000) delete ffHeldInputs[id];
+      else return;
+    }
+    el.value = value;
   };
   setIfFree("ff_eventTitle", ev.matchTitle || "");
   setIfFree("ff_eventRound", ev.roundName || "");
@@ -7893,7 +7913,6 @@ function ffRenderEvent(ff){
     policySel.value = (ff.settings && ff.settings.unmatchedPolicy) || "flag";
   }
 
-  setIfFree("ff_assetFolder", ev.assetFolder || "CLT");
   setIfFree("ff_elimCardSeconds", (ff.settings && ff.settings.elimCardSeconds) || 4);
   // Offer the packages that are actually on disk, rather than the single
   // hard-coded name this used to suggest -- artwork that had been dropped
@@ -7904,15 +7923,26 @@ function ffRenderEvent(ff){
   if(dl && dl.innerHTML !== want && packs.length) dl.innerHTML = want;
   // The package dropdown: every folder on disk, plus whatever the event is
   // already set to even if its folder has gone, so it is never shown wrong.
-  const pk = document.getElementById("ff_assetFolder");
-  if(pk && document.activeElement !== pk){
-    const cur = ev.assetFolder || "CLT";
+  /* Two package dropdowns (Event Setup and the Graphics Package card), one
+     setting. Each is filled from the folders on disk plus whatever the
+     event is set to, and -- like every box here -- left alone once the
+     operator has picked something, until the engine shows it back. It
+     used to be reset on every sync, so a pick made just before pressing
+     Use This Package could be undone before the press read it. */
+  const curPack = ev.assetFolder || "CLT";
+  [["ff_assetFolder", ffPackDirty], ["ff_eventPackage", ffEventDirty]].forEach(([id, dirty]) => {
+    const pk = document.getElementById(id);
+    if(!pk) return;
+    const keep = pk.value;
     const list = packs.length ? packs.slice() : ["CLT"];
-    if(!list.includes(cur)) list.push(cur);
+    if(!list.includes(curPack)) list.push(curPack);
+    if(keep && dirty[id] && !list.includes(keep)) list.push(keep);
     const opts = list.map(n => `<option value="${ffEscapeHtml(n)}">${ffEscapeHtml(n)}</option>`).join("");
-    if(pk.dataset.sig !== opts){ pk.innerHTML = opts; pk.dataset.sig = opts; }
-    if(pk.value !== cur) pk.value = cur;
-  }
+    if(pk.dataset.sig !== opts){ pk.innerHTML = opts; pk.dataset.sig = opts; if(keep) pk.value = keep; }
+    const d = dirty[id];
+    if(d && typeof d === "object" && (d.folder === curPack || Date.now() - d.at > 8000)) delete dirty[id];
+    if(document.activeElement !== pk && !dirty[id] && pk.value !== curPack) pk.value = curPack;
+  });
   setIfFree("ff_afterGameLabel", ev.afterGameLabel || "");
   setIfFree("ff_debuggerStartAt", (ff.settings && ff.settings.debuggerStartAt) || "");
   setIfFree("ff_resultsTab", (ff.settings && ff.settings.resultsTab) || "");
@@ -7962,6 +7992,17 @@ FF_EVENT_FIELDS.forEach(id => {
   el.addEventListener("change", mark);
 });
 
+/* The Tab name beside Push to RESULTS (and the other boxes here saved on
+   their own) used to be reset by the next state sync the moment it lost
+   focus -- before the engine had the new value -- so a push went to the
+   OLD tab. Typed text is now held until the engine shows it back. */
+const FF_HELD_INPUTS = ["ff_resultsTab", "ff_debuggerStartAt", "ff_sheetWebhookUrl", "ff_arrowWebhookUrl",
+  "ff_afterGameLabel", "ff_lobbyTitle", "ff_lobbyKicker", "ff_elimCardSeconds"];
+FF_HELD_INPUTS.forEach(id => {
+  const el = document.getElementById(id);
+  if(el) el.addEventListener("input", () => { ffHeldInputs[id] = Date.now(); });
+});
+
 document.getElementById("ff_eventSave").addEventListener("click", () => {
   if(!(ffWs && ffWs.readyState === WebSocket.OPEN) || !ffState){
     ffEventNote("NOT saved \u2014 not connected to the Free Fire engine.", "#f87171");
@@ -7988,9 +8029,10 @@ document.getElementById("ff_eventSave").addEventListener("click", () => {
       matchTitle: document.getElementById("ff_eventTitle").value.trim(),
       roundName: document.getElementById("ff_eventRound").value.trim(),
       totalGames, currentGame, maps,
-      assetFolder: document.getElementById("ff_assetFolder").value.trim() || "CLT",
-      roomType: document.getElementById("ff_eventRoomType").value === "normal"
-        ? "normal" : "league",
+      assetFolder: form.assetFolder,
+      // the alive table follows the package too, as Use This Package does
+      aliveAssetFolder: form.assetFolder,
+      roomType: form.roomType,
     }),
     settings,
   }}}));
@@ -9891,9 +9933,17 @@ document.getElementById("ff_championBadge").addEventListener("change", (e) => {
     type: e.target.checked ? "champion_badge_show" : "champion_badge_hide" }));
 });
 
+// The Graphics Package card's dropdown: a pick is the operator's until
+// applied (then until the engine shows it back).
+document.getElementById("ff_assetFolder").addEventListener("change", () => { ffPackDirty.ff_assetFolder = true; });
+
 document.getElementById("ff_assetFolderSave").addEventListener("click", () => {
-  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)){
+    document.getElementById("ff_assetFolderStatus").textContent = "NOT applied -- not connected to the Free Fire engine.";
+    return;
+  }
   const folder = document.getElementById("ff_assetFolder").value.trim() || "CLT";
+  ffPackDirty.ff_assetFolder = { folder, at: Date.now() };   // held until the engine reports it
   // The alive table follows the package too, so one choice themes every
   // graphic; its own dropdown in the alive card can still override it.
   const event = Object.assign({}, (ffState && ffState.event) || {}, { assetFolder: folder, aliveAssetFolder: folder });
@@ -10911,7 +10961,7 @@ function ffSyncBooyahStats(){
   const captured = (r.players || []).filter(p => p.loadout).length;
   document.getElementById("ff_bsPreview").textContent = r.error ? "⚠ " + r.error :
     (r.teamName ? `${r.teamName} · ${r.totalElims} elims · ${r.totalPoints} pts · players: ` +
-      (r.players || []).map(p => `${p.ign} ${p.kills}K`).join(", ") +
+      (r.players || []).map(p => `${p.ign} ${p.kills} kill${p.kills === 1 ? "" : "s"}`).join(", ") +
       ` · loadouts captured: ${captured}/${(r.players || []).length}` : "Pick a game (or leave it on the latest) and press Refresh.");
   const st = document.getElementById("ff_bsStatus");
   if(st && !st.textContent) st.textContent = b.visible ? "On air." : "";

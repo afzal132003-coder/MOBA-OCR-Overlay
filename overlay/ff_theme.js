@@ -5,7 +5,10 @@
 function ffTheme(state){
   const ev = (state && state.event) || {};
   const pick = String(new URLSearchParams(location.search).get("theme") || ev.assetFolder || "").toLowerCase();
-  return pick === "ss3" ? "ss3" : "arrow";
+  // ARROW only when an ARROW package is picked; everything else draws in
+  // the SS3 red (a package with no art of its own for these, like CLT or
+  // GC, used to fall to the green ARROW look).
+  return pick.includes("arrow") ? "arrow" : "ss3";
 }
 function ffApplyTheme(state){
   const t = ffTheme(state);

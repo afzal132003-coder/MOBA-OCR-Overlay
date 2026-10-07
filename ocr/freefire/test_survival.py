@@ -106,13 +106,18 @@ def main():
         print("\nthe sheet")
         check("m:ss", (ff.fmt_survival(1026), ff.fmt_survival(59), ff.fmt_survival(None)) == ("17:06", "0:59", None))
         rows = ff.booyah_sheet_rows([p])
-        check("Booyah rows carry survival", [r["survival"] for r in rows] == ["10:00", "10:00"], str([r["survival"] for r in rows]))
+        check("the sheet is not sent survival time (Booyah block)", rows and all("survival" not in r for r in rows),
+              str(rows[:1]))
         g1 = {"gameNumber": 1, "teams": [{"teamName": "X", "players": [{"name": "Ace", "uid": "1", "kills": 1, "survival": 600}]}]}
         g2 = {"gameNumber": 2, "teams": [{"teamName": "X", "players": [{"name": "Ace", "uid": "1", "kills": 1, "survival": 300}]}]}
         g3 = {"gameNumber": 3, "teams": [{"teamName": "X", "players": [{"name": "Ace", "uid": "1", "kills": 1}]}]}
         tot = ff.total_fragger_rows([g1, g2, g3], roster_teams=[])
-        check("MVP totals: the average over the games that have a figure", tot and tot[0]["survival"] == "7:30",
-              str(tot[0]["survival"] if tot else None))
+        check("the sheet is not sent survival time (totals block)", tot and all("survival" not in r for r in tot),
+              str(tot[:1]))
+        fr = ff.compute_freefire_fraggers([g1, g2, g3])
+        ace = next((r for r in (fr or {}).get("rows") or [] if str(r.get("uid")) == "1"), None)
+        check("the graphics still get the average over the games that have a figure",
+              ace is not None and ace.get("avgSurvival") == 450, str(ace and ace.get("avgSurvival")))
     finally:
         ff.server_state["settings"] = keep
 

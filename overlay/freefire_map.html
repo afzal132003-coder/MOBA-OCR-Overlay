@@ -254,11 +254,21 @@ function applyZoom(svg, box){
   U = w / 1000;
 }
 
+/* The squad's name as the game files have it, against each roster team's
+   name / display name / short name: exact, ignoring case and punctuation
+   ("TeamLegacy" is "TEAM LEGACY"), then -- only when exactly one team
+   fits -- one name inside the other. Its logo comes from what this finds. */
 function teamFor(name, roster){
-  const key = String(name || "").trim().toUpperCase();
-  if(!key) return null;
-  return ((roster || {}).teams || []).find(t =>
-    [t.name, t.displayName, t.shortName].some(n => String(n || "").trim().toUpperCase() === key)) || null;
+  const norm = s => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const want = norm(name);
+  if(!want) return null;
+  const teams = ((roster || {}).teams || []).filter(Boolean);
+  const names = t => [t.name, t.displayName, t.shortName].map(norm).filter(Boolean);
+  const exact = teams.find(t => names(t).includes(want));
+  if(exact) return exact;
+  const near = teams.filter(t => names(t).some(n =>
+    Math.min(n.length, want.length) >= 4 && (n.includes(want) || want.includes(n))));
+  return near.length === 1 ? near[0] : null;
 }
 function shortOf(sq, roster){
   const t = teamFor(sq.teamName, roster);

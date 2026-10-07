@@ -652,7 +652,9 @@ const LAYOUTS = {
     // box) rather than the 500px icons shrunk to 43px: at that scale each
     // 70px bar landed 6.04px wide at a fraction of a pixel, and the bars
     // came out visibly unequal.
-    pipBars: { w: 5, gap: 3, alive: "#ffffff", dead: "#000000" },
+    // dead is the grey of the art's own legend (ALIVE white, DEAD grey);
+    // unknown -- a squad not yet linked to its team -- faint, never blank
+    pipBars: { w: 5, gap: 3, alive: "#ffffff", dead: "#808080", unknown: "rgba(255,255,255,0.32)" },
     rowTops: [287, 333, 379, 425, 471, 517, 564, 610, 656, 702, 748, 794],
     row: { x: 1602, w: 318, h: 45 },
     ink: "#ffffff",
@@ -2034,7 +2036,11 @@ function apply(state){
     // Nothing has been read for this squad, so nothing is claimed about
     // it -- see fillFromRoster, and aliveUnknown above for the row that
     // IS being published but has no count anyone could stand behind.
-    pip.style.visibility = (row.statusUnknown || aliveUnknown) ? "hidden" : "";
+    const unknownCount = !!(row.statusUnknown || aliveUnknown);
+    // Drawn bars (SS3) show an unknown count as four faint bars -- a blank
+    // cell beside a team read as the graphic being broken. Packages
+    // without an "unknown" colour still show nothing for it.
+    pip.style.visibility = (unknownCount && !(L.pipBars && L.pipBars.unknown)) ? "hidden" : "";
     if(L.pipBars){
       const B = L.pipBars;
       if(pip.dataset.bars !== "4"){
@@ -2043,10 +2049,12 @@ function apply(state){
         pip.innerHTML = [0, 1, 2, 3].map(i =>
           `<i style="position:absolute;top:0;bottom:0;left:${i * (B.w + B.gap)}px;width:${B.w}px;"></i>`).join("");
       }
-      const sig = String(alive);
+      const sig = unknownCount ? "?" : String(alive);
       if(pip.dataset.alive !== sig){
         pip.dataset.alive = sig;
-        pip.querySelectorAll("i").forEach((bar, i) => { bar.style.background = i < alive ? B.alive : B.dead; });
+        pip.querySelectorAll("i").forEach((bar, i) => {
+          bar.style.background = unknownCount ? (B.unknown || B.dead) : (i < alive ? B.alive : B.dead);
+        });
       }
     }
     const pipSrc = `url('${base}${art}')`;
