@@ -8790,8 +8790,35 @@ def compute_team_graphs(matches, roster_teams=None):
                 "total": team.get("totalScore", 0) or 0,
                 "rank": team.get("rank"),
             }
-    return {"games": ["G%d" % (i + 1) for i in range(len(ordered))],
+    return {"games": _game_labels(ordered),
             "teams": list(teams.values())}
+
+
+def _game_labels(ordered):
+    """Each game by its number in the EVENT, not its place in this graph.
+
+    Counting from one put "G1" under the night's fourth game whenever the
+    graph showed only the latest. Committed games carry their own number.
+    Picked result files do not, so they are numbered back from the Current
+    Game set in Event Setup: the newest is that game, the one before it
+    the game before, and so on. Counting from one only when that cannot
+    work (the current game is lower than the number of games)."""
+    n = len(ordered)
+    nums = []
+    for m in ordered:
+        try:
+            nums.append(int(m.get("gameNumber")))
+        except (TypeError, ValueError):
+            nums.append(None)
+    if n and all(x and x > 0 for x in nums) and len(set(nums)) == n:
+        return ["G%d" % x for x in nums]
+    try:
+        current = int((server_state.get("event") or {}).get("currentGame") or 0)
+    except (TypeError, ValueError):
+        current = 0
+    if current >= n:
+        return ["G%d" % (current - (n - 1 - i)) for i in range(n)]
+    return ["G%d" % (i + 1) for i in range(n)]
 
 
 def team_graph_matches_from_files(match_ids):
