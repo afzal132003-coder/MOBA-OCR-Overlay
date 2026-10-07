@@ -32,6 +32,7 @@ import io
 import json
 import math
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 import os
@@ -8079,88 +8080,144 @@ def recover_match_extras(match_id, folder=None, max_logs=12, when=None):
     if not logs:
         return {}
     want = str(match_id)
-
     for log in logs:
-        id_map, hs_flag = {}, {}
-        kills, hs_kills, knocks = {}, {}, {}
-        dead_at, seg_start, first_join = {}, None, None
+        idx = _log_index(log)
+        with idx.lock:
+            idx.update()
+            for mid, end_at, out in idx.done:
+                if mid == want and (when is None or end_at is None or abs(end_at - when) <= 600):
+                    return {uid: dict(v) for uid, v in out.items()}
+    return {}
 
+
+# EACH DEBUGGER LOG IS READ ONCE. A log is ~100 MB and every result read
+# asks it for a match's knocks, headshots and survival; reading it whole
+# each time kept a worker busy for seconds and -- Python threads sharing
+# one interpreter -- slowed the engine's own loop with it (the alive poll
+# went over budget). So each log is parsed once into its finished matches
+# and then only CONTINUED from where it stopped, as the client writes more.
+# Lines that cannot matter are skipped before any pattern is tried.
+_LOG_KEYS = ("Player Join", "Dead, killed by", "Knock Down", "PlayKnockDownGunTrace",
+             "Revive Player", "SendJoinMatch", "airline start", "matchend")
+_log_indexes = {}
+_log_indexes_lock = threading.Lock()
+
+
+def _log_index(path):
+    with _log_indexes_lock:
+        idx = _log_indexes.get(str(path))
+        if idx is None:
+            idx = _log_indexes[str(path)] = _LogSegments(path)
+        return idx
+
+
+class _LogSegments:
+    def __init__(self, path):
+        self.path = Path(path)
+        self.lock = threading.Lock()
+        self.offset = 0
+        self.done = []          # [(match id, end epoch, {uid: extras})] in log order
+        self._fresh()
+
+    def _fresh(self):
+        self.id_map, self.hs_flag = {}, {}
+        self.kills, self.hs_kills, self.knocks = {}, {}, {}
+        self.dead_at, self.seg_start, self.first_join = {}, None, None
+
+    def update(self):
+        try:
+            st = self.path.stat()
+            size = st.st_size
+        except OSError:
+            return
+        if size < self.offset:          # a new file under the same name
+            self.offset, self.done = 0, []
+            self._fresh()
+        if size == self.offset:
+            return
+        try:
+            with self.path.open("rb") as fh:
+                fh.seek(self.offset)
+                data = fh.read(size - self.offset)
+        except OSError:
+            return
+        cut = data.rfind(b"\n")
+        # A last line with no newline yet may still be being written, so it
+        # waits -- unless the file has not changed for two seconds, when it
+        # is the last line there is going to be.
+        if cut < len(data) - 1 and time.time() - st.st_mtime > 2:
+            cut = len(data) - 1
+        if cut < 0:
+            return
+        self.offset += cut + 1
+        for line in data[:cut + 1].decode("utf-8", "replace").splitlines():
+            if any(k in line for k in _LOG_KEYS):
+                self._line(line)
+
+    def _line(self, line):
         def bump(d, key):
             d[key] = d.get(key, 0) + 1
 
-        try:
-            handle = log.open(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        with handle as fh:
-            for line in fh:
-                join = DEBUGGER_JOIN_REGEX.search(line)
-                if join:
-                    id_map[join.group("pid")] = {
-                        "uid": join.group("uid"),
-                        "ign": join.group("ign").strip()}
-                    if first_join is None:
-                        st = DEBUGGER_TS_REGEX.match(line)
-                        first_join = _debugger_epoch(st.group("ts")) if st else None
+        def when():
+            st = DEBUGGER_TS_REGEX.match(line)
+            return _debugger_epoch(st.group("ts")) if st else None
+
+        join = DEBUGGER_JOIN_REGEX.search(line)
+        if join:
+            self.id_map[join.group("pid")] = {"uid": join.group("uid"), "ign": join.group("ign").strip()}
+            if self.first_join is None:
+                self.first_join = when()
+            return
+        if "SendJoinMatch" in line or "airline start" in line:
+            t = when()
+            if t is not None:
+                self.seg_start = t
+            return
+        rv = DEBUGGER_REVIVE_REGEX.search(line)
+        if rv:
+            self.dead_at.pop(rv.group("pid"), None)
+            return
+        trace = DEBUGGER_HEADSHOT_REGEX.search(line)
+        if trace:
+            # Keyed on the PAIR. One line per shot that put someone down,
+            # and the kill it belongs to names the same two.
+            self.hs_flag[(trace.group("killer"), trace.group("victim"))] = (trace.group("hs") == "True")
+            return
+        kill = DEBUGGER_KILL_REGEX.search(line)
+        if kill:
+            t = when()
+            if t is not None:
+                self.dead_at[kill.group("victim")] = t
+            bump(self.kills, kill.group("killer"))
+            if self.hs_flag.get((kill.group("killer"), kill.group("victim"))):
+                bump(self.hs_kills, kill.group("killer"))
+            return
+        knock = DEBUGGER_KNOCK_REGEX.search(line)
+        if knock:
+            bump(self.knocks, knock.group("killer"))
+            return
+        end = DEBUGGER_MATCH_END_REGEX.search(line)
+        if end:
+            end_at = when()
+            start = self.seg_start or self.first_join
+            out = {}
+            # Everyone who joined, not only those who scored: survival is
+            # for all of them.
+            for pid in set(self.id_map) | set(self.kills) | set(self.knocks):
+                uid = (self.id_map.get(pid) or {}).get("uid")
+                if not uid:
                     continue
-                if "SendJoinMatch" in line or "airline start" in line:
-                    st = DEBUGGER_TS_REGEX.match(line)
-                    if st:
-                        seg_start = _debugger_epoch(st.group("ts"))
-                    continue
-                rv = DEBUGGER_REVIVE_REGEX.search(line)
-                if rv:
-                    dead_at.pop(rv.group("pid"), None)
-                    continue
-                trace = DEBUGGER_HEADSHOT_REGEX.search(line)
-                if trace:
-                    # Keyed on the PAIR. One line per shot that put someone
-                    # down, and the kill it belongs to names the same two.
-                    hs_flag[(trace.group("killer"), trace.group("victim"))] = (
-                        trace.group("hs") == "True")
-                    continue
-                kill = DEBUGGER_KILL_REGEX.search(line)
-                if kill:
-                    st = DEBUGGER_TS_REGEX.match(line)
-                    if st:
-                        dead_at[kill.group("victim")] = _debugger_epoch(st.group("ts"))
-                    bump(kills, kill.group("killer"))
-                    if hs_flag.get((kill.group("killer"), kill.group("victim"))):
-                        bump(hs_kills, kill.group("killer"))
-                    continue
-                knock = DEBUGGER_KNOCK_REGEX.search(line)
-                if knock:
-                    bump(knocks, knock.group("killer"))
-                    continue
-                end = DEBUGGER_MATCH_END_REGEX.search(line)
-                if end:
-                    st = DEBUGGER_TS_REGEX.match(line)
-                    end_at = _debugger_epoch(st.group("ts")) if st else None
-                    near = (when is None or end_at is None or abs(end_at - when) <= 600)
-                    if end.group("match_id") == want and near:
-                        start = seg_start or first_join
-                        out = {}
-                        # Everyone who joined, not only those who scored:
-                        # survival is for all of them.
-                        for pid in set(id_map) | set(kills) | set(knocks):
-                            uid = (id_map.get(pid) or {}).get("uid")
-                            if not uid:
-                                continue
-                            died = dead_at.get(pid)
-                            out[str(uid)] = {
-                                "kills": kills.get(pid, 0),
-                                "headshots": hs_kills.get(pid, 0),
-                                "knocks": knocks.get(pid, 0),
-                                "died": (round(died - start) if (died is not None and start) else None),
-                                "length": (round(end_at - start) if (end_at and start) else None),
-                            }
-                        return out
-                    # A different match in the same log: start again, ids
-                    # and all, because the next match reuses them.
-                    id_map, hs_flag = {}, {}
-                    kills, hs_kills, knocks = {}, {}, {}
-                    dead_at, seg_start, first_join = {}, None, None
-    return {}
+                died = self.dead_at.get(pid)
+                out[str(uid)] = {
+                    "kills": self.kills.get(pid, 0),
+                    "headshots": self.hs_kills.get(pid, 0),
+                    "knocks": self.knocks.get(pid, 0),
+                    "died": (round(died - start) if (died is not None and start) else None),
+                    "length": (round(end_at - start) if (end_at and start) else None),
+                }
+            self.done.append((end.group("match_id"), end_at, out))
+            # The next match reuses the runtime ids: start clean.
+            self._fresh()
 
 
 def attach_survival(teams, extras):
@@ -8246,7 +8303,7 @@ def match_roster_team_by_taught_squads(team_players, roster_teams):
 
 
 def build_match_result_payload(folder, match_id=None, knocks=None,
-                              headshots=None):
+                              headshots=None, recover=True):
     """Reads and resolves a match result into the dashboard's review payload.
 
     Shared by the operator's Fetch button and the automatic fetch that runs
@@ -8292,7 +8349,7 @@ def build_match_result_payload(folder, match_id=None, knocks=None,
     # figures it counted at the time.
     need_survival = any(pl.get("survival") is None
                         for t in teams for pl in (t.get("players") or []))
-    if not knocks or not headshots or need_survival:
+    if recover and (not knocks or not headshots or need_survival):
         extras = recover_match_extras(name_match.group("match_id"), folder,
                                       when=_result_stamp_epoch(name_match.group("timestamp")))
         if extras:
@@ -8919,7 +8976,9 @@ def list_match_files(folder):
             continue
         built = _listing_cache.get(key)
         if built is None:
-            built = build_match_result_payload(folder, mid)
+            # No log recovery: the pushes this list feeds write names, places
+            # and kills, and re-read the file themselves when they need more.
+            built = build_match_result_payload(folder, mid, recover=False)
             _listing_cache[key] = built
         if built.get("error") or not built.get("teams"):
             continue

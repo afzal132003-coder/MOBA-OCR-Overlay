@@ -7426,6 +7426,16 @@ document.getElementById("ff_rosterClearAll").addEventListener("click", () => {
   }
   ffWs.send(JSON.stringify({ type: "freefire_clear_roster" }));
   document.getElementById("ff_lobbyStatus").textContent = "Clearing…";
+  // The boxes empty when the engine's own (empty) roster comes back --
+  // see ffRenderRoster. Silence means the engine never got it.
+  ffClearPending = Date.now();
+  setTimeout(() => {
+    if(ffClearPending){
+      ffClearPending = 0;
+      document.getElementById("ff_lobbyStatus").textContent =
+        "NOT confirmed -- the engine did not answer within 10s. Check it is running, then press Clear again.";
+    }
+  }, 10000);
 });
 
 document.getElementById("ff_lobbyCapture").addEventListener("click", () => {
@@ -7506,7 +7516,21 @@ document.getElementById("ff_rosterSave").addEventListener("click", () => {
 
 let ffLastRosterKey = "";
 
+let ffClearPending = 0;
 function ffRenderRoster(ff){
+  // A clear the operator asked for: once the engine says its roster is
+  // empty, the boxes empty too -- staged edits and draft included, which
+  // is what was keeping the old teams on screen after a clear.
+  if(ffClearPending && !((ff.roster && ff.roster.teams) || []).length){
+    ffClearPending = 0;
+    ffParsedRoster = null;
+    ffRosterDraft = null;
+    ffLastRosterKey = "";
+    ffRenderRosterPreview([]);
+    document.getElementById("ff_lobbyStatus").textContent =
+      "All team info cleared on the engine -- ready for the new event's teams.";
+    return;
+  }
   // Keeps the boxes in sync with what's actually saved, unless the operator
   // has unsaved edits staged -- redrawing then would wipe what they're
   // partway through typing.

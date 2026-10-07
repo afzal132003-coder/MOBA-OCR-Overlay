@@ -226,6 +226,11 @@ def main():
         "matchend matchid = 2222222222",
     ]
     log.write_text("\n".join(lines), encoding="utf-8")
+    # A finished match's log, not one being written: its last line (here
+    # the matchend, with no newline after it) is only read once the file
+    # has stopped changing, so the fixture is dated in the past.
+    import os, time as _t
+    os.utime(log, (_t.time() - 10, _t.time() - 10))
 
     got = ff.recover_match_extras("2222222222", str(tmp))
     ace = got.get("222") or {}
@@ -247,6 +252,7 @@ def main():
     (parent / "Debugger").mkdir(parents=True, exist_ok=True)
     (parent / "Debugger" / log.name).write_text(
         "\n".join(lines), encoding="utf-8")
+    os.utime(parent / "Debugger" / log.name, (_t.time() - 10, _t.time() - 10))
     check("the result folder is accepted as well as the Debugger folder",
           bool(ff.recover_match_extras("2222222222", str(parent))))
 
