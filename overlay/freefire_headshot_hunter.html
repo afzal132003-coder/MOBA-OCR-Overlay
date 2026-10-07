@@ -4,54 +4,70 @@
 <meta charset="UTF-8">
 <script src="ff_embed.js"></script>
 <title>Free Fire Headshot Hunter Popup</title>
+<link rel="stylesheet" href="ff_theme.css">
 <style>
-  /* First-pass CSS-drawn design (no PSD for this one yet) -- orange/black
-     matches the palette in the operator's own reference screenshots of
-     this exact popup style, not the navy/gold MOBA house look, since
-     that's clearly the established Free Fire broadcast identity here.
-     Manually triggered (see freefire_engine.py's headshotHunter comment
-     for why) -- shows for a few seconds then auto-hides, same UX as the
-     MOBA turtle/lord popups. */
-  @font-face {
-    font-family: 'TT Supermolot Neue Trial';
-    src: url('assets/fonts/TTSupermolotNeueTrial-Bold.ttf') format('truetype');
-    font-weight: 700; font-style: normal;
-  }
-  @font-face {
-    font-family: 'TT Supermolot Neue Trial';
-    src: url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
-    font-weight: 900; font-style: normal;
-  }
+  /* HEADSHOT HUNTER -- fired by hand from Live In-Game Ops; shows for a few
+     seconds and slides away. Three looks, by the event's package:
 
+     ss3     the event's achievement art ("prg br ss3 achivement"), with the
+             text set where and how its demo sets it -- the same card the
+             side pop-ups use, titled HEADSHOT HUNTER.
+     arrow   the same card on the ARROW kit: green panel, gold title tab,
+             satin name plate.
+     other   the original orange-and-black card. */
+  @font-face { font-family:'TT Supermolot Neue Trial'; src:url('assets/fonts/TTSupermolotNeueTrial-Bold.ttf') format('truetype'); font-weight:700; }
+  @font-face { font-family:'TT Supermolot Neue Trial'; src:url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype'); font-weight:900; }
   :root{ --orange:#ff7a1a; --dark:#141110; --dim:#a89a8f; }
   html,body{ margin:0; padding:0; background:transparent; overflow:hidden;
     width:1920px; height:1080px; font-family:'TT Supermolot Neue Trial', Arial, sans-serif; }
 
-  .popup{ position:absolute; left:40px; top:400px; width:300px;
-    display:none; pointer-events:none; }
+  /* ---- the original card ---- */
+  .popup{ position:absolute; left:40px; top:400px; width:300px; display:none; pointer-events:none; }
   .popup.show{ display:block; }
-
   @keyframes flyIn{ 0%{ transform:translateX(-180px); opacity:0; } 100%{ transform:translateX(0); opacity:1; } }
   @keyframes flyOut{ 0%{ transform:translateX(0); opacity:1; } 100%{ transform:translateX(-180px); opacity:0; } }
-  .popup.anim-enter{ animation: flyIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
-  .popup.anim-exit{ animation: flyOut 0.4s cubic-bezier(0.55, 0, 0.85, 0.35) both; }
-
-  .card{ background:var(--dark); border-radius:10px; overflow:hidden;
-    box-shadow:0 10px 30px rgba(0,0,0,0.5); }
+  .popup.anim-enter, .tcard.anim-enter{ animation: flyIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+  .popup.anim-exit, .tcard.anim-exit{ animation: flyOut 0.4s cubic-bezier(0.55, 0, 0.85, 0.35) both; }
+  .card{ background:var(--dark); border-radius:10px; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,0.5); }
   .header{ background:var(--orange); padding:10px 16px; display:flex; align-items:center; gap:8px; }
   .header .skull{ font-size:18px; line-height:1; }
   .header .label{ color:#1a1210; font-weight:900; font-size:14px; letter-spacing:1px; text-transform:uppercase; }
-
   .body{ padding:16px; display:flex; align-items:center; gap:14px; }
   .count-block{ flex:1; }
   .count{ color:#fff; font-weight:900; font-size:56px; line-height:1; }
   .count-label{ color:var(--dim); font-weight:700; font-size:12px; letter-spacing:1.5px; text-transform:uppercase; margin-top:2px; }
-
-  .photo{ width:64px; height:64px; border-radius:50%; object-fit:cover;
-    border:3px solid var(--orange); display:none; flex-shrink:0; }
-
+  .photo{ width:64px; height:64px; border-radius:50%; object-fit:cover; border:3px solid var(--orange); display:none; flex-shrink:0; }
   .name-row{ background:#0c0a09; padding:8px 16px; }
   .name{ color:#fff; font-weight:700; font-size:15px; letter-spacing:0.5px; text-transform:uppercase; }
+
+  /* ---- SS3 / ARROW: the achievement card's layout, x 0..311, y 451..652 */
+  .tcard{ position:absolute; inset:0; display:none; pointer-events:none; }
+  .tcard.show{ display:block; }
+  .tcard > *{ position:absolute; }
+  #tArt{ left:0; top:0; width:1920px; height:1080px; }
+  #tPhoto{ left:1px; top:463px; width:133px; height:141px; object-fit:cover; object-position:center top; }
+  #tLogo{ left:4px; top:596px; width:50px; height:50px; object-fit:contain; }
+  .tt{ display:flex; align-items:center; justify-content:center; text-align:center; text-transform:uppercase; }
+  #tTitle{ left:166px; top:452px; width:122px; height:47px; font-size:16px; line-height:20px; }
+  #tValue{ left:136px; top:505px; width:164px; height:76px; font-size:72px; line-height:1; }
+  #tLabel{ left:136px; top:572px; width:164px; height:22px; font-size:17px; }
+  #tName{ left:60px; top:607px; width:238px; height:42px; font-size:26px; white-space:nowrap; }
+  .ss3 #tTitle, .ss3 #tValue, .ss3 #tName{ font-family:'SMBlack',Arial,sans-serif; }
+  .ss3 #tLabel{ font-family:'SMXB',Arial,sans-serif; }
+  .ss3 #tTitle{ color:#ff1810; } .ss3 #tValue{ color:#fff; } .ss3 #tLabel{ color:#fff894; } .ss3 #tName{ color:#111; }
+  /* ARROW draws what the SS3 art carries */
+  #aPanel, #aTab, #aPhotoBox, #aPlate, #aLogoBox{ display:none; }
+  .arrow #aPanel, .arrow #aTab, .arrow #aPhotoBox, .arrow #aPlate, .arrow #aLogoBox{ display:block; }
+  .arrow #tArt{ display:none; }
+  #aPanel{ left:0; top:451px; width:311px; height:201px;
+           background:linear-gradient(160deg,#2a5a2c 0%,#173a19 60%,#10280f 100%);
+           clip-path:polygon(0 0,100% 0,100% calc(100% - 18px),calc(100% - 18px) 100%,0 100%); }
+  #aTab{ left:145px; top:451px; width:166px; height:49px; background:linear-gradient(180deg,#ffe08a,#ffb21e); }
+  #aPhotoBox{ left:0; top:462px; width:135px; height:143px; background:#0f2711; box-shadow:inset 0 0 0 3px #f2f2f2; }
+  #aPlate{ left:58px; top:605px; width:242px; height:46px; clip-path:polygon(0 0,100% 0,calc(100% - 14px) 100%,0 100%); }
+  #aLogoBox{ left:0; top:592px; width:58px; height:60px; background:#0b1f0d; }
+  .arrow #tTitle, .arrow #tValue, .arrow #tLabel, .arrow #tName{ font-family:'SMBI',Arial,sans-serif; }
+  .arrow #tTitle{ color:#111; } .arrow #tValue{ color:#fff; } .arrow #tLabel{ color:#ffb21e; } .arrow #tName{ color:#111; }
 </style>
 </head>
 <body>
@@ -69,37 +85,44 @@
   </div>
 </div>
 
+<div class="tcard" id="tcard">
+  <img id="tArt" alt="">
+  <div id="aPanel"></div>
+  <div id="aTab"></div>
+  <div id="aPhotoBox"></div>
+  <img id="tPhoto" alt="">
+  <div id="aLogoBox"></div>
+  <div id="aPlate" class="ff-yellow"></div>
+  <img id="tLogo" alt="">
+  <div class="tt" id="tTitle">HEADSHOT HUNTER</div>
+  <div class="tt" id="tValue"></div>
+  <div class="tt" id="tLabel">HEADSHOTS</div>
+  <div class="tt" id="tName"></div>
+</div>
+<script src="ff_theme.js"></script>
 <script>
 const _params = new URLSearchParams(location.search);
 if (_params.get("relay")) { try { localStorage.setItem("moba_relay", _params.get("relay")); } catch(e) {} }
 if (_params.get("token")) { try { localStorage.setItem("moba_token", _params.get("token")); } catch(e) {} }
-/* Served BY the relay host, connect back to it.
-
-   These pages are now served off the same VM as the relay, and a page
-   loaded over https from that host has no business needing to be told
-   its own address. Without this every browser source and every dashboard
-   tab has to carry ?relay=wss://... forever, and one that is missing it
-   silently falls back to ws://localhost:8765 and sits there dead --
-   which looks exactly like the engine being down.
-
-   Only when actually served over https from a real host: a page opened
-   from disk, or off localhost while testing, keeps the old behaviour
-   untouched. An explicit ?relay= still wins over all of it. */
+/* Served BY the relay host, connect back to it -- see the other overlays. */
 const _sameOrigin = (location.protocol === "https:"
   && location.hostname && !/^(localhost|127\.|\[?::1)/.test(location.hostname))
   ? "wss://" + location.host : "";
 const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || _sameOrigin;
 const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
 const WS_URL = _relay
-  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_headshot_hunter"
-  : "ws://localhost:8765?page=freefire_headshot_hunter";
-let ws;
-
+  ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_headshot_hunter&rostercache=1"
+  : "ws://localhost:8765?page=freefire_headshot_hunter&rostercache=1";
+const SS3_ART = "assets/freefire/ss3/" + encodeURI("prg br ss3 achivement - BLANK.png");
+let ws, _lastRoster = null;
 function connect(){
   ws = new WebSocket(WS_URL);
   ws.onmessage = (evt) => {
     const msg = JSON.parse(evt.data);
-    if(msg.type === "state_sync" && msg.data.headshotHunter) applyState(msg.data.headshotHunter);
+    if(msg.type !== "state_sync" || !msg.data) return;
+    if(msg.data.roster) _lastRoster = msg.data.roster;
+    else if(_lastRoster) msg.data.roster = _lastRoster;
+    if(msg.data.headshotHunter) applyState(msg.data.headshotHunter, msg.data);
   };
   ws.onclose = () => setTimeout(connect, 2000);
   ws.onerror = () => ws.close();
@@ -122,21 +145,52 @@ function hidePopup(el){
   }, { once: true });
 }
 
+// "ss3", "arrow", or "" for the original card.
+function look(state){
+  const ev = (state && state.event) || {};
+  const f = String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase();
+  return f === "ss3" ? "ss3" : (f === "prg arrow" ? "arrow" : "");
+}
+
+function fillThemed(hh, state, theme){
+  document.body.classList.toggle("ss3", theme === "ss3");
+  document.body.classList.toggle("arrow", theme === "arrow");
+  const art = document.getElementById("tArt");
+  if(theme === "ss3" && art.getAttribute("src") !== SS3_ART) art.src = SS3_ART;
+  const roster = (state && state.roster) || {};
+  const rp = ffRosterPlayer("", hh.playerName, roster);
+  const photo = hh.photo || (rp && rp.player.photo) || roster.defaultPlayerPhoto || "";
+  const ph = document.getElementById("tPhoto");
+  if(photo){ ph.src = photo; ph.style.visibility = ""; } else ph.style.visibility = "hidden";
+  const lg = document.getElementById("tLogo");
+  const logo = rp && rp.team && rp.team.logo;
+  if(logo){ lg.src = logo; lg.style.visibility = ""; } else lg.style.visibility = "hidden";
+  document.getElementById("tValue").textContent = hh.headshots || 0;
+  ffSetText(document.getElementById("tName"), (rp && (rp.player.displayIgn || rp.player.ign)) || hh.playerName || "", 226, 12);
+}
+
 let lastStatus = "idle";
 let hideTimeout = null;
 
-function applyState(hh){
-  const el = document.getElementById("popup");
-  document.getElementById("hh-count").textContent = hh.headshots || 0;
-  document.getElementById("hh-name").textContent = hh.playerName || "";
-  const photoEl = document.getElementById("hh-photo");
-  if(hh.photo){ photoEl.src = hh.photo; photoEl.style.display = "block"; }
-  else { photoEl.style.display = "none"; }
+function applyState(hh, state){
+  const theme = look(state);
+  const el = document.getElementById(theme ? "tcard" : "popup");
+  const other = document.getElementById(theme ? "popup" : "tcard");
+  other.classList.remove("show", "anim-enter", "anim-exit");
+  if(theme){
+    fillThemed(hh, state, theme);
+  } else {
+    document.getElementById("hh-count").textContent = hh.headshots || 0;
+    document.getElementById("hh-name").textContent = hh.playerName || "";
+    const photoEl = document.getElementById("hh-photo");
+    if(hh.photo){ photoEl.src = hh.photo; photoEl.style.display = "block"; }
+    else { photoEl.style.display = "none"; }
+  }
 
   if(hideTimeout){ clearTimeout(hideTimeout); hideTimeout = null; }
 
   if(hh.status === "shown"){
-    if(lastStatus !== "shown") showPopup(el);
+    if(lastStatus !== "shown" || !el.classList.contains("show")) showPopup(el);
     if(hh.shownUntil){
       const remaining = hh.shownUntil - Date.now();
       if(remaining > 0) hideTimeout = setTimeout(() => hidePopup(el), remaining);

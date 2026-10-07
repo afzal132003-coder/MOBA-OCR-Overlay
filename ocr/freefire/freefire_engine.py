@@ -11145,14 +11145,31 @@ async def handle_client(websocket, path=None):
                 await push_lobby_update()
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
-            elif payload.get("type") in ("booyah_stats_show", "booyah_stats_hide"):
-                server_state["display"]["booyahStatsVisible"] = (
-                    payload["type"] == "booyah_stats_show")
-                save_state()
-                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
-            elif payload.get("type") in ("booyah_loadout_show", "booyah_loadout_hide"):
-                server_state["display"]["booyahLoadoutVisible"] = (
-                    payload["type"] == "booyah_loadout_show")
+            elif payload.get("type") in ("booyah_stats_show", "booyah_stats_hide",
+                                         "booyah_loadout_show", "booyah_loadout_hide"):
+                show = payload["type"].endswith("_show")
+                loadout = payload["type"].startswith("booyah_loadout")
+                ev = server_state.get("event") or {}
+                pkg = str(ev.get("aliveAssetFolder") or ev.get("assetFolder") or "").lower()
+                if pkg in ("ss3", "prg arrow"):
+                    # These packages have no art for the older Booyah pages;
+                    # the two-slide Booyah stats is their Booyah graphic, so
+                    # the same buttons drive it: stats = slide 1, loadout = 2.
+                    b = booyah_stats_state()
+                    if show:
+                        b.update(visible=True, slide=2 if loadout else 1, auto=False)
+                        b["shownAt"] = b["slideAt"] = int(time.time() * 1000)
+                        if not (b.get("rows") or {}).get("players"):
+                            await asyncio.get_running_loop().run_in_executor(None, refresh_booyah_stats)
+                        photos = await asyncio.get_running_loop().run_in_executor(None, booyah_photos)
+                        await broadcast_to_page("freefire_booyah_stats", {"type": "booyah_photos", **photos})
+                    else:
+                        b["visible"] = False
+                    server_state["display"]["booyahStatsVisible"] = False
+                    server_state["display"]["booyahLoadoutVisible"] = False
+                else:
+                    key = "booyahLoadoutVisible" if loadout else "booyahStatsVisible"
+                    server_state["display"][key] = show
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") in ("match_insights_show", "match_insights_hide"):

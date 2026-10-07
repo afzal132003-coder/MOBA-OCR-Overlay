@@ -88,8 +88,11 @@ function ffFitTitle(el, again){
   if(!el) return;
   // Measured again once the fonts have loaded: before that the fallback
   // face is narrower, and the title fitted to it ran off its box.
-  if(!again && document.fonts && document.fonts.status !== "loaded"){
-    document.fonts.ready.then(() => ffFitTitle(el, true));
+  if(!again){
+    if(document.fonts && document.fonts.status !== "loaded") document.fonts.ready.then(() => ffFitTitle(el, true));
+    // and once more shortly after: a stylesheet added late declares its
+    // fonts after the first check.
+    setTimeout(() => ffFitTitle(el, true), 1200);
   }
   el.style.fontSize = "";
   const r = document.createRange();

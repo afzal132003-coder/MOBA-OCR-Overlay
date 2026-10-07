@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="ff_embed.js"></script>
+<script src="ff_theme.js"></script>
 <title>Free Fire — Match Insights</title>
 <!--
   The three feeds the engine reads out of the client's debugger log and
@@ -64,6 +65,36 @@
   .stages{margin-top:10px;font-size:12px;font-family:Consolas,monospace;color:var(--dim)}
   .stages b{color:var(--acc);font-weight:400}
   .empty{color:var(--dim);font-size:12px;padding:10px 0}
+  /* ---- On air, inside the post-match source: the event's look. ---- */
+  #air{display:none;}
+  body.air #air{display:block;}
+  body.air{background:transparent;padding:0;display:block;width:1920px;height:1080px;overflow:hidden;}
+  body.air header{display:none;}
+  body.air .wrap{position:absolute;gap:22px;}
+  body.air.ss3 .wrap{left:150px;top:338px;width:1620px;height:556px;}
+  body.air.arrow .wrap{left:200px;top:236px;width:1520px;height:700px;}
+  body.air .card{border:none;border-radius:0;padding:0 0 12px;}
+  body.air.ss3 .card{background:#050505;box-shadow:inset 0 0 0 3px #d40000;}
+  body.air.arrow .card{background:rgba(0,0,0,.3);box-shadow:inset 0 0 0 2px rgba(255,255,255,.08);}
+  body.air .card h2{margin:0 0 10px;padding:8px 16px;font-size:22px;letter-spacing:.04em;}
+  body.air.ss3 .card h2{background:#e11b17;color:#fff694;font-family:'SMXB',Arial,sans-serif;}
+  body.air.arrow .card h2{background:url('assets/freefire/kit/arrow_satin.png') center/cover,#f2f2f2;color:#151515;
+                          font-family:'SMBI',Arial,sans-serif;clip-path:polygon(0 0,100% 0,calc(100% - 18px) 100%,0 100%);}
+  body.air .src{display:none;}
+  body.air table{font-size:21px;margin:0 16px;width:calc(100% - 32px);}
+  body.air th{font-size:15px;}
+  body.air td{border-top-color:rgba(255,255,255,.08);padding:6px 0;}
+  body.air.ss3 table, body.air.ss3 th{font-family:'SMXB',Arial,sans-serif;}
+  body.air.arrow table, body.air.arrow th{font-family:'SMBI',Arial,sans-serif;}
+  body.air.ss3 .hs, body.air.ss3 .gloo{color:#fff694;} body.air.ss3 .team, body.air.ss3 th{color:#ffd0c8;}
+  body.air.arrow .hs, body.air.arrow .gloo{color:#ffb21e;} body.air.arrow .team, body.air.arrow th{color:#cfe3c5;}
+  /* the circle map: square, inside its panel */
+  body.air canvas{margin:0 auto;border:none;}
+  body.air.ss3 canvas{width:440px;height:440px;}
+  body.air.arrow canvas{width:580px;height:580px;}
+  body.air .stages{display:none;}
+  body.air.ss3 .pct{color:#fff;} body.air.arrow .pct{color:#fff;}
+  body.air .phase{font-size:13px;}
   .phase{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;
          border:1px solid var(--line);color:var(--cy);margin-left:8px;
          font-family:Consolas,monospace}
@@ -71,6 +102,11 @@
 </head>
 <body>
 
+<div id="air">
+  <div class="ff-frame"></div>
+  <div class="ff-title" id="airTitle">MATCH INSIGHTS</div>
+  <div class="ff-round ctr" id="airRound"></div>
+</div>
 <header>
   <h1>MATCH INSIGHTS</h1>
   <span class="sub">live from the client debugger log</span>
@@ -243,6 +279,12 @@ function renderZone(zone){
 let _lastRoster = null, ws;
 // In a bundle it starts hidden and waits to be pushed; on its own it is
 // the always-on operator page it always was.
+// On air (inside the post-match source): the event's look, from the theme
+// kit -- loaded only then, since it fixes the page to 1920x1080.
+if(window.FF_EMBEDDED){
+  const l = document.createElement("link"); l.rel = "stylesheet"; l.href = "ff_theme.css"; document.head.appendChild(l);
+  document.body.classList.add("air");
+}
 if(window.FF_EMBEDDED && new URLSearchParams(location.search).get("preview") !== "1"){
   document.body.style.visibility = "hidden";
 }
@@ -262,6 +304,12 @@ function connect(){
     // only when pushed. On its own it stays the always-on operator page.
     if(window.FF_EMBEDDED && !(new URLSearchParams(location.search).get("preview") === "1")){
       document.body.style.visibility = (msg.data.display || {}).matchInsightsVisible ? "" : "hidden";
+    }
+    if(window.FF_EMBEDDED && typeof ffApplyTheme === "function"){
+      ffApplyTheme(msg.data);
+      const ev = msg.data.event || {};
+      document.getElementById("airRound").textContent = ev.roundName || "";
+      ffFitTitle(document.getElementById("airTitle"));
     }
     const live = msg.data.liveOps || {};
     renderHeadshots(live.headshotBoard || []);

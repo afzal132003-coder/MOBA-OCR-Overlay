@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <script src="ff_embed.js"></script>
+<link rel="stylesheet" href="ff_theme.css">
 <title>Free Fire Team Eliminated</title>
 <style>
   /* Squad elimination lower-third.
@@ -133,6 +134,25 @@
     text-shadow: 0 3px 14px rgba(0, 0, 0, 0.65);
     white-space: nowrap; overflow: hidden;
   }
+  /* ARROW: no art for this card, so it is drawn -- the eliminated card's
+     shape on the ARROW kit, top centre: a green panel with ELIMINATED in
+     gold, the squad's logo, its name on a satin plate, the finish. */
+  #arw { position:absolute; left:763px; top:101px; width:428px; height:205px; display:none; }
+  body.arrow #arw { display:block; }
+  body.arrow #art, body.arrow #logo, body.arrow #rank, body.arrow #textBlock { display:none !important; }
+  #arw .pan { position:absolute; inset:0; clip-path:polygon(0 0,100% 0,100% calc(100% - 22px),calc(100% - 22px) 100%,0 100%);
+              background:linear-gradient(115deg,rgba(255,255,255,.06) 0 20%,transparent 20% 62%,rgba(255,255,255,.04) 62% 66%,transparent 66%),
+                         linear-gradient(180deg,#1d4720,#0f2711); box-shadow:inset 0 0 0 2px rgba(255,255,255,.08); }
+  #arw .word { position:absolute; left:18px; top:14px; width:340px; height:104px; font-family:'SMBI',Arial,sans-serif; font-size:60px;
+               line-height:110px; color:transparent; text-transform:uppercase; white-space:nowrap;
+               background:linear-gradient(180deg,#ffe08a 0%,#ffb21e 55%,#e07b00 100%); -webkit-background-clip:text; background-clip:text;
+               filter:drop-shadow(0 3px 0 rgba(0,0,0,.35)); }
+  #arw .rk { position:absolute; right:0; top:0; width:62px; height:56px; display:flex; align-items:center; justify-content:center;
+             background:#ffb21e; color:#111; font-family:'SMBI',Arial,sans-serif; font-size:30px; }
+  #arw .lg { position:absolute; left:14px; top:132px; width:62px; height:62px; display:flex; align-items:center; justify-content:center; }
+  #arw .lg img { max-width:100%; max-height:100%; object-fit:contain; }
+  #arw .nm { position:absolute; left:88px; top:138px; width:322px; height:52px; display:flex; align-items:center; justify-content:center;
+             font-size:28px; clip-path:polygon(0 0,100% 0,calc(100% - 16px) 100%,0 100%); }
   #kills {
     display: var(--kills-display);
     color: #ffc400; font-weight: 800; font-size: 19px;
@@ -151,6 +171,13 @@
   <div id="textBlock">
     <div id="teamName"></div>
     <div id="kills"></div>
+  </div>
+  <div id="arw">
+    <div class="pan"></div>
+    <div class="word">ELIMINATED</div>
+    <div class="rk" id="arwRank"></div>
+    <div class="lg"><img id="arwLogo" alt=""></div>
+    <div class="nm ff-yellow" id="arwName"></div>
   </div>
   </div>
 </div>
@@ -323,8 +350,13 @@ const ELIM_OVERRIDE_TARGETS = {
   elimRank: "#rank",
 };
 
-function applyElimOverrides(state, L){
-  const all = (state && state.graphicOverrides) || {};
+function applyElimOverrides(state, L, sfx){
+  // A package drawn here with no art of its own (ARROW) keeps its own
+  // nudges -- the CLT card's moved this one off the top of the screen.
+  sfx = sfx || "";
+  const all0 = (state && state.graphicOverrides) || {};
+  const all = {};
+  Object.keys(ELIM_OVERRIDE_TARGETS).forEach(k => { if(all0[k + sfx]) all[k] = all0[k + sfx]; });
   const r = document.documentElement.style;
   r.setProperty("--panel-cx", (L.panel ? L.panel.cx : 960) + "px");
   r.setProperty("--panel-cy", (L.panel ? L.panel.cy : 540) + "px");
@@ -357,9 +389,38 @@ let hideTimer = null;
 function apply(state){
   const te = state.teamEliminated;
   const folder = (state.event && state.event.assetFolder) || "CLT";
+  // SS3: the eliminated card is the alive table's own (the event's
+  // "eliminated bug" art, team photo and all), so this one stands down
+  // rather than doubling it. ARROW has no art for it and is drawn below.
+  const pkg = String((state.event && (state.event.aliveAssetFolder || state.event.assetFolder)) || "").toLowerCase();
+  if(pkg === "ss3"){
+    const c = document.getElementById("card");
+    c.classList.remove("show", "anim-enter", "anim-exit");
+    lastStatus = te.status;
+    return;
+  }
+  const arrow = pkg === "prg arrow";
+  document.body.classList.toggle("arrow", arrow);
+  if(arrow){
+    document.documentElement.style.setProperty("--travel", "-260px");
+    const rt = logoFor(te.teamName, state.roster);
+    const lg = document.getElementById("arwLogo");
+    const badge = te.photo || (rt && rt.logo) || "";
+    if(badge){ lg.src = badge; lg.style.visibility = ""; } else lg.style.visibility = "hidden";
+    document.getElementById("arwRank").textContent = te.rank == null ? "" : "#" + te.rank;
+    const nm = document.getElementById("arwName");
+    nm.innerHTML = "";
+    const sp = document.createElement("span");
+    sp.textContent = (rt && (rt.displayName || rt.name)) || te.teamName || "";
+    nm.appendChild(sp);
+    nm.style.fontSize = "30px";
+    // measured on the text itself: a centred box hides its overflow
+    for(let sz = 30; sz > 14 && sp.offsetWidth > 280; sz -= 1) nm.style.fontSize = sz + "px";
+  }
   const L = layoutFor(state);
   applyLayout(L);
-  applyElimOverrides(state, L);
+  const arrowPkg = String((state.event && (state.event.aliveAssetFolder || state.event.assetFolder)) || "").toLowerCase() === "prg arrow";
+  applyElimOverrides(state, arrowPkg ? Object.assign({}, L, { panel: { cx: 977, cy: 203 } }) : L, arrowPkg ? "@arrow" : "");
   const el = document.getElementById("card");
 
   const artSrc = "assets/freefire/" + folder + "/" + L.art;

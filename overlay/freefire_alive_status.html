@@ -1829,7 +1829,16 @@ function apply(state){
   try { renderTop4(state, source); } catch(e){ console.error("top4:", e); }
 
   document.getElementById("stage").classList.toggle("show", !!visible && source.length > 0);
-  if(!visible || !source.length) return;
+  if(!visible || !source.length){
+    // SS3's eliminated card is THE elimination graphic for that package
+    // (the separate lower third stands down), so it fires on a wipe
+    // whether or not the table itself is up.
+    const Lq = layoutFor(state);
+    if(Lq.elimCard && Lq.elimCard.placementKey){
+      try { showAnnouncedElimCard(state, Lq); } catch(e){ console.error("elim card:", e); }
+    }
+    return;
+  }
 
   const L = layoutFor(state);
   // The PTS. column only exists in some packages, and even there it is a
