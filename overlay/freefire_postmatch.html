@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Free Fire Post-Match</title>
+<style>
+  /* ONE OBS SOURCE for every between-games graphic: scoreboard and points
+     table, team graphs, player head to head, Booyah team stats (the SS3
+     two slides and the older slide 1 / slide 2), MVP, game summary, damage
+     report, match insights. Only one is up at a time -- the engine pulls
+     the others when one is pushed. Each draws in the event's graphics
+     package (Pre-Event > Graphics Package). See ff_bundle.js. */
+  html,body{margin:0;padding:0;background:transparent;overflow:hidden;width:1920px;height:1080px;}
+</style>
+</head>
+<body>
+<script src="ff_bundle.js"></script>
+<script>
+const D = st => st.display || {};
+ffBundle("freefire_postmatch", [
+  { page: "freefire_scoreboard",      active: st => D(st).scoreboardVisible || D(st).pointsTableVisible },
+  { page: "freefire_team_graphs",     active: st => (D(st).teamGraph || {}).visible },
+  { page: "freefire_player_h2h",      active: st => (st.playerH2H || {}).visible },
+  { page: "freefire_booyah_stats",    active: st => (st.booyahStats || {}).visible },
+  { page: "freefire_booyah",          active: st => D(st).booyahStatsVisible },
+  { page: "freefire_booyah_loadout",  active: st => D(st).booyahLoadoutVisible },
+  { page: "freefire_mvp",             active: st => D(st).mvpVisible },
+  { page: "freefire_game_summary",    active: st => D(st).gameSummaryVisible },
+  { page: "freefire_damage_report",   active: st => D(st).damageReportVisible },
+  { page: "freefire_match_insights",  active: st => D(st).matchInsightsVisible },
+]);
+</script>
+</body>
+</html>

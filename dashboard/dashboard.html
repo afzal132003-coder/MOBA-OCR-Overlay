@@ -3195,6 +3195,13 @@
         <button id="ff_assetFolderSave">Use This Package</button>
       </div>
       <div class="hint" id="ff_assetFolderStatus" style="margin-top:8px;"></div>
+      <p class="hint" style="margin-top:10px;"><strong>Two OBS sources cover everything</strong> (same address and settings as
+        your other Free Fire sources, only the file name differs):<br>
+        <code>freefire_ingame.html</code> -- alive status with Top 4, elimination card and side pop-ups, team eliminated,
+        headshot hunter.<br>
+        <code>freefire_postmatch.html</code> -- scoreboard and points table, team graphs, player head to head, Booyah
+        stats, MVP, game summary, damage report, match insights (one at a time).<br>
+        Pick <strong>ss3</strong> or <strong>PRG ARROW</strong> here and every graphic in both draws in that event's look.</p>
 
       <div style="margin-top:14px;padding:12px;border:1px solid #1b2430;border-radius:10px;">
         <strong>Event Profiles</strong>
@@ -9699,7 +9706,9 @@ document.getElementById("ff_championBadge").addEventListener("change", (e) => {
 document.getElementById("ff_assetFolderSave").addEventListener("click", () => {
   if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
   const folder = document.getElementById("ff_assetFolder").value.trim() || "CLT";
-  const event = Object.assign({}, (ffState && ffState.event) || {}, { assetFolder: folder });
+  // The alive table follows the package too, so one choice themes every
+  // graphic; its own dropdown in the alive card can still override it.
+  const event = Object.assign({}, (ffState && ffState.event) || {}, { assetFolder: folder, aliveAssetFolder: folder });
   ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { event: event } } }));
   document.getElementById("ff_assetFolderStatus").textContent =
     "Overlays now drawing from overlay/assets/freefire/" + folder +
@@ -11415,6 +11424,12 @@ document.getElementById("ff_crSave").addEventListener("click", () => {
    air and which message toggles that flag; "always" means the graphic has
    no push control of its own and shows whenever its data exists. */
 const FF_PREVIEWS = [
+  { id: "postmatchSource", label: "★ POST-MATCH SOURCE (one OBS source)", file: "freefire_postmatch.html",
+    flag: null, show: null, hide: null,
+    note: "Scoreboard + points table, team graphs, player head to head, Booyah stats (SS3 two slides and slide 1/2), MVP, game summary, damage report, match insights -- all in ONE browser source. Only one is up at a time: pushing one pulls the others." },
+  { id: "ingameSource", label: "★ IN-GAME SOURCE (one OBS source)", file: "freefire_ingame.html",
+    flag: null, show: null, hide: null,
+    note: "Alive status (with Top 4, elimination card and side pop-ups), team eliminated and headshot hunter -- all in ONE browser source." },
   { id: "scoreboard", label: "Match Scoreboard", file: "freefire_scoreboard.html",
     flag: "scoreboardVisible", show: "scoreboard_show", hide: "scoreboard_hide",
     note: "Shares its browser source with the points table — pushing this pulls that down." },
@@ -11442,6 +11457,9 @@ const FF_PREVIEWS = [
   { id: "gameSummary", label: "Game Summary", file: "freefire_game_summary.html",
     flag: "gameSummaryVisible", show: "game_summary_show", hide: "game_summary_hide",
     note: "Map, Booyah team, MVP and total kills for the last committed match." },
+  { id: "matchInsights", label: "Match Insights", file: "freefire_match_insights.html",
+    flag: "matchInsightsVisible", show: "match_insights_show", hide: "match_insights_hide",
+    note: "Headshots, zone and utility per squad. On its own it is an always-on operator page; in the post-match source it shows only when pushed." },
   { id: "damageReport", label: "Elimination & Damage Report", file: "freefire_damage_report.html",
     flag: "damageReportVisible", show: "damage_report_show", hide: "damage_report_hide",
     note: "Every player from the last committed match, ranked by eliminations." },

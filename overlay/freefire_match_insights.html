@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<script src="ff_embed.js"></script>
 <title>Free Fire — Match Insights</title>
 <!--
   The three feeds the engine reads out of the client's debugger log and
@@ -240,6 +241,11 @@ function renderZone(zone){
 }
 
 let _lastRoster = null, ws;
+// In a bundle it starts hidden and waits to be pushed; on its own it is
+// the always-on operator page it always was.
+if(window.FF_EMBEDDED && new URLSearchParams(location.search).get("preview") !== "1"){
+  document.body.style.visibility = "hidden";
+}
 function connect(){
   setConn(false, "connecting");
   ws = new WebSocket(WS_URL);
@@ -252,6 +258,11 @@ function connect(){
        a half state. */
     if(msg.data.roster) _lastRoster = msg.data.roster;
     else if(_lastRoster) msg.data.roster = _lastRoster;
+    // Inside the post-match source it is a graphic like the others: up
+    // only when pushed. On its own it stays the always-on operator page.
+    if(window.FF_EMBEDDED && !(new URLSearchParams(location.search).get("preview") === "1")){
+      document.body.style.visibility = (msg.data.display || {}).matchInsightsVisible ? "" : "hidden";
+    }
     const live = msg.data.liveOps || {};
     renderHeadshots(live.headshotBoard || []);
     renderUtility(live.utility || []);

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Free Fire In-Game</title>
+<style>
+  /* ONE OBS SOURCE for the live graphics: the alive table (with its Top 4
+     bar, elimination card and side pop-ups), the team-eliminated lower
+     third and the headshot hunter pop-up. These can be up together, so
+     every page is fed every state. See ff_bundle.js. */
+  html,body{margin:0;padding:0;background:transparent;overflow:hidden;width:1920px;height:1080px;}
+</style>
+</head>
+<body>
+<script src="ff_bundle.js"></script>
+<script>
+ffBundle("freefire_ingame", [
+  { page: "freefire_alive_status" },
+  { page: "freefire_team_eliminated" },
+  { page: "freefire_headshot_hunter" },
+]);
+</script>
+</body>
+</html>

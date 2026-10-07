@@ -9691,6 +9691,11 @@ def state_for_broadcast():
 
 
 async def broadcast_state_sync():
+    postmatch_one_at_a_time()
+    await _broadcast_state_sync()
+
+
+async def _broadcast_state_sync():
     """A state_sync to everyone, slim to whoever can take it.
 
     Built at most twice, whatever the number of clients: the full state
@@ -9787,9 +9792,55 @@ async def push_lobby_update():
     })
 
 
+# THE POST-MATCH GRAPHICS SHARE ONE SOURCE, so only one is up at a time:
+# pushing one pulls whichever else was up. Each is (name, read, write) --
+# the flags live in a dozen places, so this is the one list of them.
+def _disp():
+    return server_state.setdefault("display", {})
+
+
+def _set_team_graph(on):
+    _disp().setdefault("teamGraph", {})["visible"] = on
+    _disp()["teamGraphVisible"] = on
+
+
+POSTMATCH_GRAPHICS = [
+    ("scoreboard", lambda: _disp().get("scoreboardVisible"), lambda v: _disp().__setitem__("scoreboardVisible", v)),
+    ("pointsTable", lambda: _disp().get("pointsTableVisible"), lambda v: _disp().__setitem__("pointsTableVisible", v)),
+    ("teamGraph", lambda: (_disp().get("teamGraph") or {}).get("visible"), _set_team_graph),
+    ("playerH2H", lambda: (server_state.get("playerH2H") or {}).get("visible"),
+     lambda v: server_state.setdefault("playerH2H", {}).__setitem__("visible", v)),
+    ("booyahStats", lambda: (server_state.get("booyahStats") or {}).get("visible"),
+     lambda v: server_state.setdefault("booyahStats", {}).__setitem__("visible", v)),
+    ("booyahOld", lambda: _disp().get("booyahStatsVisible"), lambda v: _disp().__setitem__("booyahStatsVisible", v)),
+    ("booyahLoadout", lambda: _disp().get("booyahLoadoutVisible"), lambda v: _disp().__setitem__("booyahLoadoutVisible", v)),
+    ("mvp", lambda: _disp().get("mvpVisible"), lambda v: _disp().__setitem__("mvpVisible", v)),
+    ("gameSummary", lambda: _disp().get("gameSummaryVisible"), lambda v: _disp().__setitem__("gameSummaryVisible", v)),
+    ("damageReport", lambda: _disp().get("damageReportVisible"), lambda v: _disp().__setitem__("damageReportVisible", v)),
+    ("matchInsights", lambda: _disp().get("matchInsightsVisible"), lambda v: _disp().__setitem__("matchInsightsVisible", v)),
+]
+_postmatch_up = set()
+
+
+def postmatch_one_at_a_time():
+    """Whatever was pushed most recently stays up; the rest come down."""
+    global _postmatch_up
+    up = {name for name, read, _ in POSTMATCH_GRAPHICS if read()}
+    new = up - _postmatch_up
+    if new:
+        keep = next(name for name, _, _ in POSTMATCH_GRAPHICS if name in new)
+        for name, read, write in POSTMATCH_GRAPHICS:
+            if name != keep and read():
+                write(False)
+        up = {keep}
+    _postmatch_up = up
+
+
 async def broadcast(message):
     if not connected_clients:
         return
+    if isinstance(message, dict) and message.get("type") == "state_sync":
+        postmatch_one_at_a_time()
     # EVERY state_sync, from any of the three dozen handlers that send
     # one, is leaned here rather than at each call site. Doing it in one
     # place is the only way it stays true: a handler added next month
@@ -9805,6 +9856,27 @@ async def broadcast(message):
     # change the set being iterated.
     await asyncio.gather(*[_send_guarded(c, data) for c in list(connected_clients)],
                          return_exceptions=True)
+
+
+# THE TWO COMBINED SOURCES. Each is one OBS browser source holding several
+# graphics (overlay/freefire_postmatch.html, freefire_ingame.html) on ONE
+# connection, handing messages down to the pages inside. A message meant
+# for one of those pages has to reach the bundle too -- locally by its
+# page name, and through the relay by being named in _target_pages.
+FF_BUNDLES = {
+    "freefire_postmatch": {
+        "freefire_scoreboard", "freefire_team_graphs", "freefire_player_h2h",
+        "freefire_booyah_stats", "freefire_booyah", "freefire_booyah_loadout",
+        "freefire_mvp", "freefire_game_summary", "freefire_damage_report",
+        "freefire_match_insights"},
+    "freefire_ingame": {
+        "freefire_alive_status", "freefire_team_eliminated", "freefire_headshot_hunter"},
+}
+
+
+def pages_for(page):
+    """The page and every bundle that carries it."""
+    return [page] + [host for host, members in FF_BUNDLES.items() if page in members]
 
 
 async def broadcast_to_page(page, message):
@@ -9824,12 +9896,13 @@ async def broadcast_to_page(page, message):
     legitimate recipient. Instead the message carries "_target_pages" and
     the relay narrows its own fan-out, where the per-client page identity
     genuinely is known."""
-    targets = [c for c, p in connected_pages.items() if p == page]
+    pages = pages_for(page)
+    targets = [c for c, p in connected_pages.items() if p in pages]
     if relay_websocket is not None and relay_websocket not in targets:
         targets.append(relay_websocket)
     if not targets:
         return
-    data = json.dumps({**message, "_target_pages": [page]})
+    data = json.dumps({**message, "_target_pages": pages})
     # _send_guarded, not a bare send -- for exactly the reason written
     # above SEND_TIMEOUT_SECONDS, which this function never applied.
     # A bare send waits for the socket to drain, and the socket this
@@ -10887,6 +10960,11 @@ async def handle_client(websocket, path=None):
             elif payload.get("type") in ("booyah_loadout_show", "booyah_loadout_hide"):
                 server_state["display"]["booyahLoadoutVisible"] = (
                     payload["type"] == "booyah_loadout_show")
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+            elif payload.get("type") in ("match_insights_show", "match_insights_hide"):
+                server_state["display"]["matchInsightsVisible"] = (
+                    payload["type"] == "match_insights_show")
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") in ("mvp_show", "mvp_hide"):
