@@ -929,6 +929,9 @@ let ROW_BLOCK = { x: LAYOUTS.CLT.row.x, y: ROW_TOPS[0] };
 let RANK_PREFIX = "";
 
 let _lastRoster = null;
+// Each squad's Team_Photo from the engine's photo folder, by roster team
+// name ("__default__" for one without), sent on their own message.
+const teamPhotoCache = {};
 let ws;
 function connect(){
   ws = new WebSocket(WS_URL);
@@ -936,6 +939,15 @@ function connect(){
     const msg = JSON.parse(evt.data);
     if(msg.type === "side_popup"){
       queuePopup(msg.popup);
+      return;
+    }
+    if(msg.type === "team_photos"){
+      Object.assign(teamPhotoCache, msg.photos || {});
+      const card = document.getElementById("elimCard");
+      if(lastState && currentElimRow && card.classList.contains("show")){
+        const C = layoutFor(lastState).elimCard;
+        if(C) setElimPhoto(lastState, currentElimRow, C);
+      }
       return;
     }
     if(msg.type === "state_sync"){
@@ -1493,6 +1505,24 @@ function showAnnouncedElimCard(state, L){
   showElimCard(state, null, L, { teamName: te.teamName, finishRank: rank });
 }
 
+/* The squad's group photo uploaded in the roster, else its Team_Photo
+   from the photo folder, else the event's default team photo (roster,
+   then the folder's DEFAULT), else none. Run again when the folder's
+   photos arrive, so a card already up picks its photo up. */
+function setElimPhoto(state, row, C){
+  const ph = document.getElementById("elimPhoto");
+  const team = logoFor(row.teamName, state.roster);
+  const photo = C.photo ? ((team && team.groupPhoto) ||
+                           teamPhotoCache[(team && team.name) || row.teamName || ""] ||
+                           ((state.roster || {}).defaultTeamPhoto) ||
+                           teamPhotoCache.__default__ || "") : "";
+  if(photo){
+    Object.assign(ph.style, { left: C.photo.x + "px", top: C.photo.y + "px",
+                              width: C.photo.w + "px", height: C.photo.h + "px", display: "block" });
+    if(ph.getAttribute("src") !== photo) ph.src = photo;
+  } else ph.style.display = "none";
+}
+
 function showElimCard(state, rowEl, L, forced){
   const C = L.elimCard;
   if(!C) return;                       // this package has no such card
@@ -1576,16 +1606,7 @@ function showElimCard(state, rowEl, L, forced){
   }
   rankEl.appendChild(rankSpan);
 
-  // The squad's own group photo, else the event's default team photo
-  // (both uploaded in the dashboard's roster), else none.
-  const ph = document.getElementById("elimPhoto");
-  const photo = C.photo ? ((team && team.groupPhoto) ||
-                           ((state.roster || {}).defaultTeamPhoto) || "") : "";
-  if(photo){
-    Object.assign(ph.style, { left: C.photo.x + "px", top: C.photo.y + "px",
-                              width: C.photo.w + "px", height: C.photo.h + "px", display: "block" });
-    if(ph.getAttribute("src") !== photo) ph.src = photo;
-  } else ph.style.display = "none";
+  setElimPhoto(state, row, C);
 
   const img = document.getElementById("elimLogoImg");
   const logo = (team && team.logo) || "";

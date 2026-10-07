@@ -25,6 +25,7 @@ that's the first thing to check.
 import asyncio
 import collections
 import base64
+import zlib
 import datetime as _datetime
 import difflib
 import hashlib
@@ -4576,35 +4577,96 @@ def _event_epoch(ev):
         return time.time()
 
 
-# PLAYER PHOTOS from a folder of "UID - IGN.png" files: indexed by UID and
-# by IGN, re-scanned at most every 20s, each photo encoded once and kept.
-_photo_index = {"folder": None, "at": 0.0, "uid": {}, "ign": {}}
+# PLAYER PHOTOS from a folder: files named "UID.png", "UID - IGN.png" or
+# "IGN.png", at its top or in a folder per team -- each team folder with
+# its squad picture as Team_Photo.png (Team_image / Team_name are read the
+# same). Indexed by UID and by IGN, re-scanned at most every 20s, each
+# photo encoded once and kept.
+_photo_index = {"folder": None, "at": 0.0, "uid": {}, "ign": {}, "teams": [], "defaults": []}
 _photo_cache = {}
+PHOTO_TYPES = (".png", ".jpg", ".jpeg", ".webp")
+TEAM_PHOTO_STEM = re.compile(r"(?i)^team[ _-]?(photo|image|name|pic)$")
+
+
+def _photo_scan(folder):
+    now = time.time()
+    if _photo_index["folder"] == folder and now - _photo_index["at"] <= 20:
+        return _photo_index
+    by_uid, by_ign, teams, defaults = {}, {}, [], []
+    root = Path(folder)
+    if root.is_dir():
+        try:
+            subdirs = sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith("."))
+        except OSError:
+            subdirs = []
+        # the top level first: a photo there wins over one in a team folder
+        for d in [root] + subdirs:
+            team = {"dir": d, "photo": None, "uids": set(), "igns": set()}
+            try:
+                files = sorted(d.iterdir())
+            except OSError:
+                continue
+            is_default = d != root and d.name.strip().upper() == "DEFAULT"
+            for f in files:
+                if not f.is_file() or f.suffix.lower() not in PHOTO_TYPES:
+                    continue
+                stem = f.stem.strip()
+                if TEAM_PHOTO_STEM.match(stem):
+                    team["photo"] = team["photo"] or f
+                    continue
+                if is_default:
+                    # stand-ins for a player with no photo of their own
+                    defaults.append(f)
+                    continue
+                parts = re.split(r"\s*[-_]\s*", stem, maxsplit=1)
+                if parts and parts[0].isdigit():
+                    by_uid.setdefault(parts[0], f)
+                    team["uids"].add(parts[0])
+                    if len(parts) > 1 and _ign_key(parts[1]):
+                        by_ign.setdefault(_ign_key(parts[1]), f)
+                        team["igns"].add(_ign_key(parts[1]))
+                elif _ign_key(stem):
+                    by_ign.setdefault(_ign_key(stem), f)
+                    team["igns"].add(_ign_key(stem))
+            if d != root:
+                teams.append(team)
+    _photo_index.update(folder=folder, at=now, uid=by_uid, ign=by_ign, teams=teams, defaults=defaults)
+    return _photo_index
+
+
+def _default_photo_path(uid, ign, idx):
+    """A player with no photo of their own gets one of the DEFAULT folder's
+    pictures: by their slot in their roster team, so a squad without photos
+    shows four different ones, else picked steadily by UID / IGN."""
+    pics = idx.get("defaults") or []
+    uid_k, ign_k = str(uid or "").strip(), _ign_key(ign or "")
+    if not pics or not (uid_k or ign_k):
+        return None
+    slot = None
+    for team in (server_state.get("roster") or {}).get("teams") or []:
+        for j, p in enumerate(team.get("players") or []):
+            if (uid_k and str(p.get("uid") or "").strip() == uid_k) or (ign_k and _ign_key(p.get("ign")) == ign_k):
+                slot = j
+                break
+        if slot is not None:
+            break
+    if slot is None:
+        slot = zlib.crc32((uid_k or ign_k).encode("utf-8"))
+    return pics[slot % len(pics)]
+
+
+def _photo_folder():
+    return ((server_state.get("settings") or {}).get("playerPhotoFolder") or "").strip()
 
 
 def _photo_lookup(uid, ign):
-    folder = ((server_state.get("settings") or {}).get("playerPhotoFolder") or "").strip()
+    folder = _photo_folder()
     if not folder:
         return ""
-    now = time.time()
-    if _photo_index["folder"] != folder or now - _photo_index["at"] > 20:
-        by_uid, by_ign = {}, {}
-        root = Path(folder)
-        if root.is_dir():
-            for f in root.iterdir():
-                if f.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
-                    continue
-                stem = f.stem.strip()
-                parts = re.split(r"\s*[-_]\s*", stem, maxsplit=1)
-                if parts and parts[0].isdigit():
-                    by_uid[parts[0]] = f
-                    if len(parts) > 1:
-                        by_ign[_ign_key(parts[1])] = f
-                else:
-                    by_ign[_ign_key(stem)] = f
-        _photo_index.update(folder=folder, at=now, uid=by_uid, ign=by_ign)
-    path = (_photo_index["uid"].get(str(uid or "").strip())
-            or _photo_index["ign"].get(_ign_key(ign or "")))
+    idx = _photo_scan(folder)
+    path = (idx["uid"].get(str(uid or "").strip())
+            or idx["ign"].get(_ign_key(ign or ""))
+            or _default_photo_path(uid, ign, idx))
     if not path:
         return ""
     key = (str(path), path.stat().st_mtime if path.exists() else 0)
@@ -4621,6 +4683,66 @@ def _photo_lookup(uid, ign):
             print("[popup] could not read photo %s: %s" % (path, e))
             _photo_cache[key] = ""
     return _photo_cache[key]
+
+
+def _team_photo_path(team, idx):
+    """A roster team's Team_Photo: the team folder holding most of its
+    players (by UID, then IGN) -- so a folder called "TSG ARMY" still
+    serves "TSG PROS" -- else a folder named after it."""
+    players = team.get("players") or []
+    uids = {str(p.get("uid")).strip() for p in players if str(p.get("uid") or "").strip()}
+    igns = {_ign_key(p.get("ign")) for p in players if _ign_key(p.get("ign"))}
+    best, score = None, 0
+    for t in idx["teams"]:
+        n = len(t["uids"] & uids) + len(t["igns"] & igns)
+        if n > score:
+            best, score = t, n
+    if best is not None and score >= 2 and best["photo"]:
+        return best["photo"]
+    names = {_ign_key(team.get(k)) for k in ("name", "displayName", "shortName")} - {""}
+    for t in idx["teams"]:
+        k = _ign_key(t["dir"].name)
+        if t["photo"] and k and any(k == n or (min(len(k), len(n)) >= 4 and (n in k or k in n)) for n in names):
+            return t["photo"]
+    return None
+
+
+def _team_photo_data(path):
+    """The squad picture at the eliminated card's own size (416x137, the
+    strip it fills), as WebP: a dozen of them ride one small message."""
+    key = ("team", str(path), path.stat().st_mtime if path.exists() else 0)
+    if key not in _photo_cache:
+        try:
+            from PIL import Image as _Img
+            im = _Img.open(path).convert("RGBA")
+            w, h = 416, max(1, round(416 * im.height / im.width))
+            im = im.resize((w, h), _Img.LANCZOS)
+            buf = io.BytesIO()
+            im.save(buf, format="WEBP", quality=88, method=6)
+            _photo_cache[key] = "data:image/webp;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+        except Exception as e:
+            print("[photos] could not read team photo %s: %s" % (path, e))
+            _photo_cache[key] = ""
+    return _photo_cache[key]
+
+
+def team_photos():
+    """{roster team name: its Team_Photo}, and "__default__" from a folder
+    called DEFAULT for a team without one."""
+    folder = _photo_folder()
+    if not folder:
+        return {}
+    idx = _photo_scan(folder)
+    out = {}
+    for team in (server_state.get("roster") or {}).get("teams") or []:
+        name = (team.get("name") or "").strip()
+        path = _team_photo_path(team, idx) if name else None
+        if path:
+            out[name] = _team_photo_data(path)
+    default = next((t for t in idx["teams"] if t["dir"].name.strip().upper() == "DEFAULT" and t["photo"]), None)
+    if default:
+        out["__default__"] = _team_photo_data(default["photo"])
+    return {k: v for k, v in out.items() if v}
 
 
 def _squad_alive(live, gs):
@@ -9044,9 +9166,20 @@ def post_game_photos():
 async def h2h_photo_heartbeat():
     """The photos again every 10s while the graphic is up, so a browser
     source that reloads -- over the relay this engine never hears about
-    it -- still gets them."""
+    it -- still gets them. The squads' Team_Photos for the eliminated card
+    go to the alive page every 30s, and at once when they change."""
+    tick, sent_sig = 0, None
     while True:
         await asyncio.sleep(10)
+        tick += 1
+        try:
+            photos = await asyncio.get_running_loop().run_in_executor(None, team_photos)
+            sig = tuple(sorted((k, len(v)) for k, v in photos.items()))
+            if photos and (sig != sent_sig or tick % 3 == 0):
+                sent_sig = sig
+                await broadcast_to_page("freefire_alive_status", {"type": "team_photos", "photos": photos})
+        except Exception as e:
+            print("[photos] team photo send failed: %s" % e)
         try:
             if player_h2h_state().get("visible"):
                 await broadcast_to_page("freefire_player_h2h", {"type": "h2h_photos", **h2h_photos()})
