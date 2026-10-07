@@ -8565,6 +8565,7 @@ MAP_VIEW_DEFAULTS = {
     "theme": "",                # "" = event package, or "ss3"
     "bg": True,
     "zoom": "map",              # "map" | "zones" (the first circle) | "end"
+    "pathScope": "all",         # rotations for "all" teams or the "top4" finishers
     "template": "",             # "" = the standard panel, "ss3" = the SS3 drop-spot art
     "dropMap": None,            # which map the drop spots are drawn on; None = the live one
     # The drop-spot graphic's own text, typed by the operator; blank =
@@ -10927,7 +10928,7 @@ async def handle_client(websocket, path=None):
                 # match it draws is loaded separately (map_view_match).
                 mv = map_view_state()
                 for k in ("visible", "source", "animate", "replay", "replaySeconds", "theme", "bg", "zoom",
-                          "template", "dropMap", "matchLabel", "mapLabel", "roundLabel"):
+                          "template", "dropMap", "matchLabel", "mapLabel", "roundLabel", "pathScope"):
                     if k in payload:
                         mv[k] = payload[k]
                 if isinstance(payload.get("show"), dict):

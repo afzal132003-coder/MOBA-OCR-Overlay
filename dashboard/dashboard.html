@@ -3474,12 +3474,14 @@
           <label class="hint" style="margin:0;"><input type="checkbox" class="ff-mv-show" data-k="plane" checked> Plane</label>
           <label class="hint" style="margin:0;"><input type="checkbox" class="ff-mv-show" data-k="kills" checked> Kill spots</label>
           <label class="hint" style="margin:0;"><input type="checkbox" class="ff-mv-show" data-k="paths" checked> Rotations</label>
+          <select id="ff_mvPathScope" style="width:auto;" title="Whose rotation lines are drawn when no team is ticked below">
+            <option value="all">for every team</option><option value="top4">for the top 4 finishers</option></select>
           <label class="hint" style="margin:0;" title="A line from where the shot came from to where the player fell"><input type="checkbox" class="ff-mv-show" data-k="shots"> Shot lines</label>
           <label class="hint" style="margin:0 0 0 12px;" title="Plays the match forward instead of drawing it all at once"><input type="checkbox" id="ff_mvReplay"> Replay it over</label>
           <input type="number" id="ff_mvReplaySecs" min="5" max="120" value="30" style="width:60px;"><span class="hint" style="margin:0;">s</span>
         </div>
-        <div class="hint" style="margin-top:8px;">Teams <span style="opacity:.75;">(none ticked: every kill, and rotations for the top 4
-          finishers; ticked: only those teams)</span></div>
+        <div class="hint" style="margin-top:8px;">Teams <span style="opacity:.75;">(none ticked: every team; ticked: only those teams --
+          each team's line runs from its drop (D) through every zone (1, 2, 3...) to where it finished, shown with its logo)</span></div>
         <div id="ff_mvTeams" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:3px 12px;margin-top:4px;"></div>
       </div>
       <div id="ff_mvDropBox" style="margin-top:10px;display:none;">
@@ -10720,6 +10722,7 @@ function ffMvSend(extra){
     template: document.getElementById("ff_mvTemplate").value,
     dropMap: document.getElementById("ff_mvDropMap").value ? Number(document.getElementById("ff_mvDropMap").value) : null,
     zoom: document.getElementById("ff_mvZoom").value,
+    pathScope: document.getElementById("ff_mvPathScope").value,
     theme: document.getElementById("ff_mvTheme").value,
     bg: document.getElementById("ff_mvBg").checked,
     animate: document.getElementById("ff_mvAnim").checked,
@@ -10824,6 +10827,7 @@ function ffSyncMapView(){
   ffMvDrawDrops();
   if(!ffMvListAsked) ffMvAskList();
   set("ff_mvZoom", mv.zoom || "map");
+  set("ff_mvPathScope", mv.pathScope || "all");
   set("ff_mvTheme", mv.theme || "auto");
   set("ff_mvBg", mv.bg !== false, "checked");
   set("ff_mvAnim", mv.animate !== false, "checked");
@@ -10858,7 +10862,7 @@ function ffSyncMapView(){
 }
 (function ffWireMapView(){
   if(!document.getElementById("ff_mvSource")) return;
-  ["ff_mvSource", "ff_mvTemplate", "ff_mvDropMap", "ff_mvZoom", "ff_mvTheme", "ff_mvBg", "ff_mvAnim", "ff_mvReplay", "ff_mvReplaySecs"].forEach(id =>
+  ["ff_mvSource", "ff_mvTemplate", "ff_mvDropMap", "ff_mvZoom", "ff_mvPathScope", "ff_mvTheme", "ff_mvBg", "ff_mvAnim", "ff_mvReplay", "ff_mvReplaySecs"].forEach(id =>
     document.getElementById(id).addEventListener("change", () => ffMvSend()));
   const drops = (op, extra) => {
     if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return false;

@@ -364,6 +364,10 @@ function drawMatch(svg, view, cfg, roster, animate){
   const show = Object.assign({ zones: true, plane: true, kills: true, paths: true, shots: false }, cfg.show || {});
   const picked = chosenSquads(view, cfg);
   const filtered = (cfg.teams || []).length > 0;
+  // Rotations: the ticked teams, else every team -- or the top four
+  // finishers when the dashboard says so.
+  const rotPicked = filtered ? picked : (cfg.pathScope === "top4" ? picked
+                    : new Set((view.squads || []).map(s => s.squad)));
   const timed = [];
   const stamp = (node, t) => { if(node){ node.dataset.t = t; timed.push(node); } return node; };
 
@@ -397,49 +401,100 @@ function drawMatch(svg, view, cfg, roster, animate){
     });
   }
   if(show.paths){
-    (view.squads || []).filter(s => picked.has(s.squad) && (s.path || []).length).forEach((s, si) => {
-      const pts = s.path.filter(p => p.phase >= 1);
-      if(!pts.length) return;
+    /* Each team's rotation: where it dropped (first seen, before the first
+       circle), then one point per zone -- the middle of where its players
+       fought and fell while that circle was up -- then where it finished,
+       joined in order with an arrow on each leg. Not the exact route (the
+       replay file has positions only at fights), but the from-and-to of
+       every zone. */
+    const squads = (view.squads || []).filter(s => rotPicked.has(s.squad) && ((s.path || []).length || s.last));
+    const many = squads.length > 4;
+    const zoneT = ph => ph <= 0 ? 0 : (((view.zones || [])[ph - 1] || {}).announced || 0);
+    squads.forEach((s, si) => {
+      const seq = [];
+      // the drop: the first fight in the opening minutes, else the
+      // positions from before the first circle
+      if(s.first) seq.push({ kind: "start", at: s.first, phase: 0 });
+      (s.path || []).forEach(p => {
+        if(p.phase === 0 && s.first) return;
+        seq.push({ kind: p.phase === 0 ? "start" : "zone", at: p.at, phase: p.phase });
+      });
+      if(s.last){
+        const lp = seq[seq.length - 1];
+        const far = !lp || Math.hypot(lp.at[0] - s.last[0], lp.at[1] - s.last[1]) > 0.012;
+        if(far) seq.push({ kind: "end", at: s.last, phase: lp ? lp.phase : 0, t: s.out });
+        else lp.kind = seq.length === 1 ? "end" : "end";
+      } else if(seq.length){
+        seq[seq.length - 1].kind = "end";
+      }
+      if(!seq.length) return;
       const col = colourOf(s.squad);
-      const xy = pts.map(p => P(p.at));
-      const zoneT = ph => ((view.zones || [])[ph - 1] || {}).announced || 0;
-      const start = 2.4 + si * .25;
+      const xy = seq.map(p => P(p.at));
+      const t0 = 2.2 + si * (many ? .12 : .25);
+      const stepT = i => (t0 + i * .32).toFixed(2) + "s";
+      const sw = many ? 4 : 6;
+      // legs, each with an arrow at its middle pointing the way it went
       for(let i = 1; i < xy.length; i++){
         const [x1, y1] = xy[i - 1], [x2, y2] = xy[i];
-        const halo = el("line", { x1, y1, x2, y2, stroke: "rgba(0,0,0,.6)", "stroke-width": u(11), "stroke-linecap": "round" }, g);
-        const seg = el("line", { x1, y1, x2, y2, stroke: col, "stroke-width": u(6), "stroke-linecap": "round" }, g);
+        const halo = el("line", { x1, y1, x2, y2, stroke: "rgba(0,0,0,.6)", "stroke-width": u(sw + 5), "stroke-linecap": "round" }, g);
+        const seg = el("line", { x1, y1, x2, y2, stroke: col, "stroke-width": u(sw), "stroke-linecap": "round" }, g);
+        const len = Math.hypot(x2 - x1, y2 - y1);
+        const ang = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+        const a = u(many ? 9 : 12);
+        const arrow = el("polygon", { points: `${a},0 ${-a * .8},${a * .75} ${-a * .8},${-a * .75}`, fill: col,
+                                      stroke: "#111", "stroke-width": u(1.5),
+                                      transform: `translate(${((x1 + x2) / 2).toFixed(1)},${((y1 + y2) / 2).toFixed(1)}) rotate(${ang.toFixed(1)})` }, g);
+        if(len < u(36)) arrow.setAttribute("display", "none");
         if(animate){
-          const len = Math.hypot(x2 - x1, y2 - y1);
           [halo, seg].forEach(n => { n.setAttribute("stroke-dasharray", len); n.style.setProperty("--len", len);
-                                     n.classList.add("draw"); n.style.animationDelay = (start + i * .3) + "s"; });
+                                     n.classList.add("draw"); n.style.animationDelay = stepT(i); });
+          arrow.classList.add("pop"); arrow.style.animationDelay = (t0 + i * .32 + .25).toFixed(2) + "s";
         }
-        stamp(halo, zoneT(pts[i].phase)); stamp(seg, zoneT(pts[i].phase));
+        const tt = seq[i].kind === "end" ? (seq[i].t || zoneT(seq[i].phase)) : zoneT(seq[i].phase);
+        stamp(halo, tt); stamp(seg, tt); stamp(arrow, tt);
       }
-      pts.forEach((p, i) => {
+      const team = teamFor(s.teamName, roster);
+      seq.forEach((p, i) => {
         const [x, y] = xy[i];
-        const last = i === pts.length - 1;
         const node = el("g", {}, g);
-        el("circle", { cx: x, cy: y, r: u(last ? 16 : 11), fill: col, stroke: "#111", "stroke-width": u(3) }, node);
-        const team = teamFor(s.teamName, roster);
-        if(last && team && team.logo){
-          el("circle", { cx: x, cy: y, r: u(22), fill: "#111", stroke: col, "stroke-width": u(4) }, node);
-          el("image", { href: team.logo, x: x - u(17), y: y - u(17), width: u(34), height: u(34) }, node);
+        if(p.kind === "start"){
+          // the drop: a square with a D
+          const r = u(many ? 10 : 12);
+          el("rect", { x: x - r, y: y - r, width: 2 * r, height: 2 * r, rx: u(3), fill: "#111", stroke: col, "stroke-width": u(3) }, node);
+          const t = el("text", { x, y: y + u(5), "text-anchor": "middle", "font-size": u(many ? 12 : 14), "font-weight": 900, fill: col }, node);
+          t.textContent = "D";
+        } else if(p.kind === "end"){
+          // where it finished: its logo, else its tag; the name beside
+          el("circle", { cx: x, cy: y, r: u(many ? 17 : 22), fill: "#111", stroke: col, "stroke-width": u(4) }, node);
+          if(team && team.logo){
+            const w = u(many ? 26 : 34);
+            el("image", { href: team.logo, x: x - w / 2, y: y - w / 2, width: w, height: w }, node);
+          } else {
+            const t = el("text", { x, y: y + u(4), "text-anchor": "middle", "font-size": u(many ? 9 : 11), "font-weight": 900, fill: "#fff" }, node);
+            t.textContent = String((team && team.shortName) || s.teamName || s.squad).slice(0, 4).toUpperCase();
+          }
+          const lab = el("text", { x, y: y + u(many ? 31 : 38), "text-anchor": "middle", "font-size": u(many ? 13 : 15), "font-weight": 900,
+                                   fill: "#fff", stroke: "rgba(0,0,0,.85)", "stroke-width": u(3.5), "paint-order": "stroke" }, node);
+          lab.textContent = ((team && team.shortName) || s.teamName || "").toUpperCase() + (s.place ? " #" + s.place : "");
+          // twelve names all ending in the last circle only pile up: the
+          // disc and the team list's colours carry it then
+          if(many) lab.setAttribute("display", "none");
         } else {
-          const t = el("text", { x, y: y + u(5), "text-anchor": "middle", "font-size": u(14), "font-weight": 900, fill: "#111" }, node);
+          el("circle", { cx: x, cy: y, r: u(many ? 9 : 11), fill: col, stroke: "#111", "stroke-width": u(3) }, node);
+          const t = el("text", { x, y: y + u(4.5), "text-anchor": "middle", "font-size": u(many ? 11 : 14), "font-weight": 900, fill: "#111" }, node);
           t.textContent = p.phase;
         }
-        if(animate){ node.classList.add("pop"); node.style.animationDelay = (start + i * .3) + "s"; }
-        stamp(node, zoneT(p.phase));
+        if(animate){ node.classList.add("pop"); node.style.animationDelay = stepT(i); }
+        stamp(node, p.kind === "end" ? (p.t || zoneT(p.phase)) : zoneT(p.phase));
       });
-      // The movement itself: a glowing marker that travels the rotation
-      // from the first circle to where the squad ended, once the line is in.
+      // a marker that travels the rotation once it is drawn
       if(animate && xy.length > 1){
         const d = "M" + xy.map(q => q[0].toFixed(1) + "," + q[1].toFixed(1)).join(" L");
         const comet = el("g", {}, g);
-        el("circle", { r: u(14), fill: col, opacity: .55, filter: "url(#glow)" }, comet);
-        el("circle", { r: u(7), fill: "#fff", stroke: col, "stroke-width": u(3) }, comet);
+        el("circle", { r: u(many ? 10 : 14), fill: col, opacity: .55, filter: "url(#glow)" }, comet);
+        el("circle", { r: u(many ? 5 : 7), fill: "#fff", stroke: col, "stroke-width": u(3) }, comet);
         comet.setAttribute("opacity", 0);
-        const begin = (start + xy.length * .3 + .4).toFixed(2) + "s";
+        const begin = (t0 + xy.length * .32 + .4).toFixed(2) + "s";
         el("animateMotion", { path: d, dur: Math.max(1.6, xy.length * .55).toFixed(2) + "s", begin, fill: "freeze",
                               calcMode: "paced" }, comet);
         el("set", { attributeName: "opacity", to: 1, begin }, comet);
@@ -461,7 +516,7 @@ function sideMatch(view, cfg, roster){
   const rows = squads.map((s, i) => {
     const team = teamFor(s.teamName, roster);
     const logo = team && team.logo ? `<img src="${team.logo}">` : `<span style="width:30px"></span>`;
-    const dim = !filtered && !picked.has(s.squad) && (cfg.show || {}).paths !== false;
+    const dim = !filtered && cfg.pathScope === "top4" && !picked.has(s.squad) && (cfg.show || {}).paths !== false;
     return `<div class="trow${s.place === 1 ? " win" : ""}${dim ? " dim" : ""}" style="animation-delay:${(.3 + i * .05).toFixed(2)}s">` +
            `<i style="background:${colourOf(s.squad)}"></i>${logo}` +
            `<span class="nm">${esc(shortOf(s, roster))}</span><span class="k">${s.kills} K</span>` +
@@ -627,7 +682,7 @@ function legendHtml(mode, show){
   if(show.plane !== false) items.push(`<span><svg width="30" height="10"><line x1="1" y1="5" x2="29" y2="5" stroke="#fff" stroke-width="3" stroke-dasharray="7 5"/></svg>Plane</span>`);
   if(mode === "match"){
     if(show.kills !== false) items.push(`<span><svg width="16" height="16"><circle cx="8" cy="8" r="6" fill="#ffa53d" stroke="#000" stroke-width="2"/></svg>Kill (killer's colour)</span>`);
-    if(show.paths !== false) items.push(`<span><svg width="34" height="16"><line x1="4" y1="8" x2="30" y2="8" stroke="#4d9fff" stroke-width="5"/><circle cx="30" cy="8" r="6" fill="#4d9fff"/></svg>Rotation by zone</span>`);
+    if(show.paths !== false) items.push(`<span><svg width="44" height="16"><rect x="1" y="2" width="12" height="12" rx="2" fill="#111" stroke="#4d9fff" stroke-width="2"/><line x1="13" y1="8" x2="38" y2="8" stroke="#4d9fff" stroke-width="4"/><circle cx="38" cy="8" r="6" fill="#4d9fff"/></svg>Rotation: drop &rarr; zones &rarr; finish</span>`);
   }
   return items.join("");
 }

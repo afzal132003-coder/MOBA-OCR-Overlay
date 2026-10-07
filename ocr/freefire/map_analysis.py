@@ -170,6 +170,9 @@ def stage_circles(zone_lines):
 
 # ------------------------------------------------------------ the replay
 KILLER_JOIN_SECONDS = 3.0
+# A squad's first fight within this many seconds of the start is taken as
+# its landing area -- the start of its rotation line.
+LANDING_SECONDS = 240.0
 
 
 def killer_positions(data):
@@ -265,6 +268,9 @@ def build(replay_path, debugger_dir=None, squad_teams=None, story=None):
             "place": w.get("place"),
             "out": round(w["time"], 1) if w.get("time") is not None else None,
             "path": path,
+            # Where it landed: its first recorded position, when that is
+            # early enough to be the landing area rather than a rotation.
+            "first": pts[0][1] if (pts and pts[0][0] <= LANDING_SECONDS) else None,
             "last": pts[-1][1] if pts else None,
         })
     squads.sort(key=lambda s: (s["place"] is None, s["place"] or 99))
