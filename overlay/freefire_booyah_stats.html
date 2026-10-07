@@ -127,6 +127,12 @@ const CHAR_BOXES = [
    the icon's frame, since the icons are not all framed alike. */
 function placePortrait(im, v, b){
   const [, , w, h] = b.img;
+  // A pet is a whole figure standing on the image's floor, not a head
+  // and shoulders: shown whole, as tall as the box, centred.
+  if(b.pet){
+    Object.assign(im.style, { width: h + "px", height: h + "px", left: Math.round((w - h) / 2) + "px", top: "0px" });
+    return;
+  }
   const tall = b.slot === "active";
   const size = tall ? Math.round(109 * 1.25 * 1.0) : w;     // rendered icon edge (square icons)
   const cx = v.cx != null ? v.cx : 0.5;
