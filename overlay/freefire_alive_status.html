@@ -1503,14 +1503,46 @@ function showElimCard(state, rowEl, L, forced){
   const art = base + C.art;
   const artEl = document.getElementById("elimArt");
   if(artEl.getAttribute("src") !== art) artEl.src = art;
+  // The rank's corner box, painted again from the art ABOVE the team
+  // photo: the photo runs under it (to x 1180) and covered the box, so the
+  // number sat on the photo instead of on black.
+  const rankBox = document.getElementById("elimRank");
+  if(C.photo){
+    Object.assign(rankBox.style, { backgroundImage: `url("${art}")`, backgroundRepeat: "no-repeat",
+      backgroundSize: "1920px 1080px", backgroundPosition: `-${C.rank.x}px -${C.rank.y}px` });
+  } else {
+    rankBox.style.backgroundImage = "";
+  }
 
   const team = logoFor(row.teamName, state.roster);
   document.getElementById("elimName").textContent = C.name.full
     ? ((team && (team.displayName || team.name)) || row.teamName || "")
     : ((team && team.shortName) || row.teamName || "");
-  document.getElementById("elimRank").textContent =
-    row.finishRank == null ? "" : "#" + (C.photo ? String(row.finishRank)
-                                                  : String(row.finishRank).padStart(2, "0"));
+  // In a span, so its own width can be measured and fitted below.
+  const rankEl = document.getElementById("elimRank");
+  rankEl.innerHTML = "";
+  const rankSpan = document.createElement("span");
+  const rankNum = row.finishRank == null ? "" : (C.photo ? String(row.finishRank)
+                                                         : String(row.finishRank).padStart(2, "0"));
+  // The "#" a size down with a hair of space after it: at full weight it
+  // runs into the digits once there are two of them.
+  if(rankNum){
+    // "#" then the digits with clear space between: Supermolot's "#" leans
+    // and its "1" is a thin stroke, so at this size they merge unless
+    // spaced. Two digits are shrunk to fit below rather than squeezed.
+    const hash = document.createElement("span");
+    hash.textContent = "#";
+    Object.assign(hash.style, { fontFamily: "'Arial Black', Arial, sans-serif", fontWeight: 900, fontSize: "0.78em" });
+    const num = document.createElement("span");
+    num.textContent = rankNum;
+    // Two digits: Arial Black, whose thick "1" stays a "1" at this size --
+    // Supermolot's thin one merged into the "#" on air.
+    Object.assign(num.style, { letterSpacing: rankNum.length > 1 ? "1px" : "0" });
+    Object.assign(rankSpan.style, { display: "inline-flex", alignItems: "center", gap: "2px" });
+    rankSpan.appendChild(hash);
+    rankSpan.appendChild(num);
+  }
+  rankEl.appendChild(rankSpan);
 
   // The squad's own group photo, else the event's default team photo
   // (both uploaded in the dashboard's roster), else none.
@@ -1537,6 +1569,14 @@ function showElimCard(state, rowEl, L, forced){
   card.classList.remove("out");
   card.classList.add("show", "in");
   if(C.name.full) fitName(document.getElementById("elimName"));
+  // "#11" is wider than "#1": shrunk until it sits inside its corner box
+  // with a few pixels either side, instead of running out of it.
+  rankEl.style.fontSize = "";
+  let rankSize = C.rank.size;
+  while(rankSpan.offsetWidth > C.rank.w - 7 && rankSize > 12){
+    rankSize -= 1;
+    rankEl.style.fontSize = rankSize + "px";
+  }
   elimCardShownAt = Date.now();
   elimCardExitAt = elimCardShownAt + hold * 1000;
   elimCardTimer = setTimeout(beginElimCardExit, hold * 1000);
