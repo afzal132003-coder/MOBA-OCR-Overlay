@@ -2209,8 +2209,11 @@
 
     <div class="card">
       <h2>Roster Import</h2>
-      <p class="hint">Upload a CSV with one row per player: <code>team,ign,uid</code> (a header row is fine, it's
-        auto-detected). This is the roster every other Free Fire tab matches names/UIDs against.</p>
+      <p class="hint">Upload a CSV with one row per player: <code>team name, short name, IGN, UID</code>
+        (or <code>team, IGN, UID</code>). The header row is skipped, a team name written only on its first player's row
+        carries down, and a UID Excel turned into <code>1.59E+09</code> is flagged rather than stored wrong. Team Info
+        holds the day's 12 teams &mdash; for an event sheet of 24, import it in the <b>Team Bank</b> above and tick
+        today's. This is the roster every other Free Fire tab matches names/UIDs against.</p>
       <div class="row" style="gap:16px;align-items:flex-end;">
         <div class="team-form">
           <label>CSV File</label>
@@ -2218,7 +2221,7 @@
         </div>
       </div>
       <p class="hint">Or paste CSV text directly:</p>
-      <textarea id="ff_rosterPaste" rows="4" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:6px;border:1px solid #1b2430;background:#06090c;color:#e8edf2;font-size:13px;font-family:monospace;" placeholder="team,ign,uid&#10;Team Tufan,SAIKYO.01,2281027273&#10;Team Tufan,TT_TUFAN,126560212"></textarea>
+      <textarea id="ff_rosterPaste" rows="4" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:6px;border:1px solid #1b2430;background:#06090c;color:#e8edf2;font-size:13px;font-family:monospace;" placeholder="team name,short name,ign,uid&#10;Team Tufan,TT,SAIKYO.01,2281027273&#10;Team Tufan,TT,TT_TUFAN,126560212"></textarea>
       <button class="secondary" id="ff_rosterParse">Parse Roster</button>
       <div id="ff_rosterStatus" class="hint"></div>
 
@@ -7288,26 +7291,67 @@ function ffOpen(url){
 }
 
 /* ---------- Pre-Match: roster CSV ---------- */
-function ffParseRosterCsv(text){
-  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length);
-  if(!lines.length) return { teams: [], rowCount: 0 };
-  const rows = lines.map(l => l.split(",").map(c => c.trim().replace(/^"(.*)"$/, "$1")));
-  let dataRows = rows;
-  const first = rows[0];
-  if(first.length >= 3 && !/^\d+$/.test(first[2])){
-    dataRows = rows.slice(1); // header row detected (3rd column isn't a bare UID)
+// One CSV line into cells, quotes respected ("TEAM, X" is one cell).
+function ffCsvCells(line){
+  const out = []; let cur = "", q = false;
+  for(let i = 0; i < line.length; i++){
+    const ch = line[i];
+    if(q){
+      if(ch === '"' && line[i + 1] === '"'){ cur += '"'; i++; }
+      else if(ch === '"') q = false;
+      else cur += ch;
+    } else if(ch === '"') q = true;
+    else if(ch === ","){ out.push(cur.trim()); cur = ""; }
+    else cur += ch;
   }
+  out.push(cur.trim());
+  return out;
+}
+/* One row per player: team name, short name, IGN, UID -- or team, IGN,
+   UID. The header row is skipped, and its words also say which column is
+   which when the sheet has others (a serial number first, a role after).
+   A team name written only on its first player's row carries down. A UID
+   Excel turned into 1.59E+09 has lost digits: left blank, flagged. */
+function ffParseRosterCsv(text){
+  const rows = String(text || "").split(/\r?\n/).map(ffCsvCells).filter(r => r.some(c => c));
+  if(!rows.length) return { teams: [], rowCount: 0, badUids: 0 };
+  const words = c => String(c || "").toLowerCase().replace(/[^a-z]/g, "");
+  const head = rows[0];
+  const isHeader = head.some(c => /team|name|ign|uid|short|player|tag/.test(words(c))) && !head.some(c => /^\d+$/.test(c));
+  const width = Math.max(...rows.map(r => r.length));
+  let cols = width >= 4 ? { team: 0, short: 1, ign: 2, uid: 3 } : { team: 0, short: -1, ign: 1, uid: 2 };
+  if(isHeader){
+    const found = {};
+    head.forEach((c, i) => {
+      const w = words(c);
+      if(/short/.test(w) || ["tag", "abbr", "abbreviation"].includes(w)){ if(found.short == null) found.short = i; }
+      else if(/uid/.test(w) || ["id", "playerid", "gameid", "ffuid"].includes(w)){ if(found.uid == null) found.uid = i; }
+      else if(/ign|player|nick/.test(w)){ if(found.ign == null) found.ign = i; }
+      else if(/team/.test(w) || w === "name"){ if(found.team == null) found.team = i; }
+    });
+    if(found.team != null && found.ign != null)
+      cols = { team: found.team, short: found.short != null ? found.short : -1, ign: found.ign, uid: found.uid != null ? found.uid : -1 };
+  }
+  const cell = (r, i) => (i >= 0 && i < r.length ? r[i] : "").trim();
   const byTeam = new Map();
-  let rowCount = 0;
-  dataRows.forEach(cols => {
-    if(cols.length < 3 || !cols[0]) return;
-    const [team, ign, uid] = cols;
-    if(!byTeam.has(team)) byTeam.set(team, []);
-    byTeam.get(team).push({ uid, ign, loadout: { active: "", passives: ["", "", ""], pet: "", equipment: "" }, loadoutScreenshot: "" });
+  let rowCount = 0, badUids = 0, name = "", short = "";
+  (isHeader ? rows.slice(1) : rows).forEach(r => {
+    const t = cell(r, cols.team);
+    if(t){ if(t.toUpperCase() !== name.toUpperCase()) short = ""; name = t; }
+    short = cell(r, cols.short) || short;
+    const ign = cell(r, cols.ign), raw = cell(r, cols.uid);
+    if(!name || !ign) return;
+    const garbled = /[eE][+-]?\d/.test(raw);
+    if(garbled) badUids++;
+    const uid = garbled ? "" : raw.replace(/\D/g, "");
+    const key = name.toUpperCase();
+    if(!byTeam.has(key)) byTeam.set(key, { name, shortName: short, players: [] });
+    const team = byTeam.get(key);
+    if(!team.shortName && short) team.shortName = short;
+    team.players.push({ uid, ign, loadout: { active: "", passives: ["", "", ""], pet: "", equipment: "" }, loadoutScreenshot: "" });
     rowCount++;
   });
-  const teams = Array.from(byTeam.entries()).map(([name, players]) => ({ name, players }));
-  return { teams, rowCount };
+  return { teams: Array.from(byTeam.values()), rowCount, badUids };
 }
 
 /* ---------- Roster: 12-team box editor ----------
@@ -7532,10 +7576,13 @@ function ffPickPlayerPhoto(teamIndex, playerIndex){
 }
 
 function ffParseRosterText(text){
-  const { teams, rowCount } = ffParseRosterCsv(text);
+  const { teams, rowCount, badUids } = ffParseRosterCsv(text);
   ffParsedRoster = { teams };
   document.getElementById("ff_rosterStatus").textContent =
-    rowCount ? `Parsed ${rowCount} player(s) across ${teams.length} team(s). Review below, then save.` : "No rows parsed — check the CSV format (team,ign,uid).";
+    rowCount ? `Parsed ${rowCount} player(s) across ${teams.length} team(s). Review below, then save.` +
+      (badUids ? ` ${badUids} UID(s) were in Excel's 1.59E+09 form and are left blank -- format the UID column as text and export again.` : "") +
+      (teams.length > 12 ? ` Team Info holds 12 teams: for the event's ${teams.length}, import this in the Team Bank and tick today's.` : "")
+      : "No rows parsed — check the CSV format (team name, short name, ign, uid).";
   ffRenderRosterPreview(teams);
   document.getElementById("ff_rosterSave").style.display = rowCount ? "inline-block" : "none";
 }
