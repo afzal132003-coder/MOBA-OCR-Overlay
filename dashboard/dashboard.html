@@ -3761,6 +3761,8 @@
             <select id="ff_binTrail" style="width:auto;" title="How much of each route trails behind the players">
               <option value="30">30 s trail</option><option value="90" selected>90 s trail</option>
               <option value="0">no trail</option><option value="9999">whole route</option></select>
+            <select id="ff_binFollow" style="width:auto;" title="MapStream: the camera follows this team, with its route">
+              <option value="">Whole map</option></select>
           </div>
           <input type="range" id="ff_binTime" min="0" max="1000" step="1" value="0" style="width:100%;margin-top:10px;">
           <div class="hint" id="ff_binClock" style="margin:2px 0 10px;font-variant-numeric:tabular-nums;"></div>
@@ -14040,6 +14042,214 @@ function ffBinPath(ctx, p, from, to){
   }
   ctx.stroke();
 }
+/* ---- MapStream, QG Pro style ----
+   A dark map; a camera that can follow one team (zoomed, with its route);
+   each team as its logo pin over its players' photo circles; the next
+   zone dashed; who eliminated whom as it happens; a HUD and a timeline. */
+const FF_BIN_TEAL = "#5eead4", FF_BIN_GOLD = "#d9b46a";
+function ffBinRosterTeam(sq){
+  const name = ffBinTeam(sq).toUpperCase();
+  return (((ffState || {}).roster || {}).teams || []).find(r =>
+    [r.name, r.shortName, r.displayName].some(n => String(n || "").toUpperCase() === name)) || null;
+}
+function ffBinImg(cache, key, src){
+  if(!src) return null;
+  if(!cache[key]){ const im = new Image(); im.src = src; cache[key] = im; }
+  return cache[key].complete && cache[key].naturalWidth ? cache[key] : null;
+}
+function ffBinPrep(){
+  const d = ffBin.d;
+  ffBin.photos = {}; ffBin.logos = {};
+  ffBin.cam = { cx: 500, cy: 500, zoom: 1 };
+  // each squad's centre, a second at a time, on the ground
+  ffBin.cent = {};
+  const by = {};
+  (d.bin.players || []).forEach(p => { (by[p.squad] = by[p.squad] || []).push(p); });
+  const end = Math.ceil(d.duration || 0);
+  Object.entries(by).forEach(([sq, ps]) => {
+    const pts = [];
+    for(let t = 0; t <= end; t += 2){
+      const at = ps.map(p => ffBinAt(p, t)).filter(a => a && a[2] < 150);
+      if(at.length) pts.push([t, at.reduce((s, a) => s + a[0], 0) / at.length, at.reduce((s, a) => s + a[1], 0) / at.length]);
+    }
+    ffBin.cent[sq] = pts;
+  });
+  const sel = document.getElementById("ff_binFollow");
+  sel.innerHTML = '<option value="">Whole map</option>' + Object.keys(by).map(Number)
+    .sort((a, b) => ((d.squads.find(s => s.squad === a) || {}).place || 99) - ((d.squads.find(s => s.squad === b) || {}).place || 99))
+    .map(sq => `<option value="${sq}">Follow ${ffEscapeHtml(ffBinTeam(sq))}</option>`).join("");
+}
+function ffBinDrawStream(ctx, W){
+  const d = ffBin.d, t = ffBin.t, H = W;
+  const follow = document.getElementById("ff_binFollow").value;
+  const players = (d.bin.players || []).filter(p => !ffBin.hidden.has(p.squad));
+  const bySquad = {};
+  players.forEach(p => { (bySquad[p.squad] = bySquad[p.squad] || []).push(p); });
+  // camera: follow the team's centre, zoomed in; ease towards it
+  const cam = ffBin.cam || (ffBin.cam = { cx: 500, cy: 500, zoom: 1 });
+  let tx = 500, ty = 500, tz = 1;
+  if(follow){
+    const pts = ffBin.cent[follow] || [];
+    let last = null;
+    for(const p of pts){ if(p[0] <= t) last = p; else break; }
+    if(last){ [tx, ty] = ffBinUV(last[1], last[2]); tz = 2.6; }
+  }
+  const ease = ffBin.playing ? 0.12 : 1;
+  cam.cx += (tx - cam.cx) * ease; cam.cy += (ty - cam.cy) * ease; cam.zoom += (tz - cam.zoom) * ease;
+  const S = (u, v) => [(u - cam.cx) * cam.zoom + W / 2, (v - cam.cy) * cam.zoom + H / 2];
+  const SW = (x, z) => { const [u, v] = ffBinUV(x, z); return S(u, v); };
+  // the map, dark and toned down
+  ctx.fillStyle = "#06090d"; ctx.fillRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(W / 2, H / 2); ctx.scale(cam.zoom, cam.zoom); ctx.translate(-cam.cx, -cam.cy);
+  if(ffBin.img && ffBin.img.complete){
+    ctx.filter = "grayscale(0.75) brightness(0.55) contrast(1.15)";
+    ctx.drawImage(ffBin.img, 0, 0, 1000, 1000);
+    ctx.filter = "none";
+  }
+  // zones: the boundary now (solid) and the next one (dashed, labelled)
+  const zs = (d.zones || []).filter(z => z.announced != null && z.announced <= t);
+  const lw = 2 / cam.zoom;
+  if(zs.length > 1){
+    const z = zs[zs.length - 2];
+    ctx.strokeStyle = "rgba(255,255,255,.75)"; ctx.lineWidth = lw * 1.5; ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(z.at[0] * 1000, z.at[1] * 1000, z.r * 1000, 0, Math.PI * 2); ctx.stroke();
+  }
+  if(zs.length){
+    const z = zs[zs.length - 1];
+    ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.lineWidth = lw * 1.5; ctx.setLineDash([10 / cam.zoom, 8 / cam.zoom]);
+    ctx.beginPath(); ctx.arc(z.at[0] * 1000, z.at[1] * 1000, z.r * 1000, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  // the followed team's route, in its colour, glowing
+  if(follow){
+    const pts = (ffBin.cent[follow] || []).filter(p => p[0] <= t);
+    ctx.strokeStyle = ffBinColour(follow); ctx.lineWidth = 3.2 / cam.zoom; ctx.shadowColor = ffBinColour(follow); ctx.shadowBlur = 10;
+    ctx.beginPath(); pts.forEach((p, k) => { const [u, v] = ffBinUV(p[1], p[2]); k ? ctx.lineTo(u, v) : ctx.moveTo(u, v); }); ctx.stroke();
+    ctx.shadowBlur = 0;
+  } else {
+    const trail = Number(document.getElementById("ff_binTrail").value);
+    if(trail > 0){ ctx.lineWidth = 1.6 / cam.zoom; players.forEach(p => { ctx.strokeStyle = ffBinColour(p.squad) + "99"; ffBinPath(ctx, p, t - trail, t); }); }
+  }
+  if(d.plane && d.plane.from && d.plane.to && t < 240){
+    ctx.strokeStyle = "rgba(255,255,255,.45)"; ctx.setLineDash([10 / cam.zoom, 8 / cam.zoom]); ctx.lineWidth = lw;
+    ctx.beginPath(); ctx.moveTo(d.plane.from[0] * 1000, d.plane.from[1] * 1000); ctx.lineTo(d.plane.to[0] * 1000, d.plane.to[1] * 1000); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.restore();
+  if(zs.length){
+    const z = zs[zs.length - 1], [zx, zy] = S(z.at[0] * 1000, (z.at[1] - z.r) * 1000);
+    ctx.font = "600 13px sans-serif"; ctx.fillStyle = FF_BIN_TEAL; ctx.textAlign = "center";
+    ctx.fillText("NEXT ZONE", zx, zy - 8); ctx.textAlign = "left";
+  }
+  // recent deaths: a faint cross where they fell
+  players.forEach(p => {
+    const last = p.t[p.t.length - 1];
+    if(t > last && t - last < 25){
+      const [u, v] = SW(p.x[p.x.length - 1], p.z[p.z.length - 1]);
+      ctx.strokeStyle = "rgba(255,90,90,.85)"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(u - 5, v - 5); ctx.lineTo(u + 5, v + 5); ctx.moveTo(u - 5, v + 5); ctx.lineTo(u + 5, v - 5); ctx.stroke();
+    }
+  });
+  // players: photo circles in the team's colour, alive bar under
+  const near = cam.zoom > 1.6;
+  const pr = near ? 13 : 8;
+  Object.entries(bySquad).forEach(([sq, ps]) => {
+    const col = ffBinColour(sq), team = ffBinRosterTeam(sq);
+    const alive = [];
+    ps.forEach(p => {
+      const a = ffBinAt(p, t);
+      if(!a) return;
+      const [u, v] = SW(a[0], a[1]);
+      if(u < -40 || v < -40 || u > W + 40 || v > H + 40) return;
+      const air = a[2] > 150;
+      alive.push([u, v]);
+      ctx.save();
+      ctx.beginPath(); ctx.arc(u, v, air ? pr * 0.6 : pr, 0, Math.PI * 2); ctx.closePath();
+      ctx.fillStyle = "#0b0f14"; ctx.fill();
+      const ph = !air && ffBinImg(ffBin.photos, p.pid, (d.photos || {})[String(p.pid)]);
+      if(ph){ ctx.clip(); ctx.drawImage(ph, u - pr, v - pr, pr * 2, pr * 2); }
+      ctx.restore();
+      ctx.strokeStyle = col; ctx.lineWidth = 2.2;
+      ctx.beginPath(); ctx.arc(u, v, air ? pr * 0.6 : pr, 0, Math.PI * 2); ctx.stroke();
+      if(!air){
+        ctx.fillStyle = "#22c55e"; ctx.fillRect(u - pr, v + pr + 3, pr * 2, 3);
+        if(near){
+          ctx.font = "600 11px sans-serif"; ctx.fillStyle = "#e5e7eb"; ctx.textAlign = "center";
+          ctx.fillText(p.name, u, v + pr + 16); ctx.textAlign = "left";
+        }
+      }
+    });
+    if(!alive.length) return;
+    // the team pin: its logo in a ring above the squad, the tag over it
+    const cx = alive.reduce((s, a) => s + a[0], 0) / alive.length, cy = alive.reduce((s, a) => s + a[1], 0) / alive.length;
+    const R = near ? 26 : 17, py = cy - (near ? 46 : 30);
+    ctx.strokeStyle = col + "aa"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(cx, py + R); ctx.lineTo(cx, cy - pr); ctx.stroke();
+    ctx.fillStyle = "#0b0f14"; ctx.beginPath(); ctx.arc(cx, py, R, 0, Math.PI * 2); ctx.fill();
+    const logo = team && ffBinImg(ffBin.logos, sq, team.logo);
+    if(logo){ ctx.save(); ctx.beginPath(); ctx.arc(cx, py, R - 3, 0, Math.PI * 2); ctx.clip(); ctx.drawImage(logo, cx - R + 3, py - R + 3, (R - 3) * 2, (R - 3) * 2); ctx.restore(); }
+    else {
+      // no logo in Team Info yet: the team's tag in the pin instead
+      const tag = ffBinShort(sq).replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase();
+      ctx.font = "800 " + Math.round(R * 0.62) + "px sans-serif"; ctx.fillStyle = col; ctx.textAlign = "center";
+      ctx.fillText(tag, cx, py + R * 0.22); ctx.textAlign = "left";
+    }
+    ctx.strokeStyle = String(follow) === String(sq) ? FF_BIN_GOLD : col; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(cx, py, R, 0, Math.PI * 2); ctx.stroke();
+    ctx.font = "700 " + (near ? 14 : 11) + "px sans-serif"; ctx.fillStyle = "#f3f4f6"; ctx.textAlign = "center";
+    ctx.fillText(ffBinShort(sq), cx, py - R - 6); ctx.textAlign = "left";
+  });
+  // who eliminated whom, as it happens
+  const recent = (d.kills || []).filter(k => k.t <= t && t - k.t < 5).slice(-4);
+  recent.forEach((k, i) => {
+    const y = 150 + i * 46;
+    ctx.fillStyle = "rgba(8,10,14,.86)"; ctx.fillRect(W - 300, y, 280, 40);
+    ctx.fillStyle = ffBinColour(k.killer >> 24); ctx.fillRect(W - 300, y, 4, 40);
+    ctx.font = "700 14px sans-serif"; ctx.fillStyle = "#fff"; ctx.fillText(k.killerName || "?", W - 288, y + 17);
+    ctx.font = "600 10px sans-serif"; ctx.fillStyle = "#9ca3af"; ctx.fillText("ELIMINATED  " + (k.victimName || ""), W - 288, y + 32);
+  });
+  // HUD
+  ctx.fillStyle = "rgba(6,9,13,.72)"; ctx.fillRect(0, 0, W, 112);
+  ctx.font = "600 13px sans-serif"; ctx.fillStyle = FF_BIN_TEAL;
+  ctx.fillText(String(d.mapName || "").toUpperCase().split("").join(" "), 28, 32);
+  ctx.font = "700 46px ui-monospace, Menlo, monospace"; ctx.fillStyle = "#f9fafb";
+  ctx.fillText(ffBinMmss(t).padStart(5, "0"), 26, 82);
+  ctx.fillStyle = FF_BIN_TEAL; ctx.fillRect(28, 94, 26, 2);
+  if(follow){
+    const team = ffBinRosterTeam(follow), logo = team && ffBinImg(ffBin.logos, follow, team.logo);
+    ctx.fillStyle = "#0b0f14"; ctx.beginPath(); ctx.arc(205, 66, 20, 0, Math.PI * 2); ctx.fill();
+    if(logo){ ctx.save(); ctx.beginPath(); ctx.arc(205, 66, 18, 0, Math.PI * 2); ctx.clip(); ctx.drawImage(logo, 187, 48, 36, 36); ctx.restore(); }
+    ctx.strokeStyle = FF_BIN_GOLD; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(205, 66, 20, 0, Math.PI * 2); ctx.stroke();
+    ctx.font = "700 26px sans-serif"; ctx.fillStyle = FF_BIN_GOLD; ctx.fillText(ffBinShort(follow).toUpperCase(), 234, 76);
+  }
+  const outBy = (d.teamOut || []).filter(o => o.t <= t).length;
+  const teams = Math.max(0, (d.squads || []).length - outBy);
+  const elims = (d.kills || []).filter(k => k.t <= t).length;
+  ctx.textAlign = "center";
+  [[teams, "TEAMS ALIVE", W - 220], [elims, "ELIMINATIONS", W - 90]].forEach(([n, lab, x]) => {
+    ctx.font = "700 40px sans-serif"; ctx.fillStyle = "#f9fafb"; ctx.fillText(String(n), x, 66);
+    ctx.font = "600 10px sans-serif"; ctx.fillStyle = "#9ca3af"; ctx.fillText(lab, x, 88);
+  });
+  ctx.textAlign = "left";
+  // timeline: the match, its circles, the playhead
+  const T0 = 60, T1 = W - 60, ty0 = H - 46, dur = d.duration || 1;
+  ctx.fillStyle = "rgba(6,9,13,.78)"; ctx.fillRect(0, H - 86, W, 86);
+  ctx.font = "600 11px sans-serif"; ctx.fillStyle = FF_BIN_TEAL; ctx.fillText("T I M E L I N E", T0, H - 66);
+  ctx.strokeStyle = "rgba(255,255,255,.25)"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(T0, ty0); ctx.lineTo(T1, ty0); ctx.stroke();
+  const X = s => T0 + (T1 - T0) * Math.min(1, Math.max(0, s / dur));
+  ctx.strokeStyle = FF_BIN_TEAL; ctx.beginPath(); ctx.moveTo(T0, ty0); ctx.lineTo(X(t), ty0); ctx.stroke();
+  (d.zones || []).forEach((z, i) => {
+    if(z.announced == null) return;
+    const x = X(z.announced);
+    ctx.fillStyle = z.announced <= t ? FF_BIN_TEAL : "rgba(255,255,255,.55)";
+    ctx.beginPath(); ctx.arc(x, ty0, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.font = "600 10px sans-serif"; ctx.textAlign = "center"; ctx.fillText("Z" + (i + 1), x, ty0 + 18); ctx.textAlign = "left";
+  });
+  ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(X(t), ty0, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.font = "600 10px sans-serif"; ctx.fillStyle = "#9ca3af"; ctx.textAlign = "right"; ctx.fillText(ffBinMmss(dur), T1, ty0 + 18); ctx.textAlign = "left";
+}
 function ffBinDraw(){
   const cv = document.getElementById("ff_binCanvas");
   if(!cv) return;
@@ -14047,9 +14257,15 @@ function ffBinDraw(){
   ctx.clearRect(0, 0, W, W);
   const d = ffBin.d;
   if(!d){ ctx.fillStyle = "#7d8b9c"; ctx.font = "22px sans-serif"; ctx.fillText("Load a game", 40, 60); return; }
+  const mode = document.getElementById("ff_binMode").value;
+  if(mode === "stream"){
+    ffBinDrawStream(ctx, W);
+    document.getElementById("ff_binClock").textContent = ffBinMmss(ffBin.t) + " / " + ffBinMmss(d.duration || 0) +
+      "   ·   " + (d.mapName || "") + "   ·   " + ffBinAliveText(ffBin.t);
+    return;
+  }
   if(ffBin.img && ffBin.img.complete) ctx.drawImage(ffBin.img, 0, 0, W, W);
   ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.fillRect(0, 0, W, W);
-  const mode = document.getElementById("ff_binMode").value;
   const t = ffBin.t;
   const players = (d.bin.players || []).filter(p => !ffBin.hidden.has(p.squad));
   // circles: those announced by now (all of them outside MapStream)
@@ -14203,7 +14419,7 @@ function ffBinShow(msg){
   ffBin.img = new Image();
   ffBin.img.onload = ffBinDraw;
   ffBin.img.src = "../overlay/assets/" + encodeURI(msg.image || "");
-  ffBinRenderTeams(); ffBinRenderStats(); ffBinDraw();
+  ffBinPrep(); ffBinRenderTeams(); ffBinRenderStats(); ffBinDraw();
 }
 (function ffWireBin(){
   if(!document.getElementById("ff_binLoad")) return;
@@ -14225,6 +14441,11 @@ function ffBinShow(msg){
   });
   document.getElementById("ff_binTime").addEventListener("input", e => { ffBin.t = Number(e.target.value); ffBinDraw(); });
   ["ff_binMode", "ff_binTrail"].forEach(id => document.getElementById(id).addEventListener("change", ffBinDraw));
+  document.getElementById("ff_binFollow").addEventListener("change", () => {
+    document.getElementById("ff_binMode").value = "stream"; ffBinDraw();
+    // the camera eases while playing; paused, a few frames to settle
+    if(!ffBin.playing){ let n = 0; const step = () => { ffBinDraw(); if(++n < 2) requestAnimationFrame(step); }; requestAnimationFrame(step); }
+  });
   // the list on first view of the tab
   document.querySelector('.ff-tab-btn[data-fftab="bin"]').addEventListener("click", () => {
     if(document.getElementById("ff_binPick").options.length < 2) send({ type: "bin_list" });

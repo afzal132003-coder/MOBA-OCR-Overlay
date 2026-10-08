@@ -8977,6 +8977,28 @@ def build_map_view(match_id=None, with_log=True):
 
 
 BIN_CACHE = Path(__file__).parent / "bin_cache"
+_bin_thumbs = {}
+
+
+def _bin_thumb(path, size=72):
+    """A player photo as a small square data URL (head and shoulders), for
+    the BIN tab's player circles."""
+    if not path:
+        return ""
+    key = (str(path), size)
+    if key not in _bin_thumbs:
+        try:
+            from PIL import Image as _Img
+            im = _Img.open(path).convert("RGBA")
+            side = min(im.width, im.height)
+            im = im.crop(((im.width - side) // 2, 0, (im.width - side) // 2 + side, side))
+            im = im.resize((size, size), _Img.LANCZOS)
+            buf = io.BytesIO()
+            im.save(buf, format="PNG", optimize=True)
+            _bin_thumbs[key] = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+        except Exception:
+            _bin_thumbs[key] = ""
+    return _bin_thumbs[key]
 
 
 def load_bin_match(match_id=""):
@@ -9013,7 +9035,37 @@ def load_bin_match(match_id=""):
                 deaths.append({"t": round(float(e.get("TriggerPoint") or 0), 1),
                                "pid": int(e.get("PlayerID") or 0),
                                "x": round(p.get("x", 0), 1), "z": round(p.get("z", 0), 1)})
+    # Who eliminated whom (event 3: PlayerID eliminated SParam) and which
+    # teams went out when (event 1: SParam the team), from the JSON.
+    names = map_analysis.rj.player_names(data) or {}
+    by_name = {}
+    for pid, nm in names.items():
+        by_name.setdefault(str(nm), int(pid))
+    kills, team_out = [], []
+    for e in data.get("Events") or []:
+        if e.get("Event") == 3:
+            kp = int(e.get("PlayerID") or 0)
+            kills.append({"t": round(float(e.get("Time") or 0), 1), "killer": kp,
+                          "killerName": names.get(kp) or names.get(str(kp)) or "",
+                          "victim": by_name.get(str(e.get("SParam") or "")),
+                          "victimName": str(e.get("SParam") or "")})
+        elif e.get("Event") == 1:
+            team_out.append({"t": round(float(e.get("Time") or 0), 1), "team": str(e.get("SParam") or "")})
+    # Each player's photo, small: the photo folder by UID (through the
+    # roster's IGN) or IGN, else the folder's DEFAULT stand-in.
+    roster_uid = {}
+    for t in ((server_state.get("roster") or {}).get("teams") or []):
+        for pl in t.get("players") or []:
+            k = _ign_key(pl.get("ign") or "")
+            if k and pl.get("uid"):
+                roster_uid[k] = str(pl.get("uid"))
+    photos = {}
+    for pl in decoded.get("players") or []:
+        thumb = _bin_thumb(_photo_path(roster_uid.get(_ign_key(pl.get("name") or "")), pl.get("name")))
+        if thumb:
+            photos[str(pl["pid"])] = thumb
     return {"ok": True, "matchId": mid, "file": path.name, "mapId": map_id,
+            "kills": kills, "teamOut": team_out, "photos": photos,
             "mapName": view.get("mapName"), "image": view.get("image") or cal.get("image"),
             "cal": cal, "duration": view.get("duration") or data.get("GameTotalTime"),
             "playedAt": view.get("playedAt"),
