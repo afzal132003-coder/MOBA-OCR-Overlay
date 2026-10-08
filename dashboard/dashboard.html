@@ -2162,8 +2162,10 @@
       <details style="margin-top:12px;">
         <summary class="hint" style="cursor:pointer;">Import a new team sheet (replaces the bank)</summary>
         <p class="hint" style="margin-top:8px;">The organiser's sheet exported as CSV, as it is: a row per team
-          (number, name, short name) and a row per player (<em>Player - 1 -</em>, IGN, UID, role). Plain
-          <code>team,short,ign,uid</code> rows work too.</p>
+          (number, name, short name) and a row per player (<em>Player - 1 -</em>, IGN, UID, role). Or one row per
+          player: <code>team name, short name, IGN, UID</code> &mdash; the header row is skipped, a team name written
+          only on its first player's row carries down, and a UID Excel turned into <code>1.59E+09</code> is flagged
+          as missing rather than stored wrong (format that column as text before exporting).</p>
         <div class="row" style="gap:12px;align-items:flex-end;">
           <div class="team-form"><label>Event name</label>
             <input type="text" id="ff_bankEvent" placeholder="e.g. PRG BR SS3"></div>

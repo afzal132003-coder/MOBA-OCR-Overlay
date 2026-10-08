@@ -64,6 +64,25 @@ def main():
     check("team,ign,uid", [p["uid"] for p in three[0]["players"]] == ["11", ""], str(three))
     check("nothing in, nothing out", ff.parse_team_sheet("") == [])
 
+    print("team name, short name, IGN, UID with a header (the SS3 sheet)")
+    ss3 = ff.parse_team_sheet("TEAM NAME,SHORT NAME,IGN,UID\n"
+                              "CHARLIE ESPORTS,CHR,CHR.One,3000000001\n"
+                              ",,CHR.Two,3000000002\n"
+                              ",,CHR.Three,1.5E+09\n"
+                              "DELTA GAMING,DLT,DLT.One,4000000001\n")
+    check("the header is skipped, teams in order",
+          [t["name"] for t in ss3] == ["CHARLIE ESPORTS", "DELTA GAMING"], str(ss3))
+    check("a team named once carries down its rows",
+          len(ss3[0]["players"]) == 3 and ss3[0]["shortName"] == "CHR")
+    check("a UID Excel mangled is left blank, not stored wrong", ss3[0]["players"][2]["uid"] == "")
+    any_header = ff.parse_team_sheet("Team,Tag,Player IGN,Player UID\nECHO,ECH,E.One,5000000001\n")
+    check("any header wording", bool(any_header) and any_header[0]["shortName"] == "ECH"
+          and any_header[0]["players"][0]["uid"] == "5000000001", str(any_header))
+    serial = ff.parse_team_sheet("S.No,Team Name,Short Name,IGN,UID\n"
+                                 "1,FOXTROT,FOX,F.One,6000000001\n2,FOXTROT,FOX,F.Two,6000000002\n")
+    check("a serial number column first",
+          [(t["name"], len(t["players"])) for t in serial] == [("FOXTROT", 2)], str(serial))
+
     print("\n%d checks, %d failed" % (checks, len(failures)))
     if failures:
         for f in failures:

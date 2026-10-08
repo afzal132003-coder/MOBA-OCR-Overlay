@@ -4555,9 +4555,12 @@ def parse_team_sheet(text):
     "team,short,ign,uid" or "team,ign,uid". Returns the teams in order."""
     import csv as _csv
     rows = list(_csv.reader(io.StringIO(text or "")))
-    cell = lambda r, i: (r[i] if i < len(r) else "").strip()
+    cell = lambda r, i: (r[i] if i is not None and i < len(r) else "").strip()
+    # The organiser's layout is recognised by its "Player - n -" rows; a
+    # plain sheet with a serial number first must not be mistaken for it.
+    organiser = any(cell(r, 1).lower().startswith("player") for r in rows)
     teams, cur = [], None
-    for r in rows:
+    for r in (rows if organiser else []):
         a, b = cell(r, 0), cell(r, 1)
         if a.isdigit() and b and not b.lower().startswith("player"):
             cur = {"no": int(a), "name": b, "shortName": cell(r, 2), "note": "", "players": []}
@@ -4571,22 +4574,56 @@ def parse_team_sheet(text):
                 cur["note"] = "ELIMINATED"
     if teams:
         return [t for t in teams if t["name"]]
-    # plain rows: team,short,ign,uid  or  team,ign,uid
-    by = {}
+    # PLAIN ROWS, one per player: team name, short name, IGN, UID (or
+    # team, IGN, UID). A header row is skipped -- and its words say which
+    # column is which when the sheet has others (a serial number first,
+    # a role after). A team name written only on its first player's row
+    # carries down to the rows under it.
+    rows = [r for r in rows if any((c or "").strip() for c in r)]
+    if not rows:
+        return []
+    words = lambda c: re.sub(r"[^a-z]", "", (c or "").lower())
+    head = rows[0]
+    is_header = (any(re.search(r"team|name|ign|uid|short|player|tag", words(c)) for c in head)
+                 and not any(re.fullmatch(r"\d+", (c or "").strip()) for c in head))
+    width = max(len(r) for r in rows)
+    cols = {"team": 0, "short": 1, "ign": 2, "uid": 3} if width >= 4 else {"team": 0, "short": None, "ign": 1, "uid": 2}
+    if is_header:
+        found = {}
+        for i, c in enumerate(head):
+            w = words(c)
+            if "short" in w or w in ("tag", "abbr", "abbreviation"):
+                found.setdefault("short", i)
+            elif "uid" in w or w in ("id", "playerid", "gameid", "ffuid"):
+                found.setdefault("uid", i)
+            elif "ign" in w or "player" in w or "nick" in w:
+                found.setdefault("ign", i)
+            elif "team" in w or w == "name":
+                found.setdefault("team", i)
+        if "team" in found and "ign" in found:
+            cols = {"team": found["team"], "short": found.get("short"),
+                    "ign": found["ign"], "uid": found.get("uid")}
+        rows = rows[1:]
+    by, name, short = {}, "", ""
     for r in rows:
-        vals = [c.strip() for c in r]
-        if len([v for v in vals if v]) < 2 or vals[0].lower() in ("team", "team name"):
+        team_cell = cell(r, cols["team"])
+        if team_cell:
+            if team_cell.upper() != name.upper():
+                short = ""
+            name = team_cell
+        short = cell(r, cols["short"]) or short
+        ign, raw_uid = cell(r, cols["ign"]), cell(r, cols["uid"])
+        if not name:
             continue
-        if len(vals) >= 4 and re.sub(r"\D", "", vals[3]) == vals[3].strip():
-            name, short, ign, uid = vals[0], vals[1], vals[2], vals[3]
-        else:
-            name, short, ign, uid = vals[0], "", vals[1] if len(vals) > 1 else "", vals[2] if len(vals) > 2 else ""
+        # A UID Excel turned into 1.59E+09 has lost digits: kept blank
+        # (and so flagged as missing) rather than stored wrong.
+        uid = "" if re.search(r"[eE][+-]?\d", raw_uid) else re.sub(r"\D", "", raw_uid)
         t = by.get(name.upper())
         if t is None:
             t = by[name.upper()] = {"no": len(by) + 1, "name": name, "shortName": short, "note": "", "players": []}
         t["shortName"] = t["shortName"] or short
         if ign:
-            t["players"].append({"ign": ign, "uid": re.sub(r"\D", "", uid), "role": ""})
+            t["players"].append({"ign": ign, "uid": uid, "role": ""})
     return list(by.values())
 
 
