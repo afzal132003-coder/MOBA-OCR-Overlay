@@ -4863,15 +4863,62 @@ def _team_logo_data(path):
     return _photo_cache[key]
 
 
+# THE TEAM LOGO FOLDER: one image per team, named after it -- full name
+# or short name, case, spaces and punctuation ignored ("CLUTZA ESPORTS.png",
+# "ctz.png"). A file here IS that team's logo: it wins over one uploaded in
+# Team Info, and replacing the file updates the logo within ten seconds.
+TEAM_LOGO_DIR = Path(__file__).resolve().parent.parent.parent / "overlay" / "assets" / "freefire" / "team_logos"
+_LOGO_EXTS = (".png", ".jpg", ".jpeg", ".webp")
+
+
+def team_logo_folder():
+    custom = ((server_state.get("settings") or {}).get("teamLogoFolder") or "").strip()
+    return Path(custom) if custom else TEAM_LOGO_DIR
+
+
+def _logo_folder_files():
+    d = team_logo_folder()
+    try:
+        if not d.is_dir():
+            return {}
+        out = {}
+        for p in sorted(d.iterdir()):
+            if p.is_file() and p.suffix.lower() in _LOGO_EXTS:
+                out.setdefault(normalize_for_match(p.stem), p)
+        return out
+    except OSError:
+        return {}
+
+
+def _logo_for_team(team, files):
+    for key in (team.get("name"), team.get("shortName"), team.get("displayName")):
+        k = normalize_for_match(key)
+        if k and k in files:
+            return files[k]
+    return None
+
+
 def fill_roster_logos():
-    """A roster team with no logo takes Logo.png from its team folder in
-    the photo folder. Only ever fills a blank one: a logo uploaded in Team
-    Info always wins. True when the roster changed."""
+    """Team logos for the roster: from the team logo folder first (a file
+    there always wins, and a changed file is picked up), else a team with
+    no logo takes Logo.png from its team folder in the photo folder.
+    True when the roster changed."""
+    changed = False
+    files = _logo_folder_files()
+    if files:
+        for team in (server_state.get("roster") or {}).get("teams") or []:
+            path = _logo_for_team(team, files)
+            if not path:
+                continue
+            data = _team_logo_data(path)
+            if data and team.get("logo") != data:
+                team["logo"] = data
+                changed = True
+                print("[logos] %s: logo from %s" % (team.get("name"), path.name))
     folder = _photo_folder()
     if not folder:
-        return False
+        return changed
     idx = _photo_scan(folder)
-    changed = False
     for team in (server_state.get("roster") or {}).get("teams") or []:
         if team.get("logo") or not (team.get("name") or "").strip():
             continue

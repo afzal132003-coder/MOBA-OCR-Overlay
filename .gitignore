@@ -16,6 +16,10 @@ ocr/freefire/team_bank.json
 ocr/freefire/captures/
 # Decoded replay .bin files (players' names and movement), rebuilt on demand.
 ocr/freefire/bin_cache/
+# Team logos the operator drops in for the engine to read. Local: the
+# engine sends logos to the graphics itself, nothing loads these by URL.
+overlay/assets/freefire/team_logos/*
+!overlay/assets/freefire/team_logos/README.txt
 
 # Design sources (PSD) and the vMix template package. Kept on disk but out
 # of git: they're ~29MB of files nothing loads at runtime, and this repo
