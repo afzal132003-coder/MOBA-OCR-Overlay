@@ -2150,6 +2150,9 @@
       <div id="ff_bankSummary" class="hint" style="margin:4px 0 10px;"></div>
       <div id="ff_bankGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:6px;"></div>
       <div class="row" style="gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap;">
+        <button id="ff_bankUseTicked" title="Team Info becomes the ticked teams, in the bank's order -- players, IGNs, UIDs; logos from each team's folder (Logo.png) or the one already uploaded">Fill Team Info From Ticked Teams</button>
+        <button class="secondary" id="ff_bankTickNone">Untick All</button>
+        <span class="hint" id="ff_bankTickCount" style="margin:0 8px 0 0;"></span>
         <button id="ff_bankFill">Fill Team Info From Room Slots</button>
         <label class="hint" style="margin:0;display:flex;align-items:center;gap:6px;">
           <input type="checkbox" id="ff_bankAuto" checked> every time Room Slots are saved</label>
@@ -3101,6 +3104,10 @@
                title="Off: the photo columns are left exactly as they are -- not cleared, not written">
           <input type="checkbox" id="ff_arrowPhotos" checked> Push player photo paths
           (BOOYAH-ARROW D, ARROW MVP E)</label>
+        <label class="hint" style="display:flex;gap:6px;align-items:center;margin:0 0 0 12px;"
+               title="Off: the survival-time columns are left exactly as they are -- not cleared, not written">
+          <input type="checkbox" id="ff_arrowSurvival"> Push survival time
+          (BOOYAH-ARROW I, ARROW MVP K)</label>
       </div>
       <div class="hint" id="ff_arrowLatest" style="margin-top:6px;"></div>
 
@@ -8093,6 +8100,8 @@ function ffRenderEvent(ff){
   setIfFree("ff_resultsTab", (ff.settings && ff.settings.resultsTab) || "");
   const apEl = document.getElementById("ff_arrowPhotos");
   if(apEl && document.activeElement !== apEl) apEl.checked = !(ff.settings && ff.settings.arrowPushPhotos === false);
+  const asEl = document.getElementById("ff_arrowSurvival");
+  if(asEl && document.activeElement !== asEl) asEl.checked = !!(ff.settings && ff.settings.arrowPushSurvival === true);
   if(typeof ffSyncOneClick === "function") ffSyncOneClick(ff);
   setIfFree("ff_sheetWebhookUrl", (ff.settings && ff.settings.sheetWebhookUrl) || "");
   setIfFree("ff_arrowWebhookUrl", (ff.settings && ff.settings.arrowWebhookUrl) || "");
@@ -8632,6 +8641,12 @@ document.getElementById("ff_aliveTableSource").addEventListener("change", (e) =>
 /* Saved as it is typed rather than behind a button: this sits next to
    Push, and a tab name you have to remember to save separately is one
    that will be wrong on the first push of the night. */
+document.getElementById("ff_arrowSurvival").addEventListener("change", (e) => {
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN && ffState)) return;
+  const settings = Object.assign({}, ffState.settings || {}, { arrowPushSurvival: e.target.checked });
+  ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { settings } } }));
+});
+
 document.getElementById("ff_arrowPhotos").addEventListener("change", (e) => {
   if(!(ffWs && ffWs.readyState === WebSocket.OPEN && ffState)) return;
   const settings = Object.assign({}, ffState.settings || {}, { arrowPushPhotos: e.target.checked });
@@ -10719,6 +10734,16 @@ function ffBankSay(r){
     (r.missing.length ? " \u2014 not in the bank: " + r.missing.join(", ") : "") + ".";
 }
 
+// Today's teams, ticked in the bank -- kept in this browser for the day.
+function ffBankTicked(){
+  try { return JSON.parse(localStorage.getItem("ff_bank_today") || "[]"); } catch(e) { return []; }
+}
+function ffBankSetTicked(names){
+  try { localStorage.setItem("ff_bank_today", JSON.stringify(names)); } catch(e) {}
+  const el = document.getElementById("ff_bankTickCount");
+  if(el) el.textContent = names.length ? names.length + " ticked for today" : "";
+}
+
 function ffRenderTeamBank(){
   const sum = document.getElementById("ff_bankSummary");
   const grid = document.getElementById("ff_bankGrid");
@@ -10744,6 +10769,8 @@ function ffRenderTeamBank(){
       return "<div title=\"" + ffEscapeHtml(tip).replace(/"/g, "&quot;") + "\" style='display:flex;align-items:center;gap:8px;" +
         "padding:6px 8px;border:1px solid " + (slot ? "#2f6f45" : "#1b2430") + ";border-radius:6px;background:" +
         (slot ? "#0f2418" : "#0a0f14") + ";" + (t.note ? "opacity:.55;" : "") + "'>" +
+        "<input type='checkbox' class='ff-bank-tick' data-name=\"" + ffEscapeHtml(t.name).replace(/"/g, "&quot;") + "\"" +
+          (ffBankTicked().includes(t.name) ? " checked" : "") + " title='Playing today' style='margin:0;'>" +
         "<span style='min-width:22px;color:#7d8b9c;font-size:11px;'>" + (t.no || "") + "</span>" +
         "<span style='flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;'>" +
           ffEscapeHtml(t.name) + "</span>" +
@@ -10825,6 +10852,32 @@ function ffFillTeamInfoFromSlots(slots){
     if(!ws()) return note("Not connected to the Free Fire engine.", true);
     ffWs.send(JSON.stringify({ type: "freefire_team_bank_get" }));
   });
+  // ticking a team: remembered at once, in the bank's own order
+  document.getElementById("ff_bankGrid").addEventListener("change", e => {
+    if(!e.target.classList || !e.target.classList.contains("ff-bank-tick")) return;
+    const order = ((ffTeamBank && ffTeamBank.teams) || []).map(t => t.name);
+    const on = new Set(Array.from(document.querySelectorAll(".ff-bank-tick:checked")).map(x => x.dataset.name));
+    ffBankSetTicked(order.filter(n => on.has(n)));
+  });
+  document.getElementById("ff_bankTickNone").addEventListener("click", () => {
+    document.querySelectorAll(".ff-bank-tick").forEach(x => { x.checked = false; });
+    ffBankSetTicked([]);
+  });
+  document.getElementById("ff_bankUseTicked").addEventListener("click", () => {
+    const names = ffBankTicked();
+    if(!names.length) return note("Tick today's teams in the list above first.", true);
+    const slots = {};
+    names.forEach((n, i) => { slots[String(i + 1)] = n; });
+    const r = ffFillTeamInfoFromSlots(slots);
+    if(r && !r.error){
+      const el = document.getElementById("ff_bankStatus");
+      el.style.color = r.missing.length ? "#fbbf24" : "#4ade80";
+      el.textContent = "Team Info filled with today's " + r.kept + " team(s)" +
+        (r.missing.length ? " \u2014 not found: " + r.missing.join(", ") : "") +
+        ". Logos come from each team's folder (Logo.png) where none is uploaded.";
+    } else ffBankSay(r);
+  });
+  ffBankSetTicked(ffBankTicked());
   document.getElementById("ff_bankFill").addEventListener("click", () => {
     const slots = (ffState && ffState.event && ffState.event.roomSlots) || {};
     if(!Object.keys(slots).length) return note("No Room Slots saved yet \u2014 fill them below and Save Slots.", true);

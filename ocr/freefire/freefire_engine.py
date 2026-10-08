@@ -11020,11 +11020,17 @@ async def handle_client(websocket, path=None):
                             "No match was found to read -- fetch one in "
                             "Post-Match, or check the Match Result Folder."}}))
                     continue
-                # The photo-path tick: off leaves the photo columns alone.
+                # The ticks: photo paths (on unless turned off) and
+                # survival time (off unless turned on). Off leaves that
+                # column alone -- not cleared, not written.
+                settings = server_state.get("settings") or {}
                 skip = []
-                if (server_state.get("settings") or {}).get("arrowPushPhotos") is False:
-                    skip = ["photo"]
-                    rows = [{k: v for k, v in r.items() if k != "photo"} for r in rows]
+                if settings.get("arrowPushPhotos") is False:
+                    skip.append("photo")
+                if settings.get("arrowPushSurvival") is not True:
+                    skip.append("survival")
+                if skip:
+                    rows = [{k: v for k, v in r.items() if k not in skip} for r in rows]
                 result = push_arrow_block(what, rows, skip)
                 await websocket.send(json.dumps({
                     "type": "freefire_arrow_result",
