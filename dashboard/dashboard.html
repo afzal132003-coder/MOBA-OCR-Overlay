@@ -2737,8 +2737,11 @@
 
     <div class="card">
       <h2>Player Loadouts</h2>
-      <p class="hint">Manual entry for now — active character, 3 passives, pet, and equipment per player. Import
-        the roster on the Pre-Match tab first; this table is generated from it.</p>
+      <p class="hint">Each player's latest <b>Num5 capture</b>, slot by slot &mdash; filled in by itself the moment a
+        card is captured. <span style="color:#f87171;">Red</span> is a slot the matcher was not sure of,
+        <span style="color:#4ade80;">green</span> one you set. Pick from the dropdown to fix or fill one: it goes
+        straight to the Booyah slide, and the matcher learns that character from the capture. A player with no
+        capture can be filled in here too (it goes with the current game).</p>
       <div id="ff_loadoutTable" style="overflow-x:auto;"></div>
       <p class="hint" id="ff_loadoutEmpty">No roster imported yet — nothing to show loadouts for.</p>
       <button id="ff_loadoutSave" style="display:none;">Save Loadouts</button>
@@ -6810,6 +6813,7 @@ function connect(){
         try { ffRenderMapping(ffState); } catch(e){ console.error("mapping:", e); }
         try { ffRenderNameSquads(); } catch(e){ console.error("name squads:", e); }
         try { ffDrawRoomSlots(); } catch(e){ console.error("room slots:", e); }
+        try { ffRenderLoadouts(ffState); } catch(e){ console.error("loadouts:", e); }
       }
     } else if(msg.type === "freefire_arrow_result"){
       ffReplyArrived("arrow");
@@ -7832,17 +7836,85 @@ function ffRenderRoster(ff){
 }
 
 /* ---------- Live Ops: loadouts ---------- */
-// Same reasoning as ffLastLoadoutKey: this table carries an input per
-// field across 48 players, and rebuilding it on every kill-feed-driven
-// state_sync both stutters and would blow away whatever the operator was
-// mid-way through typing into it.
+// Same reasoning as ffLastLoadoutKey: rebuilt only when what it shows
+// changes, and never under an open dropdown.
 let ffLastLoadoutTableKey = "";
+const FF_LO_SLOTS = [["active", "Active", "characters"], ["passive1", "Passive 1", "characters"],
+                     ["passive2", "Passive 2", "characters"], ["passive3", "Passive 3", "characters"],
+                     ["pet", "Pet", "pets"], ["equipment", "Equipment", "equipment"]];
+function ffLatestCapture(p){
+  let best = null, game = null;
+  Object.entries(p.loadouts || {}).forEach(([g, e]) => {
+    if(e && (!best || (e.capturedAt || 0) > (best.capturedAt || 0))){ best = e; game = g; }
+  });
+  return { entry: best, game };
+}
 
 function ffRenderLoadouts(ff){
   const teams = (ff.roster && ff.roster.teams) || [];
-  const key = JSON.stringify(teams.map(t => [t.name, (t.players || []).map(p => [p.ign, p.loadout])]));
+  const choices = ff.loadoutChoices || {};
+  const key = JSON.stringify([teams.map(t => [t.name, (t.players || []).map(p => [p.ign, p.loadouts])]),
+                              Object.keys(choices).map(k => (choices[k] || []).length)]);
   if(key === ffLastLoadoutTableKey) return;
+  const box = document.getElementById("ff_loadoutTable");
+  if(box && box.contains(document.activeElement)) return;     // mid-pick: next sync
   ffLastLoadoutTableKey = key;
+  ffRenderLoadoutDropdowns(teams, choices, ff);
+}
+
+function ffRenderLoadoutDropdowns(teams, choices, ff){
+  const container = document.getElementById("ff_loadoutTable");
+  const emptyEl = document.getElementById("ff_loadoutEmpty");
+  document.getElementById("ff_loadoutSave").style.display = "none";
+  if(!teams.length){ container.innerHTML = ""; emptyEl.style.display = "block"; return; }
+  emptyEl.style.display = "none";
+  const opts = {};
+  Object.entries(choices).forEach(([lib, rows]) => {
+    opts[lib] = '<option value="">\u2014</option>' + (rows || []).map(([label, name]) =>
+      '<option value="' + ffEscapeHtml(label) + '">' + ffEscapeHtml(name) + '</option>').join("");
+  });
+  const rows = [];
+  teams.forEach((t, ti) => {
+    (t.players || []).forEach((p, pi) => {
+      if(!(p.ign || "").trim()) return;
+      const { entry, game } = ffLatestCapture(p);
+      const slots = (entry && entry.slots) || {};
+      const cells = FF_LO_SLOTS.map(([slot, , lib]) => {
+        const v = slots[slot] || {};
+        const label = v.label || "";
+        const colour = v.manual ? "#4ade80" : (label && v.lowConfidence ? "#f87171" : (label ? "#2f6f45" : "#1b2430"));
+        const tip = v.manual ? "set by hand" : (label ? ("matched" + (v.score != null ? " · score " + v.score : "") +
+                    (v.confidence != null ? " · confidence " + v.confidence : "")) : (v.reason || "not captured"));
+        return `<td style="padding:4px;"><select class="ff-lo-pick" data-t="${ti}" data-p="${pi}" data-slot="${slot}"
+                 data-game="${ffEscapeHtml(game || "")}" title="${ffEscapeHtml(tip)}"
+                 style="width:100%;min-width:110px;border:1px solid ${colour};">${(opts[lib] || '<option value="">\u2014</option>')
+                 .replace('value="' + ffEscapeHtml(label) + '"', 'value="' + ffEscapeHtml(label) + '" selected')}</select></td>`;
+      }).join("");
+      rows.push(`<tr style="border-top:1px solid #1b2430;">
+          <td style="padding:6px;font-weight:700;">${ffEscapeHtml(t.name)}</td>
+          <td style="padding:6px;">${ffEscapeHtml(p.ign)}</td>
+          <td style="padding:6px;color:#7d8b9c;font-size:11px;">${game ? "game " + ffEscapeHtml(game) : "no capture"}</td>
+          ${cells}</tr>`);
+    });
+  });
+  container.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:#9aa7b5;">
+      <th style="padding:6px;">Team</th><th style="padding:6px;">Player</th><th style="padding:6px;">Capture</th>
+      ${FF_LO_SLOTS.map(([, title]) => '<th style="padding:6px;">' + title + '</th>').join("")}
+    </tr></thead><tbody>${rows.join("")}</tbody></table>`;
+  container.querySelectorAll(".ff-lo-pick").forEach(sel => sel.addEventListener("change", () => {
+    if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+    ffWs.send(JSON.stringify({ type: "freefire_set_loadout_slot",
+      team: Number(sel.dataset.t), player: Number(sel.dataset.p), slot: sel.dataset.slot,
+      game: sel.dataset.game || ((ffState && ffState.event && ffState.event.currentGame) || 1),
+      label: sel.value }));
+    sel.style.borderColor = "#4ade80";
+    sel.blur();
+  }));
+}
+
+function ffRenderLoadoutsOld(ff){
+  const teams = (ff.roster && ff.roster.teams) || [];
 
   const container = document.getElementById("ff_loadoutTable");
   const emptyEl = document.getElementById("ff_loadoutEmpty");

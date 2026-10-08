@@ -6274,6 +6274,7 @@ def reload_icon_libraries():
 
     report = icon_library_report()
     server_state["loadoutLibraries"] = report
+    server_state["loadoutChoices"] = loadout_choices()
     total = sum(v["images"] for v in report.values())
     print(f"[loadout] reference images reloaded -- {total} in all, "
           f"{renamed} earlier capture(s) renamed")
@@ -6283,6 +6284,7 @@ def reload_icon_libraries():
 def _report_icon_libraries_at_startup():
     try:
         server_state["loadoutLibraries"] = icon_library_report()
+        server_state["loadoutChoices"] = loadout_choices()
     except Exception as e:                      # never block startup on this
         print(f"[loadout] couldn't survey the reference folders: {e}")
 
@@ -6450,12 +6452,33 @@ def _learned_score(cap_bgr, crops):
     return best
 
 
+def loadout_choices():
+    """{library: [[label, name], ...]} by name -- what the Player Loadouts
+    dropdowns offer. One entry per name (the dump has a few duplicates)."""
+    out = {}
+    for library_name in sorted(set(FREEFIRE_ICON_LIBRARIES.values())):
+        refs, _ = load_icon_refs(library_name)
+        seen, rows = set(), []
+        for label, (_img, name) in refs.items():
+            nm = (name or "").strip()
+            if not nm or nm.isdigit() or nm.lower() in ("nil", "ni") or nm.upper() in seen:
+                continue
+            seen.add(nm.upper())
+            rows.append([label, nm])
+        out[library_name] = sorted(rows, key=lambda r: r[1].upper())
+    return out
+
+
 def learn_icon(library_name, label, crop_path):
     """An operator's correction kept as a reference: the crop goes under
     learned_icons/<library>/<label>/, and the library is read again."""
     try:
         src = Path(crop_path)
         if not src.is_file() or not label:
+            return False
+        # a box with nothing in it is not a picture of anyone
+        img = cv2.imread(str(src))
+        if img is None or float(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).std()) < 12.0:
             return False
         dest = LEARNED_ICONS_DIR / library_name / str(label)
         dest.mkdir(parents=True, exist_ok=True)
@@ -10446,7 +10469,7 @@ _roster_cache_clients = set()
 # the only hits for "pending" in that folder are local variables called
 # pendingElimCards. liveOps is NOT here -- three overlays do read it.
 DASHBOARD_ONLY_KEYS = ("pending", "qmeRowOrder", "aliases",
-                       "knownContexts", "assetCatalogue")
+                       "knownContexts", "assetCatalogue", "loadoutChoices")
 
 _last_extras_fp = None
 
@@ -12137,12 +12160,19 @@ async def handle_client(websocket, path=None):
                 # a wrong read had to be lived with or re-shot.
                 try:
                     player = server_state["roster"]["teams"][int(payload["team"])]                                          ["players"][int(payload["player"])]
-                    entry = player["loadouts"][str(payload["game"])]
+                    game_key = str(payload.get("game") or (server_state.get("event") or {}).get("currentGame") or 1)
+                    entry = player.setdefault("loadouts", {}).setdefault(
+                        game_key, {"slots": {}, "capturedAt": int(time.time() * 1000), "manualOnly": True})
                     slot = str(payload["slot"])
                     label = payload.get("label") or ""
                     lib = load_icon_library(FREEFIRE_ICON_LIBRARIES.get(slot, ""))
                     ref = lib.get(label)
-                    if ref is not None:
+                    if not label and slot in FREEFIRE_ICON_LIBRARIES:
+                        (entry.get("slots") or {}).pop(slot, None)
+                        save_state()
+                        await broadcast({"type": "state_sync", "data": server_state,
+                                         "locked": list(locked_fields)})
+                    elif ref is not None:
                         entry.setdefault("slots", {})[slot] = {
                             "label": label, "name": ref[1],
                             "confidence": 1.0, "lowConfidence": False,
