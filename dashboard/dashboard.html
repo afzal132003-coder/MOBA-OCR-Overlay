@@ -17293,8 +17293,34 @@ function renderHeaderOverlayLinks(){
         setTimeout(() => btn.classList.remove("ov-copied"), 1200);
       });
       box.appendChild(btn);
+      // The same graphic straight from the engine on THIS PC: no trip
+      // through the relay and back, so a push shows in a few hundred ms
+      // (about 50 ms from the engine's side) instead of waiting on the
+      // internet twice. For OBS running on the engine's own machine.
+      const lbtn = document.createElement("button");
+      lbtn.type = "button";
+      lbtn.className = "ov-chip ov-local";
+      lbtn.title = "For OBS on THIS PC (the one running the engine): the graphic straight from the engine, " +
+                   "no relay -- the fastest a push can show. Other PCs use the OBS link.";
+      lbtn.innerHTML = `&#8962; Copy local link <span class="ov-src">THIS PC</span>`;
+      lbtn.addEventListener("click", e => {
+        e.preventDefault(); e.stopPropagation();
+        copyOverlayLink(lbtn, ffLocalOverlayLink(src.file));
+        lbtn.classList.add("ov-copied");
+        setTimeout(() => lbtn.classList.remove("ov-copied"), 1200);
+      });
+      box.appendChild(lbtn);
     });
   });
+}
+
+// file:///.../overlay/<page>.html?relay=ws://localhost:8765, from where
+// the engine says it is running (state.enginePath = <repo>/ocr/freefire).
+function ffLocalOverlayLink(file){
+  const eng = String((ffState && ffState.enginePath) || "C:/Users/user/MOBA-OCR-Overlay/ocr/freefire")
+    .split("\\").join("/");
+  const root = eng.replace(/\/+ocr\/+freefire\/*$/i, "").replace(/^\/+/, "");
+  return "file:///" + root + "/" + file + "?relay=ws://localhost:8765";
 }
 
 document.getElementById("overlayViewerTokenSave").addEventListener("click", () => {

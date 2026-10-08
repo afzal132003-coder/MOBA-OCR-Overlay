@@ -508,8 +508,8 @@
 
 <script>
 const _params = new URLSearchParams(location.search);
-const _sameOrigin = (location.protocol === "https:"
-  ? "wss://" : "ws://") + location.host;
+const _sameOrigin = location.host ? (location.protocol === "https:"
+  ? "wss://" : "ws://") + location.host : "";
 const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || _sameOrigin;
 const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
 const WS_URL = _relay

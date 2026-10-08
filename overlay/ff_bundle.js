@@ -15,7 +15,7 @@
    goes to every page, which ignores what is not for it. */
 function ffBundle(PAGE, CHILDREN){
   const params = new URLSearchParams(location.search);
-  const sameOrigin = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
+  const sameOrigin = (location.host ? (location.protocol === "https:" ? "wss://" : "ws://") + location.host : "");
   const relay = params.get("relay") || localStorage.getItem("moba_relay") || sameOrigin;
   const token = params.get("token") || localStorage.getItem("moba_token") || "";
   const WS_URL = relay
