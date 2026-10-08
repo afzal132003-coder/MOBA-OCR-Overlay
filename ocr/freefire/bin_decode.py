@@ -37,7 +37,7 @@ import numpy as np
 
 CLOCK_ID = 1002
 # Bumped when the decode changes, so cached decodes are made again.
-VERSION = 2
+VERSION = 4
 TICK_RATE = (28.0, 33.0)        # frame-counter ticks a second, the range believed
 
 
@@ -74,7 +74,7 @@ def _records(vals, sg):
     i = np.arange(6, max(6, n - 16))
     isf = lambda a: (a > 900_000_000) & (a < 4_300_000_000)
     m = ((np.abs(sg[i]) < 1_300_000) & (np.abs(sg[i + 2]) < 1_300_000)
-         & (sg[i + 1] > -100_000) & (sg[i + 1] < 500_000)
+         & (sg[i + 1] > -100_000) & (sg[i + 1] < 3_000_000)   # the plane flies up to ~1.4 km
          & (vals[i - 3] == 0) & (vals[i - 2] == 0)
          & isf(vals[i + 13]) & isf(vals[i + 14]) & isf(vals[i + 15]))
     return i[m]
@@ -272,6 +272,13 @@ def decode(bin_path, names=None, data=None, step=1.0):
         if pid is None:
             continue
         sel = np.nonzero(slot == s)[0]
+        # Not places on the map: the origin, before the client places
+        # anyone, and the plane's cabin -- while a player waits to jump the
+        # stream gives their spot INSIDE the plane, a few metres from 0,0
+        # at ~1.4 km. They are on the map from the jump.
+        px, pz, py = X[sel], Z[sel], Y[sel]
+        placed = ~(((np.abs(px) < 1) & (np.abs(pz) < 1)) | ((py > 1000) & (np.hypot(px, pz) < 60)))
+        sel = sel[placed]
         if len(sel) < 3:
             continue
         t, x, z, y, vy = T[sel], X[sel], Z[sel], Y[sel], VY[sel]

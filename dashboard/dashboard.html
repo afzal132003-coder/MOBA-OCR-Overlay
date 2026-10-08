@@ -3589,7 +3589,9 @@
         <div class="team-form" id="ff_mvStatsBox" style="max-width:300px;margin:0;display:none;">
           <label for="ff_mvStatsMap" title="Map &amp; team stats: the map as it is drawn now, or the match played back from its replay .bin -- every player moving, the zone closing in, who eliminated whom (MapStream). Needs the game's .bin beside its replay; without one the standard map shows.">Map view</label>
           <div style="display:flex;gap:6px;">
-            <select id="ff_mvStatsMap"><option value="standard">Standard map</option><option value="bin">BIN replay (MapStream)</option></select>
+            <select id="ff_mvStatsMap"><option value="standard">Standard map</option>
+              <option value="bin">BIN: MapStream (play the match)</option><option value="bin-landing">BIN: Landing</option>
+              <option value="bin-rotations">BIN: Rotations</option><option value="bin-paths">BIN: Paths</option></select>
             <select id="ff_mvBinSecs" title="How long the BIN replay takes to play the whole match" style="width:auto;">
               <option value="30">30 s</option><option value="45">45 s</option><option value="60">60 s</option>
               <option value="90">90 s</option><option value="120">120 s</option></select>

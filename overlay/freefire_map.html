@@ -838,8 +838,11 @@ let binData = null, binGaveUp = "", binWaitTimer = 0, bin = null, lastState = nu
 const binMaps = {};
 
 function binSecs(cfg){ return Math.max(10, Math.min(300, Number(cfg.binSeconds) || 60)); }
+// Map view "bin" plays the match (MapStream); "bin-landing",
+// "bin-rotations" and "bin-paths" are the BIN tab's other three views.
+function binView(cfg){ return String(cfg.statsMap || "").replace(/^bin-?/, "") || "stream"; }
 function binStatus(cfg){
-  if(cfg.statsMap !== "bin") return "off";
+  if(!/^bin/.test(String(cfg.statsMap || ""))) return "off";
   if(binData && binData.matchFile === cfg.matchFile) return binData.ok ? "ready" : "failed";
   return binGaveUp === cfg.matchFile ? "failed" : "waiting";
 }
@@ -900,7 +903,7 @@ function binMap(image){
   const tone = () => {
     m.canvas.width = im.naturalWidth; m.canvas.height = im.naturalHeight;
     const c = m.canvas.getContext("2d");
-    c.filter = "saturate(.7) brightness(.6) contrast(1.12)";
+    c.filter = "grayscale(.75) brightness(.55) contrast(1.15)";
     c.drawImage(im, 0, 0);
     m.ready = true;
   };
@@ -939,17 +942,18 @@ function startBin(view, cfg, roster, animate){
   const css = getComputedStyle(document.body);
   bin = { d, view, cv, ctx: cv.getContext("2d"), W, dpr, dur, secs: binSecs(cfg), picked,
           squads: Object.values(bySq), cam: null, started: null, raf: 0, last: 0, still: !animate,
-          map: binMap(view.image), font: css.fontFamily,
+          mode: binView(cfg), map: binMap(view.image), font: css.fontFamily,
           next: css.getPropertyValue("--next").trim() || "#ffe97a",
           accent: css.getPropertyValue("--accent").trim() || "#f7941d" };
+  // the first moment anyone is on the map: before it, the squads are dropping
+  bin.firstOn = Math.min(...bin.squads.map(q => Math.min(...q.players.map(p => p.t[0] || 1e9))));
   box.classList.add("bin");
-  const clock = document.getElementById("clock");
-  clock.classList.add("on");
+  document.getElementById("clock").classList.remove("on");     // the HUD has its own
   const panel = document.getElementById("panel");
   const tick = now => {
     if(!bin) return;
     let t;
-    if(bin.still) t = bin.dur;
+    if(bin.mode !== "stream" || bin.still) t = bin.dur;
     else if(!panel.classList.contains("on")){ bin.started = null; t = 0; }
     else {
       if(bin.started == null) bin.started = now;
@@ -957,10 +961,10 @@ function startBin(view, cfg, roster, animate){
     }
     const dt = bin.last ? Math.min(0.1, (now - bin.last) / 1000) : 1;
     bin.last = now;
-    binFrame(t, dt);
-    clock.textContent = mmss(t);
-    // done a beat after the end, once the camera has settled
-    if(bin.still || t >= bin.dur){
+    if(bin.mode === "stream") binFrame(t, dt); else binStatic(now);
+    // done a beat after the end, once the camera has settled and the
+    // pictures are in
+    if(bin.mode !== "stream" || bin.still || t >= bin.dur){
       bin.doneAt = bin.doneAt || now;
       if(now - bin.doneAt > 2500 && bin.map.ready) return;
     }
@@ -989,11 +993,15 @@ function binBoundary(zs, t, dur){
   }
   return prev ? { cur: prev, next: null, closing: false } : null;
 }
+// The HUD across the top and the timeline across the bottom, as in the
+// BIN tab: the camera frames what matters in the space between them.
+const BIN_HUD = 72, BIN_TL = 54;
 function binTarget(t, alive){
   const b = bin, zs = (b.view.zones || []);
+  const room = (b.W - BIN_HUD - BIN_TL) / b.W;
   const fit = (x0, y0, x1, y1) => {
     const w = Math.max(90, x1 - x0, y1 - y0);
-    return [(x0 + x1) / 2, (y0 + y1) / 2, Math.max(1, Math.min(3.2, 1000 / w))];
+    return [(x0 + x1) / 2, (y0 + y1) / 2, Math.max(1, Math.min(3.2, 1000 / w * room))];
   };
   let tx = 500, ty = 500, tz = 1;
   if(b.picked.size && alive.length){
@@ -1030,60 +1038,47 @@ function binFrame(t, dt){
     const e = 1 - Math.exp(-dt * 1.8);
     b.cam.x += (tx - b.cam.x) * e; b.cam.y += (ty - b.cam.y) * e; b.cam.z += (tz - b.cam.z) * e;
   }
-  const cam = b.cam, s = W / 1000 * cam.z;
-  const S = (u, v) => [(u - cam.x) * s + W / 2, (v - cam.y) * s + W / 2];
+  const S = binScreen(b.cam);
   const font = (w, px) => `${w} ${px}px ${b.font}`;
-
-  ctx.fillStyle = "#06090d"; ctx.fillRect(0, 0, W, W);
-  if(b.map.ready){
-    const [x0, y0] = S(0, 0);
-    ctx.drawImage(b.map.canvas, x0, y0, 1000 * s, 1000 * s);
-  }
-  // the zone: outside the boundary tinted, the boundary, the next circle dashed
+  binBase(S);
+  // the zone: the boundary (solid) closing on the next circle (dashed)
   const bd = binBoundary(b.view.zones || [], T, b.dur);
   if(bd){
-    const [cx, cy] = S(bd.cur.x, bd.cur.y), r = bd.cur.r * s;
+    const [cx, cy] = S(bd.cur.x, bd.cur.y), r = bd.cur.r * S.s;
     if(bd.cur.r < 1400){
       ctx.beginPath(); ctx.rect(0, 0, W, W); ctx.arc(cx, cy, r, 0, Math.PI * 2, true);
-      ctx.fillStyle = "rgba(30,90,220,.22)"; ctx.fill();
+      ctx.fillStyle = "rgba(30,90,220,.12)"; ctx.fill();
       ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.strokeStyle = "rgba(120,170,255,.95)"; ctx.lineWidth = 2.5; ctx.stroke();
+      ctx.strokeStyle = "rgba(255,255,255,.8)"; ctx.lineWidth = 2.5; ctx.stroke();
     }
     if(bd.next){
-      const [nx, ny] = S(bd.next.x, bd.next.y), nr = bd.next.r * s;
+      const [nx, ny] = S(bd.next.x, bd.next.y), nr = bd.next.r * S.s;
       ctx.beginPath(); ctx.arc(nx, ny, nr, 0, Math.PI * 2);
-      ctx.setLineDash([9, 7]); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2.5; ctx.stroke(); ctx.setLineDash([]);
+      ctx.setLineDash([10, 8]); ctx.strokeStyle = "rgba(255,255,255,.92)"; ctx.lineWidth = 2.5; ctx.stroke(); ctx.setLineDash([]);
+      ctx.font = font(800, 12); ctx.fillStyle = b.accent; ctx.textAlign = "center";
+      ctx.fillText("NEXT ZONE", nx, ny - nr - 8); ctx.textAlign = "left";
     }
   }
-  // the plane's line, while the squads are still dropping
+  // the plane, and the squads dropping, until the first of them lands
   const pl = b.view.plane;
-  if(pl && pl.from && pl.to && t < 150){
+  if(pl && pl.from && pl.to && T < Math.max(240, b.firstOn + 20)){
     const [x1, y1] = S(pl.from[0] * 1000, pl.from[1] * 1000), [x2, y2] = S(pl.to[0] * 1000, pl.to[1] * 1000);
-    ctx.globalAlpha = Math.max(0, 1 - t / 150) * .8;
+    ctx.globalAlpha = .6;
     ctx.setLineDash([12, 9]); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2.5;
     ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.setLineDash([]);
     ctx.globalAlpha = 1;
   }
-  // routes: each player's last stretch, on the ground
-  ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round";
+  if(!alive.length && T < b.firstOn + 2){
+    ctx.font = font(900, 26); ctx.textAlign = "center";
+    ctx.lineWidth = 5; ctx.strokeStyle = "rgba(0,0,0,.75)"; ctx.strokeText("SQUADS DROPPING", W / 2, W / 2 + 10);
+    ctx.fillStyle = "#ffffff"; ctx.fillText("SQUADS DROPPING", W / 2, W / 2 + 10);
+    ctx.textAlign = "left";
+  }
+  // routes: each player's last stretch on the ground
+  ctx.lineWidth = 1.8; ctx.lineJoin = "round"; ctx.lineCap = "round";
   b.squads.forEach(q => {
-    ctx.strokeStyle = q.colour; ctx.globalAlpha = .55;
-    q.players.forEach(p => {
-      ctx.beginPath();
-      let pen = false;
-      for(let k = 0; k < p.t.length; k++){
-        const tk = p.t[k];
-        if(tk < t - BIN_TRAIL) continue;
-        if(tk > t) break;
-        if(p.airAt[k] || p.cutAt.has(k)){ pen = false; if(p.airAt[k]) continue; }
-        const [x, y] = S(p.u[k], p.v[k]);
-        if(pen) ctx.lineTo(x, y); else ctx.moveTo(x, y);
-        pen = true;
-      }
-      const a = binAt(p, t);
-      if(pen && a && !a[2]){ const [x, y] = S(a[0], a[1]); ctx.lineTo(x, y); }
-      ctx.stroke();
-    });
+    ctx.strokeStyle = q.colour; ctx.globalAlpha = .6;
+    q.players.forEach(p => binRoute(ctx, S, p, t - BIN_TRAIL, t));
   });
   ctx.globalAlpha = 1;
   // where players fell: a red cross, fading
@@ -1091,100 +1086,233 @@ function binFrame(t, dt){
     if(p.survivor || t <= p.out + 0.3 || t > p.out + 40) return;
     const k = p.t.length - 1, [x, y] = S(p.u[k], p.v[k]);
     ctx.globalAlpha = 1 - (t - p.out) / 40;
-    ctx.strokeStyle = "#ff4d4d"; ctx.lineWidth = 2.5;
+    ctx.strokeStyle = "rgba(255,90,90,.95)"; ctx.lineWidth = 2.2;
     ctx.beginPath(); ctx.moveTo(x - 5, y - 5); ctx.lineTo(x + 5, y + 5); ctx.moveTo(x - 5, y + 5); ctx.lineTo(x + 5, y - 5); ctx.stroke();
   }));
   ctx.globalAlpha = 1;
-  // players: a dot in the squad's colour; close in, their photo
-  const near = cam.z >= 2.2;
-  const pr = near ? 10 : Math.min(7, 4 + (cam.z - 1) * 1.6);
+  // players: photo circles in the squad's colour, an alive bar under each;
+  // close in, their names
+  const near = b.cam.z > 1.6;
+  const pr = near ? 12 : 8;
+  const named = [];                                 // names drawn: one never written over another
   now.forEach(({ q, pts }) => pts.forEach(([u, v, air, p]) => {
     const [x, y] = S(u, v);
     if(x < -30 || y < -30 || x > W + 30 || y > W + 30) return;
-    if(air){
-      // in the plane, then dropping: small, ringed white
-      ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = q.colour; ctx.fill();
-      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1.2; ctx.stroke();
-      return;
+    const r = air ? pr * .6 : pr;
+    ctx.save();
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.closePath();
+    ctx.fillStyle = "#0b0f14"; ctx.fill();
+    const ph = !air && b.d.photoImgs && b.d.photoImgs[(b.d.photoOf || {})[String(p.pid)]];
+    if(ph && ph.complete && ph.naturalWidth){ ctx.clip(); ctx.drawImage(ph, x - r, y - r, r * 2, r * 2); }
+    ctx.restore();
+    ctx.strokeStyle = q.colour; ctx.lineWidth = 2.2;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+    if(!air){
+      ctx.fillStyle = "#22c55e"; ctx.fillRect(x - r, y + r + 3, r * 2, 3);
+      if(near && !named.some(([nx, ny]) => Math.abs(nx - x) < 70 && Math.abs(ny - y) < 16)){
+        named.push([x, y]);
+        ctx.font = font(700, 11); ctx.fillStyle = "#e5e7eb"; ctx.textAlign = "center";
+        ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,.8)"; ctx.strokeText(binName(p.name), x, y + r + 16);
+        ctx.fillText(binName(p.name), x, y + r + 16); ctx.textAlign = "left";
+      }
     }
-    ctx.beginPath(); ctx.arc(x, y, pr, 0, Math.PI * 2);
-    ctx.fillStyle = near ? "#0b0f14" : q.colour; ctx.fill();
-    const ph = near && b.d.photoImgs && b.d.photoImgs[(b.d.photoOf || {})[String(p.pid)]];
-    if(ph && ph.complete && ph.naturalWidth){
-      ctx.save(); ctx.beginPath(); ctx.arc(x, y, pr - 1.5, 0, Math.PI * 2); ctx.clip();
-      ctx.drawImage(ph, x - pr, y - pr, pr * 2, pr * 2); ctx.restore();
-    }
-    ctx.lineWidth = near ? 2.5 : 1.5; ctx.strokeStyle = near ? q.colour : "rgba(0,0,0,.85)";
-    ctx.beginPath(); ctx.arc(x, y, pr, 0, Math.PI * 2); ctx.stroke();
   }));
-  // each squad's logo above its players on the ground
-  const R = near ? 17 : 13;
+  // each squad's logo above its players, the tag over it
   const winner = T >= b.dur - 0.5 ? b.squads.find(q => q.place === 1) : null;
   now.forEach(({ q, pts }) => {
     const g = pts.filter(a => !a[2]);
     if(!g.length) return;
-    const [x0, y0] = S(g.reduce((a, b2) => a + b2[0], 0) / g.length, g.reduce((a, b2) => a + b2[1], 0) / g.length);
-    const big = winner === q ? 1.45 : 1;
-    const rr = R * big, py = y0 - pr - rr - 9;
-    if(x0 < -40 || py < -40 || x0 > W + 40 || y0 > W + 40) return;
-    ctx.strokeStyle = q.colour; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(x0, py + rr); ctx.lineTo(x0, y0 - pr); ctx.stroke();
-    ctx.beginPath(); ctx.arc(x0, py, rr, 0, Math.PI * 2); ctx.fillStyle = "#0b0f14"; ctx.fill();
-    const logo = q.team && binImg(q.team.logo);
-    if(logo){
-      ctx.save(); ctx.beginPath(); ctx.arc(x0, py, rr - 2.5, 0, Math.PI * 2); ctx.clip();
-      ctx.drawImage(logo, x0 - rr + 2.5, py - rr + 2.5, (rr - 2.5) * 2, (rr - 2.5) * 2); ctx.restore();
-    } else {
-      const tag = String((q.team && q.team.shortName) || q.name || q.squad).replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase();
-      ctx.font = font(800, Math.round(rr * .7)); ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText(tag, x0, py + 1);
-    }
-    ctx.lineWidth = winner === q ? 3.5 : 2.5; ctx.strokeStyle = winner === q ? b.next : q.colour;
-    ctx.beginPath(); ctx.arc(x0, py, rr, 0, Math.PI * 2); ctx.stroke();
-    if(near || b.picked.size || winner === q){
-      const tag = String((q.team && q.team.shortName) || q.name || "").toUpperCase();
-      ctx.font = font(800, winner === q ? 16 : 13); ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
-      ctx.lineWidth = 3.5; ctx.strokeStyle = "rgba(0,0,0,.85)"; ctx.strokeText(tag, x0, py - rr - 5);
-      ctx.fillStyle = winner === q ? b.next : "#ffffff"; ctx.fillText(tag, x0, py - rr - 5);
-    }
+    const [x0, y0] = S(g.reduce((a, c) => a + c[0], 0) / g.length, g.reduce((a, c) => a + c[1], 0) / g.length);
+    binPin(x0, y0, q, near, pr, winner === q);
   });
-  ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
-  // squads left, top left
-  const outBy = (b.d.teamOut || []).filter(o => o.t <= T).length;
-  const left = Math.max(1, (b.view.squads || []).length - outBy);
-  const lab = left === 1 ? "SQUAD LEFT" : "SQUADS LEFT";
-  ctx.font = font(900, 26);
-  const nw = ctx.measureText(String(left)).width;
-  ctx.font = font(800, 12);
-  const lw = ctx.measureText(lab).width;
-  ctx.fillStyle = "rgba(0,0,0,.62)"; ctx.fillRect(14, 12, 14 + nw + 8 + lw + 14, 42);
-  ctx.fillStyle = b.accent; ctx.fillRect(14, 12, 4, 42);
-  ctx.font = font(900, 26); ctx.fillStyle = "#fff"; ctx.fillText(String(left), 28, 43);
-  ctx.font = font(800, 12); ctx.fillStyle = "rgba(255,255,255,.75)"; ctx.fillText(lab, 28 + nw + 8, 38);
-  // who eliminated whom, bottom left, as it happens
-  const window_ = 3.2 * b.dur / b.secs;              // ~3 real seconds on screen
+  // who eliminated whom, as it happens: cards down the right
+  const window_ = 3.5 * b.dur / b.secs;              // ~3.5 real seconds on screen
   const feed = (b.d.kills || []).filter(k => k.t <= T && T - k.t < window_ &&
-                 (!b.picked.size || b.picked.has(k.ks) || b.picked.has(k.vs))).slice(-3);
+                 (!b.picked.size || b.picked.has(k.ks) || b.picked.has(k.vs))).slice(-4);
   feed.forEach((k, i) => {
-    const y = W - 18 - (feed.length - i) * 36;
-    const kn = binName(k.kn).toUpperCase() || "?", vn = binName(k.vn).toUpperCase();
-    ctx.font = font(800, 15);
-    const w1 = ctx.measureText(kn).width;
-    ctx.font = font(700, 13);
-    const w2 = ctx.measureText(vn).width;
-    const w = Math.min(W - 40, 30 + w1 + 34 + w2);
+    const y = BIN_HUD + 12 + i * 44, x = W - 262;
     ctx.globalAlpha = Math.min(1, (window_ - (T - k.t)) / (window_ * .25));
-    ctx.fillStyle = "rgba(6,9,13,.86)"; ctx.fillRect(14, y, w, 30);
-    ctx.fillStyle = colourOf(k.ks); ctx.fillRect(14, y, 4, 30);
-    ctx.font = font(800, 15); ctx.fillStyle = "#fff"; ctx.fillText(kn, 26, y + 21);
-    ctx.strokeStyle = b.accent; ctx.lineWidth = 2.5;
-    const xx = 26 + w1 + 12;
-    ctx.beginPath(); ctx.moveTo(xx, y + 10); ctx.lineTo(xx + 10, y + 20); ctx.moveTo(xx, y + 20); ctx.lineTo(xx + 10, y + 10); ctx.stroke();
-    ctx.font = font(700, 13); ctx.fillStyle = "rgba(255,255,255,.72)"; ctx.fillText(vn, xx + 22, y + 20);
-    if(k.vs != null){ ctx.fillStyle = colourOf(k.vs); ctx.fillRect(14 + w - 4, y, 4, 30); }
+    ctx.fillStyle = "rgba(8,10,14,.86)"; ctx.fillRect(x, y, 248, 38);
+    ctx.fillStyle = colourOf(k.ks); ctx.fillRect(x, y, 4, 38);
+    ctx.font = font(800, 14); ctx.fillStyle = "#ffffff"; ctx.fillText(binName(k.kn).toUpperCase() || "?", x + 13, y + 17);
+    ctx.font = font(700, 10); ctx.fillStyle = "#9ca3af";
+    ctx.fillText("ELIMINATED  " + binName(k.vn).toUpperCase(), x + 13, y + 31);
     ctx.globalAlpha = 1;
   });
+  // the HUD: map, clock, teams alive, eliminations
+  const outBy = (b.d.teamOut || []).filter(o => o.t <= T).length;
+  const teams = Math.max(1, (b.view.squads || []).length - outBy);
+  const elims = (b.d.kills || []).filter(k => k.t <= T).length;
+  binHud(mmss(T).padStart(5, "0"), [[teams, "TEAMS ALIVE"], [elims, "ELIMINATIONS"]]);
+  // the timeline: the match, its circles, the playhead
+  const T0 = 36, T1 = W - 36, ty0 = W - 24, X = v => T0 + (T1 - T0) * Math.min(1, Math.max(0, v / b.dur));
+  ctx.fillStyle = "rgba(6,9,13,.78)"; ctx.fillRect(0, W - BIN_TL, W, BIN_TL);
+  ctx.font = font(700, 10); ctx.fillStyle = b.accent; ctx.fillText("T I M E L I N E", T0, W - 38);
+  ctx.strokeStyle = "rgba(255,255,255,.25)"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(T0, ty0); ctx.lineTo(T1, ty0); ctx.stroke();
+  ctx.strokeStyle = b.accent; ctx.beginPath(); ctx.moveTo(T0, ty0); ctx.lineTo(X(T), ty0); ctx.stroke();
+  (b.view.zones || []).forEach((z, i) => {
+    if(z.announced == null) return;
+    const x = X(z.announced);
+    ctx.fillStyle = z.announced <= T ? b.accent : "rgba(255,255,255,.55)";
+    ctx.beginPath(); ctx.arc(x, ty0, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.font = font(700, 10); ctx.textAlign = "center"; ctx.fillText("Z" + (i + 1), x, ty0 + 16); ctx.textAlign = "left";
+  });
+  ctx.fillStyle = "#ffffff"; ctx.beginPath(); ctx.arc(X(T), ty0, 6, 0, Math.PI * 2); ctx.fill();
+  // the match's length on the label's row, clear of the last circle's mark
+  ctx.font = font(700, 10); ctx.fillStyle = "#9ca3af"; ctx.textAlign = "right"; ctx.fillText(mmss(b.dur), T1, W - 38); ctx.textAlign = "left";
+}
+
+// Map units to the screen, for a camera {x, y, z}: the map centred between
+// the HUD and the timeline. S.s is screen pixels per map unit.
+function binScreen(cam){
+  const W = bin.W, s = W / 1000 * cam.z, cy = BIN_HUD + (W - BIN_HUD - BIN_TL) / 2;
+  const S = (u, v) => [(u - cam.x) * s + W / 2, (v - cam.y) * s + cy];
+  S.s = s;
+  return S;
+}
+// The dark map under everything.
+function binBase(S){
+  const ctx = bin.ctx, W = bin.W;
+  ctx.fillStyle = "#06090d"; ctx.fillRect(0, 0, W, W);
+  if(bin.map.ready){ const [x0, y0] = S(0, 0); ctx.drawImage(bin.map.canvas, x0, y0, 1000 * S.s, 1000 * S.s); }
+}
+// One player's route on the ground between two moments.
+function binRoute(ctx, S, p, from, to){
+  ctx.beginPath();
+  let pen = false;
+  for(let k = 0; k < p.t.length; k++){
+    const tk = p.t[k];
+    if(tk < from) continue;
+    if(tk > to) break;
+    if(p.airAt[k]){ pen = false; continue; }
+    if(p.cutAt.has(k)) pen = false;
+    const [x, y] = S(p.u[k], p.v[k]);
+    if(pen) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    pen = true;
+  }
+  if(to < 1e8){
+    const a = binAt(p, to);
+    if(pen && a && !a[2]){ const [x, y] = S(a[0], a[1]); ctx.lineTo(x, y); }
+  }
+  ctx.stroke();
+}
+// A squad's pin: its logo in a ring above (x0, y0), the tag over it.
+function binPin(x0, y0, q, near, pr, win){
+  const b = bin, ctx = b.ctx, W = b.W;
+  const R = (near ? 22 : 15) * (win ? 1.4 : 1), py = y0 - (pr || 0) - R - 12;
+  if(x0 < -40 || py < -60 || x0 > W + 40 || y0 > W + 40) return;
+  ctx.strokeStyle = q.colour + "aa"; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(x0, py + R); ctx.lineTo(x0, y0 - (pr || 0)); ctx.stroke();
+  ctx.fillStyle = "#0b0f14"; ctx.beginPath(); ctx.arc(x0, py, R, 0, Math.PI * 2); ctx.fill();
+  const logo = q.team && binImg(q.team.logo);
+  if(logo){
+    ctx.save(); ctx.beginPath(); ctx.arc(x0, py, R - 3, 0, Math.PI * 2); ctx.clip();
+    ctx.drawImage(logo, x0 - R + 3, py - R + 3, (R - 3) * 2, (R - 3) * 2); ctx.restore();
+  } else {
+    const tag = String((q.team && q.team.shortName) || q.name || q.squad).replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase();
+    ctx.font = `800 ${Math.round(R * .62)}px ${b.font}`; ctx.fillStyle = q.colour; ctx.textAlign = "center";
+    ctx.fillText(tag, x0, py + R * .22); ctx.textAlign = "left";
+  }
+  ctx.strokeStyle = win ? b.next : q.colour; ctx.lineWidth = win ? 3.5 : 2.5;
+  ctx.beginPath(); ctx.arc(x0, py, R, 0, Math.PI * 2); ctx.stroke();
+  const tag = String((q.team && q.team.shortName) || q.name || ("SQUAD " + q.squad)).toUpperCase();
+  ctx.font = `800 ${near || win ? 14 : 11}px ${b.font}`; ctx.textAlign = "center";
+  ctx.lineWidth = 3.5; ctx.strokeStyle = "rgba(0,0,0,.85)"; ctx.strokeText(tag, x0, py - R - 6);
+  ctx.fillStyle = win ? b.next : "#f3f4f6"; ctx.fillText(tag, x0, py - R - 6);
+  ctx.textAlign = "left";
+}
+// The band across the top: the map's name, the big readout under it, and
+// numbers with their labels on the right.
+function binHud(big, stats){
+  const b = bin, ctx = b.ctx, W = b.W;
+  const font = (w, px) => `${w} ${px}px ${b.font}`;
+  ctx.fillStyle = "rgba(6,9,13,.72)"; ctx.fillRect(0, 0, W, BIN_HUD);
+  ctx.font = font(700, 12); ctx.fillStyle = b.accent;
+  ctx.fillText(String(b.view.mapName || "").toUpperCase().split("").join(" "), 22, 24);
+  ctx.font = /^\d/.test(big) ? "700 34px ui-monospace, Menlo, Consolas, monospace" : font(900, 28);
+  ctx.fillStyle = "#f9fafb"; ctx.fillText(big, 20, 58);
+  ctx.fillStyle = b.accent; ctx.fillRect(22, 64, 26, 2);
+  ctx.textAlign = "center";
+  stats.forEach(([n, lab], i) => {
+    const x = W - 62 - (stats.length - 1 - i) * 118;
+    ctx.font = font(900, 30); ctx.fillStyle = "#f9fafb"; ctx.fillText(String(n), x, 44);
+    ctx.font = font(700, 9); ctx.fillStyle = "#9ca3af"; ctx.fillText(lab, x, 60);
+  });
+  ctx.textAlign = "left";
+}
+/* The BIN tab's three still views, whole map: where each squad LANDED,
+   its ROTATIONS (from the drop through where it stood at every circle),
+   and every PATH it took. Ticked teams only, when any are ticked. */
+function binStatic(now){
+  const b = bin, ctx = b.ctx, W = b.W;
+  ctx.setTransform(b.dpr, 0, 0, b.dpr, 0, 0);
+  const z = b.mode === "rotations" ? (() => {
+    // the first circle, framed: where the rotations happen
+    const z0 = (b.view.zones || [])[0];
+    if(!z0) return { x: 500, y: 500, z: 1 };
+    const room = (W - BIN_HUD - BIN_TL) / W, r = z0.r * 1000 * 1.15 + 30;
+    const zz = Math.max(1, Math.min(3.2, 1000 / (2 * r) * room)), half = 500 / zz;
+    return { x: Math.max(half, Math.min(1000 - half, z0.at[0] * 1000)), y: Math.max(half, Math.min(1000 - half, z0.at[1] * 1000)), z: zz };
+  })() : { x: 500, y: 500, z: (W - BIN_HUD - BIN_TL) / W };
+  const S = binScreen(z);
+  binBase(S);
+  // the zones, faint, for bearings
+  (b.view.zones || []).forEach((zn, i, all) => {
+    const [cx, cy] = S(zn.at[0] * 1000, zn.at[1] * 1000);
+    ctx.beginPath(); ctx.arc(cx, cy, zn.r * 1000 * S.s, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255,255,255,${.25 + .5 * (i + 1) / all.length})`; ctx.lineWidth = 1.5; ctx.stroke();
+  });
+  const landOf = p => { const k = p.airAt.indexOf(0); return k >= 0 ? [p.u[k], p.v[k], p.t[k]] : null; };
+  const mean = pts => pts.length ? [pts.reduce((a, c) => a + c[0], 0) / pts.length, pts.reduce((a, c) => a + c[1], 0) / pts.length] : null;
+  if(b.mode === "landing"){
+    b.squads.forEach(q => {
+      const pts = q.players.map(landOf).filter(Boolean);
+      pts.forEach(([u, v]) => {
+        const [x, y] = S(u, v);
+        ctx.fillStyle = q.colour; ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = "#0b0f14"; ctx.lineWidth = 1.5; ctx.stroke();
+      });
+      const c = mean(pts);
+      if(c){ const [x, y] = S(c[0], c[1]); binPin(x, y, q, false, 5, false); }
+    });
+    binHud("LANDING SPOTS", [[b.squads.length, "TEAMS"]]);
+  } else if(b.mode === "rotations"){
+    b.squads.forEach(q => {
+      const marks = [];
+      const land = mean(q.players.map(landOf).filter(Boolean));
+      if(land) marks.push([land[0], land[1], "D"]);
+      (b.view.zones || []).forEach((zn, i) => {
+        if(zn.announced == null) return;
+        const at = mean(q.players.map(p => binAt(p, zn.announced)).filter(a => a && !a[2]));
+        if(at) marks.push([at[0], at[1], String(i + 1)]);
+      });
+      if(!marks.length) return;
+      ctx.strokeStyle = q.colour; ctx.lineWidth = 3;
+      ctx.beginPath(); marks.forEach(([u, v], k) => { const [x, y] = S(u, v); k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
+      marks.forEach(([u, v, tag]) => {
+        const [x, y] = S(u, v);
+        ctx.fillStyle = q.colour; ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#111"; ctx.font = `900 11px ${b.font}`; ctx.textAlign = "center"; ctx.fillText(tag, x, y + 4); ctx.textAlign = "left";
+      });
+      const [lu, lv] = marks[marks.length - 1], [x, y] = S(lu, lv);
+      binPin(x, y, q, false, 9, q.place === 1);
+    });
+    binHud("ROTATIONS", [[(b.view.zones || []).length, "CIRCLES"], [b.squads.length, "TEAMS"]]);
+  } else {
+    ctx.lineWidth = 1.8; ctx.lineJoin = "round"; ctx.lineCap = "round";
+    b.squads.forEach(q => { ctx.strokeStyle = q.colour; ctx.globalAlpha = .75; q.players.forEach(p => binRoute(ctx, S, p, -1, 1e9)); });
+    ctx.globalAlpha = 1;
+    b.squads.forEach(q => {
+      const c = mean(q.players.map(landOf).filter(Boolean));
+      if(c){ const [x, y] = S(c[0], c[1]); binPin(x, y, q, false, 4, q.place === 1); }
+    });
+    binHud("ALL PATHS", [[b.squads.length, "TEAMS"]]);
+  }
+  // the still views carry no timeline: the band under the map stays plain
+  ctx.fillStyle = "rgba(6,9,13,.78)"; ctx.fillRect(0, W - BIN_TL, W, BIN_TL);
+  ctx.font = `700 12px ${b.font}`; ctx.fillStyle = "#9ca3af";
+  ctx.fillText((b.picked.size ? "TICKED TEAMS" : "EVERY TEAM") + "  ·  " + mmss(b.dur) + " MATCH", 22, W - 22);
 }
 
 /* ---- render -------------------------------------------------------- */
@@ -1259,7 +1387,7 @@ function render(state){
   const gameLabel = cfg.gameNo ? "Game " + cfg.gameNo : (cfg.matchLabel || "");
   const binNow = mode === "stats" ? binStatus(cfg) : "off";
   const sig = JSON.stringify([tpl, mode, view, pins, cfg.show, cfg.teams, cfg.replay, cfg.replaySeconds, cfg.shownAt, cfg.gameNo,
-                              binNow, cfg.binSeconds,
+                              binNow, cfg.binSeconds, cfg.statsMap,
                               cfg.zoom, ev.currentGame, ev.roundName, cfg.matchLabel, cfg.mapLabel, cfg.roundLabel,
                               ((roster.teams) || []).map(t => [t.name, t.shortName, t.displayName, !!t.logo])]);
   if(sig === lastSig) return;
@@ -1314,7 +1442,10 @@ function render(state){
       return;
     }
     if(binNow === "ready"){
-      side.innerHTML = sideStats(view, roster, { s0: BIN_LEAD, k: binSecs(cfg) / Math.max(1, Number(binData.duration || view.duration) || 1) });
+      const stream = binView(cfg) === "stream";
+      side.innerHTML = stream
+        ? sideStats(view, roster, { s0: BIN_LEAD, k: binSecs(cfg) / Math.max(1, Number(binData.duration || view.duration) || 1) })
+        : sideStats(view, roster);
       startBin(view, cfg, roster, animate);
     } else {
     // the map: the zones and the plane, nothing over them

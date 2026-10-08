@@ -9124,8 +9124,10 @@ MAP_VIEW_DEFAULTS = {
     # operator; 0 = automatic (the label above, else the event's game).
     "gameNo": 0,
     # Map & Team Stats: the map as it has always been drawn ("standard"),
-    # or the match played back from its replay .bin -- every player moving,
-    # the zone closing in, who eliminated whom ("bin") -- over binSeconds.
+    # or the BIN tab's views from the replay .bin: the match played back --
+    # every player moving, the zone closing in, who eliminated whom ("bin",
+    # over binSeconds) -- or where squads landed, their rotations, every
+    # path ("bin-landing", "bin-rotations", "bin-paths").
     "statsMap": "standard",
     "binSeconds": 60,
     # Drop spots, per map and team, kept across games -- squads keep their
@@ -9410,7 +9412,10 @@ def build_map_bin(match_file):
 
 def map_bin_wanted():
     mv = map_view_state()
-    return mv.get("source") == "stats" and mv.get("statsMap") == "bin" and bool(mv.get("matchFile"))
+    # "bin" plays the match; "bin-landing" / "bin-rotations" / "bin-paths"
+    # are the BIN tab's still views -- all of them drawn from the replay
+    return (mv.get("source") == "stats" and str(mv.get("statsMap") or "").startswith("bin")
+            and bool(mv.get("matchFile")))
 
 
 async def send_map_bin(reply_to=None, only=None):
