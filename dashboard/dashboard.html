@@ -3780,6 +3780,9 @@
               <option value="0">no trail</option><option value="9999">whole route</option></select>
             <select id="ff_binFollow" style="width:auto;" title="MapStream: the camera follows this team, with its route">
               <option value="">Whole map</option></select>
+            <label class="hint" style="display:flex;gap:6px;align-items:center;margin:0;"
+                   title="The camera closes in on the circle as the zone shrinks; with teams unticked below, it frames the ticked teams and moves with them">
+              <input type="checkbox" id="ff_binAutoZoom" checked> Auto zoom</label>
           </div>
           <input type="range" id="ff_binTime" min="0" max="1000" step="1" value="0" style="width:100%;margin-top:10px;">
           <div class="hint" id="ff_binClock" style="margin:2px 0 10px;font-variant-numeric:tabular-nums;"></div>
@@ -14200,8 +14203,32 @@ function ffBinDrawStream(ctx, W){
     let last = null;
     for(const p of pts){ if(p[0] <= t) last = p; else break; }
     if(last){ [tx, ty] = ffBinUV(last[1], last[2]); tz = 2.6; }
+  } else if(document.getElementById("ff_binAutoZoom").checked){
+    const fit = (x0, y0, x1, y1, pad) => {
+      const w = Math.max(60, x1 - x0) + pad * 2, h = Math.max(60, y1 - y0) + pad * 2;
+      return [(x0 + x1) / 2, (y0 + y1) / 2, Math.max(1, Math.min(3.2, Math.min(W / w, (H - 200) / h)))];
+    };
+    if(ffBin.hidden.size){
+      // only some teams ticked: frame where they are now, and follow them
+      const pts = [];
+      players.forEach(p => { const a = ffBinAt(p, t); if(a && a[2] < 150) pts.push(ffBinUV(a[0], a[1])); });
+      if(pts.length){
+        [tx, ty, tz] = fit(Math.min(...pts.map(q => q[0])), Math.min(...pts.map(q => q[1])),
+                           Math.max(...pts.map(q => q[0])), Math.max(...pts.map(q => q[1])), 70);
+      }
+    } else {
+      // every team: close in on the circle as the zone shrinks
+      const zs = (d.zones || []).filter(z => z.announced != null && z.announced <= t);
+      if(zs.length){
+        const z = zs[zs.length - 1], r = z.r * 1000, cx = z.at[0] * 1000, cy = z.at[1] * 1000;
+        [tx, ty, tz] = fit(cx - r, cy - r, cx + r, cy + r, Math.max(40, r * 0.18));
+      }
+    }
   }
-  const ease = ffBin.playing ? 0.12 : 1;
+  // the camera never shows past the map's edge
+  const half = 500 / tz;
+  tx = Math.max(half, Math.min(1000 - half, tx)); ty = Math.max(half, Math.min(1000 - half, ty));
+  const ease = ffBin.playing ? 0.08 : 1;
   cam.cx += (tx - cam.cx) * ease; cam.cy += (ty - cam.cy) * ease; cam.zoom += (tz - cam.zoom) * ease;
   const S = (u, v) => [(u - cam.cx) * cam.zoom + W / 2, (v - cam.cy) * cam.zoom + H / 2];
   const SW = (x, z) => { const [u, v] = ffBinUV(x, z); return S(u, v); };
@@ -14547,7 +14574,7 @@ function ffBinShow(msg){
     if(ffBin.playing){ document.getElementById("ff_binMode").value = "stream"; ffBin.last = 0; requestAnimationFrame(ffBinTick); }
   });
   document.getElementById("ff_binTime").addEventListener("input", e => { ffBin.t = Number(e.target.value); ffBinDraw(); });
-  ["ff_binMode", "ff_binTrail"].forEach(id => document.getElementById(id).addEventListener("change", ffBinDraw));
+  ["ff_binMode", "ff_binTrail", "ff_binAutoZoom"].forEach(id => document.getElementById(id).addEventListener("change", ffBinDraw));
   document.getElementById("ff_binFollow").addEventListener("change", () => {
     document.getElementById("ff_binMode").value = "stream"; ffBinDraw();
     // the camera eases while playing; paused, a few frames to settle
