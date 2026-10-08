@@ -9529,8 +9529,13 @@ def _slot_view(slot, result):
         return None
     label = str(result["label"])
     name = result.get("name") or (server_state.get("assetNames") or {}).get(label) or ""
-    out = {"label": label, "name": name if name and name != label else "",
-           "src": "assets/FFM/" + _SLOT_DIRS.get(slot, "") + label + ".png"}
+    rel = _SLOT_DIRS.get(slot, "") + label + ".png"
+    # the enhanced copy (assets/FFM/hd/, 2x, Real-ESRGAN) where there is one
+    hd = Path(__file__).parent.parent.parent / "overlay" / "assets" / "FFM" / "hd" / rel
+    # a bare id is not a name; a pet's own name ("PUG") is, even when the
+    # file is called that too
+    out = {"label": label, "name": name if name and not name.isdigit() else "",
+           "src": ("assets/FFM/hd/" if hd.exists() else "assets/FFM/") + rel}
     meta = _icon_meta(out["src"])
     if meta:
         out.update(meta)
