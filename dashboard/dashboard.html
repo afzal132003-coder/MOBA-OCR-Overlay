@@ -3097,6 +3097,10 @@
            border-top:1px solid #1b2430;padding-top:12px;flex-wrap:wrap;">
         <button id="ff_pushBooyah">Push Booyah Stats</button>
         <span class="hint">BOOYAH-ARROW &mdash; A/C/E/F/G/H, rows 2&ndash;5 (winning squad)</span>
+        <label class="hint" style="display:flex;gap:6px;align-items:center;margin:0 0 0 12px;"
+               title="Off: the photo columns are left exactly as they are -- not cleared, not written">
+          <input type="checkbox" id="ff_arrowPhotos" checked> Push player photo paths
+          (BOOYAH-ARROW D, ARROW MVP E)</label>
       </div>
       <div class="hint" id="ff_arrowLatest" style="margin-top:6px;"></div>
 
@@ -8085,6 +8089,8 @@ function ffRenderEvent(ff){
   setIfFree("ff_afterGameLabel", ev.afterGameLabel || "");
   setIfFree("ff_debuggerStartAt", (ff.settings && ff.settings.debuggerStartAt) || "");
   setIfFree("ff_resultsTab", (ff.settings && ff.settings.resultsTab) || "");
+  const apEl = document.getElementById("ff_arrowPhotos");
+  if(apEl && document.activeElement !== apEl) apEl.checked = !(ff.settings && ff.settings.arrowPushPhotos === false);
   if(typeof ffSyncOneClick === "function") ffSyncOneClick(ff);
   setIfFree("ff_sheetWebhookUrl", (ff.settings && ff.settings.sheetWebhookUrl) || "");
   setIfFree("ff_arrowWebhookUrl", (ff.settings && ff.settings.arrowWebhookUrl) || "");
@@ -8624,6 +8630,12 @@ document.getElementById("ff_aliveTableSource").addEventListener("change", (e) =>
 /* Saved as it is typed rather than behind a button: this sits next to
    Push, and a tab name you have to remember to save separately is one
    that will be wrong on the first push of the night. */
+document.getElementById("ff_arrowPhotos").addEventListener("change", (e) => {
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN && ffState)) return;
+  const settings = Object.assign({}, ffState.settings || {}, { arrowPushPhotos: e.target.checked });
+  ffWs.send(JSON.stringify({ type: "manual_update", data: { freefire: { settings } } }));
+});
+
 document.getElementById("ff_resultsTab").addEventListener("change", (e) => {
   if(!(ffWs && ffWs.readyState === WebSocket.OPEN && ffState)) return;
   const settings = Object.assign({}, ffState.settings || {},

@@ -10020,7 +10020,7 @@ def total_fragger_rows(matches, games=None, roster_teams=None):
     return out
 
 
-def push_arrow_block(what, rows):
+def push_arrow_block(what, rows, skip=None):
     """One block to the ARROW sheet, and what the script said back.
 
     Its own webhook, like every other push here: the ARROW tabs live in
@@ -10039,7 +10039,10 @@ def push_arrow_block(what, rows):
                 "freefire_arrow_push.gs on that spreadsheet and paste its "
                 "/exec URL into the dashboard."}
     try:
-        answer = _post_sheet_payload(url, {"what": what, "rows": rows})
+        body = {"what": what, "rows": rows}
+        if skip:
+            body["skip"] = list(skip)
+        answer = _post_sheet_payload(url, body)
     except Exception as e:
         return {"ok": False, "error": str(e)}
     try:
@@ -10965,7 +10968,12 @@ async def handle_client(websocket, path=None):
                             "No match was found to read -- fetch one in "
                             "Post-Match, or check the Match Result Folder."}}))
                     continue
-                result = push_arrow_block(what, rows)
+                # The photo-path tick: off leaves the photo columns alone.
+                skip = []
+                if (server_state.get("settings") or {}).get("arrowPushPhotos") is False:
+                    skip = ["photo"]
+                    rows = [{k: v for k, v in r.items() if k != "photo"} for r in rows]
+                result = push_arrow_block(what, rows, skip)
                 await websocket.send(json.dumps({
                     "type": "freefire_arrow_result",
                     "what": what, "rows": len(rows), "result": result}))

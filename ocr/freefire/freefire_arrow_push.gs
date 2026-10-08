@@ -35,6 +35,10 @@
  *   ARROW MVP MATCH  D2  the match MVP's name, picked in the dashboard
  *                        (tab and cell can be changed there)
  *
+ * A push can name columns to leave alone ("skip": ["photo"] when the
+ * dashboard's photo-path tick is off): those are neither cleared nor
+ * written, so whatever the sheet keeps there stays.
+ *
  * Survival times and photo paths go in as TEXT. "17:06" typed into a
  * sheet becomes six minutes past five in the afternoon; set as text it
  * stays seventeen minutes six seconds.
@@ -78,9 +82,9 @@ function doPost(e) {
   try {
     var body = JSON.parse(e.postData.contents);
     var what = body.what || "";
-    if (what === "booyah")      return reply(pushBooyah(body.rows || []));
+    if (what === "booyah")      return reply(pushBooyah(body.rows || [], body.skip || []));
     if (what === "matchTop")    return reply(pushMatchTop(body.rows || []));
-    if (what === "totals")      return reply(pushTotals(body.rows || []));
+    if (what === "totals")      return reply(pushTotals(body.rows || [], body.skip || []));
     if (what === "clearTotals") return reply(clearTotals());
     if (what === "matchMvp")    return reply(pushMatchMvp(body));
     return reply({ok: false, error: "Unknown 'what': " + what});
@@ -132,7 +136,13 @@ function clearColumns(sheet, columns, firstRow, rowCount) {
   });
 }
 
-function pushBlock(sheetName, columns, firstRow, rowCount, rows, fields) {
+function pushBlock(sheetName, columns, firstRow, rowCount, rows, fields, skip) {
+  if (skip && skip.length) {
+    var kept = {};
+    Object.keys(columns).forEach(function (k) { if (skip.indexOf(k) < 0) kept[k] = columns[k]; });
+    columns = kept;
+    fields = fields.filter(function (f) { return skip.indexOf(f) < 0; });
+  }
   var sheet = tab(sheetName);
   clearColumns(sheet, columns, firstRow, rowCount);
   var use = rows.slice(0, rowCount);
@@ -145,11 +155,11 @@ function pushBlock(sheetName, columns, firstRow, rowCount, rows, fields) {
           cleared: rowCount};
 }
 
-function pushBooyah(rows) {
+function pushBooyah(rows, skip) {
   return pushBlock(BOOYAH_TAB, BOOYAH_COLUMNS, BOOYAH_FIRST_ROW,
                    BOOYAH_ROWS, rows,
                    ["team", "ign", "photo", "elims", "knocks", "headRate", "finContri",
-                    "survival"]);
+                    "survival"], skip);
 }
 
 function pushMatchTop(rows) {
@@ -159,11 +169,11 @@ function pushMatchTop(rows) {
                     "headContri", "finContri"]);
 }
 
-function pushTotals(rows) {
+function pushTotals(rows, skip) {
   return pushBlock(MVP_TAB, TOTAL_COLUMNS, TOTAL_FIRST_ROW,
                    TOTAL_CLEAR_ROWS, rows,
                    ["team", "ign", "photo", "elims", "knocks", "headshots",
-                    "headContri", "finContri", "survival"]);
+                    "headContri", "finContri", "survival"], skip);
 }
 
 function pushMatchMvp(body) {
