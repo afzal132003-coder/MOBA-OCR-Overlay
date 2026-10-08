@@ -3586,6 +3586,15 @@
           <select id="ff_mvSource"><option value="live">Live zone</option><option value="match">A finished match</option>
             <option value="stats">Map &amp; team stats</option><option value="drops">Drop spots</option></select>
         </div>
+        <div class="team-form" id="ff_mvStatsBox" style="max-width:300px;margin:0;display:none;">
+          <label for="ff_mvStatsMap" title="Map &amp; team stats: the map as it is drawn now, or the match played back from its replay .bin -- every player moving, the zone closing in, who eliminated whom (MapStream). Needs the game's .bin beside its replay; without one the standard map shows.">Map view</label>
+          <div style="display:flex;gap:6px;">
+            <select id="ff_mvStatsMap"><option value="standard">Standard map</option><option value="bin">BIN replay (MapStream)</option></select>
+            <select id="ff_mvBinSecs" title="How long the BIN replay takes to play the whole match" style="width:auto;">
+              <option value="30">30 s</option><option value="45">45 s</option><option value="60">60 s</option>
+              <option value="90">90 s</option><option value="120">120 s</option></select>
+          </div>
+        </div>
         <div class="team-form" style="max-width:190px;margin:0;">
           <label for="ff_mvTemplate">Graphic</label>
           <select id="ff_mvTemplate" title="SS3 uses the event's PREFERRED DROP SPOT artwork for drop spots; zones and match analysis are then drawn in the SS3 colours and font.">
@@ -7149,6 +7158,13 @@ function ffOpen(url){
       }
     } else if(msg.type === "bin_result"){
       ffBinShow(msg);
+    } else if(msg.type === "map_bin_status"){
+      const el = document.getElementById("ff_mvLoaded");
+      if(el){
+        const base = el.textContent.replace(/\s*·\s*(BIN replay ready.*|⚠ BIN replay:.*)$/, "");
+        el.textContent = base + (msg.ok ? " · BIN replay ready (" + msg.players + " players)"
+                                        : " · ⚠ BIN replay: " + (msg.error || "not available") + " -- the standard map shows");
+      }
     } else if(msg.type === "map_view_result"){
       ffReplyArrived("mapView");
       if(ffMvConfirmShow !== null){
@@ -11475,6 +11491,8 @@ function ffMvChoice(extra){
     animate: document.getElementById("ff_mvAnim").checked,
     replay: document.getElementById("ff_mvReplay").checked,
     replaySeconds: Math.max(5, Math.min(120, Number(document.getElementById("ff_mvReplaySecs").value) || 30)),
+    statsMap: document.getElementById("ff_mvStatsMap").value,
+    binSeconds: Number(document.getElementById("ff_mvBinSecs").value) || 60,
     show, teams,
     matchLabel: document.getElementById("ff_mvMatchLabel").value.trim(),
     mapLabel: document.getElementById("ff_mvMapLabel").value.trim(),
@@ -11559,6 +11577,11 @@ function ffMvDrawDrops(){
   if(note && !note.dataset.hold) note.textContent = (m ? m.name : "Map " + id) + ": " + placed + " of " + teams.length + " teams pinned.";
 }
 let ffMvTeamsKey = "";
+// The Map view choice is Map & team stats' own: shown only with it.
+function ffMvStatsBox(){
+  const box = document.getElementById("ff_mvStatsBox");
+  if(box) box.style.display = document.getElementById("ff_mvSource").value === "stats" ? "" : "none";
+}
 function ffSyncMapView(){
   if(!ffState || !document.getElementById("ff_mvSource")) return;
   const mv = ffState.mapView || {};
@@ -11606,6 +11629,9 @@ function ffSyncMapView(){
   set("ff_mvAnim", mv.animate !== false, "checked");
   set("ff_mvReplay", !!mv.replay, "checked");
   set("ff_mvReplaySecs", String(mv.replaySeconds || 30));
+  set("ff_mvStatsMap", mv.statsMap || "standard");
+  set("ff_mvBinSecs", String(mv.binSeconds || 60));
+  ffMvStatsBox();
   const show = mv.show || {};
   if(!ffMvDirty) document.querySelectorAll(".ff-mv-show").forEach(el => {
     if(el !== document.activeElement && show[el.dataset.k] != null) el.checked = !!show[el.dataset.k];
@@ -11635,8 +11661,10 @@ function ffSyncMapView(){
 }
 (function ffWireMapView(){
   if(!document.getElementById("ff_mvSource")) return;
-  ["ff_mvSource", "ff_mvTemplate", "ff_mvGameNo", "ff_mvDropMap", "ff_mvZoom", "ff_mvPathScope", "ff_mvTheme", "ff_mvBg", "ff_mvAnim", "ff_mvReplay", "ff_mvReplaySecs"].forEach(id =>
+  ["ff_mvSource", "ff_mvTemplate", "ff_mvGameNo", "ff_mvDropMap", "ff_mvZoom", "ff_mvPathScope", "ff_mvTheme", "ff_mvBg", "ff_mvAnim", "ff_mvReplay", "ff_mvReplaySecs",
+   "ff_mvStatsMap", "ff_mvBinSecs"].forEach(id =>
     document.getElementById(id).addEventListener("change", ffMvStage));
+  document.getElementById("ff_mvSource").addEventListener("change", ffMvStatsBox);
   document.getElementById("ff_mvPick").addEventListener("change", () => { ffMvGameDirty = true; ffMvStage(); });
   const drops = (op, extra) => {
     if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return false;

@@ -152,6 +152,15 @@
   .legend{margin-top:auto;display:flex;gap:22px;flex-wrap:wrap;font-weight:800;font-size:15px;color:var(--text-2);
           text-transform:uppercase;letter-spacing:.06em;}
   .legend span{display:flex;align-items:center;gap:8px;}
+  /* A count AND a badge in one circle's cell overflowed into the next
+     with six circles: the count lifts, the badge sits small in the
+     cell's bottom corner. */
+  .cs td.c.two > .k{top:-6px;font-size:15px;padding:1px 6px 1px 4px;gap:3px;}
+  .cs td.c.two .badge{position:absolute;right:2px;bottom:2px;margin:0;padding:1px 4px;font-size:9px;letter-spacing:.03em;}
+  /* BIN replay: a canvas in place of the drawn map, the same box. */
+  #binCanvas{position:absolute;left:0;top:0;width:100%;height:100%;display:none;}
+  #mapbox.bin #map{display:none;}
+  #mapbox.bin #binCanvas{display:block;}
   .clock{position:absolute;right:14px;top:12px;font-weight:900;font-size:30px;padding:4px 12px;border-radius:4px;
          background:rgba(0,0,0,.6);display:none;font-variant-numeric:tabular-nums;z-index:3;}
   .clock.on{display:block;}
@@ -220,7 +229,7 @@
 </head>
 <body>
 <div id="panel">
-  <div id="stdMap"><div id="mapbox"><svg id="map" viewBox="0 0 1000 1000"></svg><div class="clock" id="clock"></div></div></div>
+  <div id="stdMap"><div id="mapbox"><svg id="map" viewBox="0 0 1000 1000"></svg><canvas id="binCanvas"></canvas><div class="clock" id="clock"></div></div></div>
   <div class="side">
     <div class="kicker" id="kicker"></div>
     <div class="title" id="title"></div>
@@ -577,7 +586,11 @@ function drawMatch(svg, view, cfg, roster, animate){
 /* Each squad's kills in the circle they happened in, an OUT where it was
    eliminated and BOOYAH for the winner. A kill before the first circle is
    drawn counts in circle 1. */
-function sideStats(view, roster){
+/* `tm`, for the BIN replay: the table runs in time with the match being
+   played back -- each squad's line reaches a circle when the replay does,
+   stops when the squad goes out, and each count pops on its squad's last
+   elimination in that circle. Replay seconds = tm.s0 + match seconds * tm.k. */
+function sideStats(view, roster, tm){
   const zones = (view.zones || []).slice(0, 6);
   const n = Math.max(1, zones.length);
   const circleOf = t => {
@@ -586,11 +599,21 @@ function sideStats(view, roster){
     return Math.max(1, Math.min(n, c));
   };
   const rows = (view.squads || []).map(s => {
-    const per = new Array(n).fill(0);
-    (view.kills || []).forEach(k => { if(k.ks === s.squad && k.t != null) per[circleOf(k.t) - 1]++; });
-    return { s, per, total: per.reduce((a, b) => a + b, 0),
+    const per = new Array(n).fill(0), lastKill = new Array(n).fill(null);
+    (view.kills || []).forEach(k => {
+      if(k.ks !== s.squad || k.t == null) return;
+      const c = circleOf(k.t) - 1;
+      per[c]++;
+      lastKill[c] = Math.max(lastKill[c] == null ? 0 : lastKill[c], k.t);
+    });
+    return { s, per, lastKill, total: per.reduce((a, b) => a + b, 0),
              out: s.place === 1 ? null : (s.out != null ? circleOf(s.out) : null) };
   });
+  // circle c (1..n) runs from the moment it is the latest drawn to the next
+  const dur = Number(view.duration) || 0;
+  const zFrom = c => c === 1 ? 0 : Number((zones[c - 1] || {}).announced) || 0;
+  const zTo = c => c === n ? dur : Number((zones[c] || {}).announced) || dur;
+  const at = t => (tm.s0 + Math.max(0, t) * tm.k);
   // In the order they finished, so the life lines step down the table:
   // the winner's runs the whole way, the first out's stops first.
   rows.sort((a, b) => ((a.s.place || 99) - (b.s.place || 99)) || (b.total - a.total));
@@ -607,17 +630,25 @@ function sideStats(view, roster){
     const start = .35 + ri * .05 + .35;
     const cells = r.per.map((v, i) => {
       const c = i + 1;
-      const d = start + i * SEG;
+      const half = !win && c === r.out;
+      let d = start + i * SEG, seg = half ? SEG / 2 : SEG;
+      let chipAt = d + SEG * .5, outAt = chipAt, winAt = d + SEG;
+      if(tm){
+        d = at(zFrom(c));
+        seg = Math.max(.05, ((half && r.s.out != null ? r.s.out : zTo(c)) - zFrom(c)) * tm.k);
+        chipAt = r.lastKill[i] != null ? at(r.lastKill[i]) : d + seg;
+        outAt = r.s.out != null ? at(r.s.out) : d + seg;
+        winAt = at(dur);
+      }
       let html = "";
       if(c <= reach){
-        const half = !win && c === r.out;
-        html += `<b class="life${half ? " half end" : ""}${win ? " win" : ""}" style="--d:${d.toFixed(2)}s;--seg:${(half ? SEG / 2 : SEG).toFixed(2)}s"></b>`;
+        html += `<b class="life${half ? " half end" : ""}${win ? " win" : ""}" style="--d:${d.toFixed(2)}s;--seg:${seg.toFixed(2)}s"></b>`;
       }
-      const at = `--c:${(d + SEG * .5).toFixed(2)}s`;
-      if(v) html += `<span class="k" style="${at}"><i></i>x${v}</span>`;
-      if(r.out === c) html += `<span class="badge out" style="${at}">OUT</span>`;
-      if(win && c === n) html += `<span class="badge win" style="--c:${(d + SEG).toFixed(2)}s">BOOYAH</span>`;
-      return `<td class="c">${html}</td>`;
+      if(v) html += `<span class="k" style="--c:${chipAt.toFixed(2)}s"><i></i>x${v}</span>`;
+      if(r.out === c) html += `<span class="badge out" style="--c:${outAt.toFixed(2)}s">OUT</span>`;
+      if(win && c === n) html += `<span class="badge win" style="--c:${winAt.toFixed(2)}s">BOOYAH</span>`;
+      const two = v && (r.out === c || (win && c === n));
+      return `<td class="c${two ? " two" : ""}">${html}</td>`;
     }).join("");
     return `<tr style="animation-delay:${(.35 + ri * .05).toFixed(2)}s"><td class="sq"><div class="in">` +
       `<span class="pl">${r.s.place ? "#" + r.s.place : ""}</span>` +
@@ -790,6 +821,372 @@ function ss3Grid(teams, roster){
   });
 }
 
+
+/* ---- BIN REPLAY (Map & Team Stats, "BIN replay") -------------------
+   The finished match played back from its replay .bin, QG Pro style:
+   every player a dot in their squad's colour, each squad's logo riding
+   above its players, the zone closing in, who eliminated whom -- over
+   binSeconds, the camera closing in with the circle (or on the teams
+   ticked in the dashboard). The engine sends the tracks on their own
+   message (map_bin), already placed on the map image (0..1000 across
+   and down); this only draws. The table beside it runs in time (see
+   sideStats). */
+const BIN_WAIT_MS = 6000;      // a push waits this long for the replay, then draws the standard map
+const BIN_LEAD = 0.7;          // seconds of entrance before the match starts moving
+const BIN_TRAIL = 30;          // seconds of route behind each player
+let binData = null, binGaveUp = "", binWaitTimer = 0, bin = null, lastState = null;
+const binMaps = {};
+
+function binSecs(cfg){ return Math.max(10, Math.min(300, Number(cfg.binSeconds) || 60)); }
+function binStatus(cfg){
+  if(cfg.statsMap !== "bin") return "off";
+  if(binData && binData.matchFile === cfg.matchFile) return binData.ok ? "ready" : "failed";
+  return binGaveUp === cfg.matchFile ? "failed" : "waiting";
+}
+// Names as drawn: private-use characters dropped (the font draws its
+// foundry's logo there), the Hangul fillers players use as spaces made spaces.
+function binName(s){
+  return String(s == null ? "" : s).replace(/[-]|[\u{F0000}-\u{10FFFF}]/gu, "")
+    .replace(/[ㅤﾠᅟᅠ]/g, " ").replace(/\s{2,}/g, " ").trim();
+}
+function binPrep(msg){
+  (msg.players || []).forEach(p => {
+    p.airAt = new Uint8Array(p.t.length);
+    (p.air || []).forEach(([a, b]) => { for(let i = a; i < b && i < p.t.length; i++) p.airAt[i] = 1; });
+    p.cutAt = new Set(p.cut || []);
+    p.end = p.t.length ? p.t[p.t.length - 1] : 0;
+  });
+  msg.photoImgs = (msg.photoSet || []).map(src => { const im = new Image(); im.src = src; return im; });
+  // The recording stops a few seconds before the match's own end: past
+  // it, everyone still in is held where the recording last saw them, or
+  // the winners would vanish from the final frame.
+  msg.recEnd = Math.max(0, ...(msg.players || []).map(p => p.end));
+  // Out at their elimination -- the recording stops the moment the last
+  // opponent falls, so the final squad beaten runs to its very end too
+  // and stood beside the winners. A track that carries on well past an
+  // elimination was a revive: that one is not the end.
+  const died = {};
+  (msg.kills || []).forEach(k => { if(k.vn) died[k.vn] = k.t; });
+  (msg.players || []).forEach(p => {
+    const d = died[p.name];
+    const fell = d != null && d >= p.end - 15;      // a track runs ~2.5 s past its elimination
+    p.survivor = !fell && p.end >= msg.recEnd - 3;
+    p.out = p.survivor ? Infinity : (fell ? d : p.end);
+  });
+  return msg;
+}
+// Where a player is at match time t -- slid between samples, except
+// across a jump -- or null outside their track (not in yet, or out).
+function binAt(p, t){
+  const ts = p.t, n = ts.length;
+  if(!n || t < ts[0] || t > p.out + 0.3) return null;
+  let lo = 0, hi = n - 1;
+  while(lo < hi){ const mid = (lo + hi + 1) >> 1; if(ts[mid] <= t) lo = mid; else hi = mid - 1; }
+  const j = Math.min(lo + 1, n - 1);
+  if(j === lo || p.cutAt.has(j) || ts[j] <= ts[lo]) return [p.u[lo], p.v[lo], p.airAt[lo]];
+  const f = Math.min(1, (t - ts[lo]) / (ts[j] - ts[lo]));
+  return [p.u[lo] + (p.u[j] - p.u[lo]) * f, p.v[lo] + (p.v[j] - p.v[lo]) * f, p.airAt[lo]];
+}
+// The map, toned down so the dots read -- the HD copy when there is one.
+function binMapSrc(image){
+  const file = String(image || "").split("/").pop().replace(/\.[^.]+$/, "");
+  return "assets/" + encodeURI("FF Maps/hd/" + file + ".jpg");
+}
+function binMap(image){
+  const key = String(image || "");
+  if(binMaps[key]) return binMaps[key];
+  const m = binMaps[key] = { ready: false, canvas: document.createElement("canvas") };
+  const im = new Image();
+  const tone = () => {
+    m.canvas.width = im.naturalWidth; m.canvas.height = im.naturalHeight;
+    const c = m.canvas.getContext("2d");
+    c.filter = "saturate(.7) brightness(.6) contrast(1.12)";
+    c.drawImage(im, 0, 0);
+    m.ready = true;
+  };
+  im.onload = tone;
+  im.onerror = () => { if(!im.dataset.fallback){ im.dataset.fallback = "1"; im.src = "assets/" + encodeURI(key); } };
+  im.src = binMapSrc(image);
+  return m;
+}
+function binImg(src){
+  if(!src) return null;
+  const m = binMaps["img:" + src] || (binMaps["img:" + src] = Object.assign(new Image(), { src }));
+  return m.complete && m.naturalWidth ? m : null;
+}
+function stopBin(){
+  if(bin && bin.raf) cancelAnimationFrame(bin.raf);
+  bin = null;
+  document.getElementById("mapbox").classList.remove("bin");
+}
+function startBin(view, cfg, roster, animate){
+  stopBin();
+  const box = document.getElementById("mapbox");
+  const cv = document.getElementById("binCanvas");
+  const W = box.clientWidth || 700, dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(W * dpr);
+  const d = binData;
+  const dur = Math.max(1, Number(d.duration || view.duration) || 1);
+  const picked = new Set((cfg.teams || []).map(Number));
+  const bySq = {};
+  (d.players || []).forEach(p => {
+    if(picked.size && !picked.has(p.squad)) return;
+    const meta = (view.squads || []).find(s => s.squad === p.squad) || {};
+    const q = bySq[p.squad] || (bySq[p.squad] = { squad: p.squad, players: [], colour: colourOf(p.squad),
+                                                 place: meta.place, team: teamFor(meta.teamName, roster), name: meta.teamName });
+    q.players.push(p);
+  });
+  const css = getComputedStyle(document.body);
+  bin = { d, view, cv, ctx: cv.getContext("2d"), W, dpr, dur, secs: binSecs(cfg), picked,
+          squads: Object.values(bySq), cam: null, started: null, raf: 0, last: 0, still: !animate,
+          map: binMap(view.image), font: css.fontFamily,
+          next: css.getPropertyValue("--next").trim() || "#ffe97a",
+          accent: css.getPropertyValue("--accent").trim() || "#f7941d" };
+  box.classList.add("bin");
+  const clock = document.getElementById("clock");
+  clock.classList.add("on");
+  const panel = document.getElementById("panel");
+  const tick = now => {
+    if(!bin) return;
+    let t;
+    if(bin.still) t = bin.dur;
+    else if(!panel.classList.contains("on")){ bin.started = null; t = 0; }
+    else {
+      if(bin.started == null) bin.started = now;
+      t = Math.max(0, Math.min(bin.secs, (now - bin.started) / 1000 - BIN_LEAD)) / bin.secs * bin.dur;
+    }
+    const dt = bin.last ? Math.min(0.1, (now - bin.last) / 1000) : 1;
+    bin.last = now;
+    binFrame(t, dt);
+    clock.textContent = mmss(t);
+    // done a beat after the end, once the camera has settled
+    if(bin.still || t >= bin.dur){
+      bin.doneAt = bin.doneAt || now;
+      if(now - bin.doneAt > 2500 && bin.map.ready) return;
+    }
+    bin.raf = requestAnimationFrame(tick);
+  };
+  bin.raf = requestAnimationFrame(tick);
+}
+// The boundary at time t: the circle the blue zone has closed to, sliding
+// from one to the next while it closes. How long a close takes is not in
+// the files, so it is given most of the wait before the next circle --
+// the safe side: a player is never shown outside a zone they were in.
+function binBoundary(zs, t, dur){
+  let prev = null;
+  for(let i = 0; i < zs.length; i++){
+    const z = zs[i];
+    if(z.announced == null || z.announced > t) break;
+    const start = z.closing != null ? z.closing : z.announced;
+    const nextAt = (zs[i + 1] && zs[i + 1].announced != null) ? zs[i + 1].announced : dur;
+    const len = Math.max(20, Math.min(150, (nextAt - start) * 0.8));
+    const f = t <= start ? 0 : Math.min(1, (t - start) / len);
+    const to = { x: z.at[0] * 1000, y: z.at[1] * 1000, r: z.r * 1000 };
+    const from = prev || { x: to.x, y: to.y, r: 1500 };
+    const cur = { x: from.x + (to.x - from.x) * f, y: from.y + (to.y - from.y) * f, r: from.r + (to.r - from.r) * f };
+    if(f < 1) return { cur, next: to, closing: f > 0 };
+    prev = to;
+  }
+  return prev ? { cur: prev, next: null, closing: false } : null;
+}
+function binTarget(t, alive){
+  const b = bin, zs = (b.view.zones || []);
+  const fit = (x0, y0, x1, y1) => {
+    const w = Math.max(90, x1 - x0, y1 - y0);
+    return [(x0 + x1) / 2, (y0 + y1) / 2, Math.max(1, Math.min(3.2, 1000 / w))];
+  };
+  let tx = 500, ty = 500, tz = 1;
+  if(b.picked.size && alive.length){
+    // only the ticked teams: frame them where they are
+    const us = alive.map(a => a[0]), vs = alive.map(a => a[1]);
+    [tx, ty, tz] = fit(Math.min(...us) - 70, Math.min(...vs) - 70, Math.max(...us) + 70, Math.max(...vs) + 70);
+  } else {
+    // every team: the camera closes in with the zone
+    const bd = binBoundary(zs, t, b.dur);
+    if(bd && bd.cur.r < 900){
+      const r = Math.max(bd.cur.r, bd.next ? bd.next.r : 0) * 1.12 + 25;
+      [tx, ty, tz] = fit(bd.cur.x - r, bd.cur.y - r, bd.cur.x + r, bd.cur.y + r);
+    }
+  }
+  const half = 500 / tz;
+  return [Math.max(half, Math.min(1000 - half, tx)), Math.max(half, Math.min(1000 - half, ty)), tz];
+}
+function binFrame(t, dt){
+  const b = bin, ctx = b.ctx, W = b.W;
+  ctx.setTransform(b.dpr, 0, 0, b.dpr, 0, 0);
+  const T = t;                                     // match time: the clock, the zone
+  t = Math.min(t, b.d.recEnd || t);                // where players are: within the recording
+  // who is where right now
+  const alive = [];
+  const now = b.squads.map(q => {
+    const pts = [];
+    q.players.forEach(p => { const a = binAt(p, t); if(a){ pts.push([a[0], a[1], a[2], p]); if(!a[2]) alive.push(a); } });
+    return { q, pts };
+  });
+  // the camera, eased towards where it should be
+  const [tx, ty, tz] = binTarget(T, alive);
+  if(!b.cam || dt >= 1) b.cam = { x: tx, y: ty, z: tz };
+  else {
+    const e = 1 - Math.exp(-dt * 1.8);
+    b.cam.x += (tx - b.cam.x) * e; b.cam.y += (ty - b.cam.y) * e; b.cam.z += (tz - b.cam.z) * e;
+  }
+  const cam = b.cam, s = W / 1000 * cam.z;
+  const S = (u, v) => [(u - cam.x) * s + W / 2, (v - cam.y) * s + W / 2];
+  const font = (w, px) => `${w} ${px}px ${b.font}`;
+
+  ctx.fillStyle = "#06090d"; ctx.fillRect(0, 0, W, W);
+  if(b.map.ready){
+    const [x0, y0] = S(0, 0);
+    ctx.drawImage(b.map.canvas, x0, y0, 1000 * s, 1000 * s);
+  }
+  // the zone: outside the boundary tinted, the boundary, the next circle dashed
+  const bd = binBoundary(b.view.zones || [], T, b.dur);
+  if(bd){
+    const [cx, cy] = S(bd.cur.x, bd.cur.y), r = bd.cur.r * s;
+    if(bd.cur.r < 1400){
+      ctx.beginPath(); ctx.rect(0, 0, W, W); ctx.arc(cx, cy, r, 0, Math.PI * 2, true);
+      ctx.fillStyle = "rgba(30,90,220,.22)"; ctx.fill();
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(120,170,255,.95)"; ctx.lineWidth = 2.5; ctx.stroke();
+    }
+    if(bd.next){
+      const [nx, ny] = S(bd.next.x, bd.next.y), nr = bd.next.r * s;
+      ctx.beginPath(); ctx.arc(nx, ny, nr, 0, Math.PI * 2);
+      ctx.setLineDash([9, 7]); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2.5; ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+  // the plane's line, while the squads are still dropping
+  const pl = b.view.plane;
+  if(pl && pl.from && pl.to && t < 150){
+    const [x1, y1] = S(pl.from[0] * 1000, pl.from[1] * 1000), [x2, y2] = S(pl.to[0] * 1000, pl.to[1] * 1000);
+    ctx.globalAlpha = Math.max(0, 1 - t / 150) * .8;
+    ctx.setLineDash([12, 9]); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+  }
+  // routes: each player's last stretch, on the ground
+  ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round";
+  b.squads.forEach(q => {
+    ctx.strokeStyle = q.colour; ctx.globalAlpha = .55;
+    q.players.forEach(p => {
+      ctx.beginPath();
+      let pen = false;
+      for(let k = 0; k < p.t.length; k++){
+        const tk = p.t[k];
+        if(tk < t - BIN_TRAIL) continue;
+        if(tk > t) break;
+        if(p.airAt[k] || p.cutAt.has(k)){ pen = false; if(p.airAt[k]) continue; }
+        const [x, y] = S(p.u[k], p.v[k]);
+        if(pen) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+        pen = true;
+      }
+      const a = binAt(p, t);
+      if(pen && a && !a[2]){ const [x, y] = S(a[0], a[1]); ctx.lineTo(x, y); }
+      ctx.stroke();
+    });
+  });
+  ctx.globalAlpha = 1;
+  // where players fell: a red cross, fading
+  b.squads.forEach(q => q.players.forEach(p => {
+    if(p.survivor || t <= p.out + 0.3 || t > p.out + 40) return;
+    const k = p.t.length - 1, [x, y] = S(p.u[k], p.v[k]);
+    ctx.globalAlpha = 1 - (t - p.out) / 40;
+    ctx.strokeStyle = "#ff4d4d"; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(x - 5, y - 5); ctx.lineTo(x + 5, y + 5); ctx.moveTo(x - 5, y + 5); ctx.lineTo(x + 5, y - 5); ctx.stroke();
+  }));
+  ctx.globalAlpha = 1;
+  // players: a dot in the squad's colour; close in, their photo
+  const near = cam.z >= 2.2;
+  const pr = near ? 10 : Math.min(7, 4 + (cam.z - 1) * 1.6);
+  now.forEach(({ q, pts }) => pts.forEach(([u, v, air, p]) => {
+    const [x, y] = S(u, v);
+    if(x < -30 || y < -30 || x > W + 30 || y > W + 30) return;
+    if(air){
+      // in the plane, then dropping: small, ringed white
+      ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = q.colour; ctx.fill();
+      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1.2; ctx.stroke();
+      return;
+    }
+    ctx.beginPath(); ctx.arc(x, y, pr, 0, Math.PI * 2);
+    ctx.fillStyle = near ? "#0b0f14" : q.colour; ctx.fill();
+    const ph = near && b.d.photoImgs && b.d.photoImgs[(b.d.photoOf || {})[String(p.pid)]];
+    if(ph && ph.complete && ph.naturalWidth){
+      ctx.save(); ctx.beginPath(); ctx.arc(x, y, pr - 1.5, 0, Math.PI * 2); ctx.clip();
+      ctx.drawImage(ph, x - pr, y - pr, pr * 2, pr * 2); ctx.restore();
+    }
+    ctx.lineWidth = near ? 2.5 : 1.5; ctx.strokeStyle = near ? q.colour : "rgba(0,0,0,.85)";
+    ctx.beginPath(); ctx.arc(x, y, pr, 0, Math.PI * 2); ctx.stroke();
+  }));
+  // each squad's logo above its players on the ground
+  const R = near ? 17 : 13;
+  const winner = T >= b.dur - 0.5 ? b.squads.find(q => q.place === 1) : null;
+  now.forEach(({ q, pts }) => {
+    const g = pts.filter(a => !a[2]);
+    if(!g.length) return;
+    const [x0, y0] = S(g.reduce((a, b2) => a + b2[0], 0) / g.length, g.reduce((a, b2) => a + b2[1], 0) / g.length);
+    const big = winner === q ? 1.45 : 1;
+    const rr = R * big, py = y0 - pr - rr - 9;
+    if(x0 < -40 || py < -40 || x0 > W + 40 || y0 > W + 40) return;
+    ctx.strokeStyle = q.colour; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(x0, py + rr); ctx.lineTo(x0, y0 - pr); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x0, py, rr, 0, Math.PI * 2); ctx.fillStyle = "#0b0f14"; ctx.fill();
+    const logo = q.team && binImg(q.team.logo);
+    if(logo){
+      ctx.save(); ctx.beginPath(); ctx.arc(x0, py, rr - 2.5, 0, Math.PI * 2); ctx.clip();
+      ctx.drawImage(logo, x0 - rr + 2.5, py - rr + 2.5, (rr - 2.5) * 2, (rr - 2.5) * 2); ctx.restore();
+    } else {
+      const tag = String((q.team && q.team.shortName) || q.name || q.squad).replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase();
+      ctx.font = font(800, Math.round(rr * .7)); ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(tag, x0, py + 1);
+    }
+    ctx.lineWidth = winner === q ? 3.5 : 2.5; ctx.strokeStyle = winner === q ? b.next : q.colour;
+    ctx.beginPath(); ctx.arc(x0, py, rr, 0, Math.PI * 2); ctx.stroke();
+    if(near || b.picked.size || winner === q){
+      const tag = String((q.team && q.team.shortName) || q.name || "").toUpperCase();
+      ctx.font = font(800, winner === q ? 16 : 13); ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+      ctx.lineWidth = 3.5; ctx.strokeStyle = "rgba(0,0,0,.85)"; ctx.strokeText(tag, x0, py - rr - 5);
+      ctx.fillStyle = winner === q ? b.next : "#ffffff"; ctx.fillText(tag, x0, py - rr - 5);
+    }
+  });
+  ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+  // squads left, top left
+  const outBy = (b.d.teamOut || []).filter(o => o.t <= T).length;
+  const left = Math.max(1, (b.view.squads || []).length - outBy);
+  const lab = left === 1 ? "SQUAD LEFT" : "SQUADS LEFT";
+  ctx.font = font(900, 26);
+  const nw = ctx.measureText(String(left)).width;
+  ctx.font = font(800, 12);
+  const lw = ctx.measureText(lab).width;
+  ctx.fillStyle = "rgba(0,0,0,.62)"; ctx.fillRect(14, 12, 14 + nw + 8 + lw + 14, 42);
+  ctx.fillStyle = b.accent; ctx.fillRect(14, 12, 4, 42);
+  ctx.font = font(900, 26); ctx.fillStyle = "#fff"; ctx.fillText(String(left), 28, 43);
+  ctx.font = font(800, 12); ctx.fillStyle = "rgba(255,255,255,.75)"; ctx.fillText(lab, 28 + nw + 8, 38);
+  // who eliminated whom, bottom left, as it happens
+  const window_ = 3.2 * b.dur / b.secs;              // ~3 real seconds on screen
+  const feed = (b.d.kills || []).filter(k => k.t <= T && T - k.t < window_ &&
+                 (!b.picked.size || b.picked.has(k.ks) || b.picked.has(k.vs))).slice(-3);
+  feed.forEach((k, i) => {
+    const y = W - 18 - (feed.length - i) * 36;
+    const kn = binName(k.kn).toUpperCase() || "?", vn = binName(k.vn).toUpperCase();
+    ctx.font = font(800, 15);
+    const w1 = ctx.measureText(kn).width;
+    ctx.font = font(700, 13);
+    const w2 = ctx.measureText(vn).width;
+    const w = Math.min(W - 40, 30 + w1 + 34 + w2);
+    ctx.globalAlpha = Math.min(1, (window_ - (T - k.t)) / (window_ * .25));
+    ctx.fillStyle = "rgba(6,9,13,.86)"; ctx.fillRect(14, y, w, 30);
+    ctx.fillStyle = colourOf(k.ks); ctx.fillRect(14, y, 4, 30);
+    ctx.font = font(800, 15); ctx.fillStyle = "#fff"; ctx.fillText(kn, 26, y + 21);
+    ctx.strokeStyle = b.accent; ctx.lineWidth = 2.5;
+    const xx = 26 + w1 + 12;
+    ctx.beginPath(); ctx.moveTo(xx, y + 10); ctx.lineTo(xx + 10, y + 20); ctx.moveTo(xx, y + 20); ctx.lineTo(xx + 10, y + 10); ctx.stroke();
+    ctx.font = font(700, 13); ctx.fillStyle = "rgba(255,255,255,.72)"; ctx.fillText(vn, xx + 22, y + 20);
+    if(k.vs != null){ ctx.fillStyle = colourOf(k.vs); ctx.fillRect(14 + w - 4, y, 4, 30); }
+    ctx.globalAlpha = 1;
+  });
+}
+
 /* ---- render -------------------------------------------------------- */
 
 let lastSig = "";
@@ -844,7 +1241,7 @@ function render(state){
   panel.classList.toggle("bg", cfg.bg !== false);
   if(!visible || tpl !== "std") panel.classList.remove("on");
   if(!visible || tpl !== "ss3") ss3.classList.remove("on");
-  if(!visible){ lastSig = ""; revealToken++; revealPending = false; stopReplay(); return; }
+  if(!visible){ lastSig = ""; revealToken++; revealPending = false; stopReplay(); stopBin(); clearTimeout(binWaitTimer); return; }
   // shown at once unless a fresh draw is still being built (see reveal)
   if(!revealPending) (tpl === "ss3" ? ss3 : panel).classList.add("on");
 
@@ -860,7 +1257,9 @@ function render(state){
   }
   // The game number: the operator's pick, else the typed label.
   const gameLabel = cfg.gameNo ? "Game " + cfg.gameNo : (cfg.matchLabel || "");
+  const binNow = mode === "stats" ? binStatus(cfg) : "off";
   const sig = JSON.stringify([tpl, mode, view, pins, cfg.show, cfg.teams, cfg.replay, cfg.replaySeconds, cfg.shownAt, cfg.gameNo,
+                              binNow, cfg.binSeconds,
                               cfg.zoom, ev.currentGame, ev.roundName, cfg.matchLabel, cfg.mapLabel, cfg.roundLabel,
                               ((roster.teams) || []).map(t => [t.name, t.shortName, t.displayName, !!t.logo])]);
   if(sig === lastSig) return;
@@ -868,6 +1267,7 @@ function render(state){
   const firstDraw = !lastSig || mode !== "live";
   lastSig = sig;
   stopReplay();
+  stopBin();
   // A fresh draw is built hidden, and its entrance played once it is
   // ready (reveal, at the end of this function).
   if(firstDraw){ panel.classList.remove("on"); ss3.classList.remove("on"); revealPending = true; }
@@ -902,12 +1302,28 @@ function render(state){
     document.getElementById("title").textContent = "Map & Team Stats";
     document.getElementById("sub").textContent =
       [gameLabel, view.mapName, mmss(view.duration), (view.kills || []).length + ((view.kills || []).length === 1 ? " elimination" : " eliminations")].filter(Boolean).join(" · ");
+    if(binNow === "waiting"){
+      // The replay is on its way (decoded the first time a match is
+      // shown): the entrance waits for it, and goes ahead with the
+      // standard map if it never comes.
+      svg.innerHTML = "";
+      side.innerHTML = "";
+      clearTimeout(binWaitTimer);
+      const file = cfg.matchFile;
+      binWaitTimer = setTimeout(() => { binGaveUp = file; if(lastState) render(lastState); }, BIN_WAIT_MS);
+      return;
+    }
+    if(binNow === "ready"){
+      side.innerHTML = sideStats(view, roster, { s0: BIN_LEAD, k: binSecs(cfg) / Math.max(1, Number(binData.duration || view.duration) || 1) });
+      startBin(view, cfg, roster, animate);
+    } else {
     // the map: the zones and the plane, nothing over them
     // fitted to the first circle so the zones read large; Endgame still zooms in further
     drawMatch(svg, view, Object.assign({}, cfg, { zoom: cfg.zoom === "end" ? "end" : "zones",
                                                   show: { zones: true, plane: true, kills: false, paths: false, shots: false } }),
               roster, animate);
     side.innerHTML = sideStats(view, roster);
+    }
   } else if(mode === "live"){
     document.getElementById("title").textContent = "Live Zone";
     document.getElementById("sub").textContent = view.mapName || "";
@@ -949,7 +1365,7 @@ function render(state){
     }
     ss3Grid(teams, roster);
   }
-  if(revealPending) reveal(view && view.image, tpl);
+  if(revealPending) reveal(binNow === "ready" ? binMapSrc(view.image) : (view && view.image), tpl);
 }
 
 /* The entrance, once the draw is built AND its map image decoded (or
@@ -1007,9 +1423,19 @@ function connect(){
   ws = new WebSocket(WS_URL);
   ws.onmessage = evt => {
     const msg = JSON.parse(evt.data);
+    if(msg.type === "map_bin"){
+      // the BIN replay for the loaded match, on its own message
+      if(!binData || binData.matchFile !== msg.matchFile || msg.ok !== binData.ok) binData = binPrep(msg);
+      clearTimeout(binWaitTimer);
+      const held = lastState && lastState.mapView && lastState.mapView.match;
+      if(held && held.image) binMap(held.image);          // decoded before it is needed
+      if(lastState) render(lastState);
+      return;
+    }
     if(msg.type !== "state_sync" || !msg.data) return;
     if(msg.data.roster) _lastRoster = msg.data.roster;
     else if(_lastRoster) msg.data.roster = _lastRoster;
+    lastState = msg.data;
     render(msg.data);
   };
   ws.onclose = () => setTimeout(connect, 2000);

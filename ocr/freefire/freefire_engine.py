@@ -9123,6 +9123,11 @@ MAP_VIEW_DEFAULTS = {
     # The game number the graphic prints (MATCH 3 / GAME 3), picked by the
     # operator; 0 = automatic (the label above, else the event's game).
     "gameNo": 0,
+    # Map & Team Stats: the map as it has always been drawn ("standard"),
+    # or the match played back from its replay .bin -- every player moving,
+    # the zone closing in, who eliminated whom ("bin") -- over binSeconds.
+    "statsMap": "standard",
+    "binSeconds": 60,
     # Drop spots, per map and team, kept across games -- squads keep their
     # landing per map for an event, so they are set once per map:
     #   {"1": {"TSG ARMY": {"at": [u, v], "by": "hand" | "games"}}}
@@ -9139,7 +9144,8 @@ def map_view_state():
 
 
 MAP_VIEW_KEYS = ("visible", "source", "animate", "replay", "replaySeconds", "theme", "bg", "zoom",
-                 "template", "dropMap", "matchLabel", "mapLabel", "roundLabel", "pathScope", "gameNo")
+                 "template", "dropMap", "matchLabel", "mapLabel", "roundLabel", "pathScope", "gameNo",
+                 "statsMap", "binSeconds")
 
 
 def apply_map_view_choice(mv, payload):
@@ -9218,42 +9224,31 @@ def _bin_thumb(path, size=72):
     return _bin_thumbs[key]
 
 
-def load_bin_match(match_id=""):
-    """One finished match for the BIN tab: the .bin decoded (cached on
-    disk, a file per replay) with the map view's circles, plane and team
-    names, and the map's calibration so the page can place positions."""
-    path = map_analysis.find_replay(replays_folder(), match_id or None)
-    if not path:
-        raise ValueError("No finished replay%s in %s" % ((" for " + match_id) if match_id else "", replays_folder()))
+def _bin_decoded(path, data):
+    """The .bin beside a replay, decoded -- cached on disk, a file per
+    replay, so a match is only ever decoded once."""
     binp = path.with_suffix(".bin")
     if not binp.exists():
         raise ValueError("%s has no .bin beside it" % path.name)
     BIN_CACHE.mkdir(exist_ok=True)
     cache = BIN_CACHE / (path.stem + ".json")
-    decoded = None
     if cache.exists() and cache.stat().st_mtime >= binp.stat().st_mtime:
         try:
-            decoded = json.loads(cache.read_text(encoding="utf-8"))
+            held = json.loads(cache.read_text(encoding="utf-8"))
+            # a decode from an older decoder is made again
+            if held.get("version") == bin_decode.VERSION:
+                return held
         except Exception:
-            decoded = None
-    data = map_analysis.rj.load(path)
-    if decoded is None:
-        decoded = bin_decode.decode(binp, names=map_analysis.rj.player_names(data), data=data)
-        cache.write_text(json.dumps(decoded), encoding="utf-8")
-    mid = path.name.split("_")[1]
-    view = build_map_view(mid)
-    map_id = view.get("mapId") or data.get("MapID")
-    cal = dict(map_analysis.MAPS.get(int(map_id)) or {}) if map_id is not None else {}
-    deaths = []
-    for pl in data.get("PlayerHighlightInfos") or []:
-        for e in pl.get("DeadEvents") or []:
-            p = e.get("position") or {}
-            if p:
-                deaths.append({"t": round(float(e.get("TriggerPoint") or 0), 1),
-                               "pid": int(e.get("PlayerID") or 0),
-                               "x": round(p.get("x", 0), 1), "z": round(p.get("z", 0), 1)})
-    # Who eliminated whom (event 3: PlayerID eliminated SParam) and which
-    # teams went out when (event 1: SParam the team), from the JSON.
+            pass
+    decoded = bin_decode.decode(binp, names=map_analysis.rj.player_names(data), data=data)
+    cache.write_text(json.dumps(decoded), encoding="utf-8")
+    return decoded
+
+
+def _bin_events(data):
+    """(kills, team_out) from a replay's JSON: who eliminated whom (event
+    3: PlayerID eliminated SParam) and which teams went out when (event 1:
+    SParam the team)."""
     names = map_analysis.rj.player_names(data) or {}
     by_name = {}
     for pid, nm in names.items():
@@ -9268,8 +9263,12 @@ def load_bin_match(match_id=""):
                           "victimName": str(e.get("SParam") or "")})
         elif e.get("Event") == 1:
             team_out.append({"t": round(float(e.get("Time") or 0), 1), "team": str(e.get("SParam") or "")})
-    # Each player's photo, small: the photo folder by UID (through the
-    # roster's IGN) or IGN, else the folder's DEFAULT stand-in.
+    return kills, team_out
+
+
+def _bin_photos(decoded, size=72):
+    """Each player's photo, small: the photo folder by UID (through the
+    roster's IGN) or IGN, else the folder's DEFAULT stand-in."""
     roster_uid = {}
     for t in ((server_state.get("roster") or {}).get("teams") or []):
         for pl in t.get("players") or []:
@@ -9278,9 +9277,35 @@ def load_bin_match(match_id=""):
                 roster_uid[k] = str(pl.get("uid"))
     photos = {}
     for pl in decoded.get("players") or []:
-        thumb = _bin_thumb(_photo_path(roster_uid.get(_ign_key(pl.get("name") or "")), pl.get("name")))
+        thumb = _bin_thumb(_photo_path(roster_uid.get(_ign_key(pl.get("name") or "")), pl.get("name")), size)
         if thumb:
             photos[str(pl["pid"])] = thumb
+    return photos
+
+
+def load_bin_match(match_id=""):
+    """One finished match for the BIN tab: the .bin decoded (cached on
+    disk, a file per replay) with the map view's circles, plane and team
+    names, and the map's calibration so the page can place positions."""
+    path = map_analysis.find_replay(replays_folder(), match_id or None)
+    if not path:
+        raise ValueError("No finished replay%s in %s" % ((" for " + match_id) if match_id else "", replays_folder()))
+    data = map_analysis.rj.load(path)
+    decoded = _bin_decoded(path, data)
+    mid = path.name.split("_")[1]
+    view = build_map_view(mid)
+    map_id = view.get("mapId") or data.get("MapID")
+    cal = dict(map_analysis.MAPS.get(int(map_id)) or {}) if map_id is not None else {}
+    deaths = []
+    for pl in data.get("PlayerHighlightInfos") or []:
+        for e in pl.get("DeadEvents") or []:
+            p = e.get("position") or {}
+            if p:
+                deaths.append({"t": round(float(e.get("TriggerPoint") or 0), 1),
+                               "pid": int(e.get("PlayerID") or 0),
+                               "x": round(p.get("x", 0), 1), "z": round(p.get("z", 0), 1)})
+    kills, team_out = _bin_events(data)
+    photos = _bin_photos(decoded)
     return {"ok": True, "matchId": mid, "file": path.name, "mapId": map_id,
             "kills": kills, "teamOut": team_out, "photos": photos,
             "mapName": view.get("mapName"), "image": view.get("image") or cal.get("image"),
@@ -9290,6 +9315,131 @@ def load_bin_match(match_id=""):
             "squads": [{"squad": q.get("squad"), "teamName": q.get("teamName"), "place": q.get("place"),
                         "kills": q.get("kills")} for q in view.get("squads") or []],
             "deaths": deaths, "bin": decoded}
+
+
+# THE MAP GRAPHIC'S BIN REPLAY (Map & Team Stats, "BIN replay"). The
+# decoded .bin is ~2 MB -- every player, every second -- far too much to
+# ride in the state_sync the way the rest of mapView does. So the graphic
+# is sent its own copy, once, on its own message: each track every
+# MAP_BIN_STEP seconds, already placed on the map image, small numbers.
+MAP_BIN_STEP = 2.0
+MAP_BIN_AIR = 150          # above this the player is in the plane / the air
+_map_bin = {"file": "", "msg": None}
+
+
+def build_map_bin(match_file):
+    """The loaded match's .bin as the map graphic draws it:
+      players: {pid, squad, name, t[], u[], v[], air[[from, to)], cut[]}
+               u, v on the map image, 0..1000 across and down; air the
+               stretches spent in the plane or the air; cut the samples
+               reached by a jump (not to be slid to)
+      kills:   {t, ks, kn, vs, vn} -- eliminator's squad and name, victim's
+      teamOut, photos (pid -> small data URL), duration."""
+    mid = str(match_file or "").split("_")[1] if "_" in str(match_file or "") else ""
+    path = map_analysis.find_replay(replays_folder(), mid or None)
+    if not path:
+        raise ValueError("The replay %s is not in %s" % (match_file, replays_folder()))
+    data = map_analysis.rj.load(path)
+    decoded = _bin_decoded(path, data)
+    held = map_view_state().get("match") or {}
+    map_id = held.get("mapId") if held.get("matchId") == mid else None
+    if map_id is None:
+        map_id = data.get("MapID")
+    cal = map_analysis.MAPS.get(int(map_id)) if map_id is not None else None
+    if not cal:
+        raise ValueError("No calibration for map %s" % map_id)
+
+    def uv(x, z):
+        return (int(round((cal["ax"] * x + cal["cx"]) / cal["size"] * 1000)),
+                int(round((cal["az"] * z + cal["cz"]) / cal["size"] * 1000)))
+
+    players = []
+    for p in decoded.get("players") or []:
+        ts, xs, zs, ys = p.get("t") or [], p.get("x") or [], p.get("z") or [], p.get("y") or []
+        out = {"pid": p.get("pid"), "squad": p.get("squad"), "name": p.get("name") or "",
+               "t": [], "u": [], "v": [], "air": [], "cut": []}
+        last = None                                   # (t, x, z, y) of the last sample kept
+        n = len(ts)
+        # In the air: the plane and the drop, up to where the decode says
+        # this player landed. Height alone also caught hilltops mid-match.
+        landed = (p.get("land") or [None])[0]
+        for k in range(n):
+            x, z, y, t = xs[k], zs[k], ys[k], ts[k]
+            if abs(x) < 1 and abs(z) < 1:
+                continue                              # the origin: not placed yet
+            if last and k < n - 1 and t < last[0] + MAP_BIN_STEP - 0.05:
+                continue
+            i = len(out["t"])
+            if last and y < MAP_BIN_AIR and last[3] < MAP_BIN_AIR:
+                # faster than anything drives: a jump, not a journey
+                if math.hypot(x - last[1], z - last[2]) / max(0.5, t - last[0]) > 60:
+                    out["cut"].append(i)
+            if landed is not None:
+                in_air = t < landed
+            else:                                     # no landing found: the opening stretch up high
+                in_air = y >= MAP_BIN_AIR and (i == 0 or out["air"] == [[0, i]])
+            if in_air:
+                if out["air"]:
+                    out["air"][-1][1] = i + 1
+                else:
+                    out["air"].append([i, i + 1])
+            u, v = uv(x, z)
+            out["t"].append(int(round(t)))
+            out["u"].append(u)
+            out["v"].append(v)
+            last = (t, x, z, y)
+        if out["t"]:
+            players.append(out)
+    kills, team_out = _bin_events(data)
+    # Photos once each: most players are the folder's same stand-in, and
+    # sending it per player was two thirds of the message.
+    photo_set, photo_of = [], {}
+    for pid, url in _bin_photos(decoded, 56).items():
+        if url not in photo_set:
+            photo_set.append(url)
+        photo_of[pid] = photo_set.index(url)
+    return {"matchFile": path.name, "matchId": mid,
+            "duration": held.get("duration") or data.get("GameTotalTime"),
+            "step": MAP_BIN_STEP, "players": players,
+            "kills": [{"t": k["t"], "ks": (k["killer"] >> 24) if k.get("killer") else None,
+                       "kn": k.get("killerName") or "",
+                       "vs": (k["victim"] >> 24) if k.get("victim") else None,
+                       "vn": k.get("victimName") or ""} for k in kills],
+            "teamOut": team_out, "photoSet": photo_set, "photoOf": photo_of}
+
+
+def map_bin_wanted():
+    mv = map_view_state()
+    return mv.get("source") == "stats" and mv.get("statsMap") == "bin" and bool(mv.get("matchFile"))
+
+
+async def send_map_bin(reply_to=None, only=None):
+    """The loaded match's BIN replay to the map graphic -- built (in a
+    worker, the first time for a match) when Map & Team Stats is on BIN.
+    `only`: just that one socket (a map page that has just connected).
+    `reply_to`: the dashboard that asked, told how it went."""
+    if not map_bin_wanted():
+        return
+    mv = map_view_state()
+    if _map_bin["file"] != mv["matchFile"] or _map_bin["msg"] is None:
+        if only is not None:
+            return                       # never built on a page's connect
+        loop = asyncio.get_running_loop()
+        try:
+            data = await loop.run_in_executor(None, build_map_bin, mv["matchFile"])
+            msg = {"type": "map_bin", "ok": True, **data}
+        except Exception as e:
+            msg = {"type": "map_bin", "ok": False, "matchFile": mv["matchFile"], "error": str(e)}
+        _map_bin.update(file=mv["matchFile"], msg=msg)
+    msg = _map_bin["msg"]
+    if only is not None:
+        await _send_guarded(only, json.dumps(msg))
+    else:
+        await broadcast_to_page("freefire_map", msg)
+    if reply_to is not None:
+        await _send_guarded(reply_to, json.dumps({
+            "type": "map_bin_status", "ok": msg["ok"], "error": msg.get("error"),
+            "players": len(msg.get("players") or []), "matchFile": msg.get("matchFile")}))
 
 
 def fill_drops_from_games(map_id, games=6):
@@ -11024,6 +11174,11 @@ async def handle_client(websocket, path=None):
     await _send_guarded(websocket, json.dumps({
         "type": "state_sync", "data": first_state, "locked": list(locked_fields),
     }), opening=True)
+    if first_page == "freefire_map":
+        try:
+            await send_map_bin(only=websocket)
+        except Exception as e:
+            print("[map] BIN replay not sent on connect: %s" % e)
     try:
         async for message in websocket:
             try:
@@ -11706,6 +11861,10 @@ async def handle_client(websocket, path=None):
                 apply_map_view_choice(mv, payload)
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
+                # The replay rides on its own message: sent again with every
+                # push up, so a source refreshed since still gets it.
+                if map_bin_wanted() and (payload.get("visible") or "statsMap" in payload):
+                    await send_map_bin(reply_to=websocket)
             elif payload.get("type") == "post_game":
                 # Which game the MVP / summary / elimination report describe:
                 # matchId "" follows the newest result file.
@@ -11850,6 +12009,8 @@ async def handle_client(websocket, path=None):
                 except Exception as e:
                     reply = {"type": "map_view_result", "ok": False, "error": str(e)}
                 await websocket.send(json.dumps(reply))
+                if reply.get("ok") and map_bin_wanted():
+                    await send_map_bin(reply_to=websocket)
             elif payload.get("type") == "team_graph_games":
                 # WHICH GAMES the graphs are drawn from. "committed" is the
                 # standings; "files" is a set of result files picked from

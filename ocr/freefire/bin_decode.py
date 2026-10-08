@@ -18,16 +18,27 @@ message are read here; everything else is skipped.
     time is fitted on the deaths in the JSON (each death's position is in
     the stream at the moment it happened), robustly, so a death matched to
     a spot the player had merely passed earlier does not drag the fit.
+  A FRAME COUNTER, heading each block of records:   0 0 0 <N> 0
+    the game's tick, ~30.3 a second. The client stopped writing the clock
+    above (every replay from 2026-10-08 12:33 on has none), and timing by
+    the record count instead squeezed the end of a match by minutes -- so
+    without a clock the counter is the time base: the longest run of it
+    that never goes down (stray 0 0 0 N 0 elsewhere cannot break that),
+    fitted on the deaths with its rate held to what a tick can be.
 
 Measured on a 17-minute Solara match: ~72,000 records over 47 slots,
 35 of 44 deaths within +-1.4 s of the fit. Read-only: nothing here writes
 to the Replays folder."""
+import bisect
 import json
 from pathlib import Path
 
 import numpy as np
 
 CLOCK_ID = 1002
+# Bumped when the decode changes, so cached decodes are made again.
+VERSION = 2
+TICK_RATE = (28.0, 33.0)        # frame-counter ticks a second, the range believed
 
 
 def _varints(raw):
@@ -69,7 +80,33 @@ def _records(vals, sg):
     return i[m]
 
 
-def _fit_time(clock_at, slot, X, Z, data):
+def _trigger_offset(data, names):
+    """How far a death's TriggerPoint runs behind the elimination itself
+    (Events, code 3: PlayerID eliminated SParam) -- 3.0 s on every replay
+    measured. The fit is put on the elimination's own time: the time the
+    kill feed, the zones and the circle table all run on, so a player
+    leaves the map as their elimination comes up, not three seconds on."""
+    at = {}
+    for e in data.get("Events") or []:
+        if e.get("Event") == 3 and e.get("SParam") is not None:
+            at.setdefault(str(e["SParam"]), []).append(float(e.get("Time") or 0))
+    gaps = []
+    for pl in data.get("PlayerHighlightInfos") or []:
+        for e in pl.get("DeadEvents") or []:
+            pid = e.get("PlayerID")
+            nm = (names or {}).get(pid) or (names or {}).get(str(pid))
+            if nm is None or e.get("TriggerPoint") is None:
+                continue
+            # each death against the elimination just before it: a player
+            # can have more than one (a knock, a revive)
+            near = [float(e["TriggerPoint"]) - t for t in at.get(str(nm), [])
+                    if 0 <= float(e["TriggerPoint"]) - t <= 15]
+            if near:
+                gaps.append(min(near))
+    return float(np.median(gaps)) if gaps else 0.0
+
+
+def _fit_time(clock_at, slot, X, Z, data, offset=0.0):
     """match time = k * clock + b, from the deaths: the first moment of a
     player's last stay at the spot the JSON says they died."""
     anchors = []
@@ -83,7 +120,7 @@ def _fit_time(clock_at, slot, X, Z, data):
             if not len(h):
                 continue
             runs = np.split(h, np.nonzero(np.diff(clock_at[h]) > 3)[0] + 1)
-            anchors.append((float(clock_at[runs[-1][0]]), float(e["TriggerPoint"])))
+            anchors.append((float(clock_at[runs[-1][0]]), float(e["TriggerPoint"]) - offset))
     if len(anchors) < 3:
         return 1 / 3.0, 0.0, len(anchors), None
     A = np.array(anchors)
@@ -98,6 +135,87 @@ def _fit_time(clock_at, slot, X, Z, data):
             break
     r = A[:, 1] - (k * A[:, 0] + b)
     return float(k), float(b), int(keep.sum()), float(r[keep].std())
+
+
+def _ticks(vals):
+    """(positions, N): the frame counter heading each block of records --
+    0 0 0 N 0 -- as the longest chain of such values that never goes down."""
+    v = vals
+    p = np.nonzero((v[:-4] == 0) & (v[1:-3] == 0) & (v[2:-2] == 0) & (v[4:] == 0)
+                   & (v[3:-1] > 0) & (v[3:-1] < 2_000_000))[0]
+    N = v[p + 3].astype(np.int64)
+    tails, tails_k, prev = [], [], np.full(len(N), -1, np.int64)
+    for k in range(len(N)):
+        n = int(N[k])
+        j = bisect.bisect_right(tails, n)
+        if j > 0:
+            prev[k] = tails_k[j - 1]
+        if j == len(tails):
+            tails.append(n)
+            tails_k.append(k)
+        else:
+            tails[j] = n
+            tails_k[j] = k
+    chain, k = [], (tails_k[-1] if tails_k else -1)
+    while k >= 0:
+        chain.append(k)
+        k = int(prev[k])
+    keep = np.array(chain[::-1], dtype=np.int64)
+    if not len(keep):
+        return np.zeros(0, np.int64), np.zeros(0, np.int64)
+    return p[keep] + 3, N[keep]
+
+
+def _fit_ticks(n_at, slot, X, Z, data, n_last, offset=0.0):
+    """match time = k * N + b for the frame counter: the rate held to
+    TICK_RATE, and of every pair of deaths' readings the line most of the
+    others agree with (within 1.5 s) -- then least squares on those."""
+    anchors = []
+    for pl in data.get("PlayerHighlightInfos") or []:
+        for e in pl.get("DeadEvents") or []:
+            p = e.get("position") or {}
+            if not p or e.get("TriggerPoint") is None:
+                continue
+            s = int(e.get("PlayerID") or 0) & 0xFFFFFF
+            h = np.nonzero((slot == s) & (np.abs(X - p["x"]) < 1.0) & (np.abs(Z - p["z"]) < 1.0))[0]
+            if not len(h):
+                continue
+            runs = np.split(h, np.nonzero(np.diff(n_at[h]) > 30)[0] + 1)
+            anchors.append((float(n_at[runs[-1][0]]), float(e["TriggerPoint"]) - offset))
+    # the end of the recording is the end of the match
+    if n_last and data.get("GameTotalTime"):
+        anchors.append((float(n_last), float(data["GameTotalTime"])))
+    if len(anchors) < 3:
+        k = 2 / sum(TICK_RATE)
+        b = float(data.get("GameTotalTime") or 0) - k * float(n_last or 0)
+        return k, b, len(anchors), None
+    A = np.array(anchors)
+    lo, hi = 1 / TICK_RATE[1], 1 / TICK_RATE[0]
+    best, best_kb = -1, None
+    for i in range(len(A)):
+        dn = A[:, 0] - A[i, 0]
+        ok = np.abs(dn) > 300
+        if not ok.any():
+            continue
+        ks = (A[ok, 1] - A[i, 1]) / dn[ok]
+        for k in ks[(ks >= lo) & (ks <= hi)]:
+            b = A[i, 1] - k * A[i, 0]
+            n_in = int((np.abs(A[:, 1] - (k * A[:, 0] + b)) < 1.5).sum())
+            if n_in > best:
+                best, best_kb = n_in, (float(k), float(b))
+    if best_kb is None:
+        k = 2 / sum(TICK_RATE)
+        b = float(np.median(A[:, 1] - k * A[:, 0]))
+    else:
+        k, b = best_kb
+        keep = np.abs(A[:, 1] - (k * A[:, 0] + b)) < 1.5
+        if keep.sum() >= 3:
+            k2, b2 = np.polyfit(A[keep, 0], A[keep, 1], 1)
+            if lo <= k2 <= hi:
+                k, b = float(k2), float(b2)
+    r = A[:, 1] - (k * A[:, 0] + b)
+    keep = np.abs(r) < 1.5
+    return float(k), float(b), int(keep.sum()), float(r[keep].std()) if keep.any() else None
 
 
 def decode(bin_path, names=None, data=None, step=1.0):
@@ -120,12 +238,26 @@ def decode(bin_path, names=None, data=None, step=1.0):
     slot = vals[idx - 1].astype(np.int64)
     X, Y, Z = sg[idx] / 1000.0, sg[idx + 1] / 1000.0, sg[idx + 2] / 1000.0
     VY = sg[idx + 9] / 1000.0
+    # Every time base the file has, fitted; the tightest kept. Where both
+    # are there the counter usually wins (+-0.7 s against the clock's
+    # +-1.9 s on the same replays).
+    offset = _trigger_offset(data, names)
+    fits = []
     if len(clk):
         k_ = np.searchsorted(clk, idx) - 1
-        clock_at = np.where(k_ >= 0, fl[clk][np.clip(k_, 0, None)], 0.0).astype(float)
-    else:
-        clock_at = np.arange(len(idx), dtype=float) * 0.05
-    k, b, used, sd = _fit_time(clock_at, slot, X, Z, data)
+        at = np.where(k_ >= 0, fl[clk][np.clip(k_, 0, None)], 0.0).astype(float)
+        fits.append(("clock", at) + _fit_time(at, slot, X, Z, data, offset))
+    pos, N = _ticks(vals)
+    if len(N) >= 100 and N[-1] > 1000:
+        j = np.searchsorted(pos, idx) - 1
+        at = np.where(j >= 0, N[np.clip(j, 0, None)], 0).astype(float)
+        fits.append(("ticks", at) + _fit_ticks(at, slot, X, Z, data, int(N[-1]), offset))
+    if not fits:
+        # neither: the record count, the roughest of guides
+        at = np.arange(len(idx), dtype=float) * 0.05
+        fits.append(("records", at) + _fit_time(at, slot, X, Z, data, offset))
+    good = [f for f in fits if f[5] is not None and f[4] >= 3]
+    base, clock_at, k, b, used, sd = min(good, key=lambda f: f[5]) if good else fits[0]
     T = k * clock_at + b
 
     pids = {}
@@ -173,8 +305,10 @@ def decode(bin_path, names=None, data=None, step=1.0):
             "topSpeed": round(float(sp[ok].max()) if ok.any() else 0.0, 1),
         })
     return {
+        "version": VERSION,
         "records": int(len(idx)),
-        "fit": {"k": round(k, 5), "b": round(b, 2), "anchors": used,
+        "fit": {"k": round(k, 6), "b": round(b, 2), "anchors": used, "base": base,
+                "offset": round(offset, 2),
                 "sd": round(sd, 2) if sd is not None else None},
         "players": players,
     }
