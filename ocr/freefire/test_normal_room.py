@@ -397,6 +397,19 @@ def main():
                  ff.director_feed(live_d, linked_u, now=1005.0)["engagements"][0]["teamInfo"]}
         check("a squad no roster team claims gets no slot, not the log's number",
               inf_u.get("S9") is None and inf_u.get("APEX") == 3, str(inf_u))
+
+        print("\nthe director's slot list")
+        linked_sl = {"gsNames": linked_d["gsNames"],
+                     "rows": [{"gsTeam": 3, "short": "APEX", "teamName": "TEAM APEX", "aliveCount": 2},
+                              {"gsTeam": 9, "short": "VE", "teamName": "VASIYO ESP",
+                               "eliminated": True, "aliveCount": 0},
+                              {"gsTeam": None, "short": "BFA", "teamName": "BFA", "aliveCount": 4}]}
+        sl = ff.director_feed(live_d, linked_sl, now=1005.0)["slots"]
+        check("every team, in slot order, with the numbers the fights show",
+              [(x["slot"], x["short"]) for x in sl] == [(1, "BFA"), (2, "VE"), (3, "APEX")], str(sl))
+        check("a squad that is out keeps its place, marked out",
+              [x["out"] for x in sl] == [False, True, False], str(sl))
+        check("with how many are still up", [x["alive"] for x in sl] == [4, 0, 2], str(sl))
     finally:
         ff.server_state["event"] = keep_ev3
         ff.server_state["roster"] = keep_ro3

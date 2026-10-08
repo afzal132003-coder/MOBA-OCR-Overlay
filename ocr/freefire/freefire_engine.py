@@ -7842,6 +7842,28 @@ def director_feed(live, linked=None, now=None):
         teams = lf[0]["teams"]
         call_info = lf[0]["teamInfo"]
 
+    # THE SLOT LIST: every team with the number an observer presses to
+    # switch to it, in slot order -- through info(), so it is the same
+    # number the fights beside it show. Squads that are out stay in the
+    # list (the board greys them) so the numbers never shuffle mid-match.
+    slots = []
+    for row in (linked or {}).get("rows") or []:
+        gs = row.get("gsTeam")
+        if gs is not None:
+            inf = info(gs)
+        else:
+            # not joined to an in-game squad yet: the room's own number for
+            # it, where there is one, and no number rather than a wrong one
+            nm = row.get("teamName") or ""
+            sl = row.get("teamId")
+            if sl is None and normal_room:
+                sl = room_slot.get(normalize_for_match(nm))
+            inf = {"slot": sl, "short": row.get("short") or derive_short_name(nm), "name": nm}
+        slots.append(dict(inf, out=bool(row.get("eliminated")) or (gs is not None and gs in wiped),
+                          alive=row.get("aliveCount")))
+    slots.sort(key=lambda s: (s["slot"] is None, s["slot"] if s["slot"] is not None else 0,
+                              s.get("name") or ""))
+
     return {
         # Every live fight, then up to two that have just ended.
         "engagements": live_fights[:4] + [e for e in engagements
@@ -7858,6 +7880,7 @@ def director_feed(live, linked=None, now=None):
         "countdown": zone_countdown(live, now),
         "call": {"shot": shot, "why": why, "teams": teams, "teamInfo": call_info},
         "positionsAre": "from revives, up to 2 minutes old",
+        "slots": slots,
     }
 
 
@@ -13405,6 +13428,8 @@ async def ocr_loop():
                             "zone": feed.get("zone"),
                             "e": [[e["squads"], e["knocks"], e["kills"], e["where"]]
                                   for e in feed.get("engagements") or []],
+                            "s": [[s.get("slot"), s.get("short"), s.get("out"), s.get("alive")]
+                                  for s in feed.get("slots") or []],
                         }, sort_keys=True)
                     previous = server_state["liveOps"].get("director")
                     if previous is None or _shape(director) != _shape(previous):

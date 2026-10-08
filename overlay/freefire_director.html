@@ -55,10 +55,10 @@
   .callwhy{font-size:21px;color:var(--dim);margin-top:6px}
 
   /* Three tables side by side -- fights going on, squads closing in, the
-     match -- each its own panel, so neither list can push the other off
+     slots -- each its own panel, so neither list can push the other off
      the bottom of the screen. Stacked, "closing in" ran out of room under
      a busy fight list and was cut off mid-team. */
-  .grid{display:grid;grid-template-columns:1fr 1fr 440px;gap:26px;flex:1;min-height:0}
+  .grid{display:grid;grid-template-columns:1fr 1fr 540px;gap:26px;flex:1;min-height:0}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;
          padding:22px 26px;min-height:0;display:flex;flex-direction:column;overflow:hidden}
   .panel h2{font-size:17px;letter-spacing:.2em;color:var(--dim);
@@ -83,11 +83,27 @@
            border-radius:6px;padding:1px 8px;font-weight:800}
   .stale{color:var(--warn)}
 
-  .stat{display:flex;align-items:baseline;gap:14px;margin-bottom:18px}
-  .stat .k{font-size:15px;letter-spacing:.16em;color:var(--dim);
-           text-transform:uppercase;min-width:132px}
-  .stat .v{font-size:32px;font-weight:700}
-  .stat .v small{font-size:19px;color:var(--dim);font-weight:400}
+  /* THE SLOTS: every team with the number an observer presses to switch
+     to it, read across a room -- the number biggest, the short name, the
+     full name under it, who is still up. A squad that is out stays in its
+     place, greyed, so the list never reshuffles mid-match. */
+  #slots{display:flex;flex-direction:column;gap:6px;flex:1;min-height:0}
+  .slot{display:flex;align-items:center;gap:16px;padding:5px 10px 5px 6px;border-radius:12px;
+        background:#1a2030;flex:1;min-height:0;max-height:60px}
+  .slot .n{flex:0 0 56px;height:46px;display:flex;align-items:center;justify-content:center;
+           border-radius:10px;background:var(--hot);color:#0b0e15;font-size:33px;font-weight:900;
+           font-variant-numeric:tabular-nums;line-height:1}
+  .slot .t{min-width:0;flex:1}
+  .slot .s{font-size:25px;font-weight:800;letter-spacing:.03em;white-space:nowrap;
+           overflow:hidden;text-overflow:ellipsis;line-height:1.1}
+  .slot .f{font-size:14px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .slot .up{display:flex;gap:4px;flex:0 0 auto}
+  .slot .up i{width:9px;height:24px;border-radius:3px;background:#2a3348}
+  .slot .up i.on{background:var(--good)}
+  .slot.out{opacity:.38}
+  .slot.out .n{background:#4a5470;color:#cfd6e6}
+  .slot .x{font-size:14px;letter-spacing:.14em;color:var(--dim);border:1px solid var(--line);
+           border-radius:6px;padding:1px 8px;flex:0 0 auto}
 
   .note{color:var(--dim);font-size:16px;margin-top:auto;padding-top:14px;
         border-top:1px solid var(--line);line-height:1.5}
@@ -128,15 +144,8 @@
     <div class="note" id="posNote"></div>
   </div>
   <div class="panel">
-    <h2>Match</h2>
-    <div class="stat"><span class="k">Elimination leader</span>
-      <span class="v" id="leader">—</span></div>
-    <div class="stat"><span class="k">Squads up</span>
-      <span class="v" id="up">—</span></div>
-    <div class="stat"><span class="k">Circle</span>
-      <span class="v" id="zone">—</span></div>
-    <div class="stat"><span class="k">Next change</span>
-      <span class="v" id="countdown">—</span></div>
+    <h2>Slots — switch by number</h2>
+    <div id="slots"></div>
   </div>
 </div>
 
@@ -177,7 +186,7 @@ function tags(infos, names, joiner){
 
 function render(d){
   if(!d){
-    $("countdown").innerHTML = "—";
+    $("slots").innerHTML = "<div class='empty'>waiting for a match</div>";
     $("fights").innerHTML = "<div class='empty'>waiting for a match</div>";
     $("closing").innerHTML = "<div class='empty'>nobody closing in</div>";
     $("closingHead").textContent = "Closing in";
@@ -242,28 +251,22 @@ function render(d){
       "tracking, so treat them as a direction, not a pin."
     : "";
 
-  const led = d.killLeader;
-  $("leader").innerHTML = led
-    ? tag(led.info, led.team) + " <small>" + led.kills + " kills" +
-      (led.lead > 0 ? ", +" + led.lead : ", tied") + "</small>"
-    : "—";
-  $("up").textContent = (d.teamsUp == null) ? "—" : d.teamsUp;
-  /* The client publishes no timer, so this is elapsed-in-phase against
-     how long that phase has run before. Shown with a tilde and with how
-     many matches it is based on, because a director planning a shot
-     around "40 seconds" should know whether that is measured or guessed. */
-  const c = d.countdown;
-  $("countdown").innerHTML = c
-    ? "~" + c.secondsLeft + "s <small>" + esc(c.next) +
-      (c.fromMatches ? " &middot; from " + c.fromMatches + " match" +
-        (c.fromMatches === 1 ? "" : "es") : " &middot; estimate") + "</small>"
-    : "—";
-
-  const z = d.zone;
-  $("zone").innerHTML = (z && z.stage != null)
-    ? String(z.stage) + " <small>" + esc(z.phase || "") +
-      (z.radius ? " &middot; r" + z.radius : "") + "</small>"
-    : "—";
+  /* The slots: an engine from before this board sends none, and a list
+     guessed here could put the wrong number beside a team -- which is
+     exactly what an observer would act on -- so it says so instead. */
+  const sl = d.slots;
+  $("slots").innerHTML = !sl ? "<div class='empty'>restart the engine for the slot list</div>"
+    : !sl.length ? "<div class='empty'>no teams yet</div>"
+    : sl.map(t => {
+        const up = t.alive == null ? "" : "<span class='up'>" +
+          [0, 1, 2, 3].map(k => "<i" + (k < t.alive ? " class='on'" : "") + "></i>").join("") + "</span>";
+        const full = t.name && String(t.name).toUpperCase() !== String(t.short || "").toUpperCase()
+          ? "<div class='f'>" + esc(t.name) + "</div>" : "";
+        return "<div class='slot" + (t.out ? " out" : "") + "'>" +
+          "<span class='n'>" + (t.slot != null ? esc(t.slot) : "?") + "</span>" +
+          "<div class='t'><div class='s'>" + esc(t.short || t.name || "") + "</div>" + full + "</div>" +
+          (t.out ? "<span class='x'>OUT</span>" : up) + "</div>";
+      }).join("");
 }
 
 let _lastRoster = null, ws;
