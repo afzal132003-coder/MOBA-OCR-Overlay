@@ -221,7 +221,7 @@ function fitSpan(node, max, min){
 }
 function setText(node, text, max, min){
   node.innerHTML = "";
-  const s = document.createElement("span"); s.textContent = text; node.appendChild(s);
+  const s = document.createElement("span"); s.textContent = ffCleanName(text); node.appendChild(s);
   if(max) fitSpan(node, max, min || 10);
 }
 function countUp(node, to, suffix, delay){

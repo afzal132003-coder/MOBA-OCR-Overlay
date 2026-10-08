@@ -4980,10 +4980,24 @@ def detect_side_popups(new_events, live):
         row = team_of.get(gs if gs is not None else ev.get("killerTeam")) or {}
         ign = ign if ign is not None else ev.get("killerIgn", "")
         uid = uid if uid is not None else ev.get("killerUid", "")
+        team_name, short = row.get("teamName", ""), row.get("short", "")
+        # The player's own team from the roster, by UID and IGN, first. The
+        # squad number is only as good as the table's link to it: at the top
+        # of a match, before the table has joined a squad -- or with the link
+        # still on last game's numbers -- it came back blank or another
+        # squad's, and the pop-up went up with no logo (or the wrong one)
+        # until a restart re-linked the table.
+        own = resolve_team_from_igns([ign] if ign else [], server_state.get("roster"),
+                                     [uid] if uid else None)
+        if own and own != team_name:
+            team_name = own
+            short = next((r.get("short") for r in rows if r.get("teamName") == own), "") or next(
+                (t.get("shortName") for t in ((server_state.get("roster") or {}).get("teams") or [])
+                 if t.get("name") == own), "") or ""
         out.append({"id": "%s:%s:%s" % (kind, ev.get("time"), uid or ign),
                     "type": kind, "title": title, "label": label, "value": value,
-                    "ign": ign, "uid": uid, "teamName": row.get("teamName", ""),
-                    "short": row.get("short", ""), "photo": _photo_lookup(uid, ign)})
+                    "ign": ign, "uid": uid, "teamName": team_name,
+                    "short": short, "photo": _photo_lookup(uid, ign)})
 
     for ev in new_events:
         if ev.get("type") != "kill":
@@ -10575,12 +10589,15 @@ async def _broadcast_state_sync():
     full = json.dumps({"type": "state_sync", "data": lean_state(server_state),
                        "locked": list(locked_fields)})
     slim = None
+    roster_moved = False
     cachers = _roster_cache_clients & connected_clients
     if cachers:
         trimmed = state_for_broadcast()
         if "roster" not in trimmed:
             slim = json.dumps({"type": "state_sync", "data": lean_state(trimmed),
                                "locked": list(locked_fields)})
+        else:
+            roster_moved = trimmed.get("roster") is not None
     if extras_changed():
         await broadcast_to_page("freefire_dashboard", {
             "type": "freefire_dashboard_extras", "data": dashboard_extras()})
@@ -10606,7 +10623,12 @@ async def _broadcast_state_sync():
     relay_slim = bool(slim) and relay_websocket in cachers
     gap = (FREEFIRE_RELAY_SYNC_GAP_SLIM if relay_slim
            else FREEFIRE_RELAY_SYNC_GAP)
-    relay_due = now_mono - _last_relay_sync_at >= gap
+    # EXCEPT the one state that carries a changed roster. It is the only
+    # time the roster is sent at all -- every state after it is slim -- so
+    # skipping it here left the relay, and every page behind it, on the
+    # old roster (missing logos, long names) until an engine restart sent
+    # a full one again.
+    relay_due = roster_moved or now_mono - _last_relay_sync_at >= gap
     if relay_due:
         _last_relay_sync_at = now_mono
     sends = []

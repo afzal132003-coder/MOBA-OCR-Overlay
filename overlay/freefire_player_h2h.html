@@ -163,7 +163,7 @@ function fit(node, max, min){
 }
 function setText(node, text){
   node.innerHTML = "";
-  const s = document.createElement("span"); s.textContent = text; node.appendChild(s);
+  const s = document.createElement("span"); s.textContent = ffCleanName(text); node.appendChild(s);
 }
 function setImg(img, src){
   if(src){ if(img.getAttribute("src") !== src) img.src = src; img.style.visibility = ""; }

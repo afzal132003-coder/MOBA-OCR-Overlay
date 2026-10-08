@@ -1466,11 +1466,34 @@ let lastAnnounceKey = "";
    back as a "new" announcement and its card played two or three times.
    The table's own trigger and the engine's announcement could each raise
    it too. Every squad that has had its card is kept here, and the list
-   empties when a new match starts (no squad out on the table). */
+   empties when a new match starts (no squad out on the table).
+
+   Checked on EVERY sync, from apply(). It used to be checked only as a
+   card was about to show -- and a card is only ever due when someone is
+   out, so the list never emptied. A page left open from game 1 then
+   refused every squad it had carded before: from game 2 on, no
+   elimination card at all until the source was refreshed.
+
+   Nobody out for a few syncs AND a few seconds, not one: a single poll
+   showing everyone up is what a flicker looks like, and believing it
+   would card the last squad out a second time. A real new match stays
+   that way for minutes. */
 const elimCarded = new Set();
+const ELIM_CARDED_FRESH_MS = 5000;
+let elimCardedFreshRenders = 0;
+let elimCardedFreshSince = 0;
 function syncElimCarded(state){
   const rows = ((state.liveOps || {}).sidetableRows) || [];
-  if(rows.length && !rows.some(r => r.eliminated)) elimCarded.clear();
+  if(rows.some(r => r.eliminated)){
+    elimCardedFreshRenders = 0;
+    return;
+  }
+  if(elimCardedFreshRenders++ === 0) elimCardedFreshSince = Date.now();
+  if(elimCarded.size && elimCardedFreshRenders >= FRESH_MATCH_RENDERS
+     && Date.now() - elimCardedFreshSince >= ELIM_CARDED_FRESH_MS){
+    elimCarded.clear();
+    pendingElimCards.length = 0;
+  }
 }
 
 /* Squads whose card arrived while another was still on screen, in the
@@ -1548,7 +1571,6 @@ function showAnnouncedElimCard(state, L){
   const stamp = te.teamName + "@" + te.shownUntil;
   if(stamp === lastAnnounceKey) return;
   lastAnnounceKey = stamp;
-  syncElimCarded(state);
   if(elimCarded.has(rowKeyOf({ teamName: te.teamName }))) return;   // already had its card
 
   // The announcement carries the position, but fall back to the table's
@@ -1592,7 +1614,6 @@ function showElimCard(state, rowEl, L, forced){
       .find(r => rowKeyOf(r) === key);
   }
   if(!row) return;
-  syncElimCarded(state);
   if(elimCarded.has(rowKeyOf(row))) return;                 // already had its card
   // Raised by the table, so the announcement must not raise it again for
   // the same squad a moment later.
@@ -1920,6 +1941,36 @@ function popPlace(id, box, extra){
   return el;
 }
 
+/* A name as it should be drawn. Free Fire players decorate their names
+   with private-use characters (U+F8FF and the rest of U+E000..U+F8FF),
+   which the game draws as its own symbols -- but a font is free to put
+   anything there, and Supermolot puts its foundry's logo: "Aka\u26abMonster"
+   went out as "Aka\u26abMonster TypeType". Dropped here -- the same as
+   ffCleanName in ff_theme.js, which this page does not load. The Hangul fillers
+   players use as invisible spaces become ordinary spaces. */
+function cleanName(s){
+  return String(s == null ? "" : s)
+    .replace(/[\uE000-\uF8FF]|[\u{F0000}-\u{10FFFF}]/gu, "")
+    .replace(/[\u3164\uFFA0\u115F\u1160]/g, " ")
+    .replace(/\s{2,}/g, " ").trim();
+}
+
+/* The player's own roster team, by UID, then by the team the engine named,
+   then by IGN. The engine's team name comes from the table's link to the
+   in-game squad, and at the top of a match that link can still be blank
+   or last game's -- the pop-up then went up with no logo. The UID cannot
+   be wrong about whose player this is. */
+function popTeamFor(pop, roster){
+  const teams = (roster && roster.teams) || [];
+  const uid = String(pop.uid || "").trim();
+  const byUid = uid && teams.find(t => (t.players || []).some(p => String(p.uid || "").trim() === uid));
+  if(byUid) return byUid;
+  const named = pop.teamName ? logoFor(pop.teamName, roster) : null;
+  if(named) return named;
+  const ign = String(pop.ign || "").trim().toUpperCase();
+  return (ign && teams.find(t => (t.players || []).some(p => String(p.ign || "").trim().toUpperCase() === ign))) || null;
+}
+
 function showNextPopup(){
   if(popBusy || !popQueue.length || !lastState) return;
   const L = layoutFor(lastState);
@@ -1927,11 +1978,24 @@ function showNextPopup(){
   if(!A){ popQueue.length = 0; return; }
   const pop = popQueue.shift();
   popBusy = true;
+  // One pop-up that fails to draw must not stop every one after it: the
+  // queue only moves when this one's timers run, so an error part-way
+  // through left it waiting for good -- no pop-ups until a refresh.
+  try { drawPopup(pop, A); }
+  catch(e){
+    console.error("side pop-up:", e);
+    document.getElementById("popCard").classList.remove("show", "in", "out");
+    popBusy = false;
+    setTimeout(showNextPopup, 0);
+  }
+}
+
+function drawPopup(pop, A){
   const base = assetBase(lastState);
   const art = document.getElementById("popArt");
   if(art.getAttribute("src") !== base + encodeURI(A.art)) art.src = base + encodeURI(A.art);
   document.documentElement.style.setProperty("--pop-travel", (A.travel || -360) + "px");
-  const team = logoFor(pop.teamName, lastState.roster);
+  const team = popTeamFor(pop, lastState.roster);
   const roster = lastState.roster || {};
   const face = b => (b.face ? { fontFamily: `'${b.face}', Arial, sans-serif`, fontWeight: 400 } : {});
   popPlace("popTitle", A.title, Object.assign({ fontSize: A.title.size + "px", color: A.title.ink,
@@ -1941,7 +2005,7 @@ function showNextPopup(){
   popPlace("popLabel", A.label, Object.assign({ fontSize: A.label.size + "px", color: A.label.ink }, face(A.label))).textContent = pop.label || "";
   fitName(document.getElementById("popLabel"), A.label.size);
   fitTitle(document.getElementById("popTitle"), A.title);
-  const name = pop.ign || (team && team.shortName) || pop.teamName || "";
+  const name = cleanName(pop.ign) || (team && team.shortName) || pop.teamName || "";
   popPlace("popName", A.name, Object.assign({ fontSize: A.name.size + "px", color: A.name.ink }, face(A.name))).textContent = name;
   fitName(document.getElementById("popName"), A.name.size);
   const photo = pop.photo || roster.defaultPlayerPhoto || (team && team.groupPhoto) || "";
@@ -1983,6 +2047,7 @@ function queuePopup(pop){
 
 function apply(state){
   lastState = state;
+  syncElimCarded(state);
   const live = state.liveOps || {};
   const source = fillFromRoster((live.sidetableRows || []).slice(0, 12), state);
   const base = assetBase(state);

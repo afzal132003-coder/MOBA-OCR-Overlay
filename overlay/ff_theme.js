@@ -47,11 +47,24 @@ function ffRosterPlayer(uid, ign, roster){
 function ffEsc(s){ return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 const ffTwo = v => v == null ? "--" : String(v).padStart(2, "0");
 function ffMmss(t){ if(t == null) return "--"; t = Math.max(0, Math.round(t)); return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0"); }
+/* A name as it should be drawn. Free Fire players decorate their names
+   with private-use characters (U+F8FF and the rest of U+E000..U+F8FF),
+   which the game draws as its own symbols -- but a font is free to put
+   anything there, and Supermolot puts its foundry's logo: "Aka\u26abMonster"
+   went out as "Aka\u26abMonster TypeType". Dropped here. The Hangul fillers
+   players use as invisible spaces become ordinary spaces. */
+function ffCleanName(s){
+  return String(s == null ? "" : s)
+    .replace(/[\uE000-\uF8FF]|[\u{F0000}-\u{10FFFF}]/gu, "")
+    .replace(/[\u3164\uFFA0\u115F\u1160]/g, " ")
+    .replace(/\s{2,}/g, " ").trim();
+}
+
 // Shrinks a box's text until it fits -- measured on an inner span, since a
 // centred box does not report overflow on its left.
 function ffSetText(node, text, max, min){
   node.innerHTML = "";
-  const s = document.createElement("span"); s.textContent = text == null ? "" : text; node.appendChild(s);
+  const s = document.createElement("span"); s.textContent = ffCleanName(text); node.appendChild(s);
   node.style.fontSize = "";
   let size = parseFloat(getComputedStyle(node).fontSize);
   const limit = max || node.clientWidth - 8;
