@@ -14,6 +14,8 @@ ocr/freefire/team_bank.json
 
 # Loadout crops captured during a match -- large, regenerated per event.
 ocr/freefire/captures/
+# Capture crops the operator confirmed by hand, kept as extra references.
+ocr/freefire/learned_icons/
 # Decoded replay .bin files (players' names and movement), rebuilt on demand.
 ocr/freefire/bin_cache/
 # Team logos the operator drops in for the engine to read. Local: the

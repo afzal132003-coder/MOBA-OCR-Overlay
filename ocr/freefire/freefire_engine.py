@@ -344,7 +344,6 @@ FREEFIRE_ICON_NAMES_FILE = "names.json"
 # 102000019/102200019) -- all four scored 0.000 and were flagged rather
 # than guessed at, which is the behaviour wanted for a genuinely
 # ambiguous icon.
-ICON_MATCH_MIN_CONFIDENCE = 0.55
 
 # Transparent reference pixels get flattened onto this value -- roughly the
 # dark card the game draws these icons over. See load_reference_image.
@@ -6254,6 +6253,8 @@ def reload_icon_libraries():
     the file the match actually landed on and does not change.
     """
     _icon_signature_cache.clear()
+    _icon_ref_cache.clear()
+    _icon_scaled_cache.clear()
     libraries = {name: load_icon_library(name)
                  for name in set(FREEFIRE_ICON_LIBRARIES.values())}
 
@@ -6287,88 +6288,183 @@ def _report_icon_libraries_at_startup():
 
 
 def match_icon(img_bgr, library_name):
-    """Returns {"label", "confidence", "lowConfidence"} for the closest
-    reference image, or a null label when the library is empty.
+    """{"label", "name", "confidence", "lowConfidence", "score", "alts"}
+    for a captured loadout icon.
 
-    Confidence is a 0-1 rescaling of the distance to the best match
-    relative to the second-best. Comparing against the runner-up rather
-    than using raw distance is what makes the number meaningful: a crop
-    that sits 'somewhat near' every icon in the library is genuinely
-    ambiguous and scores low, while one that's decisively closer to one
-    icon than all others scores high, which is exactly the distinction an
-    operator needs when deciding whether to trust a match."""
-    library = load_icon_library(library_name)
-    if not library:
+    THE GAME'S OWN ICON, ON THE CAPTURE'S OWN PANEL. The reference icons
+    have transparent backgrounds; the HUD draws them on a coloured panel
+    (salmon, green, slate) with a dark skill strip along the bottom. So
+    each reference is filled in with the capture's panel colour (the
+    median of its border) and the capture is slid over it, at a few
+    scales and small shifts, by normalised correlation over colour. The
+    grayscale thumbnail this replaces put NIKITA behind Kelly The Swift
+    and MARO behind Awakened Alok; this puts each first, at 0.94 and 0.84
+    against 0.6-0.7 for the next face.
+
+    A CROP WITH NO ICON IN IT -- the card not up yet, a browser over the
+    game -- has no picture to match, and says so rather than naming the
+    least-unlike face.
+
+    LEARNED REFERENCES. Every slot an operator corrects by hand is kept
+    (learned_icons/<library>/<label>/), and a capture is compared to those
+    crops directly as well -- the same HUD, the same size -- so a face the
+    icon art does not settle is settled after one correction.
+
+    Confidence is how far the best beats the best DIFFERENT name:
+    (best - next) / (1 - next). A match is trusted at 0.15 and over, with
+    a score of 0.5 or more."""
+    refs, learned = load_icon_refs(library_name)
+    if not refs and not learned:
         where = "assets/FFM/" if library_name == "characters" else f"assets/FFM/{library_name}/"
         return {"label": None, "name": None, "confidence": 0.0, "lowConfidence": True,
                 "reason": f"no reference images in {where}"}
+    if img_bgr is None or img_bgr.size == 0:
+        return {"label": None, "name": None, "confidence": 0.0, "lowConfidence": True,
+                "reason": "nothing captured"}
+    if img_bgr.dtype != np.uint8:
+        img_bgr = np.clip(img_bgr, 0, 255).astype(np.uint8)
+    if img_bgr.ndim == 2:
+        img_bgr = cv2.cvtColor(img_bgr, cv2.COLOR_GRAY2BGR)
+    elif img_bgr.shape[2] == 4:
+        img_bgr = cv2.cvtColor(img_bgr, cv2.COLOR_BGRA2BGR)
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    if float(gray.std()) < 10.0:
+        return {"label": None, "name": None, "confidence": 0.0, "lowConfidence": True,
+                "reason": "no icon in the box -- the card was not on screen"}
 
-    sig = _icon_signature(img_bgr)
-    scored = sorted(
-        ((float(np.linalg.norm(sig - ref)), label) for label, (ref, _) in library.items()),
-    )
-    best_distance, best_label = scored[0]
-    best_ref, best_name = library[best_label]
+    scored = []
+    for label, (ref, name) in refs.items():
+        s = _icon_score(img_bgr, ref)
+        s = max(s, _learned_score(img_bgr, learned.get(label) or []))
+        scored.append((s, label, name))
+    for label, crops in learned.items():
+        if label not in refs:
+            scored.append((_learned_score(img_bgr, crops), label, label))
+    scored.sort(key=lambda r: -r[0])
+    best, best_label, best_name = scored[0]
+    second = next((s for s, _l, n in scored[1:]
+                   if (n or "").strip().upper() != (best_name or "").strip().upper()), -1.0)
+    floor = max(second, 0.0)
+    confidence = max(0.0, best - floor) / max(1e-6, 1.0 - floor)
 
-    # The runner-up has to be a genuinely DIFFERENT character, or the
-    # confidence number lies about what it measures.
-    #
-    # The asset dump ships the same picture under more than one id --
-    # 101000018/101100018 (Kapella) and 102000019/102200019 (Wolfrahh) are
-    # byte-identical pairs, as are 101000001/101000004 and
-    # 101888888/101999999. A character can also legitimately appear twice
-    # under one name when the operator names a base and an awakened
-    # portrait the same thing. Either way the runner-up sits at the same
-    # distance as the best, so 1 - best/runner_up collapses to 0.000 and
-    # the capture is flagged red no matter how good it was. Measured by
-    # feeding every reference image back in as a perfect capture: Kapella
-    # and Wolfrahh scored 0.000, every other named character scored 1.000.
-    #
-    # So walk past anything that is the same name or the same picture and
-    # compare against the nearest real alternative instead.
-    runner_up = None
-    for distance, label in scored[1:]:
-        ref, name = library[label]
-        if name.strip().upper() == best_name.strip().upper():
-            continue
-        if float(np.linalg.norm(ref - best_ref)) <= 1e-6:
-            continue
-        runner_up = distance
-        break
-
-    if runner_up is None or runner_up <= 1e-6:
-        # Single-image library, or nothing left that isn't the same
-        # character -- report the match but never as a confident one.
-        confidence = 0.0
-    else:
-        confidence = max(0.0, 1.0 - (best_distance / runner_up))
-    # The runners-up, carried with the answer.
-    #
-    # Two faces of the same build -- dark hair, beard, same lighting --
-    # still trade places, and no threshold makes that not so. What helps
-    # is that the right one is almost always a place or two behind: on
-    # the captures measured by hand it sat 1st, 3rd and 2nd. Offering
-    # them turns "it read wrong" into one click, which is worth far more
-    # than another decimal place of confidence.
-    alts = []
-    seen = {best_name.strip().upper()}
-    for distance, label in scored[1:]:
-        name = library[label][1]
+    alts, seen = [], {(best_name or "").strip().upper()}
+    for s, label, name in scored[1:]:
         key = (name or "").strip().upper()
         if key in seen:
             continue
         seen.add(key)
-        alts.append({"label": label, "name": name})
+        alts.append({"label": label, "name": name, "score": round(s, 3)})
         if len(alts) >= 3:
             break
-
-    return {
+    out = {
         "label": best_label,
-        "name": library[best_label][1],
+        "name": best_name,
         "confidence": round(confidence, 3),
-        "lowConfidence": confidence < ICON_MATCH_MIN_CONFIDENCE,
+        "score": round(best, 3),
+        "lowConfidence": confidence < ICON_MATCH_MIN_CONFIDENCE or best < 0.5,
         "alts": alts,
     }
+    if best < 0.45:
+        out["reason"] = "weak match -- check this one"
+    return out
+
+
+ICON_MATCH_MIN_CONFIDENCE = 0.15
+LEARNED_ICONS_DIR = Path(__file__).parent / "learned_icons"
+_icon_ref_cache = {}
+_icon_scaled_cache = {}
+
+
+def load_icon_refs(library_name):
+    """({label: (BGRA image, name)}, {label: [BGR crops]}) -- the game's
+    icons for a library and the crops operators have confirmed."""
+    if library_name in _icon_ref_cache:
+        return _icon_ref_cache[library_name]
+    folder = FREEFIRE_ASSETS_DIR if library_name == "characters" else FREEFIRE_ASSETS_DIR / library_name
+    refs = {}
+    if folder.is_dir():
+        names = load_icon_names(folder)
+        for path in sorted(folder.iterdir()):
+            if not path.is_file() or path.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
+                continue
+            img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+            if img is None:
+                continue
+            if img.ndim == 2:
+                img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGRA)
+            elif img.shape[2] == 3:
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
+            refs[path.stem] = (img, names.get(path.stem, path.stem))
+    learned = {}
+    ldir = LEARNED_ICONS_DIR / library_name
+    if ldir.is_dir():
+        for sub in sorted(ldir.iterdir()):
+            if sub.is_dir():
+                crops = [c for c in (cv2.imread(str(f)) for f in sorted(sub.glob("*.png"))) if c is not None]
+                if crops:
+                    learned[sub.name] = crops
+    _icon_ref_cache[library_name] = (refs, learned)
+    return refs, learned
+
+
+def _icon_score(cap_bgr, ref_bgra):
+    cap = cap_bgr.astype(np.float32)
+    h, w = cap.shape[:2]
+    if h < 6 or w < 6:
+        return -1.0
+    colour = np.median(np.concatenate([cap[0], cap[:, 0], cap[:, -1]]), 0)
+    best = -1.0
+    for k in (0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.2, 1.3):
+        W = int(round(w * k))
+        if W < 8:
+            continue
+        key = (id(ref_bgra), W)
+        r = _icon_scaled_cache.get(key)
+        if r is None:
+            H = int(round(W * ref_bgra.shape[0] / ref_bgra.shape[1]))
+            r = cv2.resize(ref_bgra, (W, H), interpolation=cv2.INTER_AREA).astype(np.float32)
+            if len(_icon_scaled_cache) > 20000:
+                _icon_scaled_cache.clear()
+            _icon_scaled_cache[key] = r
+        ra = r[..., 3:4] / 255.0
+        img = r[..., :3] * ra + colour * (1.0 - ra)
+        img = cv2.copyMakeBorder(img, 6, 6, 6, 6, cv2.BORDER_CONSTANT, value=colour.tolist())
+        if img.shape[0] < h or img.shape[1] < w:
+            continue
+        res = cv2.matchTemplate(img, cap, cv2.TM_CCOEFF_NORMED)
+        res = np.nan_to_num(res, nan=-1.0, posinf=-1.0, neginf=-1.0)
+        best = max(best, float(res.max()))
+    return best
+
+
+def _learned_score(cap_bgr, crops):
+    best = -1.0
+    if not crops:
+        return best
+    cap = cap_bgr.astype(np.float32)
+    h, w = cap.shape[:2]
+    for c in crops:
+        c2 = cv2.resize(c, (w, h), interpolation=cv2.INTER_AREA).astype(np.float32)
+        res = cv2.matchTemplate(c2, cap, cv2.TM_CCOEFF_NORMED)
+        best = max(best, float(np.nan_to_num(res, nan=-1.0).max()))
+    return best
+
+
+def learn_icon(library_name, label, crop_path):
+    """An operator's correction kept as a reference: the crop goes under
+    learned_icons/<library>/<label>/, and the library is read again."""
+    try:
+        src = Path(crop_path)
+        if not src.is_file() or not label:
+            return False
+        dest = LEARNED_ICONS_DIR / library_name / str(label)
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / src.name).write_bytes(src.read_bytes())
+        _icon_ref_cache.pop(library_name, None)
+        return True
+    except OSError as e:
+        print(f"[loadout] couldn't keep that correction: {e}")
+        return False
 
 
 # Surveyed once at import, so the dashboard has the picture on its first
@@ -12052,6 +12148,12 @@ async def handle_client(websocket, path=None):
                             "confidence": 1.0, "lowConfidence": False,
                             "manual": True,
                         }
+                        # kept as a reference, so the next capture of this
+                        # character matches it straight away
+                        crop = (capture_dir_for(payload.get("game"))
+                                / f"t{int(payload['team'])}_p{int(payload['player'])}_{slot}.png")
+                        if learn_icon(FREEFIRE_ICON_LIBRARIES.get(slot, ""), label, crop):
+                            print(f"[loadout] learned {ref[1]} from {crop.name}")
                         save_state()
                         await broadcast({"type": "state_sync", "data": server_state,
                                          "locked": list(locked_fields)})
