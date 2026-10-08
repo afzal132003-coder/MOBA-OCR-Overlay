@@ -602,9 +602,23 @@ function pushBooyah_(book, booyah, result) {
 // different things, and without this there is no way to tell them apart
 // from outside. Diagnosed the hard way: a tab name was sent and ignored,
 // and the reply named a constant from a version nobody thought was live.
-var SCRIPT_VERSION = "2026-09-21.2-name-pairing";
+var SCRIPT_VERSION = "2026-10-08.1-arrow-in-same-project";
 
 function doPost(e) {
+  // The ARROW pushes (Booyah stats, series totals, the MVP name) come to
+  // this same deployment: freefire_arrow_push.gs sits in this project as
+  // arrowDoPost(), and only its requests name a "what".
+  try {
+    var peek = JSON.parse(e.postData.contents);
+    if (peek && peek.what) {
+      if (typeof arrowDoPost === "function") return arrowDoPost(e);
+      return ContentService.createTextOutput(JSON.stringify({ ok: false,
+        error: "This deployment has no ARROW script -- paste freefire_arrow_push.gs into the project " +
+               "beside this file, then Deploy > Manage deployments > edit > New version." }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  } catch (err0) { /* not JSON -- left to the handling below to report */ }
+
   var result = { ok: false, matched: 0, total: 0, scriptVersion: SCRIPT_VERSION };
   var sheet = null;
 

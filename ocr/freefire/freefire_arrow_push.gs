@@ -1,12 +1,18 @@
 /**
  * ARROW sheet push -- Booyah stats, the match top-5, and the series totals.
  *
- * Bind this to the spreadsheet that holds the BOOYAH-ARROW and ARROW MVP
- * tabs, deploy it once as a web app, and paste the /exec URL into the
- * dashboard. Nothing in here needs editing by hand: every range below is
- * already set to the layout that was asked for.
+ * SAME PROJECT AS freefire_sheet_push.gs. Paste this file beside that one
+ * (e.g. as playerstats.gs next to postmatch.gs, in the Apps Script of the
+ * spreadsheet that holds the BOOYAH-ARROW and ARROW MVP tabs). A project
+ * can only have one doPost(), and that file has it: it hands every
+ * request naming a "what" -- only ARROW pushes do -- to arrowDoPost()
+ * below. So ONE deployment serves both, and the same /exec URL goes in
+ * both dashboard boxes (Broadcast Sheet Push, and ARROW web app URL).
  *
- *   Deploy > New deployment > Web app
+ * In a project of its own, add one line so the web app has an entry:
+ *     function doPost(e) { return arrowDoPost(e); }
+ *
+ *   Deploy > Manage deployments > edit (pencil) > Version: New version
  *     Execute as:       Me
  *     Who has access:   Anyone
  *
@@ -78,7 +84,7 @@ var TOTAL_COLUMNS = {team: "B", ign: "D", photo: "E", elims: "F", knocks: "G",
 // one's tail behind.
 var TOTAL_CLEAR_ROWS = 200;
 
-function doPost(e) {
+function arrowDoPost(e) {
   try {
     var body = JSON.parse(e.postData.contents);
     var what = body.what || "";
@@ -193,11 +199,12 @@ function clearTotals() {
 }
 
 /**
- * Run this once from the editor before deploying. It asks for the
+ * Run this once from the editor before deploying (authorizeArrow in the
+ * function list). It asks for the
  * permissions the web app needs and prints the tabs it can see, so a
  * misspelled tab name is caught here rather than mid-event.
  */
-function authorize() {
+function authorizeArrow() {
   var ss = SpreadsheetApp.getActive();
   Logger.log("Spreadsheet: " + ss.getName());
   Logger.log("Tabs: " + ss.getSheets().map(function (s) {
