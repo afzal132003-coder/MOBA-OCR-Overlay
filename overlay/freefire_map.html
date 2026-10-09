@@ -75,6 +75,22 @@
   /* MAP & TEAM STATS: a smaller map, and the table of each squad's kills
      circle by circle beside it. */
   body.stats #stdMap{width:700px;height:700px;flex:0 0 700px;}
+  /* MapStream's elimination feed, OFF the map: the strip under it, three
+     cards in a row, newest first -- on the map it sat over the fights. */
+  #binFeed{position:absolute;left:0;right:0;top:calc(100% + 12px);height:46px;display:none;gap:8px;}
+  #binFeed.on{display:flex;}
+  #binFeed .kf{flex:0 0 calc((100% - 16px) / 3);min-width:0;display:flex;align-items:center;gap:8px;height:46px;
+               padding:0 14px 0 0;background:rgba(8,11,17,.92);font-style:italic;
+               clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%);}
+  #binFeed .kf i{width:6px;align-self:stretch;flex:0 0 6px;}
+  #binFeed .kf img{width:30px;height:30px;object-fit:contain;flex:0 0 30px;}
+  #binFeed .kf .w{min-width:0;display:flex;flex-direction:column;line-height:1.05;}
+  #binFeed .kf b{font-weight:900;font-size:16px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:uppercase;}
+  #binFeed .kf span{font-weight:800;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+                    color:#aab4c5;text-transform:uppercase;letter-spacing:.03em;}
+  #binFeed .kf span em{font-style:inherit;color:var(--accent);margin-right:5px;}
+  #binFeed .kf.in{animation:kfin .45s cubic-bezier(.2,.8,.3,1) both;}
+  @keyframes kfin{from{opacity:0;transform:translateX(-26px);}to{opacity:1;transform:none;}}
   body.stats #panel{gap:36px;}
   /* Fixed layout: every circle column the same width, so a line's length
      reads as time survived. */
@@ -229,7 +245,7 @@
 </head>
 <body>
 <div id="panel">
-  <div id="stdMap"><div id="mapbox"><svg id="map" viewBox="0 0 1000 1000"></svg><canvas id="binCanvas"></canvas><div class="clock" id="clock"></div></div></div>
+  <div id="stdMap"><div id="mapbox"><svg id="map" viewBox="0 0 1000 1000"></svg><canvas id="binCanvas"></canvas><div class="clock" id="clock"></div></div><div id="binFeed"></div></div>
   <div class="side">
     <div class="kicker" id="kicker"></div>
     <div class="title" id="title"></div>
@@ -849,6 +865,9 @@ function binSecs(cfg){ return Math.max(10, Math.min(300, Number(cfg.binSeconds) 
    never a jump. The circle table beside MapStream is CSS animation, so its
    playback rate is set to the same speed and it stays in step. */
 let replaySpeed = 1;
+// The feed's place and the players' names, from the dashboard: read every
+// frame, so a change shows at once, the replay going on as it was.
+const binOpts = { feed: "below", names: true };
 function setReplaySpeed(v){
   v = Number(v);
   replaySpeed = isFinite(v) ? Math.max(0, Math.min(8, v)) : 1;
@@ -966,6 +985,28 @@ function stopBin(){
   if(bin && bin.raf) cancelAnimationFrame(bin.raf);
   bin = null;
   document.getElementById("mapbox").classList.remove("bin");
+  const fd = document.getElementById("binFeed");
+  fd.classList.remove("on"); fd.innerHTML = ""; fd.dataset.key = ""; fd.dataset.seen = "";
+}
+// The feed under the map: three cards, newest first, a new one sliding in.
+// Rebuilt only when what it shows changes.
+function binFeedBelow(list){
+  const box = document.getElementById("binFeed");
+  box.classList.toggle("on", binOpts.feed === "below");
+  if(binOpts.feed !== "below") return;
+  const id = k => k.t + "|" + k.kn + "|" + k.vn;
+  const key = list.map(id).join("~");
+  if(key === box.dataset.key) return;
+  const seen = new Set((box.dataset.seen || "").split("~"));
+  box.dataset.key = key;
+  box.dataset.seen = key;
+  box.innerHTML = list.slice().reverse().map(k => {
+    const q = bin.squads.find(s => s.squad === k.ks);
+    const logo = q && q.team && q.team.logo;
+    return `<div class="kf${seen.has(id(k)) ? "" : " in"}"><i style="background:${colourOf(k.ks)}"></i>` +
+      (logo ? `<img src="${logo}">` : "") +
+      `<div class="w"><b>${esc(binName(k.kn) || "?")}</b><span><em>ELIMINATED</em>${esc(binName(k.vn))}</span></div></div>`;
+  }).join("");
 }
 function startBin(view, cfg, roster, animate){
   stopBin();
@@ -1443,7 +1484,7 @@ function binFrame(t, dt, rt){
     ctx.beginPath(); ctx.arc(x, y, r + 2.1, 0, Math.PI * 2); ctx.stroke();
     if(!air){
       ctx.fillStyle = "#22c55e"; ctx.fillRect(x - r, y + r + 3, r * 2, 3);
-      if(near && !named.some(([nx, ny]) => Math.abs(nx - x) < 70 && Math.abs(ny - y) < 16)){
+      if(near && binOpts.names && !named.some(([nx, ny]) => Math.abs(nx - x) < 70 && Math.abs(ny - y) < 16)){
         named.push([x, y]);
         ctx.font = binFont(800, 11); ctx.fillStyle = "#e8edf6"; ctx.textAlign = "center";
         ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,.8)"; ctx.strokeText(binName(p.name), x, y + r + 16);
@@ -1479,9 +1520,10 @@ function binFrame(t, dt, rt){
   binSky(S, T, realSec);
   // who eliminated whom, as it happens: plates down the right
   const window_ = 3.5 * realSec;                   // ~3.5 real seconds on screen
-  const feed = (b.d.kills || []).filter(k => k.t <= T && T - k.t < window_ &&
-                 (!b.picked.size || b.picked.has(k.ks) || b.picked.has(k.vs))).slice(-4);
-  feed.forEach((k, i) => {
+  const feed = binOpts.feed === "off" ? [] : (b.d.kills || []).filter(k => k.t <= T && T - k.t < window_ &&
+                 (!b.picked.size || b.picked.has(k.ks) || b.picked.has(k.vs))).slice(binOpts.feed === "below" ? -3 : -4);
+  binFeedBelow(feed);
+  if(binOpts.feed === "map") feed.forEach((k, i) => {
     const y = BIN_HUD + 18 + i * 46, x = W - 270, w = 252;
     const age = T - k.t, a = Math.min(1, (window_ - age) / (window_ * .25));
     const slide = Math.max(0, 1 - age / (.35 * realSec));        // eased in from the right
@@ -1786,6 +1828,8 @@ function render(state){
   const visible = PREVIEW || !!cfg.visible;
   // the speed is not part of what is drawn: it changes a replay in flight
   if(cfg.replaySpeed != null && Number(cfg.replaySpeed) !== replaySpeed) setReplaySpeed(cfg.replaySpeed);
+  binOpts.feed = ["below", "map", "off"].includes(cfg.binFeed) ? cfg.binFeed : "below";
+  binOpts.names = cfg.binNames !== false;
   const animate = cfg.animate !== false && _params.get("anim") !== "0";
   document.body.classList.toggle("still", !animate);
   const ev = state.event || {};

@@ -9158,6 +9158,11 @@ MAP_VIEW_DEFAULTS = {
     # as pushed, 2 twice as fast, 0 paused. Changes a replay already
     # playing without restarting it.
     "replaySpeed": 1.0,
+    # MapStream's elimination feed: "below" the map, "map" (on it) or "off";
+    # and the players' names on the map, on or off. Both change a replay
+    # in flight.
+    "binFeed": "below",
+    "binNames": True,
     # Drop spots, per map and team, kept across games -- squads keep their
     # landing per map for an event, so they are set once per map:
     #   {"1": {"TSG ARMY": {"at": [u, v], "by": "hand" | "games"}}}
@@ -9175,7 +9180,7 @@ def map_view_state():
 
 MAP_VIEW_KEYS = ("visible", "source", "animate", "replay", "replaySeconds", "theme", "bg", "zoom",
                  "template", "dropMap", "matchLabel", "mapLabel", "roundLabel", "pathScope", "gameNo",
-                 "statsMap", "binSeconds", "bin3d", "replaySpeed")
+                 "statsMap", "binSeconds", "bin3d", "replaySpeed", "binFeed", "binNames")
 
 
 def apply_map_view_choice(mv, payload):

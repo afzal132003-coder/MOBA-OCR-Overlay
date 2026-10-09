@@ -3586,7 +3586,7 @@
           <select id="ff_mvSource"><option value="live">Live zone</option><option value="match">A finished match</option>
             <option value="stats">Map &amp; team stats</option><option value="drops">Drop spots</option></select>
         </div>
-        <div class="team-form" id="ff_mvStatsBox" style="max-width:300px;margin:0;display:none;">
+        <div class="team-form" id="ff_mvStatsBox" style="max-width:440px;margin:0;display:none;">
           <label for="ff_mvStatsMap" title="Map &amp; team stats: the map as it is drawn now, or the match played back from its replay .bin -- every player moving, the zone closing in, who eliminated whom (MapStream). Needs the game's .bin beside its replay; without one the standard map shows.">Map view</label>
           <div style="display:flex;gap:6px;">
             <select id="ff_mvStatsMap"><option value="standard">Standard map</option>
@@ -3597,6 +3597,12 @@
               <option value="90">90 s</option><option value="120">120 s</option>
               <option value="180">180 s</option><option value="240">240 s</option></select>
             <label class="hint" style="display:flex;gap:5px;align-items:center;margin:0;" title="MapStream tilted back in 3D, the team logos standing up off the map; untick for the flat view"><input type="checkbox" id="ff_mvBin3d" checked> 3D</label>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:6px;align-items:center;">
+            <select id="ff_mvBinFeed" style="width:auto;" title="MapStream's elimination feed: under the map (clear of the fights), on the map, or none -- changes at once, the replay carrying on">
+              <option value="below">Eliminations below the map</option><option value="map">Eliminations on the map</option>
+              <option value="off">No elimination feed</option></select>
+            <label class="hint" style="display:flex;gap:5px;align-items:center;margin:0;" title="Players' names under their circles on the map, close in -- changes at once"><input type="checkbox" id="ff_mvBinNames" checked> Player names</label>
           </div>
         </div>
         <div class="team-form" style="max-width:190px;margin:0;">
@@ -11508,6 +11514,8 @@ function ffMvChoice(extra){
     statsMap: document.getElementById("ff_mvStatsMap").value,
     binSeconds: Number(document.getElementById("ff_mvBinSecs").value) || 60,
     bin3d: document.getElementById("ff_mvBin3d").checked,
+    binFeed: document.getElementById("ff_mvBinFeed").value,
+    binNames: document.getElementById("ff_mvBinNames").checked,
     show, teams,
     matchLabel: document.getElementById("ff_mvMatchLabel").value.trim(),
     mapLabel: document.getElementById("ff_mvMapLabel").value.trim(),
@@ -11670,6 +11678,8 @@ function ffSyncMapView(){
   set("ff_mvStatsMap", mv.statsMap || "standard");
   set("ff_mvBinSecs", String(mv.binSeconds || 60));
   set("ff_mvBin3d", mv.bin3d !== false, "checked");
+  set("ff_mvBinFeed", mv.binFeed || "below");
+  set("ff_mvBinNames", mv.binNames !== false, "checked");
   if(mv.replaySpeed != null && Number(mv.replaySpeed) !== ffMvSpeed){
     ffMvSpeed = Number(mv.replaySpeed);
     if(ffMvSpeed > 0) ffMvSpeedResume = ffMvSpeed;
@@ -11771,6 +11781,13 @@ function ffSyncMapView(){
   // separate sources, so one goes out as the other comes in -- no empty
   // screen while the operator crosses to the Post-Match tab. The race goes
   // up with the Team Graphs card's own settings (games, theme, top N).
+  // the feed and the names change a replay in flight: sent at once, like the speed
+  document.getElementById("ff_mvBinFeed").addEventListener("change", e => {
+    if(ffWs && ffWs.readyState === WebSocket.OPEN) ffWs.send(JSON.stringify({ type: "map_view", binFeed: e.target.value }));
+  });
+  document.getElementById("ff_mvBinNames").addEventListener("change", e => {
+    if(ffWs && ffWs.readyState === WebSocket.OPEN) ffWs.send(JSON.stringify({ type: "map_view", binNames: e.target.checked }));
+  });
   document.getElementById("ff_mvSlower").addEventListener("click", () => ffMvStepSpeed(-1));
   document.getElementById("ff_mvFaster").addEventListener("click", () => ffMvStepSpeed(1));
   document.getElementById("ff_mvSpeed1").addEventListener("click", () => ffMvSetSpeed(1));
