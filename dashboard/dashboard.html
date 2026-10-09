@@ -14275,8 +14275,9 @@ function ffSyncOneClick(ff){
    The engine decodes the .bin (bin_decode.py) and sends every player's
    track sampled once a second; this page interpolates between samples
    and draws. Preview only. */
-const FF_BIN_COLOURS = ["#4d9fff", "#ffa53d", "#4ade80", "#ff6b6b", "#b57bff", "#2dd4bf",
-                        "#f472b6", "#facc15", "#60a5fa", "#fb923c", "#a3e635", "#e879f9"];
+// the map graphic's twelve -- one per hue, so squads never run together
+const FF_BIN_COLOURS = ["#ff3b30", "#ffea00", "#2979ff", "#00e676", "#ff40c4", "#ff9100",
+                        "#00e5ff", "#b388ff", "#ffffff", "#aeea00", "#ff8a80", "#1de9b6"];
 const ffBin = { d: null, img: null, t: 0, playing: false, last: 0, hidden: new Set() };
 const ffBinColour = sq => FF_BIN_COLOURS[((Number(sq) || 1) - 1) % FF_BIN_COLOURS.length];
 function ffBinTeam(sq){
