@@ -171,6 +171,49 @@
 
      Outside #stage on purpose: the table flies in and out on its own
      schedule and the card must not travel with it. */
+
+  /* THE ELIMINATION RACE: this match's top three fraggers, live, top left
+     -- clear of the table (right), the elimination card (top centre) and
+     the side pop-ups (lower left). Up and down from the dashboard. A photo
+     where the player has one of their own, else the team's logo; rows
+     slide into their new order and a rising count pops. */
+  #race{position:absolute;left:24px;top:140px;width:420px;opacity:0;transform:translateX(-40px);pointer-events:none;
+        transition:opacity .35s ease, transform .5s cubic-bezier(.16,.84,.34,1);z-index:6;
+        font-family:'Supermolot Black','Supermolot',Arial,sans-serif;font-style:italic;text-transform:uppercase;}
+  #race.on{opacity:1;transform:none;}
+  #race .rh{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+  #race .rt{font-size:22px;letter-spacing:.02em;color:#111;background:var(--race-acc,#f7941d);
+            padding:6px 20px 4px 12px;clip-path:polygon(0 0,100% 0,calc(100% - 11px) 100%,0 100%);}
+  #race .rl{font-family:Arial,sans-serif;font-style:normal;font-weight:800;font-size:12px;letter-spacing:.14em;color:#fff;
+            background:#e5262b;padding:3px 8px;border-radius:3px;animation:livepulse 1.4s ease-in-out infinite;}
+  @keyframes livepulse{50%{opacity:.5}}
+  #race .rows{position:relative;height:234px;}
+  #race .rr{position:absolute;left:0;right:0;height:70px;display:flex;align-items:center;gap:10px;padding:0 18px 0 0;
+            background:rgba(10,13,20,.92);clip-path:polygon(0 0,100% 0,calc(100% - 12px) 100%,0 100%);
+            transition:top .55s cubic-bezier(.2,.8,.3,1);}
+  #race .rr .rk{width:38px;align-self:stretch;display:flex;align-items:center;justify-content:center;font-size:26px;
+                color:#fff;background:rgba(255,255,255,.08);}
+  #race .rr.r1 .rk{background:var(--race-acc,#f7941d);color:#111;}
+  #race .rr .ph{width:54px;height:54px;border-radius:50%;overflow:hidden;flex:0 0 54px;background:#0b0f14;
+                box-shadow:0 0 0 3px rgba(255,255,255,.25);}
+  #race .rr.r1 .ph{box-shadow:0 0 0 3px var(--race-acc,#f7941d);}
+  #race .rr .ph img{width:100%;height:100%;object-fit:cover;display:block;}
+  #race .rr .ph img.rlogo{object-fit:contain;padding:7px;box-sizing:border-box;}
+  #race .rr .who{flex:1;min-width:0;}
+  #race .rr .ign{font-size:21px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.15;}
+  #race .rr .tm{display:flex;align-items:center;gap:6px;font-size:13px;color:#b9c2d0;}
+  #race .rr .tm img{width:18px;height:18px;object-fit:contain;}
+  #race .rr .k{text-align:center;min-width:56px;}
+  #race .rr .k b{display:block;font-weight:400;font-size:36px;line-height:1;color:#fff;}
+  #race .rr.r1 .k b{color:var(--race-acc,#f7941d);}
+  #race .rr .k small{font-family:Arial,sans-serif;font-style:normal;font-weight:800;font-size:10px;letter-spacing:.12em;color:#8e99ab;}
+  #race .rr.out{filter:grayscale(1) brightness(.62);}
+  #race .rr .k b.pop{animation:kpop .7s cubic-bezier(.2,.9,.3,1.3);}
+  @keyframes kpop{0%{transform:scale(1.7);color:#ffe97a;}100%{transform:none;}}
+  #race.on .rr.enter{animation:rrin .45s cubic-bezier(.2,.8,.3,1) both;}
+  @keyframes rrin{from{opacity:0;transform:translateX(-30px);}to{opacity:1;transform:none;}}
+  #race .empty{font-size:16px;color:#b9c2d0;padding:14px 16px;background:rgba(10,13,20,.85);letter-spacing:.06em;}
+
   /* THE WIPE BANNER: "TSG WIPED NG" -- the squad that took the last life,
      WIPED, the squad that is out -- across the top, where the elimination
      card is about to land, for a beat before it. */
@@ -546,6 +589,8 @@
   <div class="pp" id="popLabel"></div><div class="pp" id="popLogo"><img alt=""></div>
   <div class="pp" id="popName"></div>
 </div></div>
+
+<div id="race"><div class="rh"><span class="rt">Elimination race</span><span class="rl">LIVE</span></div><div class="rows"></div></div>
 
 <div id="wipeBanner"><div class="wb"><img class="a" alt=""><span class="na"></span><span class="w">WIPED</span>
   <span class="nb"></span><img class="b" alt=""></div></div>
@@ -1005,6 +1050,11 @@ function connect(){
       queuePopup(msg.popup);
       return;
     }
+    if(msg.type === "race_photos"){
+      Object.assign(racePhotos, msg.photos || {});
+      if(lastState) renderRace(lastState);
+      return;
+    }
     if(msg.type === "team_photos"){
       Object.assign(teamPhotoCache, msg.photos || {});
       const card = document.getElementById("elimCard");
@@ -1028,6 +1078,7 @@ function connect(){
         else if(_lastRoster) msg.data.roster = _lastRoster;
       }
       apply(msg.data);
+      try { renderRace(msg.data); } catch(e){ console.error("race:", e); }
     }
   };
   ws.onclose = () => setTimeout(connect, 2000);
@@ -1627,6 +1678,76 @@ function setElimPhoto(state, row, C){
                               width: C.photo.w + "px", height: C.photo.h + "px", display: "block" });
     if(ph.getAttribute("src") !== photo) ph.src = photo;
   } else ph.style.display = "none";
+}
+
+
+/* ---- THE ELIMINATION RACE ------------------------------------------------
+   liveOps.fragRace -- the engine's top three this match, from the client's
+   own kill feed -- while mapView.raceVisible (Push Race Up / Pull Race Down
+   in the dashboard's map card). Photos on their own message (race_photos);
+   a player without one of their own shows the team's logo. */
+const racePhotos = {};
+const raceRows = new Map();
+let raceShown = 0;
+function renderRace(state){
+  const mv = state.mapView || {};
+  const box = document.getElementById("race");
+  const on = !!mv.raceVisible;
+  box.classList.toggle("on", on);
+  if(!on) return;
+  const pk = String(aliveFolder(state)).toLowerCase();
+  box.style.setProperty("--race-acc", pk === "ss3" ? "#ff1e1e" : pk === "chirayu" ? "#e8a33a" : "#f7941d");
+  const race = ((state.liveOps || {}).fragRace) || [];
+  const roster = state.roster || {};
+  const rows = box.querySelector(".rows");
+  if(mv.raceShownAt && mv.raceShownAt !== raceShown){
+    raceShown = mv.raceShownAt;
+    raceRows.forEach(el => el.remove()); raceRows.clear();
+  }
+  let empty = rows.querySelector(".empty");
+  if(!race.length){
+    if(!empty){ empty = document.createElement("div"); empty.className = "empty"; empty.textContent = "No eliminations yet"; rows.appendChild(empty); }
+  } else if(empty) empty.remove();
+  const seen = new Set();
+  race.forEach((r, i) => {
+    const id = r.pid || r.uid || r.ign;
+    seen.add(id);
+    let el = raceRows.get(id);
+    const fresh = !el;
+    if(!el){
+      el = document.createElement("div");
+      el.className = "rr enter";
+      el.innerHTML = '<div class="rk"></div><div class="ph"><img alt=""></div>' +
+        '<div class="who"><div class="ign"></div><div class="tm"><img alt=""><span></span></div></div>' +
+        '<div class="k"><b></b><small>ELIMS</small></div>';
+      el.style.top = (i * 78) + "px";
+      el.style.animationDelay = (i * .09).toFixed(2) + "s";
+      rows.appendChild(el);
+      raceRows.set(id, el);
+    }
+    el.style.top = (i * 78) + "px";
+    el.classList.toggle("r1", i === 0);
+    el.classList.toggle("out", !!r.teamOut);
+    el.querySelector(".rk").textContent = i + 1;
+    const team = logoFor(r.teamName, roster);
+    const photo = racePhotos[r.uid || r.ign];
+    const img = el.querySelector(".ph img"), src = photo || (team && team.logo) || "";
+    if(src && img.getAttribute("src") !== src) img.src = src;
+    img.style.visibility = src ? "" : "hidden";
+    img.classList.toggle("rlogo", !photo);
+    el.querySelector(".ign").textContent = cleanName(r.ign) || "?";
+    const ti = el.querySelector(".tm img");
+    if(team && team.logo){ if(ti.getAttribute("src") !== team.logo) ti.src = team.logo; ti.style.display = ""; }
+    else ti.style.display = "none";
+    el.querySelector(".tm span").textContent = (team && team.shortName) || r.short || r.teamName || "";
+    const kb = el.querySelector(".k b");
+    if(kb.textContent !== String(r.kills)){
+      const had = kb.textContent;
+      kb.textContent = r.kills;
+      if(had && !fresh){ kb.classList.remove("pop"); void kb.offsetWidth; kb.classList.add("pop"); }
+    }
+  });
+  raceRows.forEach((el, id) => { if(!seen.has(id)){ el.remove(); raceRows.delete(id); } });
 }
 
 /* "TSG WIPED NG": the wiping squad's logo and short name, WIPED in the

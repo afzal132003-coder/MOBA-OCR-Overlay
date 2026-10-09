@@ -9528,7 +9528,9 @@ async def send_race_photos(only=None):
     if only is not None:
         await _send_guarded(only, json.dumps(msg))
     else:
-        await broadcast_to_page("freefire_map", msg)
+        # the race is in the in-game source: the alive page (and the
+        # in-game bundle that carries it)
+        await broadcast_to_page("freefire_alive_status", msg)
 
 
 def map_bin_wanted():
@@ -11297,6 +11299,13 @@ async def handle_client(websocket, path=None):
     first_state = (server_state
                    if first_page in ("freefire_dashboard", "unknown")
                    else lean_state(server_state))
+    # the race's photos to an in-game page as it connects
+    if first_page in pages_for("freefire_alive_status") and first_page != "unknown":
+        try:
+            if (server_state.get("liveOps") or {}).get("fragRace"):
+                asyncio.ensure_future(send_race_photos(only=websocket))
+        except Exception as e:
+            print("[race] photos not sent on connect: %s" % e)
     await _send_guarded(websocket, json.dumps({
         "type": "state_sync", "data": first_state, "locked": list(locked_fields),
     }), opening=True)
@@ -11305,11 +11314,7 @@ async def handle_client(websocket, path=None):
             await send_map_bin(only=websocket)
         except Exception as e:
             print("[map] BIN replay not sent on connect: %s" % e)
-        try:
-            if (server_state.get("liveOps") or {}).get("fragRace"):
-                await send_race_photos(only=websocket)
-        except Exception as e:
-            print("[map] race photos not sent on connect: %s" % e)
+
     try:
         async for message in websocket:
             try:
