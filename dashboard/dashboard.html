@@ -2406,6 +2406,8 @@
           <strong style="font-size:12px;">Pop-ups</strong>
           <label class="hint" style="margin:0;" title="The ELIMINATED card when a squad is wiped. Off: no card at all, from the engine or the table.">
             <input type="checkbox" id="ff_elimPopup" checked> Elimination pop-up</label>
+          <label class="hint" style="margin:0;" title="Before the ELIMINATED card: a banner naming the squad that wiped them -- TSG WIPED NG (not for the zone). In the in-game source.">
+            <input type="checkbox" id="ff_wipeBanner" checked> Wipe banner first</label>
           <span class="hint" style="margin:0;">Side pop-ups:</span>
           <label class="hint" style="margin:0;"><input type="checkbox" class="ff-sidepop" data-k="firstBlood"> First blood</label>
           <label class="hint" style="margin:0;" title="A new player on top of the kill table, from 3 kills"><input type="checkbox" class="ff-sidepop" data-k="killLeader"> Kill leader</label>
@@ -3591,7 +3593,9 @@
           <div style="display:flex;gap:6px;">
             <select id="ff_mvStatsMap"><option value="standard">Standard map</option>
               <option value="bin">BIN: MapStream (play the match)</option><option value="bin-landing">BIN: Landing</option>
-              <option value="bin-rotations">BIN: Rotations</option><option value="bin-paths">BIN: Paths</option></select>
+              <option value="bin-rotations">BIN: Rotations</option><option value="bin-paths">BIN: Paths</option>
+              <option value="bin-booyah">BIN: Booyah route (follow the winners)</option>
+              <option value="bin-heatmap">BIN: Elimination heatmap</option></select>
             <select id="ff_mvBinSecs" title="How long the BIN replay takes to play the whole match" style="width:auto;">
               <option value="30">30 s</option><option value="45">45 s</option><option value="60">60 s</option>
               <option value="90">90 s</option><option value="120">120 s</option>
@@ -3690,6 +3694,9 @@
         <button id="ff_mvShow">Push Map Up</button>
         <button class="secondary" id="ff_mvHide">Pull Map Down</button>
         <button id="ff_mvToRace" title="One press: the map goes down and the Points Race (Team Graphs, Post-Match tab) comes up at the same moment, with the Team Graphs card's own settings -- no empty screen while you change tabs">Pull Down + Show Points Race</button>
+        <span class="hint" style="align-self:center;margin:0 0 0 14px;" title="The match's top three fraggers, live, with photos -- its own layer in this source, up and down whatever the map is doing">Elimination race</span>
+        <button id="ff_mvRaceUp" title="Put the live elimination race on air">Push Race Up</button>
+        <button class="secondary" id="ff_mvRaceDown">Pull Race Down</button>
         <span class="hint" style="align-self:center;margin:0 0 0 14px;" title="Live: changes the replay playing on the graphic right now -- the BIN replay or a finished match's Replay it over -- without restarting it">Replay speed</span>
         <button class="secondary" id="ff_mvSlower" title="Slower" style="min-width:42px;">&minus;</button>
         <span id="ff_mvSpeedNow" style="align-self:center;min-width:64px;text-align:center;font-weight:700;">1&times;</span>
@@ -11788,6 +11795,13 @@ function ffSyncMapView(){
   document.getElementById("ff_mvBinNames").addEventListener("change", e => {
     if(ffWs && ffWs.readyState === WebSocket.OPEN) ffWs.send(JSON.stringify({ type: "map_view", binNames: e.target.checked }));
   });
+  const race = on => {
+    if(!(ffWs && ffWs.readyState === WebSocket.OPEN)){ ffMvSay("Not connected to the Free Fire engine.", "#f87171"); return; }
+    ffWs.send(JSON.stringify({ type: "map_view", raceVisible: on }));
+    ffMvSay(on ? "Elimination race up." : "Elimination race down.", "#4ade80");
+  };
+  document.getElementById("ff_mvRaceUp").addEventListener("click", () => race(true));
+  document.getElementById("ff_mvRaceDown").addEventListener("click", () => race(false));
   document.getElementById("ff_mvSlower").addEventListener("click", () => ffMvStepSpeed(-1));
   document.getElementById("ff_mvFaster").addEventListener("click", () => ffMvStepSpeed(1));
   document.getElementById("ff_mvSpeed1").addEventListener("click", () => ffMvSetSpeed(1));
@@ -12064,6 +12078,8 @@ function ffRenderPopupControls(ff){
   const idle = el => el && el !== document.activeElement;
   const ep = document.getElementById("ff_elimPopup");
   if(idle(ep)) ep.checked = st.elimPopup !== false;
+  const wbx = document.getElementById("ff_wipeBanner");
+  if(idle(wbx)) wbx.checked = st.wipeBanner !== false;
   document.querySelectorAll(".ff-sidepop").forEach(el => { if(idle(el)) el.checked = !!sw[el.dataset.k]; });
   const sec = document.getElementById("ff_sidePopupSeconds");
   if(idle(sec)) sec.value = st.sidePopupSeconds || 5;
@@ -12080,6 +12096,9 @@ function ffRenderPopupControls(ff){
   const note = t => { const n = document.getElementById("ff_popupNote"); n.textContent = t; setTimeout(() => { if(n.textContent === t) n.textContent = ""; }, 4000); };
   document.getElementById("ff_elimPopup").addEventListener("change", e => {
     if(ffPopupSettings({ elimPopup: e.target.checked })) note(e.target.checked ? "Elimination pop-up on." : "Elimination pop-up off.");
+  });
+  document.getElementById("ff_wipeBanner").addEventListener("change", e => {
+    if(ffPopupSettings({ wipeBanner: e.target.checked })) note(e.target.checked ? "Wipe banner on -- it plays before each card." : "Wipe banner off.");
   });
   document.querySelectorAll(".ff-sidepop").forEach(el => el.addEventListener("change", () => {
     const sw = Object.assign({}, (ffState && ffState.settings && ffState.settings.sidePopups) || {});

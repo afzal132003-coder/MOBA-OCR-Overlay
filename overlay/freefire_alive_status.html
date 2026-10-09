@@ -171,6 +171,27 @@
 
      Outside #stage on purpose: the table flies in and out on its own
      schedule and the card must not travel with it. */
+  /* THE WIPE BANNER: "TSG WIPED NG" -- the squad that took the last life,
+     WIPED, the squad that is out -- across the top, where the elimination
+     card is about to land, for a beat before it. */
+  #wipeBanner{position:absolute;left:0;right:0;top:132px;display:none;justify-content:center;
+              pointer-events:none;z-index:8;}
+  #wipeBanner.show{display:flex;}
+  #wipeBanner .wb{display:flex;align-items:center;gap:18px;height:92px;padding:0 64px;
+                  background:linear-gradient(90deg,rgba(8,10,14,0),rgba(8,10,14,.93) 14%,rgba(8,10,14,.93) 86%,rgba(8,10,14,0));
+                  font-family:'Supermolot Black','Supermolot',Arial,sans-serif;font-style:italic;text-transform:uppercase;}
+  #wipeBanner img{width:66px;height:66px;object-fit:contain;filter:drop-shadow(0 2px 6px rgba(0,0,0,.6));}
+  #wipeBanner .na,#wipeBanner .nb{font-size:46px;color:#fff;white-space:nowrap;letter-spacing:.01em;}
+  #wipeBanner .nb{color:#c8ceda;}
+  #wipeBanner .w{font-size:28px;padding:6px 16px 4px;color:#0b0b0b;background:var(--wb-acc,#f7941d);
+                 transform:skewX(-12deg);letter-spacing:.08em;}
+  #wipeBanner.show.in .wb{animation:wbin .5s cubic-bezier(.2,.9,.3,1.15) both;}
+  #wipeBanner.show.in .w{animation:wbflash .9s ease .25s both;}
+  #wipeBanner.show.out .wb{animation:wbout .32s cubic-bezier(.55,0,.85,.35) both;}
+  @keyframes wbin{from{opacity:0;transform:scale(.8) translateY(-14px);}to{opacity:1;transform:none;}}
+  @keyframes wbout{to{opacity:0;transform:translateY(-12px) scale(.96);}}
+  @keyframes wbflash{0%{filter:brightness(2.2);}100%{filter:none;}}
+
   #elimCard {
     position: absolute; inset: 0; display: none; z-index: 3;
     pointer-events: none;
@@ -525,6 +546,9 @@
   <div class="pp" id="popLabel"></div><div class="pp" id="popLogo"><img alt=""></div>
   <div class="pp" id="popName"></div>
 </div></div>
+
+<div id="wipeBanner"><div class="wb"><img class="a" alt=""><span class="na"></span><span class="w">WIPED</span>
+  <span class="nb"></span><img class="b" alt=""></div></div>
 
 <div id="elimCard">
   <div id="elimPlace">
@@ -1479,6 +1503,10 @@ let lastAnnounceKey = "";
    would card the last squad out a second time. A real new match stays
    that way for minutes. */
 const elimCarded = new Set();
+// Squads whose wipe banner has played this match, and whether one is up.
+const wipeShown = new Set();
+let wipeBusy = false;
+const WIPE_MS = 2200;
 const ELIM_CARDED_FRESH_MS = 5000;
 let elimCardedFreshRenders = 0;
 let elimCardedFreshSince = 0;
@@ -1492,6 +1520,7 @@ function syncElimCarded(state){
   if(elimCarded.size && elimCardedFreshRenders >= FRESH_MATCH_RENDERS
      && Date.now() - elimCardedFreshSince >= ELIM_CARDED_FRESH_MS){
     elimCarded.clear();
+    wipeShown.clear();
     pendingElimCards.length = 0;
   }
 }
@@ -1600,6 +1629,27 @@ function setElimPhoto(state, row, C){
   } else ph.style.display = "none";
 }
 
+/* "TSG WIPED NG": the wiping squad's logo and short name, WIPED in the
+   package's colour, the wiped squad's; up for WIPE_MS, then `next`. */
+function playWipeBanner(state, byName, row, next){
+  const el = document.getElementById("wipeBanner");
+  const by = logoFor(byName, state.roster), out = logoFor(row.teamName, state.roster);
+  const pk = String(aliveFolder(state)).toLowerCase();
+  el.style.setProperty("--wb-acc", pk === "ss3" ? "#ff1e1e" : pk === "chirayu" ? "#e8a33a" : "#f7941d");
+  const set = (sel, img) => { const i = el.querySelector(sel); if(img){ i.src = img; i.style.display = ""; } else i.style.display = "none"; };
+  set("img.a", by && by.logo);
+  set("img.b", out && out.logo);
+  el.querySelector(".na").textContent = (by && by.shortName) || byName;
+  el.querySelector(".nb").textContent = (out && out.shortName) || row.short || row.teamName || "";
+  wipeBusy = true;
+  el.classList.remove("out");
+  el.classList.add("show", "in");
+  setTimeout(() => {
+    el.classList.remove("in"); el.classList.add("out");
+    setTimeout(() => { el.classList.remove("show", "out"); wipeBusy = false; next(); }, 320);
+  }, WIPE_MS);
+}
+
 function showElimCard(state, rowEl, L, forced){
   const C = L.elimCard;
   if(!C) return;                       // this package has no such card
@@ -1626,7 +1676,20 @@ function showElimCard(state, rowEl, L, forced){
   // card mid-animation reads as a fault, not as a second elimination. The
   // squad is held rather than dropped, and raised the moment this one has
   // finished leaving.
-  if(card.classList.contains("show")){
+  // THE WIPE BANNER first, when the engine knows who wiped them (not the
+  // zone): "TSG WIPED NG", then this same card.
+  const wkey = rowKeyOf(row);
+  const wb = (((state.liveOps || {}).wipedBy) || {})[wkey];
+  if(wb && wb.by && (state.settings || {}).wipeBanner !== false && !wipeShown.has(wkey)
+     && !wipeBusy && !card.classList.contains("show")){
+    wipeShown.add(wkey);
+    playWipeBanner(state, wb.by, row, () => {
+      const st = lastState || state;
+      showElimCard(st, null, layoutFor(st), row);
+    });
+    return;
+  }
+  if(card.classList.contains("show") || wipeBusy){
     const key = rowKeyOf(row);
     if(key !== rowKeyOf(currentElimRow || {})
        && !pendingElimCards.some(r => rowKeyOf(r) === key)){

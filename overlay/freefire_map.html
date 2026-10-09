@@ -173,6 +173,51 @@
      cell's bottom corner. */
   .cs td.c.two > .k{top:-6px;font-size:15px;padding:1px 6px 1px 4px;gap:3px;}
   .cs td.c.two .badge{position:absolute;right:2px;bottom:2px;margin:0;padding:1px 4px;font-size:9px;letter-spacing:.03em;}
+
+  /* THE ELIMINATION RACE: this match's top three fraggers, live -- its own
+     layer, up and down from the dashboard whatever the map is doing. A
+     photo where the player has one of their own, else the team's logo;
+     rows slide into their new place when the order changes, and a count
+     that rises pops. */
+  #race{position:absolute;left:56px;top:292px;width:450px;opacity:0;transform:translateX(-40px);pointer-events:none;
+        transition:opacity .35s ease, transform .5s cubic-bezier(.16,.84,.34,1);}
+  #race.on{opacity:1;transform:none;}
+  #race .rh{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+  #race .rt{font-weight:900;font-style:italic;font-size:26px;letter-spacing:.02em;color:#111;background:var(--accent);
+            padding:7px 22px 5px 14px;clip-path:polygon(0 0,100% 0,calc(100% - 12px) 100%,0 100%);text-transform:uppercase;}
+  #race .rl{font-weight:800;font-size:13px;letter-spacing:.14em;color:#fff;background:#e5262b;padding:3px 9px;border-radius:3px;
+            animation:livepulse 1.4s ease-in-out infinite;}
+  @keyframes livepulse{50%{opacity:.5}}
+  #race .rows{position:relative;height:282px;}
+  #race .rr{position:absolute;left:0;right:0;height:86px;display:flex;align-items:center;gap:12px;padding:0 20px 0 0;
+            background:rgba(10,13,20,.92);clip-path:polygon(0 0,100% 0,calc(100% - 14px) 100%,0 100%);
+            transition:top .55s cubic-bezier(.2,.8,.3,1), opacity .3s ease;}
+  #race .rr .rk{width:44px;align-self:stretch;display:flex;align-items:center;justify-content:center;font-weight:900;
+                font-style:italic;font-size:30px;color:#fff;background:rgba(255,255,255,.08);}
+  #race .rr.r1 .rk{background:var(--accent);color:#111;}
+  #race .rr .ph{width:66px;height:66px;border-radius:50%;overflow:hidden;flex:0 0 66px;background:#0b0f14;
+                box-shadow:0 0 0 3px rgba(255,255,255,.25);}
+  #race .rr.r1 .ph{box-shadow:0 0 0 3px var(--accent);}
+  #race .rr .ph img{width:100%;height:100%;object-fit:cover;display:block;}
+  #race .rr .ph img.logo{object-fit:contain;padding:9px;box-sizing:border-box;}
+  #race .rr .who{flex:1;min-width:0;}
+  #race .rr .ign{font-weight:900;font-style:italic;font-size:25px;color:#fff;white-space:nowrap;overflow:hidden;
+                 text-overflow:ellipsis;text-transform:uppercase;line-height:1.15;}
+  #race .rr .tm{display:flex;align-items:center;gap:7px;font-weight:800;font-size:14px;color:var(--text-2);text-transform:uppercase;}
+  #race .rr .tm img{width:20px;height:20px;object-fit:contain;}
+  #race .rr .k{text-align:center;min-width:66px;}
+  #race .rr .k b{display:block;font-weight:900;font-style:italic;font-size:42px;line-height:1;color:#fff;}
+  #race .rr.r1 .k b{color:var(--accent);}
+  #race .rr .k small{font-weight:800;font-size:11px;letter-spacing:.12em;color:var(--text-3);}
+  /* a squad that is out: greyed (a filter -- the entrance animation holds opacity) */
+  #race .rr.out{filter:grayscale(1) brightness(.62);}
+  #race .rr .k b.pop{animation:kpop .7s cubic-bezier(.2,.9,.3,1.3);}
+  @keyframes kpop{0%{transform:scale(1.7);color:var(--next);}100%{transform:none;}}
+  #race.on .rr.enter{animation:rrin .45s cubic-bezier(.2,.8,.3,1) both;}
+  @keyframes rrin{from{opacity:0;transform:translateX(-30px);}to{opacity:1;transform:none;}}
+  #race .empty{font-weight:800;font-style:italic;font-size:18px;color:var(--text-2);padding:16px 18px;
+               background:rgba(10,13,20,.85);text-transform:uppercase;letter-spacing:.06em;}
+
   /* BIN replay: a canvas in place of the drawn map, the same box. */
   #binCanvas{position:absolute;left:0;top:0;width:100%;height:100%;display:none;}
   #mapbox.bin #map{display:none;}
@@ -254,6 +299,8 @@
     <div class="legend" id="legend"></div>
   </div>
 </div>
+
+<div id="race"><div class="rh"><span class="rt">Elimination race</span><span class="rl">LIVE</span></div><div class="rows"></div></div>
 
 <div id="ss3">
   <img id="ss3Art" alt="">
@@ -875,7 +922,7 @@ function setReplaySpeed(v){
 }
 function binTableRate(){
   const side = document.getElementById("sideBody");
-  if(!bin || bin.mode !== "stream" || bin.still || !side || !side.getAnimations) return;
+  if(!bin || !bin.anim || bin.still || !side || !side.getAnimations) return;
   side.getAnimations({ subtree: true }).forEach(a => { try { a.playbackRate = replaySpeed; } catch(e){} });
   bin.rateApplied = replaySpeed;
 }
@@ -967,7 +1014,9 @@ function binMap(image){
   const tone = () => {
     m.canvas.width = im.naturalWidth; m.canvas.height = im.naturalHeight;
     const c = m.canvas.getContext("2d");
-    c.filter = "grayscale(.75) brightness(.55) contrast(1.15)";
+    // the map in its own colours, a touch dimmed so what is drawn on it
+    // reads -- the viewers are looking at it, not just at the dots
+    c.filter = "saturate(1.1) brightness(.84) contrast(1.06)";
     c.drawImage(im, 0, 0);
     m.ready = true;
   };
@@ -1016,7 +1065,10 @@ function startBin(view, cfg, roster, animate){
   cv.width = Math.round(W * dpr); cv.height = Math.round(W * dpr);
   const d = binData;
   const dur = Math.max(1, Number(d.duration || view.duration) || 1);
-  const picked = new Set((cfg.teams || []).map(Number));
+  // the Booyah route: the winners alone
+  const winSq = ((view.squads || []).find(s => s.place === 1) || {}).squad;
+  const picked = binView(cfg) === "booyah" && winSq != null ? new Set([winSq])
+               : new Set((cfg.teams || []).map(Number));
   const bySq = {};
   (d.players || []).forEach(p => {
     if(picked.size && !picked.has(p.squad)) return;
@@ -1037,6 +1089,7 @@ function startBin(view, cfg, roster, animate){
   bin.tilt = cfg.bin3d === false ? 0 : BIN_TILT;
   // The plane's crossing. The files say where it flew, not when, so it
   // is given until shortly before the first squad touches down.
+  bin.anim = ["stream", "booyah"].includes(bin.mode);
   bin.time = binTimeMap(d, view, bin.secs);
   // A photo shared by players of different squads is the folder's stand-in,
   // not a face: those players (and any with no photo) wear their team's
@@ -1050,6 +1103,7 @@ function startBin(view, cfg, roster, animate){
   });
   Object.entries(bySquadOfPhoto).forEach(([i, sq]) => { if(sq.size > 1) bin.standIn.add(Number(i)); });
   binClouds();
+  if(bin.mode === "booyah") binBooyahPrep();
   bin.planeEnd = Math.max(45, Math.min(150, (isFinite(bin.firstOn) && bin.firstOn < 1e8 ? bin.firstOn : 105) - 15));
   // Where each squad dropped: the middle of where its players first stood
   // on the ground, and when (the middle of their landings) -- marked on
@@ -1072,7 +1126,7 @@ function startBin(view, cfg, roster, animate){
     if(!bin) return;
     let t;
     const dt = bin.last ? Math.min(0.1, (now - bin.last) / 1000) : 1;
-    if(bin.mode !== "stream" || bin.still) t = bin.dur;
+    if(!bin.anim || bin.still) t = bin.dur;
     else if(!panel.classList.contains("on")){ bin.started = null; t = 0; }
     else {
       if(bin.started == null){ bin.started = now; bin.pos = -BIN_LEAD; }
@@ -1082,12 +1136,12 @@ function startBin(view, cfg, roster, animate){
       if(bin.rateApplied !== replaySpeed) binTableRate();
     }
     bin.last = now;
-    if(bin.mode === "stream") binFrame(t, dt, bin.started == null ? 0 : (now - bin.started) / 1000);
+    if(bin.anim) binFrame(t, dt, bin.started == null ? 0 : (now - bin.started) / 1000);
     else binStatic(now);
     // done a beat after the end, once the camera has settled and the
     // pictures are in -- except the 3D MapStream, whose camera keeps
     // circling the Booyah squad for as long as it is on air
-    if(bin.mode !== "stream" || bin.still || (t >= bin.dur && !bin.tilt)){
+    if(!bin.anim || bin.still || (t >= bin.dur && !bin.tilt)){
       bin.doneAt = bin.doneAt || now;
       if(now - bin.doneAt > 2500 && bin.map.ready) return;
     }
@@ -1223,13 +1277,13 @@ function binPlate(x, y, w, h, fill, lean){
 function binFog(){
   const ctx = bin.ctx, W = bin.W;
   let g = ctx.createLinearGradient(0, 0, 0, W * .34);
-  g.addColorStop(0, "rgba(5,7,11,.95)"); g.addColorStop(.45, "rgba(5,7,11,.55)"); g.addColorStop(1, "rgba(5,7,11,0)");
+  g.addColorStop(0, "rgba(5,7,11,.78)"); g.addColorStop(.45, "rgba(5,7,11,.3)"); g.addColorStop(1, "rgba(5,7,11,0)");
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, W * .34);
   g = ctx.createLinearGradient(0, W - 120, 0, W);
   g.addColorStop(0, "rgba(5,7,11,0)"); g.addColorStop(1, "rgba(5,7,11,.9)");
   ctx.fillStyle = g; ctx.fillRect(0, W - 120, W, 120);
   g = ctx.createRadialGradient(W / 2, W * .55, W * .38, W / 2, W * .55, W * .78);
-  g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,.5)");
+  g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,.28)");
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, W);
 }
 // The plane: a transport silhouette nose-first along its heading, its
@@ -1387,11 +1441,12 @@ function binFrame(t, dt, rt){
   // dark halo so it reads on any part of the map
   ctx.lineJoin = "round"; ctx.lineCap = "round";
   ctx.lineWidth = 4.5; ctx.strokeStyle = "rgba(0,0,0,.5)";
-  b.squads.forEach(q => q.players.forEach(p => binRoute(ctx, S, p, t - BIN_TRAIL, t)));
+  const from = b.mode === "booyah" ? -1 : t - BIN_TRAIL;
+  b.squads.forEach(q => q.players.forEach(p => binRoute(ctx, S, p, from, t)));
   ctx.lineWidth = 2.2; ctx.globalAlpha = .95;
   b.squads.forEach(q => {
     ctx.strokeStyle = q.colour;
-    q.players.forEach(p => binRoute(ctx, S, p, t - BIN_TRAIL, t));
+    q.players.forEach(p => binRoute(ctx, S, p, from, t));
   });
   ctx.globalAlpha = 1;
   // where players fell: a red cross, fading
@@ -1404,6 +1459,7 @@ function binFrame(t, dt, rt){
     ctx.beginPath(); ctx.moveTo(x - 5, y - 5); ctx.lineTo(x + 5, y + 5); ctx.moveTo(x - 5, y + 5); ctx.lineTo(x + 5, y - 5); ctx.stroke();
   }));
   ctx.globalAlpha = 1;
+  if(b.mode === "booyah") binBooyahDraw(S, T, (b.dur - b.time.open) / Math.max(.001, b.secs - b.time.ro));
   binFog();
   // each squad's drop spot, from the moment it lands
   // match seconds per second on screen, after the drop -- at the speed
@@ -1543,7 +1599,11 @@ function binFrame(t, dt, rt){
   const outBy = (b.d.teamOut || []).filter(o => o.t <= T).length;
   const teams = Math.max(1, (b.view.squads || []).length - outBy);
   const elims = (b.d.kills || []).filter(k => k.t <= T).length;
-  binHud(mmss(T), [[teams, teams === 1 ? "TEAM ALIVE" : "TEAMS ALIVE"], [elims, "ELIMINATIONS"]]);
+  if(b.mode === "booyah"){
+    const mine = (b.d.kills || []).filter(k => k.t <= T && k.ks === (b.squads[0] || {}).squad).length;
+    binHud(mmss(T), [[teams, teams === 1 ? "TEAM ALIVE" : "TEAMS ALIVE"], [mine, "THEIR ELIMS"]]);
+    binBooyahPlate();
+  } else binHud(mmss(T), [[teams, teams === 1 ? "TEAM ALIVE" : "TEAMS ALIVE"], [elims, "ELIMINATIONS"]]);
   // the timeline: the current circle, the match, its circles, the playhead
   const circle = (b.view.zones || []).filter(z => z.announced != null && z.announced <= T).length;
   const lab = circle ? "CIRCLE " + circle : (T < b.firstOn ? "DROP" : "PRE-CIRCLE");
@@ -1780,6 +1840,38 @@ function binStatic(now){
       binPin(x, y, q, false, 9, q.place === 1);
     });
     binHud("ROTATIONS", [[(b.view.zones || []).length, "CIRCLES"], [b.squads.length, "TEAMS"]]);
+  } else if(b.mode === "heatmap"){
+    // where they fell, building up over two seconds as it comes on
+    if(b.heatStart == null) b.heatStart = now;
+    const f = Math.min(1, (now - b.heatStart) / 2000);
+    // every elimination, where its victim stood at that moment -- a player
+    // revived and eliminated again is two fights, not one
+    if(!b.heatDeaths){
+      const byName = {};
+      b.squads.forEach(q => q.players.forEach(p => { byName[p.name] = p; }));
+      b.heatDeaths = [];
+      (b.d.kills || []).forEach(k => {
+        const p = byName[k.vn];
+        if(!p || !p.t.length) return;
+        const a = binAt(p, Math.min(k.t, p.end)) || [p.u[p.u.length - 1], p.v[p.v.length - 1]];
+        b.heatDeaths.push({ u: a[0], v: a[1], t: k.t });
+      });
+    }
+    const deaths = b.heatDeaths;
+    const heat = binHeatCanvas(deaths, f * b.dur);
+    const [x0, y0] = S(0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(heat, x0, y0, 1000 * S.s, 1000 * S.s);
+    binHud("ELIMINATION HEATMAP", [[deaths.filter(d => d.t <= f * b.dur).length, "ELIMINATIONS"]]);
+    // the scale, where the footnote would go
+    const lx = W - 236, ly = W - 40;
+    binPlate(lx - 10, ly, 230, 24, "rgba(8,11,17,.88)", 7);
+    const lg = ctx.createLinearGradient(lx + 44, 0, lx + 168, 0);
+    [[0, "rgba(40,90,255,1)"], [.3, "rgba(0,205,255,1)"], [.55, "rgba(60,230,90,1)"], [.78, "rgba(255,225,0,1)"], [1, "rgba(255,45,25,1)"]]
+      .forEach(([o, c]) => lg.addColorStop(o, c));
+    ctx.fillStyle = lg; ctx.fillRect(lx + 44, ly + 9, 124, 7);
+    ctx.font = binFont(800, 11); ctx.fillStyle = "#e8edf6";
+    ctx.fillText("FEW", lx + 6, ly + 17); ctx.fillText("MANY", lx + 174, ly + 17);
   } else {
     ctx.lineWidth = 1.8; ctx.lineJoin = "round"; ctx.lineCap = "round";
     b.squads.forEach(q => { ctx.strokeStyle = q.colour; ctx.globalAlpha = .75; q.players.forEach(p => binRoute(ctx, S, p, -1, 1e9)); });
@@ -1797,6 +1889,187 @@ function binStatic(now){
   binPlate(16, W - 40, ctx.measureText(note).width + 26, 24, "rgba(8,11,17,.88)", 7);
   ctx.fillStyle = b.accent; ctx.fillRect(16, W - 40, 4, 24);
   ctx.fillStyle = "#e8edf6"; ctx.fillText(note, 30, W - 23);
+}
+
+
+/* ---- THE ELIMINATION RACE ------------------------------------------------
+   liveOps.fragRace, the engine's top three this match from the client's
+   own kill feed; up while mapView.raceVisible. Photos arrive on their own
+   message (race_photos) -- a player without one of their own shows the
+   team's logo. */
+const racePhotos = {};
+const raceRows = new Map();
+let raceShown = 0;
+function renderRace(state){
+  const mv = state.mapView || {};
+  const box = document.getElementById("race");
+  const on = !!mv.raceVisible;
+  box.classList.toggle("on", on);
+  if(!on) return;
+  const race = ((state.liveOps || {}).fragRace) || [];
+  const roster = state.roster || {};
+  const rows = box.querySelector(".rows");
+  // pushed up again: the rows come in again
+  if(mv.raceShownAt && mv.raceShownAt !== raceShown){
+    raceShown = mv.raceShownAt;
+    raceRows.forEach(el => el.remove()); raceRows.clear();
+  }
+  let empty = rows.querySelector(".empty");
+  if(!race.length){
+    if(!empty){ empty = document.createElement("div"); empty.className = "empty"; empty.textContent = "No eliminations yet"; rows.appendChild(empty); }
+  } else if(empty) empty.remove();
+  const seen = new Set();
+  race.forEach((r, i) => {
+    const id = r.pid || r.uid || r.ign;
+    seen.add(id);
+    let el = raceRows.get(id);
+    const fresh = !el;
+    if(!el){
+      el = document.createElement("div");
+      el.className = "rr enter";
+      el.innerHTML = '<div class="rk"></div><div class="ph"><img alt=""></div>' +
+        '<div class="who"><div class="ign"></div><div class="tm"><img alt=""><span></span></div></div>' +
+        '<div class="k"><b></b><small>ELIMS</small></div>';
+      el.style.top = (i * 96) + "px";
+      el.style.animationDelay = (i * .09).toFixed(2) + "s";
+      rows.appendChild(el);
+      raceRows.set(id, el);
+    }
+    el.style.top = (i * 96) + "px";
+    el.classList.toggle("r1", i === 0);
+    el.classList.toggle("out", !!r.teamOut);
+    el.querySelector(".rk").textContent = i + 1;
+    const team = teamFor(r.teamName, roster);
+    const photo = racePhotos[r.uid || r.ign];
+    const img = el.querySelector(".ph img"), src = photo || (team && team.logo) || "";
+    if(src && img.getAttribute("src") !== src) img.src = src;
+    img.style.visibility = src ? "" : "hidden";
+    img.classList.toggle("logo", !photo);
+    el.querySelector(".ign").textContent = binName(r.ign) || "?";
+    const ti = el.querySelector(".tm img");
+    if(team && team.logo){ if(ti.getAttribute("src") !== team.logo) ti.src = team.logo; ti.style.display = ""; }
+    else ti.style.display = "none";
+    el.querySelector(".tm span").textContent = (team && team.shortName) || r.short || r.teamName || "";
+    const kb = el.querySelector(".k b");
+    if(kb.textContent !== String(r.kills)){
+      const had = kb.textContent;
+      kb.textContent = r.kills;
+      if(had && !fresh){ kb.classList.remove("pop"); void kb.offsetWidth; kb.classList.add("pop"); }
+    }
+  });
+  raceRows.forEach((el, id) => { if(!seen.has(id)){ el.remove(); raceRows.delete(id); } });
+}
+
+// THE BOOYAH ROUTE's extras: where the winners stood when each circle was
+// drawn (numbered on their route), and the players they eliminated.
+function binBooyahPrep(){
+  const b = bin, q = b.squads[0];
+  b.marks = []; b.victims = [];
+  if(!q) return;
+  (b.view.zones || []).forEach((z, i) => {
+    if(z.announced == null) return;
+    const at = q.players.map(p => binAt(p, z.announced)).filter(a => a && !a[2]);
+    if(at.length) b.marks.push({ t: z.announced, n: i + 1,
+      u: at.reduce((a, c) => a + c[0], 0) / at.length, v: at.reduce((a, c) => a + c[1], 0) / at.length });
+  });
+  const byName = {};
+  (b.d.players || []).forEach(p => { byName[p.name] = p; });
+  (b.d.kills || []).forEach(k => {
+    if(k.ks !== q.squad) return;
+    const p = byName[k.vn];
+    if(!p) return;
+    const a = binAt(p, Math.min(k.t, p.end)) || [p.u[p.u.length - 1], p.v[p.v.length - 1]];
+    b.victims.push({ t: k.t, u: a[0], v: a[1] });
+  });
+}
+function binBooyahDraw(S, T, realSec){
+  const b = bin, ctx = b.ctx, q = b.squads[0];
+  if(!q) return;
+  // where they eliminated others: red crosses that stay
+  b.victims.forEach(vk => {
+    if(T < vk.t) return;
+    const [x, y] = S(vk.u, vk.v);
+    if(!isFinite(x)) return;
+    const a = Math.min(1, (T - vk.t) / (.6 * realSec));
+    ctx.globalAlpha = .9 * a;
+    ctx.strokeStyle = "#ff3b30"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(x - 6, y - 6); ctx.lineTo(x + 6, y + 6); ctx.moveTo(x - 6, y + 6); ctx.lineTo(x + 6, y - 6); ctx.stroke();
+    ctx.globalAlpha = 1;
+  });
+  // the circles on their way: a numbered chip where they stood as each was drawn
+  b.marks.forEach(m => {
+    if(T < m.t) return;
+    const [x, y] = S(m.u, m.v);
+    if(!isFinite(x)) return;
+    ctx.fillStyle = b.accent; ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "#0b0f14"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.font = binFont(900, 13); ctx.fillStyle = "#101318"; ctx.textAlign = "center";
+    ctx.fillText(String(m.n), x, y + 4.5); ctx.textAlign = "left";
+  });
+}
+// The plate under the clock: whose route this is.
+function binBooyahPlate(){
+  const b = bin, ctx = b.ctx, q = b.squads[0];
+  if(!q) return;
+  const name = String((q.team && (q.team.displayName || q.team.name)) || q.name || "").toUpperCase();
+  ctx.font = binFont(900, 18);
+  const w = ctx.measureText(name).width + 70;
+  binPlate(12, 94, w, 34, "rgba(8,11,17,.86)", 8);
+  ctx.fillStyle = b.next; ctx.fillRect(12, 94, 4, 34);
+  const logo = q.team && binImg(q.team.logo);
+  if(logo) ctx.drawImage(logo, 22, 97, 28, 28);
+  ctx.fillStyle = "#ffffff"; ctx.fillText(name, 56, 118);
+  ctx.font = binFont(900, 11); binSpacing(1.5);
+  ctx.fillStyle = b.next; ctx.fillText("BOOYAH ROUTE", 20, 144); binSpacing(0);
+}
+
+/* THE ELIMINATION HEATMAP: where the players fell, as a density over the
+   map -- blue where a few did, through green and yellow to red where most
+   did. Built up through the match as it draws in. */
+const BIN_HEAT_LUT = (() => {
+  const stops = [[0, 0, 0, 0, 0], [.12, 40, 90, 255, .5], [.32, 0, 205, 255, .66], [.52, 60, 230, 90, .78],
+                 [.74, 255, 225, 0, .88], [1, 255, 45, 25, .96]];
+  const lut = new Uint8ClampedArray(256 * 4);
+  for(let i = 0; i < 256; i++){
+    const f = i / 255;
+    let k = 0;
+    while(k < stops.length - 2 && f > stops[k + 1][0]) k++;
+    const a = stops[k], c = stops[k + 1], m = (f - a[0]) / Math.max(1e-6, c[0] - a[0]);
+    lut[i * 4] = a[1] + (c[1] - a[1]) * m; lut[i * 4 + 1] = a[2] + (c[2] - a[2]) * m;
+    lut[i * 4 + 2] = a[3] + (c[3] - a[3]) * m; lut[i * 4 + 3] = 255 * (a[4] + (c[4] - a[4]) * m);
+  }
+  return lut;
+})();
+function binHeatGrid(deaths, upTo, N){
+  const grid = new Float32Array(N * N), R = 9, sig = R / 2.2;
+  let mx = 0;
+  deaths.forEach(d => {
+    if(d.t > upTo) return;
+    const cx = d.u / 1000 * N, cy = d.v / 1000 * N;
+    for(let y = Math.max(0, Math.floor(cy - R)); y <= Math.min(N - 1, Math.ceil(cy + R)); y++)
+      for(let x = Math.max(0, Math.floor(cx - R)); x <= Math.min(N - 1, Math.ceil(cx + R)); x++){
+        const dd = ((x - cx) * (x - cx) + (y - cy) * (y - cy)) / (2 * sig * sig);
+        if(dd > 4.5) continue;
+        const v = grid[y * N + x] += Math.exp(-dd);
+        if(v > mx) mx = v;
+      }
+  });
+  return { grid, mx };
+}
+function binHeatCanvas(deaths, upTo){
+  const N = 250, b = bin;
+  const c = b.heat || (b.heat = Object.assign(document.createElement("canvas"), { width: N, height: N }));
+  // scaled to the hottest spot of the whole match, so it warms as it builds
+  if(b.heatMaxAll == null) b.heatMaxAll = Math.max(1, binHeatGrid(deaths, Infinity, N).mx);
+  const { grid } = binHeatGrid(deaths, upTo, N);
+  const g = c.getContext("2d"), img = g.createImageData(N, N);
+  for(let i = 0; i < N * N; i++){
+    const k = Math.min(255, Math.round(255 * Math.sqrt(grid[i] / b.heatMaxAll)));
+    img.data[i * 4] = BIN_HEAT_LUT[k * 4]; img.data[i * 4 + 1] = BIN_HEAT_LUT[k * 4 + 1];
+    img.data[i * 4 + 2] = BIN_HEAT_LUT[k * 4 + 2]; img.data[i * 4 + 3] = BIN_HEAT_LUT[k * 4 + 3];
+  }
+  g.putImageData(img, 0, 0);
+  return c;
 }
 
 /* ---- render -------------------------------------------------------- */
@@ -1930,7 +2203,7 @@ function render(state){
       return;
     }
     if(binNow === "ready"){
-      const stream = binView(cfg) === "stream";
+      const stream = ["stream", "booyah"].includes(binView(cfg));
       side.innerHTML = stream
         ? sideStats(view, roster, Object.assign({ s0: BIN_LEAD }, binTimeMap(binData, view, binSecs(cfg))))
         : sideStats(view, roster);
@@ -2044,6 +2317,11 @@ function connect(){
   ws = new WebSocket(WS_URL);
   ws.onmessage = evt => {
     const msg = JSON.parse(evt.data);
+    if(msg.type === "race_photos"){
+      Object.assign(racePhotos, msg.photos || {});
+      if(lastState) renderRace(lastState);
+      return;
+    }
     if(msg.type === "map_bin"){
       // the BIN replay for the loaded match, on its own message
       if(!binData || binData.matchFile !== msg.matchFile || msg.ok !== binData.ok) binData = binPrep(msg);
@@ -2058,6 +2336,7 @@ function connect(){
     else if(_lastRoster) msg.data.roster = _lastRoster;
     lastState = msg.data;
     render(msg.data);
+    renderRace(msg.data);
   };
   ws.onclose = () => setTimeout(connect, 2000);
   ws.onerror = () => ws.close();

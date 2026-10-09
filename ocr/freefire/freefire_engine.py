@@ -1532,6 +1532,10 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
                     # Carried for the same reason as the IGNs -- the squad
                     # is out, so this is its final kill count.
                     "kills": live["gsKills"].get(gs_team, 0),
+                    # The squad that wiped it, and its players (named the
+                    # same way, before any roll-over renumbers it).
+                    "by": (live.get("lastDeathBy") or {}).get(gs_team),
+                    "byIgns": list(live["gsIgns"].get((live.get("lastDeathBy") or {}).get(gs_team), {}).values()),
                     "time": ts.group("ts") if ts else "",
                 })
             continue
@@ -1695,6 +1699,10 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
         self_inflicted = killer_id == victim_id
         if kill:
             live["gsDown"].setdefault(gs_team_of(victim_id), set()).add(victim_id)
+            # Who took this squad's latest life -- when it is wiped, the wipe
+            # banner names them. None for the zone or a fall: nobody to name.
+            live.setdefault("lastDeathBy", {})[gs_team_of(victim_id)] = (
+                None if self_inflicted else gs_team_of(killer_id))
         if self_inflicted:
             continue
         if kill:
@@ -5155,6 +5163,8 @@ def reset_alive_for_new_match(reason=""):
     if reason == "operator" and roster_teams:
         ops["sidetableRows"] = roster_rows(roster_teams)
 
+    ops["wipedBy"] = {}
+    ops["fragRace"] = []
     # Any card mid-flight belongs to the game that just ended.
     server_state["teamEliminated"] = {"status": "idle", "shownUntil": None,
                                       "teamName": "", "rank": None,
@@ -9163,6 +9173,9 @@ MAP_VIEW_DEFAULTS = {
     # in flight.
     "binFeed": "below",
     "binNames": True,
+    # THE ELIMINATION RACE: its own layer in the map source, up and down
+    # from the dashboard whatever the map is doing.
+    "raceVisible": False,
     # Drop spots, per map and team, kept across games -- squads keep their
     # landing per map for an event, so they are set once per map:
     #   {"1": {"TSG ARMY": {"at": [u, v], "by": "hand" | "games"}}}
@@ -9180,7 +9193,7 @@ def map_view_state():
 
 MAP_VIEW_KEYS = ("visible", "source", "animate", "replay", "replaySeconds", "theme", "bg", "zoom",
                  "template", "dropMap", "matchLabel", "mapLabel", "roundLabel", "pathScope", "gameNo",
-                 "statsMap", "binSeconds", "bin3d", "replaySpeed", "binFeed", "binNames")
+                 "statsMap", "binSeconds", "bin3d", "replaySpeed", "binFeed", "binNames", "raceVisible")
 
 
 def apply_map_view_choice(mv, payload):
@@ -9197,6 +9210,8 @@ def apply_map_view_choice(mv, payload):
     # rather than doing nothing.
     if payload.get("visible"):
         mv["shownAt"] = int(time.time() * 1000)
+    if payload.get("raceVisible"):
+        mv["raceShownAt"] = int(time.time() * 1000)
 
 
 def replays_folder():
@@ -9441,6 +9456,64 @@ def build_map_bin(match_file):
                        "vs": (k["victim"] >> 24) if k.get("victim") else None,
                        "vn": k.get("victimName") or ""} for k in kills],
             "teamOut": team_out, "photoSet": photo_set, "photoOf": photo_of}
+
+
+# THE LIVE ELIMINATION RACE: this match's top fraggers from the client's
+# own kill feed, for the map source's race layer.
+FREEFIRE_RACE_TOP = 3
+_race_photo_key = ""
+
+
+def frag_race(live, linked, id_map, top=FREEFIRE_RACE_TOP):
+    """[{pid, ign, uid, kills, teamName, short, teamOut}] -- the most
+    eliminations this match, most first (ties by name, so the order does
+    not flicker)."""
+    kills = live.get("playerKills") or {}
+    if not kills:
+        return []
+    rows = {r.get("gsTeam"): r for r in ((linked or {}).get("rows") or []) if r.get("gsTeam") is not None}
+    wiped = set(live.get("wiped") or [])
+    out = []
+    for pid, k in kills.items():
+        who = (id_map or {}).get(pid) or {}
+        gs = gs_team_of(pid)
+        row = rows.get(gs) or {}
+        out.append({"pid": str(pid), "ign": who.get("ign") or "", "uid": str(who.get("uid") or ""),
+                    "kills": int(k), "teamName": row.get("teamName") or "", "short": row.get("short") or "",
+                    "teamOut": gs in wiped})
+    out.sort(key=lambda r: (-r["kills"], r["ign"].upper()))
+    return out[:top]
+
+
+def race_photos():
+    """{uid or ign: small square photo} for the race's players -- their own
+    photos only: a DEFAULT stand-in is left out, and the graphic shows the
+    team's logo in its place."""
+    race = (server_state.get("liveOps") or {}).get("fragRace") or []
+    folder = _photo_folder()
+    defaults = set()
+    if folder:
+        try:
+            defaults = {str(p) for p in (_photo_scan(folder).get("defaults") or [])}
+        except Exception:
+            defaults = set()
+    photos = {}
+    for r in race:
+        path = _photo_path(r.get("uid"), r.get("ign"))
+        if not path or str(path) in defaults:
+            continue
+        thumb = _bin_thumb(path, 160)
+        if thumb:
+            photos[r.get("uid") or r.get("ign")] = thumb
+    return photos
+
+
+async def send_race_photos(only=None):
+    msg = {"type": "race_photos", "photos": race_photos()}
+    if only is not None:
+        await _send_guarded(only, json.dumps(msg))
+    else:
+        await broadcast_to_page("freefire_map", msg)
 
 
 def map_bin_wanted():
@@ -11217,6 +11290,11 @@ async def handle_client(websocket, path=None):
             await send_map_bin(only=websocket)
         except Exception as e:
             print("[map] BIN replay not sent on connect: %s" % e)
+        try:
+            if (server_state.get("liveOps") or {}).get("fragRace"):
+                await send_race_photos(only=websocket)
+        except Exception as e:
+            print("[map] race photos not sent on connect: %s" % e)
     try:
         async for message in websocket:
             try:
@@ -12952,6 +13030,16 @@ async def handle_live_signals(signals, gs_names):
             te["rank"] = total - signal["order"] + 1
             te["kills"] = signal.get("kills", 0)
             te["photo"] = (roster_team or {}).get("logo") or ""
+            # THE WIPE BANNER: who wiped them, for the in-game source to
+            # play "TSG WIPED NG" before the elimination card. Not for the
+            # zone or a fall, and never a squad "wiping" itself.
+            by = signal.get("by")
+            if by is not None:
+                by_name = (resolve_team_from_igns(signal.get("byIgns"), server_state.get("roster", {}))
+                           or gs_names.get(by, ""))
+                if by_name and by_name.strip().upper() != name.strip().upper():
+                    server_state["liveOps"].setdefault("wipedBy", {})[name.strip().upper()] = {"by": by_name}
+                    print(f"[live] {name} wiped by {by_name}")
             changed = True
             print(f"[live] {name} eliminated -- placing {te['rank']}")
 
@@ -13429,6 +13517,21 @@ async def ocr_loop():
                     # Compared without its ages, which tick every second
                     # and would otherwise republish the whole state on
                     # every poll for no change anyone can see.
+                    # The elimination race: republished when it changes,
+                    # and its photos sent when who is in it changes.
+                    global _race_photo_key
+                    race = frag_race(_live_match, linked, _debugger_id_map)
+                    if race != server_state["liveOps"].get("fragRace"):
+                        server_state["liveOps"]["fragRace"] = race
+                        changed = True
+                        key = "|".join(r["uid"] or r["ign"] for r in race)
+                        if key != _race_photo_key:
+                            _race_photo_key = key
+                            try:
+                                await send_race_photos()
+                            except Exception as e:
+                                print("[race] photos not sent: %s" % e)
+
                     director = director_feed(_live_match, linked)
                     def _shape(feed):
                         return json.dumps({
