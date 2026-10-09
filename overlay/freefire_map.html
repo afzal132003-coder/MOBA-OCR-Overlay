@@ -1043,7 +1043,7 @@ function startBin(view, cfg, roster, animate){
   bin.tilt = cfg.bin3d === false ? 0 : BIN_TILT;
   // The plane's crossing. The files say where it flew, not when, so it
   // is given until shortly before the first squad touches down.
-  bin.anim = ["stream", "booyah"].includes(bin.mode);
+  bin.anim = ["stream", "booyah", "drops"].includes(bin.mode);
   bin.time = binTimeMap(d, view, bin.secs);
   // A photo shared by players of different squads is the folder's stand-in,
   // not a face: those players (and any with no photo) wear their team's
@@ -1058,6 +1058,7 @@ function startBin(view, cfg, roster, animate){
   Object.entries(bySquadOfPhoto).forEach(([i, sq]) => { if(sq.size > 1) bin.standIn.add(Number(i)); });
   binClouds();
   if(bin.mode === "booyah") binBooyahPrep();
+  if(bin.mode === "drops") binDropsPrep();
   bin.planeEnd = Math.max(45, Math.min(150, (isFinite(bin.firstOn) && bin.firstOn < 1e8 ? bin.firstOn : 105) - 15));
   // Where each squad dropped: the middle of where its players first stood
   // on the ground, and when (the middle of their landings) -- marked on
@@ -1090,12 +1091,13 @@ function startBin(view, cfg, roster, animate){
       if(bin.rateApplied !== replaySpeed) binTableRate();
     }
     bin.last = now;
-    if(bin.anim) binFrame(t, dt, bin.started == null ? 0 : (now - bin.started) / 1000);
+    if(bin.mode === "drops") binDropFrame(dt, bin.started == null ? 0 : (now - bin.started) / 1000);
+    else if(bin.anim) binFrame(t, dt, bin.started == null ? 0 : (now - bin.started) / 1000);
     else binStatic(now);
     // done a beat after the end, once the camera has settled and the
     // pictures are in -- except the 3D MapStream, whose camera keeps
     // circling the Booyah squad for as long as it is on air
-    if(!bin.anim || bin.still || (t >= bin.dur && !bin.tilt)){
+    if(!bin.anim || bin.still || (t >= bin.dur && !bin.tilt && bin.mode !== "drops")){
       bin.doneAt = bin.doneAt || now;
       if(now - bin.doneAt > 2500 && bin.map.ready) return;
     }
@@ -1956,6 +1958,185 @@ function binHeatCanvas(deaths, upTo){
   }
   g.putImageData(img, 0, 0);
   return c;
+}
+
+
+/* ---- BIN: DROP LOCATIONS -------------------------------------------------
+   Where every team came down in this game, from its replay: each player's
+   first moment on the ground. A squad that split is placed on its main
+   group (the players within 90 map units of the one most central to the
+   rest), and the split is said. Then a cinematic: the plane's run, the
+   camera gliding from one team's drop to the next -- in the order the
+   plane passed them, so it never zigzags -- each team's pin falling onto
+   its spot, and at the end all of them together. */
+const TOUR_PLANE_S = 5;            // seconds of the plane's run
+function binDropsPrep(){
+  const b = bin;
+  b.drops = [];
+  b.squads.forEach(q => {
+    const pts = q.players.map(p => {
+      if(!p.t.length) return null;
+      let k = p.airAt.indexOf(0);
+      if(k < 0) k = 0;
+      return [p.u[k], p.v[k], p.t[k]];
+    }).filter(Boolean);
+    if(!pts.length) return;
+    // the main group: round the player most central to the rest
+    let med = pts[0], best = 1e18;
+    pts.forEach(a => { const sum = pts.reduce((s, c) => s + Math.hypot(a[0] - c[0], a[1] - c[1]), 0); if(sum < best){ best = sum; med = a; } });
+    const near = pts.filter(c => Math.hypot(c[0] - med[0], c[1] - med[1]) <= 90);
+    const ts = near.map(c => c[2]).sort((a, c) => a - c);
+    b.drops.push({ q, pts, u: near.reduce((s, c) => s + c[0], 0) / near.length,
+                   v: near.reduce((s, c) => s + c[1], 0) / near.length,
+                   t: ts[Math.floor(ts.length / 2)], main: near.length, split: pts.length - near.length });
+  });
+  // the order the plane passed them: by how far along its run each drop
+  // lies, so the tour follows the flight instead of jumping about
+  const pl = b.view.plane;
+  if(pl && pl.from && pl.to){
+    const fx = pl.from[0] * 1000, fy = pl.from[1] * 1000, dx = pl.to[0] * 1000 - fx, dy = pl.to[1] * 1000 - fy;
+    const L2 = Math.max(1, dx * dx + dy * dy);
+    b.drops.forEach(d => { d.along = ((d.u - fx) * dx + (d.v - fy) * dy) / L2; });
+    b.drops.sort((a, c) => a.along - c.along);
+  } else b.drops.sort((a, c) => a.t - c.t);
+  const n = Math.max(1, b.drops.length);
+  b.stopS = Math.max(2.6, Math.min(6, (b.secs - TOUR_PLANE_S - 6) / n));
+}
+function binDropFrame(dt, rt){
+  const b = bin, ctx = b.ctx, W = b.W, r = b.pos || 0, n = b.drops.length;
+  ctx.setTransform(b.dpr, 0, 0, b.dpr, 0, 0);
+  const A = TOUR_PLANE_S, C = A + n * b.stopS;
+  let phase = "plane", i = -1, f = 0, T = 0;
+  if(b.still || r >= C){ phase = "all"; T = b.planeEnd + 10; }
+  else if(r >= A){ phase = "tour"; i = Math.min(n - 1, Math.floor((r - A) / b.stopS)); f = (r - A - i * b.stopS) / b.stopS; T = b.planeEnd + 10; }
+  else T = Math.max(0, r) / A * (b.planeEnd + 4);
+  // the shot
+  let x = 500, y = 500, z = 1, tilt = b.tilt * .7, yaw = 0;
+  if(phase === "plane"){
+    const pp = binPlaneAt(T);
+    if(pp){ x = 500 + (pp[0] - 500) * .3; y = 500 + (pp[1] - 500) * .3; }
+    yaw = -.3 + .2 * Math.max(0, r) / A;
+  } else if(phase === "tour"){
+    const d = b.drops[i];
+    x = d.u; y = d.v; z = 2.7; tilt = Math.min(1.1, b.tilt * 1.08);
+    // each stop from its own side, turning a little while it holds
+    yaw = [-.32, .05, .34, -.12][i % 4] + .1 * f;
+  } else {
+    const us = b.drops.map(d => d.u), vs = b.drops.map(d => d.v);
+    const w = Math.max(160, Math.max(...us) - Math.min(...us), Math.max(...vs) - Math.min(...vs)) + 160;
+    x = (Math.min(...us) + Math.max(...us)) / 2; y = (Math.min(...vs) + Math.max(...vs)) / 2;
+    z = Math.max(1, Math.min(2.2, 1000 / w * (W - BIN_HUD - BIN_TL) / W));
+    // closer to straight down than the tour, so every pin reads at once
+    tilt = b.tilt * .55; yaw = .08 * Math.sin(rt * 2 * Math.PI / 30);
+  }
+  if(!b.tilt){ tilt = 0; yaw = 0; }
+  const half = 500 / z;
+  x = Math.max(half * .6, Math.min(1000 - half * .6, x)); y = Math.max(half * .6, Math.min(1000 - half * .6, y));
+  if(!b.cam || dt >= 1) b.cam = { x, y, z, tilt, yaw };
+  else {
+    binSpring(b.cam, "x", x, 1.5, dt); binSpring(b.cam, "y", y, 1.5, dt);
+    binSpring(b.cam, "z", z, 1.3, dt); binSpring(b.cam, "tilt", tilt, 1.2, dt); binSpring(b.cam, "yaw", yaw, 1.0, dt);
+  }
+  const S = binScreen(b.cam, b.cam.tilt, b.cam.yaw);
+  const scaleAt = (u, v) => Math.max(.7, Math.min(1.6, S.k(u, v) / S.s));
+  binBase(S);
+  // the plane's path, faint, all the way through: the drops hang off it
+  const pl = b.view.plane;
+  if(pl && pl.from && pl.to){
+    const [x1, y1] = S(pl.from[0] * 1000, pl.from[1] * 1000), [x2, y2] = S(pl.to[0] * 1000, pl.to[1] * 1000);
+    if(isFinite(x1) && isFinite(x2)){
+      ctx.globalAlpha = phase === "plane" ? .6 : .35;
+      ctx.setLineDash([12, 9]); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    }
+  }
+  binFog();
+  // the pins: every team visited so far, the one now falling onto its spot
+  const shown = phase === "all" ? b.drops : phase === "tour" ? b.drops.slice(0, i + 1) : [];
+  const pins = shown.map((d, k) => {
+    const [gx, gy] = S(d.u, d.v), sc = scaleAt(d.u, d.v), cur = phase === "tour" && k === i;
+    return { d, k, gx, gy, sc, cur, R: (cur ? 24 * 1.35 * 1.25 : 18) * sc, dx: 0, depth: S.depth(d.u, d.v) };
+  }).filter(o => isFinite(o.gx)).sort((m, o) => o.depth - m.depth);
+  // teams that dropped side by side: their pins eased apart, never stacked
+  for(let pass = 0; pass < 6; pass++){
+    for(let a = 0; a < pins.length; a++) for(let c = a + 1; c < pins.length; c++){
+      const A1 = pins[a], C1 = pins[c], need = (A1.R + C1.R) * .95;
+      const ax = A1.gx + A1.dx, cx = C1.gx + C1.dx;
+      if(Math.abs(A1.gy - C1.gy) > A1.R + C1.R || Math.abs(ax - cx) >= need) continue;
+      const push = (need - Math.abs(ax - cx)) / 2 + .5, dir = ax <= cx ? 1 : -1;
+      if(A1.cur) C1.dx += dir * push * 2; else if(C1.cur) A1.dx -= dir * push * 2;
+      else { A1.dx -= dir * push; C1.dx += dir * push; }
+    }
+  }
+  pins.forEach(({ d, k, gx, gy, sc, cur, dx }) => {
+    // the pad on the ground, and (for the team now) where each player landed
+    binRing(S, d.u, d.v, 9 / b.cam.z);
+    ctx.globalAlpha = .5; ctx.fillStyle = d.q.colour; ctx.fill();
+    ctx.globalAlpha = 1; ctx.strokeStyle = d.q.colour; ctx.lineWidth = 2; ctx.stroke();
+    if(cur){
+      d.pts.forEach(p => {
+        const [px, py] = S(p[0], p[1]);
+        if(!isFinite(px)) return;
+        ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2);
+        ctx.fillStyle = d.q.colour; ctx.fill(); ctx.strokeStyle = "rgba(0,0,0,.85)"; ctx.lineWidth = 1.5; ctx.stroke();
+      });
+    }
+    // the fall: from above, landing with a little bounce, in the first third
+    let drop = 0;
+    if(cur){
+      const g = Math.min(1, f / .32), bounce = g < 1 ? (1 - g) * (1 - g) : 0;
+      drop = bounce * 260 + (g < 1 ? 0 : Math.max(0, Math.sin((f - .32) * 14) * 6 * (1 - (f - .32) * 3)));
+    }
+    if(!cur && phase === "tour") ctx.globalAlpha = .82;
+    binPin(gx, gy - drop, d.q, cur, 6 * sc, cur, sc * (cur ? 1.25 : 1), dx);
+    ctx.globalAlpha = 1;
+  });
+  // the plane and the sky, while it flies
+  if(phase === "plane"){
+    binPlane(S, T);
+    binSky(S, T, 30);
+    const cap = "FLIGHT PATH";
+    ctx.font = binFont(900, 22); binSpacing(1.5);
+    const cw = ctx.measureText(cap).width + 40;
+    binPlate(W / 2 - cw / 2, W - BIN_TL - 70, cw, 38, "rgba(8,11,17,.88)", 10);
+    ctx.fillStyle = b.accent; ctx.fillRect(W / 2 - cw / 2, W - BIN_TL - 70, 5, 38);
+    ctx.fillStyle = "#ffffff"; ctx.textAlign = "center"; ctx.fillText(cap, W / 2 + 4, W - BIN_TL - 44);
+    ctx.textAlign = "left"; binSpacing(0);
+  }
+  // the caption for the team now: DROP i/n, its logo and name, when it landed
+  if(phase === "tour"){
+    const d = b.drops[i], q = d.q;
+    const a = Math.min(1, f / .2, (1 - f) / .12);
+    ctx.globalAlpha = Math.max(0, a);
+    const name = String((q.team && (q.team.displayName || q.team.name)) || q.name || "").toUpperCase();
+    const sub = "LANDED " + mmss(d.t) + (d.split ? "  ·  SPLIT " + d.main + " + " + d.split : "");
+    ctx.font = binFont(900, 24);
+    const nw = ctx.measureText(name).width;
+    ctx.font = binFont(800, 12);
+    const sw = ctx.measureText(sub).width;
+    const w = Math.max(nw, sw) + 120, h = 64, x0 = W / 2 - w / 2, y0 = W - BIN_TL - 92;
+    binPlate(x0, y0, w, h, "rgba(8,11,17,.9)", 12);
+    ctx.fillStyle = q.colour; ctx.fillRect(x0, y0, 6, h);
+    const logo = q.team && binImg(q.team.logo);
+    if(logo) ctx.drawImage(logo, x0 + 16, y0 + 8, 48, 48);
+    ctx.font = binFont(900, 24); ctx.fillStyle = "#ffffff"; ctx.fillText(name, x0 + 76, y0 + 32);
+    ctx.font = binFont(800, 12); ctx.fillStyle = "#aab4c5"; ctx.fillText(sub, x0 + 76, y0 + 52);
+    const tag = "DROP " + (i + 1) + "/" + n;
+    ctx.font = binFont(900, 13); binSpacing(1);
+    const tw = ctx.measureText(tag).width + 22;
+    binPlate(x0 + 4, y0 - 22, tw, 22, b.accent, 6);
+    ctx.fillStyle = "#101318"; ctx.fillText(tag, x0 + 14, y0 - 6); binSpacing(0);
+    ctx.globalAlpha = 1;
+  }
+  binHud("DROP LOCATIONS", [[n, "TEAMS"]]);
+  // the footnote: the match and its map
+  const note = phase === "all" ? "EVERY TEAM'S DROP  ·  " + (b.view.mapName || "").toUpperCase()
+                               : "FROM THE GAME'S REPLAY  ·  " + mmss(b.dur) + " MATCH";
+  ctx.font = binFont(800, 12);
+  binPlate(16, W - 40, ctx.measureText(note).width + 26, 24, "rgba(8,11,17,.88)", 7);
+  ctx.fillStyle = b.accent; ctx.fillRect(16, W - 40, 4, 24);
+  ctx.fillStyle = "#e8edf6"; ctx.fillText(note, 30, W - 23);
 }
 
 /* ---- render -------------------------------------------------------- */
