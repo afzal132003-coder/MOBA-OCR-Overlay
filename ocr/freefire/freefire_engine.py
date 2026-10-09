@@ -9153,6 +9153,7 @@ MAP_VIEW_DEFAULTS = {
     # path ("bin-landing", "bin-rotations", "bin-paths").
     "statsMap": "standard",
     "binSeconds": 60,
+    "bin3d": True,              # MapStream tilted back in 3D, or flat
     # Drop spots, per map and team, kept across games -- squads keep their
     # landing per map for an event, so they are set once per map:
     #   {"1": {"TSG ARMY": {"at": [u, v], "by": "hand" | "games"}}}
@@ -9170,7 +9171,7 @@ def map_view_state():
 
 MAP_VIEW_KEYS = ("visible", "source", "animate", "replay", "replaySeconds", "theme", "bg", "zoom",
                  "template", "dropMap", "matchLabel", "mapLabel", "roundLabel", "pathScope", "gameNo",
-                 "statsMap", "binSeconds")
+                 "statsMap", "binSeconds", "bin3d")
 
 
 def apply_map_view_choice(mv, payload):

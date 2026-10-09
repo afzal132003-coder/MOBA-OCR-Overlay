@@ -947,6 +947,22 @@ function startBin(view, cfg, roster, animate){
           accent: css.getPropertyValue("--accent").trim() || "#f7941d" };
   // the first moment anyone is on the map: before it, the squads are dropping
   bin.firstOn = Math.min(...bin.squads.map(q => Math.min(...q.players.map(p => p.t[0] || 1e9))));
+  // 3D unless the dashboard says flat
+  bin.tilt = cfg.bin3d === false ? 0 : BIN_TILT;
+  // Where each squad dropped: the middle of where its players first stood
+  // on the ground, and when (the middle of their landings) -- marked on
+  // the map from that moment on.
+  bin.squads.forEach(q => {
+    const lands = q.players.map(p => {
+      const k = p.airAt.indexOf(0);
+      return k >= 0 ? [p.u[k], p.v[k], p.t[k]] : null;
+    }).filter(Boolean);
+    if(!lands.length) return;
+    const ts = lands.map(l => l[2]).sort((a, c) => a - c);
+    q.drop = { u: lands.reduce((a, l) => a + l[0], 0) / lands.length,
+               v: lands.reduce((a, l) => a + l[1], 0) / lands.length,
+               t: ts[Math.floor(ts.length / 2)] };
+  });
   box.classList.add("bin");
   document.getElementById("clock").classList.remove("on");     // the HUD has its own
   const panel = document.getElementById("panel");
@@ -1019,6 +1035,21 @@ function binTarget(t, alive){
   const half = 500 / tz;
   return [Math.max(half, Math.min(1000 - half, tx)), Math.max(half, Math.min(1000 - half, ty)), tz];
 }
+// A squad's tag on the map: its short name, else its name cut to a tag --
+// a full name over every pin is what made the map unreadable.
+function binTag(q){
+  const sh = q.team && q.team.shortName;
+  if(sh) return String(sh).toUpperCase();
+  const nm = String((q.team && q.team.name) || q.name || ("SQUAD " + q.squad)).toUpperCase().trim();
+  const first = nm.split(/\s+/)[0];
+  return (first.length >= 2 && first.length <= 8 ? first : nm.replace(/[^A-Z0-9]/g, "").slice(0, 6)) || nm.slice(0, 6);
+}
+
+// THE 3D VIEW: the camera tilted back from straight down, so the map lies
+// like a table and each squad's logo stands up off it -- read like a
+// broadcast map rather than a chart. The pitch from vertical:
+const BIN_TILT = 50 * Math.PI / 180;
+
 function binFrame(t, dt){
   const b = bin, ctx = b.ctx, W = b.W;
   ctx.setTransform(b.dpr, 0, 0, b.dpr, 0, 0);
@@ -1031,43 +1062,90 @@ function binFrame(t, dt){
     q.players.forEach(p => { const a = binAt(p, t); if(a){ pts.push([a[0], a[1], a[2], p]); if(!a[2]) alive.push(a); } });
     return { q, pts };
   });
-  // the camera, eased towards where it should be
-  const [tx, ty, tz] = binTarget(T, alive);
+  // the camera, eased towards where it should be; tilted, the near half
+  // of the frame is larger, so it can sit a touch closer
+  let [tx, ty, tz] = binTarget(T, alive);
+  if(b.tilt) tz = Math.min(3.4, tz * 1.12);
   if(!b.cam || dt >= 1) b.cam = { x: tx, y: ty, z: tz };
   else {
     const e = 1 - Math.exp(-dt * 1.8);
     b.cam.x += (tx - b.cam.x) * e; b.cam.y += (ty - b.cam.y) * e; b.cam.z += (tz - b.cam.z) * e;
   }
-  const S = binScreen(b.cam);
+  const S = binScreen(b.cam, b.tilt);
   const font = (w, px) => `${w} ${px}px ${b.font}`;
+  const scaleAt = (u, v) => Math.max(.7, Math.min(1.5, S.k(u, v) / S.s));
   binBase(S);
   // the zone: the boundary (solid) closing on the next circle (dashed)
   const bd = binBoundary(b.view.zones || [], T, b.dur);
   if(bd){
-    const [cx, cy] = S(bd.cur.x, bd.cur.y), r = bd.cur.r * S.s;
     if(bd.cur.r < 1400){
-      ctx.beginPath(); ctx.rect(0, 0, W, W); ctx.arc(cx, cy, r, 0, Math.PI * 2, true);
-      ctx.fillStyle = "rgba(30,90,220,.12)"; ctx.fill();
-      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.strokeStyle = "rgba(255,255,255,.8)"; ctx.lineWidth = 2.5; ctx.stroke();
+      ctx.beginPath(); ctx.rect(0, 0, W, W); binRing(S, bd.cur.x, bd.cur.y, bd.cur.r, true);
+      ctx.fillStyle = "rgba(30,90,220,.14)"; ctx.fill("evenodd");
+      binRing(S, bd.cur.x, bd.cur.y, bd.cur.r);
+      ctx.strokeStyle = "rgba(255,255,255,.85)"; ctx.lineWidth = 2.5; ctx.stroke();
     }
     if(bd.next){
-      const [nx, ny] = S(bd.next.x, bd.next.y), nr = bd.next.r * S.s;
-      ctx.beginPath(); ctx.arc(nx, ny, nr, 0, Math.PI * 2);
-      ctx.setLineDash([10, 8]); ctx.strokeStyle = "rgba(255,255,255,.92)"; ctx.lineWidth = 2.5; ctx.stroke(); ctx.setLineDash([]);
-      ctx.font = font(800, 12); ctx.fillStyle = b.accent; ctx.textAlign = "center";
-      ctx.fillText("NEXT ZONE", nx, ny - nr - 8); ctx.textAlign = "left";
+      binRing(S, bd.next.x, bd.next.y, bd.next.r);
+      ctx.setLineDash([10, 8]); ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.lineWidth = 2.5; ctx.stroke(); ctx.setLineDash([]);
+      const [nx, ny] = S(bd.next.x, bd.next.y - bd.next.r);
+      if(isFinite(nx)){
+        ctx.font = font(800, 12); ctx.fillStyle = b.accent; ctx.textAlign = "center";
+        ctx.fillText("NEXT ZONE", nx, ny - 8); ctx.textAlign = "left";
+      }
     }
   }
   // the plane, and the squads dropping, until the first of them lands
   const pl = b.view.plane;
   if(pl && pl.from && pl.to && T < Math.max(240, b.firstOn + 20)){
     const [x1, y1] = S(pl.from[0] * 1000, pl.from[1] * 1000), [x2, y2] = S(pl.to[0] * 1000, pl.to[1] * 1000);
-    ctx.globalAlpha = .6;
-    ctx.setLineDash([12, 9]); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2.5;
-    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.setLineDash([]);
-    ctx.globalAlpha = 1;
+    if(isFinite(x1) && isFinite(x2)){
+      ctx.globalAlpha = .6;
+      ctx.setLineDash([12, 9]); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    }
   }
+  // each squad's drop spot, from the moment it lands: a pad on the
+  // ground in its colour and a DROP tag with its logo under it
+  const realSec = b.dur / b.secs;                  // match seconds per second on screen
+  b.squads.forEach(q => {
+    const dp = q.drop;
+    if(!dp || T < dp.t) return;
+    const pop = Math.min(1, (T - dp.t) / (1.2 * realSec));
+    const [x, y] = S(dp.u, dp.v);
+    if(!isFinite(x) || x < -60 || x > W + 60 || y < BIN_HUD - 20 || y > W) return;
+    const sc = scaleAt(dp.u, dp.v);
+    binRing(S, dp.u, dp.v, 7 / b.cam.z);
+    ctx.globalAlpha = .55 * pop; ctx.fillStyle = q.colour; ctx.fill();
+    ctx.globalAlpha = .95 * pop; ctx.strokeStyle = q.colour; ctx.lineWidth = 2; ctx.stroke();
+    // After ~5 s on screen the tag gives way to a small mark that stays:
+    // the logo in a chip on the spot -- the drop is still there to see,
+    // without twelve labels over the fight later on.
+    if(T - dp.t > 5 * realSec){
+      const cr = 8 * sc, logo0 = q.team && binImg(q.team.logo);
+      ctx.globalAlpha = .8;
+      ctx.fillStyle = "#0b0f14"; ctx.beginPath(); ctx.arc(x, y + cr + 4, cr, 0, Math.PI * 2); ctx.fill();
+      if(logo0){ ctx.save(); ctx.beginPath(); ctx.arc(x, y + cr + 4, cr - 1.5, 0, Math.PI * 2); ctx.clip();
+                 ctx.drawImage(logo0, x - cr + 1.5, y + 5.5, (cr - 1.5) * 2, (cr - 1.5) * 2); ctx.restore(); }
+      else { ctx.font = font(900, Math.round(cr)); ctx.fillStyle = q.colour; ctx.textAlign = "center";
+             ctx.fillText("D", x, y + cr + 4 + cr * .35); ctx.textAlign = "left"; }
+      ctx.strokeStyle = q.colour; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y + cr + 4, cr, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+      return;
+    }
+    const tag = binTag(q);
+    ctx.font = font(800, Math.round(11 * sc));
+    const tw = ctx.measureText(tag + "  DROP").width, lh = Math.round(18 * sc), lw = tw + lh + 12;
+    const lx = x - lw / 2, ly = y + 6 * sc;
+    ctx.globalAlpha = .9 * pop;
+    ctx.fillStyle = "rgba(8,10,14,.88)"; ctx.fillRect(lx, ly, lw, lh);
+    ctx.fillStyle = q.colour; ctx.fillRect(lx, ly, 3, lh);
+    const logo = q.team && binImg(q.team.logo);
+    if(logo) ctx.drawImage(logo, lx + 5, ly + 2, lh - 4, lh - 4);
+    ctx.fillStyle = "#ffffff"; ctx.fillText(tag, lx + lh + 6, ly + lh - 5 * sc);
+    ctx.fillStyle = b.accent; ctx.fillText("DROP", lx + lh + 6 + ctx.measureText(tag + "  ").width, ly + lh - 5 * sc);
+    ctx.globalAlpha = 1;
+  });
   if(!alive.length && T < b.firstOn + 2){
     ctx.font = font(900, 26); ctx.textAlign = "center";
     ctx.lineWidth = 5; ctx.strokeStyle = "rgba(0,0,0,.75)"; ctx.strokeText("SQUADS DROPPING", W / 2, W / 2 + 10);
@@ -1085,20 +1163,23 @@ function binFrame(t, dt){
   b.squads.forEach(q => q.players.forEach(p => {
     if(p.survivor || t <= p.out + 0.3 || t > p.out + 40) return;
     const k = p.t.length - 1, [x, y] = S(p.u[k], p.v[k]);
+    if(!isFinite(x)) return;
     ctx.globalAlpha = 1 - (t - p.out) / 40;
     ctx.strokeStyle = "rgba(255,90,90,.95)"; ctx.lineWidth = 2.2;
     ctx.beginPath(); ctx.moveTo(x - 5, y - 5); ctx.lineTo(x + 5, y + 5); ctx.moveTo(x - 5, y + 5); ctx.lineTo(x + 5, y - 5); ctx.stroke();
   }));
   ctx.globalAlpha = 1;
   // players: photo circles in the squad's colour, an alive bar under each;
-  // close in, their names
+  // close in, their names. Far to near, so the nearer one is on top.
   const near = b.cam.z > 1.6;
-  const pr = near ? 12 : 8;
-  const named = [];                                 // names drawn: one never written over another
-  now.forEach(({ q, pts }) => pts.forEach(([u, v, air, p]) => {
+  const named = [];
+  const people = [];
+  now.forEach(({ q, pts }) => pts.forEach(pt => people.push([q, pt])));
+  people.sort((m, n) => S.depth(n[1][0], n[1][1]) - S.depth(m[1][0], m[1][1]));
+  people.forEach(([q, [u, v, air, p]]) => {
     const [x, y] = S(u, v);
-    if(x < -30 || y < -30 || x > W + 30 || y > W + 30) return;
-    const r = air ? pr * .6 : pr;
+    if(!isFinite(x) || x < -30 || y < -30 || x > W + 30 || y > W + 30) return;
+    const r = (air ? .6 : 1) * (near ? 12 : 8) * scaleAt(u, v);
     ctx.save();
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.closePath();
     ctx.fillStyle = "#0b0f14"; ctx.fill();
@@ -1116,17 +1197,24 @@ function binFrame(t, dt){
         ctx.fillText(binName(p.name), x, y + r + 16); ctx.textAlign = "left";
       }
     }
-  }));
-  // each squad's logo above its players, the tag over it
+  });
+  // each squad's logo standing up above its players, far to near
   const winner = T >= b.dur - 0.5 ? b.squads.find(q => q.place === 1) : null;
+  const pins = [];
   now.forEach(({ q, pts }) => {
     const g = pts.filter(a => !a[2]);
     if(!g.length) return;
-    const [x0, y0] = S(g.reduce((a, c) => a + c[0], 0) / g.length, g.reduce((a, c) => a + c[1], 0) / g.length);
-    binPin(x0, y0, q, near, pr, winner === q);
+    const u = g.reduce((a, c) => a + c[0], 0) / g.length, v = g.reduce((a, c) => a + c[1], 0) / g.length;
+    pins.push([S.depth(u, v), q, u, v]);
+  });
+  pins.sort((m, n) => n[0] - m[0]).forEach(([, q, u, v]) => {
+    const [x0, y0] = S(u, v);
+    if(!isFinite(x0)) return;
+    const sc = scaleAt(u, v);
+    binPin(x0, y0, q, near, (near ? 12 : 8) * sc, winner === q, sc);
   });
   // who eliminated whom, as it happens: cards down the right
-  const window_ = 3.5 * b.dur / b.secs;              // ~3.5 real seconds on screen
+  const window_ = 3.5 * realSec;                   // ~3.5 real seconds on screen
   const feed = (b.d.kills || []).filter(k => k.t <= T && T - k.t < window_ &&
                  (!b.picked.size || b.picked.has(k.ks) || b.picked.has(k.vs))).slice(-4);
   feed.forEach((k, i) => {
@@ -1164,18 +1252,65 @@ function binFrame(t, dt){
 }
 
 // Map units to the screen, for a camera {x, y, z}: the map centred between
-// the HUD and the timeline. S.s is screen pixels per map unit.
-function binScreen(cam){
-  const W = bin.W, s = W / 1000 * cam.z, cy = BIN_HUD + (W - BIN_HUD - BIN_TL) / 2;
-  const S = (u, v) => [(u - cam.x) * s + W / 2, (v - cam.y) * s + cy];
-  S.s = s;
+// the HUD and the timeline. Flat (tilt 0) or tilted back by `tilt`: a
+// pinhole camera looking down at the camera's point from far enough that
+// the perspective stays the same at any zoom. S(u, v, h) is a point (h up
+// off the map); S.k(u, v) is screen pixels per map unit there; S.depth
+// orders things far to near.
+function binScreen(cam, tilt){
+  const W = bin.W, cy = BIN_HUD + (W - BIN_HUD - BIN_TL) / 2, s0 = W / 1000 * cam.z;
+  let S;
+  if(!tilt){
+    S = (u, v) => [(u - cam.x) * s0 + W / 2, (v - cam.y) * s0 + cy];
+    S.k = () => s0;
+    S.depth = (u, v) => -v;
+  } else {
+    const sn = Math.sin(tilt), cs = Math.cos(tilt), d = 1500 / cam.z, F = s0 * d, near = d * .2;
+    S = (u, v, h) => {
+      const y = v - cam.y, hh = h || 0, dep = d - sn * y - cs * hh;
+      if(dep < near) return [NaN, NaN];
+      return [W / 2 + F * (u - cam.x) / dep, cy + F * (cs * y - sn * hh) / dep];
+    };
+    S.k = (u, v) => F / Math.max(near, d - sn * (v - cam.y));
+    S.depth = (u, v) => d - sn * (v - cam.y);
+    // the map row seen at screen height Y
+    S.rowV = Y => cam.y + (Y - cy) * d / (F * cs + (Y - cy) * sn);
+  }
+  S.s = s0; S.tilt = tilt || 0; S.cam = cam;
   return S;
 }
-// The dark map under everything.
+// The dark map under everything. Tilted, it is laid down in strips, each
+// as wide as its distance makes it -- the classic way to draw a floor.
 function binBase(S){
   const ctx = bin.ctx, W = bin.W;
   ctx.fillStyle = "#06090d"; ctx.fillRect(0, 0, W, W);
-  if(bin.map.ready){ const [x0, y0] = S(0, 0); ctx.drawImage(bin.map.canvas, x0, y0, 1000 * S.s, 1000 * S.s); }
+  if(!bin.map.ready) return;
+  const img = bin.map.canvas;
+  if(!S.tilt){ const [x0, y0] = S(0, 0); ctx.drawImage(img, x0, y0, 1000 * S.s, 1000 * S.s); return; }
+  const vTop = Math.max(0, S.rowV(0)), vBot = Math.min(1000, S.rowV(W));
+  if(!(vBot > vTop)) return;
+  const N = 240, step = (vBot - vTop) / N, iw = img.width, ih = img.height;
+  for(let i = 0; i < N; i++){
+    const v0 = vTop + i * step, v1 = v0 + step;
+    const y0 = S(0, v0)[1], y1 = S(0, v1)[1];
+    if(!isFinite(y0) || !isFinite(y1)) continue;
+    const k = S.k(0, (v0 + v1) / 2);
+    ctx.drawImage(img, 0, v0 / 1000 * ih, iw, step / 1000 * ih, W / 2 - k * S.cam.x, y0, k * 1000, y1 - y0 + .7);
+  }
+}
+// A circle on the map as a path (tilted, it is an oval).
+function binRing(S, cx, cy, r, keep){
+  const ctx = bin.ctx;
+  if(!keep) ctx.beginPath();
+  if(!S.tilt){ const [x, y] = S(cx, cy); ctx.moveTo(x + r * S.s, y); ctx.arc(x, y, r * S.s, 0, Math.PI * 2); return; }
+  let pen = false;
+  for(let i = 0; i <= 96; i++){
+    const a = i / 96 * Math.PI * 2, [x, y] = S(cx + r * Math.cos(a), cy + r * Math.sin(a));
+    if(!isFinite(x)){ pen = false; continue; }
+    if(pen) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    pen = true;
+  }
+  ctx.closePath();
 }
 // One player's route on the ground between two moments.
 function binRoute(ctx, S, p, from, to){
@@ -1188,22 +1323,27 @@ function binRoute(ctx, S, p, from, to){
     if(p.airAt[k]){ pen = false; continue; }
     if(p.cutAt.has(k)) pen = false;
     const [x, y] = S(p.u[k], p.v[k]);
+    if(!isFinite(x)){ pen = false; continue; }
     if(pen) ctx.lineTo(x, y); else ctx.moveTo(x, y);
     pen = true;
   }
   if(to < 1e8){
     const a = binAt(p, to);
-    if(pen && a && !a[2]){ const [x, y] = S(a[0], a[1]); ctx.lineTo(x, y); }
+    if(pen && a && !a[2]){ const [x, y] = S(a[0], a[1]); if(isFinite(x)) ctx.lineTo(x, y); }
   }
   ctx.stroke();
 }
-// A squad's pin: its logo in a ring above (x0, y0), the tag over it.
-function binPin(x0, y0, q, near, pr, win){
+// A squad's pin: its logo in a ring standing above (x0, y0), the tag over
+// it. `sc` sizes it for its distance in the 3D view.
+function binPin(x0, y0, q, near, pr, win, sc){
   const b = bin, ctx = b.ctx, W = b.W;
-  const R = (near ? 22 : 15) * (win ? 1.4 : 1), py = y0 - (pr || 0) - R - 12;
+  sc = sc || 1;
+  const R = (near ? 24 : 18) * (win ? 1.35 : 1) * sc, py = y0 - (pr || 0) - R - 14 * sc;
   if(x0 < -40 || py < -60 || x0 > W + 40 || y0 > W + 40) return;
-  ctx.strokeStyle = q.colour + "aa"; ctx.lineWidth = 1.5;
+  ctx.strokeStyle = q.colour; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(x0, py + R); ctx.lineTo(x0, y0 - (pr || 0)); ctx.stroke();
+  // a soft shadow under the disc, so it reads as standing off the map
+  ctx.fillStyle = "rgba(0,0,0,.45)"; ctx.beginPath(); ctx.ellipse(x0, py + R + 3, R * .9, R * .35, 0, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = "#0b0f14"; ctx.beginPath(); ctx.arc(x0, py, R, 0, Math.PI * 2); ctx.fill();
   const logo = q.team && binImg(q.team.logo);
   if(logo){
@@ -1214,10 +1354,10 @@ function binPin(x0, y0, q, near, pr, win){
     ctx.font = `800 ${Math.round(R * .62)}px ${b.font}`; ctx.fillStyle = q.colour; ctx.textAlign = "center";
     ctx.fillText(tag, x0, py + R * .22); ctx.textAlign = "left";
   }
-  ctx.strokeStyle = win ? b.next : q.colour; ctx.lineWidth = win ? 3.5 : 2.5;
+  ctx.strokeStyle = win ? b.next : q.colour; ctx.lineWidth = win ? 3.5 : 3;
   ctx.beginPath(); ctx.arc(x0, py, R, 0, Math.PI * 2); ctx.stroke();
-  const tag = String((q.team && q.team.shortName) || q.name || ("SQUAD " + q.squad)).toUpperCase();
-  ctx.font = `800 ${near || win ? 14 : 11}px ${b.font}`; ctx.textAlign = "center";
+  const tag = binTag(q);
+  ctx.font = `800 ${Math.round((near || win ? 14 : 12) * Math.min(1.2, sc))}px ${b.font}`; ctx.textAlign = "center";
   ctx.lineWidth = 3.5; ctx.strokeStyle = "rgba(0,0,0,.85)"; ctx.strokeText(tag, x0, py - R - 6);
   ctx.fillStyle = win ? b.next : "#f3f4f6"; ctx.fillText(tag, x0, py - R - 6);
   ctx.textAlign = "left";
@@ -1387,7 +1527,7 @@ function render(state){
   const gameLabel = cfg.gameNo ? "Game " + cfg.gameNo : (cfg.matchLabel || "");
   const binNow = mode === "stats" ? binStatus(cfg) : "off";
   const sig = JSON.stringify([tpl, mode, view, pins, cfg.show, cfg.teams, cfg.replay, cfg.replaySeconds, cfg.shownAt, cfg.gameNo,
-                              binNow, cfg.binSeconds, cfg.statsMap,
+                              binNow, cfg.binSeconds, cfg.statsMap, cfg.bin3d,
                               cfg.zoom, ev.currentGame, ev.roundName, cfg.matchLabel, cfg.mapLabel, cfg.roundLabel,
                               ((roster.teams) || []).map(t => [t.name, t.shortName, t.displayName, !!t.logo])]);
   if(sig === lastSig) return;
