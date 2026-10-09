@@ -9154,6 +9154,10 @@ MAP_VIEW_DEFAULTS = {
     "statsMap": "standard",
     "binSeconds": 60,
     "bin3d": True,              # MapStream tilted back in 3D, or flat
+    # The replay's speed, set live from the dashboard (- / + / pause): 1 is
+    # as pushed, 2 twice as fast, 0 paused. Changes a replay already
+    # playing without restarting it.
+    "replaySpeed": 1.0,
     # Drop spots, per map and team, kept across games -- squads keep their
     # landing per map for an event, so they are set once per map:
     #   {"1": {"TSG ARMY": {"at": [u, v], "by": "hand" | "games"}}}
@@ -9171,7 +9175,7 @@ def map_view_state():
 
 MAP_VIEW_KEYS = ("visible", "source", "animate", "replay", "replaySeconds", "theme", "bg", "zoom",
                  "template", "dropMap", "matchLabel", "mapLabel", "roundLabel", "pathScope", "gameNo",
-                 "statsMap", "binSeconds", "bin3d")
+                 "statsMap", "binSeconds", "bin3d", "replaySpeed")
 
 
 def apply_map_view_choice(mv, payload):

@@ -839,6 +839,23 @@ let binData = null, binGaveUp = "", binWaitTimer = 0, bin = null, lastState = nu
 const binMaps = {};
 
 function binSecs(cfg){ return Math.max(10, Math.min(300, Number(cfg.binSeconds) || 60)); }
+/* LIVE SPEED: the operator's - / + / pause on the dashboard. A replay
+   keeps its own position and moves it on by speed x the time since the
+   last frame, so a change takes hold from where it is -- never a restart,
+   never a jump. The circle table beside MapStream is CSS animation, so its
+   playback rate is set to the same speed and it stays in step. */
+let replaySpeed = 1;
+function setReplaySpeed(v){
+  v = Number(v);
+  replaySpeed = isFinite(v) ? Math.max(0, Math.min(8, v)) : 1;
+  binTableRate();
+}
+function binTableRate(){
+  const side = document.getElementById("sideBody");
+  if(!bin || bin.mode !== "stream" || bin.still || !side || !side.getAnimations) return;
+  side.getAnimations({ subtree: true }).forEach(a => { try { a.playbackRate = replaySpeed; } catch(e){} });
+  bin.rateApplied = replaySpeed;
+}
 /* Replay time to match time, and back. The drop -- the plane crossing,
    the squads coming down -- gets its own share of the replay (15%, 3 to
    12 seconds) so the plane can be watched; played at the same rate as the
@@ -997,13 +1014,16 @@ function startBin(view, cfg, roster, animate){
   const tick = now => {
     if(!bin) return;
     let t;
+    const dt = bin.last ? Math.min(0.1, (now - bin.last) / 1000) : 1;
     if(bin.mode !== "stream" || bin.still) t = bin.dur;
     else if(!panel.classList.contains("on")){ bin.started = null; t = 0; }
     else {
-      if(bin.started == null) bin.started = now;
-      t = bin.time.toMatch(Math.max(0, Math.min(bin.secs, (now - bin.started) / 1000 - BIN_LEAD)));
+      if(bin.started == null){ bin.started = now; bin.pos = -BIN_LEAD; }
+      else bin.pos += (bin.last ? dt : 0) * replaySpeed;
+      t = bin.time.toMatch(Math.max(0, Math.min(bin.secs, bin.pos)));
+      // the table's animations exist once the panel is up: matched to the speed
+      if(bin.rateApplied !== replaySpeed) binTableRate();
     }
-    const dt = bin.last ? Math.min(0.1, (now - bin.last) / 1000) : 1;
     bin.last = now;
     if(bin.mode === "stream") binFrame(t, dt, bin.started == null ? 0 : (now - bin.started) / 1000);
     else binStatic(now);
@@ -1274,8 +1294,9 @@ function binFrame(t, dt, rt){
   ctx.globalAlpha = 1;
   binFog();
   // each squad's drop spot, from the moment it lands
-  // match seconds per second on screen, after the drop
-  const realSec = (b.dur - b.time.open) / Math.max(.001, b.secs - b.time.ro);
+  // match seconds per second on screen, after the drop -- at the speed
+  // the replay is running, so cards and tags stay up as long at 3x as at 1x
+  const realSec = (b.dur - b.time.open) / Math.max(.001, b.secs - b.time.ro) * (replaySpeed > 0 ? replaySpeed : 1);
   b.squads.forEach(q => {
     const dp = q.drop;
     if(!dp || T < dp.t) return;
@@ -1685,6 +1706,8 @@ function render(state){
                               template: "", drops: {} }, state.mapView || {});
   ["source", "zoom", "template"].forEach(k => { if(_params.get(k)) cfg[k] = _params.get(k); });
   const visible = PREVIEW || !!cfg.visible;
+  // the speed is not part of what is drawn: it changes a replay in flight
+  if(cfg.replaySpeed != null && Number(cfg.replaySpeed) !== replaySpeed) setReplaySpeed(cfg.replaySpeed);
   const animate = cfg.animate !== false && _params.get("anim") !== "0";
   document.body.classList.toggle("still", !animate);
   const ev = state.event || {};
@@ -1872,11 +1895,13 @@ function startReplay(nodes, duration, seconds){
   const clock = document.getElementById("clock");
   const total = Math.max(5, Number(seconds) || 30) * 1000;
   nodes.forEach(n => { n.style.display = "none"; n.classList.remove("draw", "pop", "fade"); });
-  replay = { started: performance.now(), total, duration: duration || 1, nodes, raf: 0 };
+  replay = { pos: 0, last: 0, total, duration: duration || 1, nodes, raf: 0 };
   clock.classList.add("on");
   const tick = now => {
     if(!replay) return;
-    const f = Math.min(1, (now - replay.started) / replay.total);
+    replay.pos += (replay.last ? Math.min(100, now - replay.last) : 0) * replaySpeed;
+    replay.last = now;
+    const f = Math.min(1, replay.pos / replay.total);
     const t = f * replay.duration;
     replay.nodes.forEach(n => {
       if(Number(n.dataset.t) <= t && n.style.display === "none"){ n.style.display = ""; n.classList.add("pop"); }

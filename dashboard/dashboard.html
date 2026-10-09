@@ -3684,6 +3684,12 @@
         <button id="ff_mvShow">Push Map Up</button>
         <button class="secondary" id="ff_mvHide">Pull Map Down</button>
         <button id="ff_mvToRace" title="One press: the map goes down and the Points Race (Team Graphs, Post-Match tab) comes up at the same moment, with the Team Graphs card's own settings -- no empty screen while you change tabs">Pull Down + Show Points Race</button>
+        <span class="hint" style="align-self:center;margin:0 0 0 14px;" title="Live: changes the replay playing on the graphic right now -- the BIN replay or a finished match's Replay it over -- without restarting it">Replay speed</span>
+        <button class="secondary" id="ff_mvSlower" title="Slower" style="min-width:42px;">&minus;</button>
+        <span id="ff_mvSpeedNow" style="align-self:center;min-width:64px;text-align:center;font-weight:700;">1&times;</span>
+        <button class="secondary" id="ff_mvFaster" title="Faster" style="min-width:42px;">+</button>
+        <button class="secondary" id="ff_mvSpeed1" title="Back to normal speed">1&times;</button>
+        <button class="secondary" id="ff_mvPause" title="Freeze the replay where it is; press again to carry on">Pause</button>
         <span class="hint" id="ff_mvStatus" style="align-self:center;"></span>
       </div>
     </div>
@@ -3789,9 +3795,12 @@
               <option value="paths">Full paths</option>
             </select>
             <button id="ff_binPlay" style="min-width:80px;">Play</button>
+            <button class="secondary" id="ff_binSlower" title="Slower" style="min-width:38px;">&minus;</button>
             <select id="ff_binSpeed" style="width:auto;">
-              <option value="5">5x</option><option value="10" selected>10x</option><option value="20">20x</option>
-              <option value="40">40x</option><option value="1">1x</option></select>
+              <option value="1">1x</option><option value="2">2x</option><option value="5">5x</option>
+              <option value="10" selected>10x</option><option value="20">20x</option><option value="40">40x</option>
+              <option value="60">60x</option></select>
+            <button class="secondary" id="ff_binFaster" title="Faster" style="min-width:38px;">+</button>
             <select id="ff_binTrail" style="width:auto;" title="How much of each route trails behind the players">
               <option value="30">30 s trail</option><option value="90" selected>90 s trail</option>
               <option value="0">no trail</option><option value="9999">whole route</option></select>
@@ -11583,6 +11592,29 @@ function ffMvDrawDrops(){
   if(note && !note.dataset.hold) note.textContent = (m ? m.name : "Map " + id) + ": " + placed + " of " + teams.length + " teams pinned.";
 }
 let ffMvTeamsKey = "";
+/* REPLAY SPEED, live: - / + step through these, 1x resets, Pause freezes
+   (speed 0) and carries on at the speed it had. Sent at once -- a live
+   control, not a choice held for Confirm. */
+const FF_MV_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 6];
+let ffMvSpeed = 1, ffMvSpeedResume = 1;
+function ffMvShowSpeed(){
+  const el = document.getElementById("ff_mvSpeedNow");
+  if(el) el.textContent = ffMvSpeed > 0 ? (ffMvSpeed + "\u00d7") : "PAUSED";
+  const pb = document.getElementById("ff_mvPause");
+  if(pb) pb.textContent = ffMvSpeed > 0 ? "Pause" : "Resume";
+}
+function ffMvSetSpeed(v){
+  if(!(ffWs && ffWs.readyState === WebSocket.OPEN)){ ffMvSay("Not connected to the Free Fire engine.", "#f87171"); return; }
+  if(v > 0) ffMvSpeedResume = v;
+  ffMvSpeed = v;
+  ffWs.send(JSON.stringify({ type: "map_view", replaySpeed: v }));
+  ffMvShowSpeed();
+}
+function ffMvStepSpeed(dir){
+  const cur = ffMvSpeed > 0 ? ffMvSpeed : ffMvSpeedResume;
+  const next = dir > 0 ? FF_MV_SPEEDS.find(s => s > cur + 1e-6) : FF_MV_SPEEDS.slice().reverse().find(s => s < cur - 1e-6);
+  ffMvSetSpeed(next != null ? next : cur);
+}
 // The Map view choice is Map & team stats' own: shown only with it.
 function ffMvStatsBox(){
   const box = document.getElementById("ff_mvStatsBox");
@@ -11638,6 +11670,11 @@ function ffSyncMapView(){
   set("ff_mvStatsMap", mv.statsMap || "standard");
   set("ff_mvBinSecs", String(mv.binSeconds || 60));
   set("ff_mvBin3d", mv.bin3d !== false, "checked");
+  if(mv.replaySpeed != null && Number(mv.replaySpeed) !== ffMvSpeed){
+    ffMvSpeed = Number(mv.replaySpeed);
+    if(ffMvSpeed > 0) ffMvSpeedResume = ffMvSpeed;
+    ffMvShowSpeed();
+  }
   ffMvStatsBox();
   const show = mv.show || {};
   if(!ffMvDirty) document.querySelectorAll(".ff-mv-show").forEach(el => {
@@ -11734,6 +11771,10 @@ function ffSyncMapView(){
   // separate sources, so one goes out as the other comes in -- no empty
   // screen while the operator crosses to the Post-Match tab. The race goes
   // up with the Team Graphs card's own settings (games, theme, top N).
+  document.getElementById("ff_mvSlower").addEventListener("click", () => ffMvStepSpeed(-1));
+  document.getElementById("ff_mvFaster").addEventListener("click", () => ffMvStepSpeed(1));
+  document.getElementById("ff_mvSpeed1").addEventListener("click", () => ffMvSetSpeed(1));
+  document.getElementById("ff_mvPause").addEventListener("click", () => ffMvSetSpeed(ffMvSpeed > 0 ? 0 : ffMvSpeedResume));
   document.getElementById("ff_mvToRace").addEventListener("click", () => {
     if(!(ffWs && ffWs.readyState === WebSocket.OPEN)){ ffMvSay("Not connected to the Free Fire engine.", "#f87171"); return; }
     ffWs.send(JSON.stringify({ type: "map_view", visible: false }));
@@ -14697,6 +14738,14 @@ function ffBinShow(msg){
     if(ffBin.playing){ document.getElementById("ff_binMode").value = "stream"; ffBin.last = 0; requestAnimationFrame(ffBinTick); }
   });
   document.getElementById("ff_binTime").addEventListener("input", e => { ffBin.t = Number(e.target.value); ffBinDraw(); });
+  // - / + step through the speeds; a playing replay takes it on its next frame
+  const binStep = dir => {
+    const sel = document.getElementById("ff_binSpeed");
+    const i = sel.selectedIndex + dir;
+    if(i >= 0 && i < sel.options.length) sel.selectedIndex = i;
+  };
+  document.getElementById("ff_binSlower").addEventListener("click", () => binStep(-1));
+  document.getElementById("ff_binFaster").addEventListener("click", () => binStep(1));
   ["ff_binMode", "ff_binTrail", "ff_binAutoZoom"].forEach(id => document.getElementById(id).addEventListener("change", ffBinDraw));
   document.getElementById("ff_binFollow").addEventListener("change", () => {
     document.getElementById("ff_binMode").value = "stream"; ffBinDraw();
