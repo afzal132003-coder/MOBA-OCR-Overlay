@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Free Fire — Director</title>
 <!--
   A 1920x1080 browser source for whoever is calling the shots.
@@ -121,6 +122,34 @@
           background:var(--hot);color:#0b0e15;font-variant-numeric:tabular-nums}
   .tm .sn{font-weight:800;letter-spacing:.03em}
   .vs{color:var(--dim);font-weight:400;margin:0 .5em}
+
+  /* NOT ONLY A 1920x1080 SOURCE. Observers open this on a phone, where a
+     fixed 1920px page with scrolling switched off sat shrunk, cut off and
+     stuck. On a smaller screen it scrolls; on a phone it stacks into one
+     column -- the slot list first, it is what an observer is there for. */
+  @media (max-width: 1919px){ html,body{overflow:auto} }
+  @media (max-width: 900px){
+    html,body{width:auto;height:auto;overflow:auto}
+    body{padding:14px;gap:14px;font-size:15px}
+    header{flex-wrap:wrap;gap:8px 12px}
+    h1{font-size:22px}
+    .sub{font-size:13px}
+    #conn{font-size:13px;padding:3px 12px}
+    .grid{display:flex;flex-direction:column;gap:14px;flex:none}
+    .panel{overflow:visible;padding:16px 16px 12px;flex:none}
+    .panel.slots{order:-1}
+    .panel h2{font-size:14px;margin-bottom:10px}
+    .fight{padding:12px 0}
+    .fteams{font-size:24px}
+    .fmeta{font-size:14px;gap:10px}
+    #slots{flex:none}
+    .slot{flex:none;max-height:none;min-height:58px;gap:12px}
+    .slot .n{flex-basis:52px;height:46px;font-size:30px}
+    .slot .s{font-size:22px}
+    .slot .f{font-size:13px}
+    .empty{font-size:18px;padding:12px 0}
+    .note{font-size:13px}
+  }
 </style>
 </head>
 <body>
@@ -143,7 +172,7 @@
     <div id="closing"></div>
     <div class="note" id="posNote"></div>
   </div>
-  <div class="panel">
+  <div class="panel slots">
     <h2>Slots — switch by number</h2>
     <div id="slots"></div>
   </div>
