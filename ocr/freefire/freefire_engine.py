@@ -1411,7 +1411,17 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
         if not (live["gsDown"] or live["gsKills"] or live["teamScores"]
                 or live["wiped"]):
             return
-        squads = dict(live["gsIgns"])
+        # Only the players who joined SINCE anything was last counted: the
+        # lobby now starting. A match restarted in the lobby -- started
+        # twice, no matchend between -- carried the first start's players
+        # as well, every squad read 7 or 8 alive and none could ever be
+        # eliminated (seen on air 2026-10-09). Nobody fresh: keep them all.
+        fresh = live.get("freshJoins") or set()
+        squads = {}
+        for gs, members in (live["gsIgns"] or {}).items():
+            keep = {pid: ign for pid, ign in members.items() if not fresh or pid in fresh}
+            if keep:
+                squads[gs] = keep
         # The plane's run is written about six seconds BEFORE the first
         # team-name line of the same match, so it is already in hand when
         # this fires and belongs to the match now starting, not the one
@@ -1462,6 +1472,7 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
             }
             live["gsIgns"].setdefault(gs_team_of(join.group("pid")), {})[
                 join.group("pid")] = join.group("ign").strip()
+            live.setdefault("freshJoins", set()).add(join.group("pid"))
             continue
 
         # --- team-level narration: names, running scores, squad wipes ---
@@ -1474,6 +1485,7 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
 
         score = DEBUGGER_TEAM_SCORE_REGEX.search(line)
         if score:
+            live["freshJoins"] = set()
             tid, value = int(score.group("tid")), int(score.group("score"))
             previous = (live.get("lastTeamScore") or {}).get(tid)
             live["teamScores"][tid] = value
@@ -1508,10 +1520,12 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
             roll_over_if_finished()
             live["gsIgns"].setdefault(int(add.group("gs_team")), {})[
                 add.group("pid")] = add.group("ign").strip()
+            live.setdefault("freshJoins", set()).add(add.group("pid"))
             continue
 
         wipe = DEBUGGER_TEAM_WIPE_REGEX.search(line)
         if wipe:
+            live["freshJoins"] = set()
             gs_team = int(wipe.group("gs_team"))
             if gs_team not in live["wiped"]:
                 live["wiped"].append(gs_team)
@@ -1689,6 +1703,7 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
             continue
 
         killer_id, victim_id = match.group("killer"), match.group("victim")
+        live["freshJoins"] = set()
         # The client writes zone, fall and other self-inflicted deaths as
         # "killed by" the victim themselves. They are real deaths, so they
         # still count toward being knocked out, but they are NOT kills:
