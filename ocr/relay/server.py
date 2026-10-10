@@ -44,6 +44,7 @@ peers exactly as before.
 import asyncio
 import json
 import os
+import time
 from collections import deque
 from urllib.parse import urlparse, parse_qs
 
@@ -125,6 +126,29 @@ roster_cache_peers = {}
 # websocket -> Outbox. Every byte bound for a peer goes through its own.
 outboxes = {}
 
+# ONE STATE IN FLIGHT PER PAGE.
+#
+# The Outbox below coalesces states for a peer whose socket is slow to
+# drain. Behind Caddy that never happens: this process hands each frame to
+# the proxy on the same machine, which takes it at once, and the backlog
+# builds in the proxy's and the kernel's buffers instead -- megabytes per
+# page, where nothing here can see it or drop a stale state. Measured on
+# 2026-10-10: the graphics on titanium-relay ran 10-19 s behind the engine,
+# and six changes in eight never arrived at all.
+#
+# So every state is followed by a ping, and the next state waits for its
+# pong. A browser answers a ping by itself the moment the frames before it
+# have arrived -- no page needs to know about any of this, old cached
+# copies included -- so the pong says the state has been DELIVERED, across
+# the proxy and the far link. Until then, anything newer replaces the
+# state waiting: however slow or far the link, a page is one state behind
+# the latest at worst, never a queue of them. A pong that does not come
+# within DELIVERY_WAIT_SECONDS is given up on, so a page that has gone
+# quiet is still sent the latest now and then.
+DELIVERY_WAIT_SECONDS = float(os.environ.get("RELAY_DELIVERY_WAIT", "2.5"))
+# How often the admins (and the engine) are told how each page is doing.
+HEALTH_SECONDS = float(os.environ.get("RELAY_HEALTH_SECONDS", "5"))
+
 
 class Outbox:
     """Everything bound for one peer, written by that peer's own task.
@@ -169,14 +193,19 @@ class Outbox:
 
     def __init__(self, ws):
         self.ws = ws
-        self.items = deque()      # cells: [payload, carries_roster]
+        self.items = deque()      # cells: [payload, carries_roster, is_state]
         self.state_cell = None    # the state_sync still waiting, if any
         self.wake = asyncio.Event()
+        # The state now on its way: when it was sent, and the pong that
+        # says it arrived (see DELIVERY_WAIT_SECONDS).
+        self.sent_at = None
+        self.pong = None
+        self.trips = deque(maxlen=30)      # (when, seconds to deliver)
         self.task = asyncio.create_task(self._run())
 
     def put(self, payload):
         """An ordinary message: kept, and sent in order."""
-        self._append([payload, False])
+        self._append([payload, False, False])
 
     def put_state(self, payload, carries_roster, full_payload):
         cell = self.state_cell
@@ -184,8 +213,30 @@ class Outbox:
             if cell[1] and not carries_roster:
                 payload, carries_roster = full_payload, True
             cell[0] = None                       # superseded -- skipped
-        self.state_cell = [payload, carries_roster]
+        self.state_cell = [payload, carries_roster, True]
         self._append(self.state_cell)
+
+    def health(self):
+        now = time.monotonic()
+        recent = [d for t, d in self.trips if now - t <= 30]
+        waiting = self.pong is not None and not self.pong.done() and self.sent_at is not None
+        return {"lastMs": round(self.trips[-1][1] * 1000) if self.trips else None,
+                "worstMs": round(max(recent) * 1000) if recent else None,
+                "waitingMs": round((now - self.sent_at) * 1000) if waiting else 0}
+
+    async def _track_delivery(self):
+        """A ping behind the state just sent; its pong, recorded."""
+        sent = self.sent_at = time.monotonic()
+        try:
+            self.pong = await self.ws.ping()
+        except Exception:
+            self.pong = None
+            return
+
+        def landed(f):
+            if not f.cancelled() and f.exception() is None:
+                self.trips.append((time.monotonic(), time.monotonic() - sent))
+        self.pong.add_done_callback(landed)
 
     def _append(self, cell):
         if len(self.items) >= self.LIMIT:
@@ -201,7 +252,21 @@ class Outbox:
                 await self.wake.wait()
                 self.wake.clear()
                 while self.items:
-                    cell = self.items.popleft()
+                    cell = self.items[0]
+                    # A state while the last is still on its way waits for
+                    # it to land -- left at the head, and still the state
+                    # cell, so a newer one replaces it there.
+                    if (cell[2] and cell[0] is not None
+                            and self.pong is not None and not self.pong.done()):
+                        left = self.sent_at + DELIVERY_WAIT_SECONDS - time.monotonic()
+                        if left > 0:
+                            try:
+                                await asyncio.wait_for(asyncio.shield(self.pong), left)
+                            except (asyncio.TimeoutError, ConnectionClosed):
+                                pass
+                        self.pong = None
+                        continue
+                    self.items.popleft()
                     if cell is self.state_cell:
                         self.state_cell = None
                     if cell[0] is None:
@@ -216,6 +281,8 @@ class Outbox:
                     # genuinely gone is closed by the keepalive, and the
                     # send then raises.
                     await self.ws.send(cell[0])
+                    if cell[2]:
+                        await self._track_delivery()
         except (ConnectionClosed, asyncio.CancelledError):
             pass
         except Exception as e:
@@ -286,6 +353,7 @@ async def handler(websocket):
     # the small payload as it arrived, instead of the re-inflated one.
     roster_cache_peers[websocket] = (query.get("rostercache") or ["0"])[0] == "1"
     outboxes[websocket] = Outbox(websocket)
+    _start_health()
     print(f"[connect] role={role} total_connected={len(connected)}")
     await broadcast_presence()
     try:
@@ -392,6 +460,39 @@ async def handler(websocket):
             box.close()
         print(f"[disconnect] role={role} total_connected={len(connected)}")
         await broadcast_presence()
+
+
+_health_task = None
+
+
+def _start_health():
+    global _health_task
+    if _health_task is None or _health_task.done():
+        _health_task = asyncio.ensure_future(_health_loop())
+
+
+async def _health_loop():
+    """Every HEALTH_SECONDS, to the admins and the engine: each page, and
+    how long its latest state took to land -- so a source falling behind
+    is seen on the dashboard, not discovered on air."""
+    while True:
+        await asyncio.sleep(HEALTH_SECONDS)
+        try:
+            peers = []
+            for ws, page in list(connected_pages.items()):
+                if connected.get(ws) != "viewer":
+                    continue
+                box = outboxes.get(ws)
+                peers.append(dict({"page": page}, **(box.health() if box is not None else {})))
+            raw = json.dumps({"type": "relay_health", "at": int(time.time() * 1000),
+                              "waitMs": int(DELIVERY_WAIT_SECONDS * 1000), "peers": peers})
+            for ws, role in list(connected.items()):
+                if role in ("admin", "ocr"):
+                    box = outboxes.get(ws)
+                    if box is not None:
+                        box.put(raw)
+        except Exception as e:
+            print("[health] %r" % (e,))
 
 
 async def main():

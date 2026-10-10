@@ -2206,8 +2206,15 @@ function drawPopup(pop, A){
   const face = b => (b.face ? { fontFamily: `'${b.face}', Arial, sans-serif`, fontWeight: 400 } : {});
   popPlace("popTitle", A.title, Object.assign({ fontSize: A.title.size + "px", color: A.title.ink,
            lineHeight: A.title.line ? A.title.line + "px" : "" }, face(A.title))).textContent = pop.title || "";
-  popPlace("popValue", A.value, Object.assign({ fontSize: A.value.size + "px", color: A.value.ink }, face(A.value))).textContent =
-    pop.value == null ? "" : String(pop.value);
+  const pv = popPlace("popValue", A.value, Object.assign({ fontSize: A.value.size + "px", color: A.value.ink }, face(A.value)));
+  pv.textContent = pop.value == null ? "" : (pop.valueIsName ? cleanName(pop.value) : String(pop.value));
+  // A NAME in the number's place (a revive: who brought them back) starts
+  // smaller and steps down until it fits the box on one line.
+  if(pop.valueIsName){
+    let size = Math.min(A.value.size, 38);
+    pv.style.fontSize = size + "px";
+    while(pv.scrollWidth > pv.clientWidth + 1 && size > 14){ size -= 1; pv.style.fontSize = size + "px"; }
+  }
   popPlace("popLabel", A.label, Object.assign({ fontSize: A.label.size + "px", color: A.label.ink }, face(A.label))).textContent = pop.label || "";
   fitName(document.getElementById("popLabel"), A.label.size);
   fitTitle(document.getElementById("popTitle"), A.title);

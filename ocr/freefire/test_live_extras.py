@@ -100,6 +100,8 @@ def main():
     by = {r["teamName"]: r.get("gsTeam") for r in linked["rows"]}
     check("the two that match their roster join as before", by.get("ALPHA ESPORTS") == 3 and by.get("BRAVO ESPORTS") == 5, str(by))
     check("the team whose players match nothing takes the one squad left", by.get("CHARLIE ESPORTS") == 7, str(by))
+    check("and is NAMED for its squad, so its elimination card goes up",
+          linked["gsNames"].get(7) == "CHARLIE ESPORTS", str(linked["gsNames"]))
     live["gsIgns"][9] = {"999": "SOMEONE.ELSE"}                         # two squads left: no guess
     by = {r["teamName"]: r.get("gsTeam") for r in E.link_live_teams(live, E.server_state["roster"])["rows"]}
     check("with two squads left over it does not guess", by.get("CHARLIE ESPORTS") is None, str(by))
@@ -112,6 +114,37 @@ def main():
     check("a blank short name is put back from the same team", new_r["teams"][0]["shortName"] == "TEV", str(new_r))
     check("one the save does set is left as set", new_r["teams"][1]["shortName"] == "LEARN")
     check("a team that never had one stays blank", new_r["teams"][2]["shortName"] == "" and n == 1)
+
+    print("revives: who got revived, and by whom")
+    REV = (f"""[2026-10-09 20:10:00.000][1][1] [UIModelSpectator] AddPlayer id{A1},name ALPHA.ONE,gsTeam3
+[2026-10-09 20:10:00.001][1][2] [UIModelSpectator] AddPlayer id{A2},name ALPHA.TWO,gsTeam3
+[2026-10-09 20:10:00.002][1][3] [UIModelSpectator] AddPlayer id{C1},name CHARLIE.ONE,gsTeam7
+[2026-10-09 20:10:30.000][1][4] Player {A2} Dead, killed by {C1}
+[2026-10-09 20:11:00.000][1][5] Revive Player {A2}, revivePosition=(10.00, 300.00, 20.00)
+[2026-10-09 20:11:00.000][1][5] SpectatorItemCountSync : ->{A2}   ->EITEM_TYPE_BUILDING   ->2
+[2026-10-09 20:11:00.001][1][5] SpectatorItemCountSync : ->{A1}   ->EITEM_TYPE_PED   ->3
+[2026-10-09 20:12:00.000][1][6] Revive Player {A1}, revivePosition=(10.00, 300.00, 20.00)
+""" + "".join(f"[2026-10-09 20:12:00.%03d][1][7] SpectatorItemCountSync : ->{C1}   ->EITEM_TYPE_PED   ->3\n" % i
+              for i in range(14)))
+    rp = Path(tempfile.gettempdir()) / "ff_revive.log"
+    io.open(rp, "w", encoding="utf-8").write(REV)
+    rlive = E.blank_live_match()
+    revs = [e for e in E.read_debugger_events(rp, 0, {}, live=rlive, emit=True)[0] if e["type"] == "revive"]
+    check("two revives read", len(revs) == 2, str(revs))
+    check("the first: ALPHA.TWO, revived by ALPHA.ONE",
+          revs and revs[0]["ign"] == "ALPHA.TWO" and revs[0]["byIgn"] == "ALPHA.ONE", str(revs[:1]))
+    check("the second has no teammate's line: no reviver, and never another squad's player",
+          len(revs) > 1 and revs[1]["ign"] == "ALPHA.ONE" and revs[1]["byIgn"] == "", str(revs[1:]))
+    E.server_state["settings"]["sidePopups"] = {"revive": True}
+    pops = E.detect_side_popups(revs, rlive)
+    check("pop-up: REVIVED BY, the reviver's name in the big line, the revived player's name",
+          bool(pops) and pops[0]["title"] == "REVIVED BY" and pops[0]["value"] == "ALPHA.ONE"
+          and pops[0]["ign"] == "ALPHA.TWO" and bool(pops[0].get("valueIsName")) and pops[0]["label"] == "1ST REVIVE"
+          and pops[0]["teamName"] == "ALPHA ESPORTS", str(pops[:1]))
+    check("without a reviver: REVIVED, +1", len(pops) > 1 and pops[1]["title"] == "REVIVED" and pops[1]["value"] == "+1",
+          str(pops[1:]))
+    E.server_state["settings"]["sidePopups"] = {"revive": False}
+    check("switched off: nothing", E.detect_side_popups(revs, E.blank_live_match()) == [])
 
     print("\n%d checks, %d failed" % (checks, len(failures)))
     sys.exit(1 if failures else 0)

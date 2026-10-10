@@ -1219,6 +1219,14 @@ DEBUGGER_AIRDROP_REGEX = re.compile(
 FREEFIRE_AIRDROP_BURST = 15.0
 
 DEBUGGER_REVIVE_REGEX = re.compile(r"Revive Player\s+(?P<pid>\d+),")
+# WHO REVIVED THEM. The revive line names only the player brought back. In
+# the same instant the client re-sends one TEAMMATE's EITEM_TYPE_PED count
+# (always to 3): measured over three sessions, 1378 of 1695 revives
+# (563/701, 512/630, 303/364), always a teammate, never the revived player
+# and never another squad. That teammate is taken as the reviver; a revive
+# with no such line within REVIVER_LINE_WINDOW lines goes up without one.
+REVIVER_ITEM = "PED"
+REVIVER_LINE_WINDOW = 12
 DEBUGGER_REVIVE_POS_REGEX = re.compile(
     r"revivePosition=\((?P<x>-?[\d.]+),\s*(?P<y>-?[\d.]+),\s*(?P<z>-?[\d.]+)\)")
 # Written the instant the match ends. Both the result file and the replay
@@ -1464,9 +1472,32 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
     cutoff = (server_state.get("settings", {}).get("debuggerStartAt") or "").strip()[:19]
 
     headshots = {}
+
+    def revive_event(wait, by_pid=None):
+        # The name from the join line, else from the squad's own list (the
+        # spectator re-adds a revived player by name just before).
+        def named(pid):
+            if not pid:
+                return "", ""
+            who = id_map.get(pid, {})
+            ign = who.get("ign") or (live.get("gsIgns") or {}).get(gs_team_of(pid), {}).get(pid, "")
+            return ign, who.get("uid", "")
+        ign, uid = named(wait["pid"])
+        by_ign, by_uid = named(by_pid)
+        events.append({
+            "type": "revive", "time": wait["ts"], "ign": ign, "uid": uid,
+            "team": gs_team_of(wait["pid"]), "byIgn": by_ign, "byUid": by_uid,
+        })
+
     for line in complete.splitlines():
         if cutoff and line[:1] == "[" and line[1:20] < cutoff:
             continue
+        wait = live.get("reviveWait")
+        if wait is not None:
+            wait["n"] += 1
+            if wait["n"] > REVIVER_LINE_WINDOW:
+                live["reviveWait"] = None
+                revive_event(wait)
         join = DEBUGGER_JOIN_REGEX.search(line)
         if join:
             roll_over_if_finished()
@@ -1564,6 +1595,11 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
             live["gsDown"].get(gs_team_of(pid), set()).discard(pid)
             spot = DEBUGGER_REVIVE_POS_REGEX.search(line)
             stamp = DEBUGGER_TS_REGEX.match(line.strip())
+            # Held for the teammate's line that names the reviver; one
+            # already held has had its chance.
+            if live.get("reviveWait") is not None:
+                revive_event(live["reviveWait"])
+            live["reviveWait"] = {"pid": pid, "ts": stamp.group("ts") if stamp else "", "n": 0}
             when = _debugger_epoch(stamp.group("ts")) if stamp else None
             if spot and when is not None:
                 points = live.setdefault("revivePoints", [])
@@ -1618,6 +1654,12 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
         if item:
             live.setdefault("itemCounts", {}).setdefault(
                 item.group("pid"), {})[item.group("item")] = int(item.group("count"))
+            wait = live.get("reviveWait")
+            if (wait is not None and item.group("item") == REVIVER_ITEM
+                    and item.group("pid") != wait["pid"]
+                    and gs_team_of(item.group("pid")) == gs_team_of(wait["pid"])):
+                live["reviveWait"] = None
+                revive_event(wait, item.group("pid"))
             continue
 
         zone = DEBUGGER_ZONE_REGEX.search(line)
@@ -4696,6 +4738,9 @@ SIDE_POPUP_TYPES = {
     "clutch":     ("CLUTCH", "ELIMINATIONS"),
     "headshot":   ("HEADSHOT", "ELIMINATIONS"),
     "teamsLeft":  ("TEAMS LEFT", "REMAINING"),
+    # The revived player's photo and name; the big line is the teammate
+    # who revived them (see REVIVER_ITEM), the label their count.
+    "revive":     ("REVIVED BY", "REVIVE"),
 }
 RAMPAGE_WINDOW_SECONDS = 30.0
 RAMPAGE_MIN_KILLS = 3
@@ -4978,6 +5023,12 @@ def team_photos():
     return {k: v for k, v in out.items() if v}
 
 
+def _ordinal_suffix(n):
+    if 10 <= n % 100 <= 20:
+        return "TH"
+    return {1: "ST", 2: "ND", 3: "RD"}.get(n % 10, "TH")
+
+
 def _squad_alive(live, gs):
     squad = (live.get("gsIgns") or {}).get(gs) or {}
     down = (live.get("gsDown") or {}).get(gs) or set()
@@ -5002,8 +5053,10 @@ def detect_side_popups(new_events, live):
     team_of = {r.get("gsTeam"): r for r in rows if r.get("gsTeam") is not None}
     out = []
 
-    def popup(kind, ev, value, ign=None, uid=None, gs=None):
-        title, label = SIDE_POPUP_TYPES[kind]
+    def popup(kind, ev, value, ign=None, uid=None, gs=None, title=None, label=None, extra=None):
+        title0, label0 = SIDE_POPUP_TYPES[kind]
+        title = title if title is not None else title0
+        label = label if label is not None else label0
         if value == 1:
             label = label.replace("ELIMINATIONS", "ELIMINATION")
         row = team_of.get(gs if gs is not None else ev.get("killerTeam")) or {}
@@ -5023,12 +5076,27 @@ def detect_side_popups(new_events, live):
             short = next((r.get("short") for r in rows if r.get("teamName") == own), "") or next(
                 (t.get("shortName") for t in ((server_state.get("roster") or {}).get("teams") or [])
                  if t.get("name") == own), "") or ""
-        out.append({"id": "%s:%s:%s" % (kind, ev.get("time"), uid or ign),
-                    "type": kind, "title": title, "label": label, "value": value,
-                    "ign": ign, "uid": uid, "teamName": team_name,
-                    "short": short, "photo": _photo_lookup(uid, ign)})
+        out.append(dict({"id": "%s:%s:%s" % (kind, ev.get("time"), uid or ign),
+                         "type": kind, "title": title, "label": label, "value": value,
+                         "ign": ign, "uid": uid, "teamName": team_name,
+                         "short": short, "photo": _photo_lookup(uid, ign)}, **(extra or {})))
 
     for ev in new_events:
+        if ev.get("type") == "revive":
+            if not switches.get("revive") or not ev.get("ign"):
+                continue
+            by = ev.get("byIgn") or ""
+            if by:
+                counts = P.setdefault("revivers", {})
+                key = str(ev.get("byUid") or by)
+                counts[key] = counts.get(key, 0) + 1
+                n = counts[key]
+                popup("revive", ev, by, ign=ev["ign"], uid=ev.get("uid", ""), gs=ev.get("team"),
+                      label="%d%s REVIVE" % (n, _ordinal_suffix(n)), extra={"valueIsName": True, "by": by})
+            else:
+                popup("revive", ev, "+1", ign=ev["ign"], uid=ev.get("uid", ""), gs=ev.get("team"),
+                      title="REVIVED", label="BACK IN THE FIGHT")
+            continue
         if ev.get("type") != "kill":
             continue
         killer = str(ev.get("killerUid") or ev.get("killerIgn") or "")
@@ -8324,6 +8392,16 @@ def link_live_teams(live, roster):
     # where the roster does not know their players yet.
     gs_inferred = {gs: team_names[tid] for tid, gs in inferred.items()
                    if tid in team_names and gs is not None}
+    # A squad joined only by inference (timing, tags, the last one left) is
+    # NAMED too. Its row already shows, alive bars and all -- but the
+    # elimination card, the wipe banner and the race look a squad up here,
+    # and one missing from it went up unnamed, which for the card means not
+    # at all: a team playing substitutes the roster does not list was
+    # tracked all match and never got its card.
+    for gs, printed in gs_inferred.items():
+        if gs not in gs_names and printed:
+            rt = match_roster_team(printed, roster_teams)
+            gs_names[gs] = (rt or {}).get("name") or printed
     return {"rows": rows, "gsNames": gs_names, "unresolved": unresolved,
             "gsInferred": gs_inferred}
 
@@ -10850,14 +10928,20 @@ _last_extras_fp = None
 
 
 def lean_state(data):
-    """`data` without the keys only the dashboard reads."""
+    """`data` without the keys only the dashboard reads -- and without
+    liveOps.killEvents, which nothing reads at all: 14 KB of every state
+    (measured 2026-10-10), kept in the engine for whoever wants it later."""
     if not isinstance(data, dict):
         return data
-    if not any(k in data for k in DASHBOARD_ONLY_KEYS):
+    live = data.get("liveOps")
+    feed = isinstance(live, dict) and "killEvents" in live
+    if not feed and not any(k in data for k in DASHBOARD_ONLY_KEYS):
         return data
     out = dict(data)
     for key in DASHBOARD_ONLY_KEYS:
         out.pop(key, None)
+    if feed:
+        out["liveOps"] = {k: v for k, v in live.items() if k != "killEvents"}
     return out
 
 
@@ -10931,6 +11015,27 @@ def state_for_broadcast():
 async def broadcast_state_sync():
     postmatch_one_at_a_time()
     await _broadcast_state_sync()
+
+
+# THE RELAY HEARS FROM US AT LEAST ONCE A MINUTE. A state is only sent when
+# something changed, so a quiet break between matches can mean minutes of
+# nothing -- and the relay's watchdog (ocr/relay/watchdog.py) reports five
+# silent minutes to Discord as "Engine has gone quiet". The current state
+# again, once a minute of silence, keeps it honest, and hands any page that
+# missed something the state as it stands.
+FREEFIRE_RELAY_KEEPALIVE = 60.0
+
+
+async def relay_keepalive_loop():
+    while True:
+        await asyncio.sleep(15)
+        try:
+            if (relay_websocket is not None
+                    and time.perf_counter() - _last_relay_sync_at >= FREEFIRE_RELAY_KEEPALIVE):
+                _last_sync_sent.pop(relay_websocket, None)
+                await _broadcast_state_sync(urgent=True)
+        except Exception as e:
+            print(f"[relay] keepalive failed: {e}")
 
 
 async def _broadcast_state_sync(urgent=False):
@@ -11422,6 +11527,17 @@ async def handle_client(websocket, path=None):
             try:
                 payload = json.loads(message)
             except json.JSONDecodeError:
+                continue
+
+            if payload.get("type") == "relay_health":
+                # The relay's report on how fast each page behind it is
+                # getting its states: for the dashboards on this machine (a
+                # dashboard on the relay is sent its own). Never echoed back.
+                if websocket is relay_websocket:
+                    data = json.dumps(payload)
+                    for c, p in list(connected_pages.items()):
+                        if p == "freefire_dashboard" and c is not relay_websocket:
+                            await _send_guarded(c, data)
                 continue
 
             if payload.get("type") == "manual_update":
@@ -14224,7 +14340,8 @@ async def main():
         print(f"Free Fire OCR engine running at ws://{host}:{port}")
         print("Open dashboard.html's FreeFire Max tab in a browser, and")
         print("overlay/freefire_scoreboard.html + overlay/freefire_booyah.html in OBS as Browser Sources.")
-        await asyncio.gather(ocr_loop(), relay_client_loop(), h2h_photo_heartbeat())
+        await asyncio.gather(ocr_loop(), relay_client_loop(), h2h_photo_heartbeat(),
+                             relay_keepalive_loop())
 
 
 if __name__ == "__main__":

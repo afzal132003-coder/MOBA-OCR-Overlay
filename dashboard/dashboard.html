@@ -2045,6 +2045,7 @@
     from <code>ocr_engine.py</code>) — start that instead of the MOBA engine on a Free Fire day.
     Status: <span id="ffStatus" class="disconnected" style="font-weight:800;">DISCONNECTED</span>
     <span id="ffConnMode" class="hint" style="margin-left:8px;font-size:11px;"></span>
+    <span id="ffRelayHealth" style="margin-left:10px;font-size:11px;font-weight:700;"></span>
   </div>
 
   <div class="ff-tabbar" style="display:flex;gap:8px;">
@@ -2418,6 +2419,7 @@
           <label class="hint" style="margin:0;" title="The last one alive in a squad gets a kill"><input type="checkbox" class="ff-sidepop" data-k="clutch"> Clutch</label>
           <label class="hint" style="margin:0;" title="Every headshot kill -- busy in a fight"><input type="checkbox" class="ff-sidepop" data-k="headshot"> Headshot</label>
           <label class="hint" style="margin:0;" title="At 8, 6, 4 and 2 squads left"><input type="checkbox" class="ff-sidepop" data-k="teamsLeft"> Teams left</label>
+          <label class="hint" style="margin:0;" title="A player brought back at a revival point -- their photo and name, and the teammate who revived them"><input type="checkbox" class="ff-sidepop" data-k="revive"> Revive</label>
           <label class="hint" style="margin:0;">Hold <input type="number" id="ff_sidePopupSeconds" min="2" max="15" step="0.5" value="5" style="width:52px;">s</label>
         </div>
         <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;">
@@ -7004,6 +7006,41 @@ function ffConnect(){
   });
 }
 
+/* HOW THE RELAY'S SOURCES ARE DOING, from the relay's own report every
+   few seconds: how long each page's latest state took to arrive. The
+   slowest is named; amber past a second, red past 2.5 s or when a state
+   has been on its way that long -- a source falling behind is seen here
+   before it is seen on air. Every source is listed on hover. */
+const FF_SOURCE_NAMES = { freefire_ingame: "In-game", freefire_postmatch: "Post-match", freefire_lobby_status: "Lobby",
+  freefire_map: "Map", freefire_director: "Director", freefire_dashboard: "Dashboard" };
+let ffRelayHealthAt = 0;
+function ffShowRelayHealth(msg){
+  const el = document.getElementById("ffRelayHealth");
+  if(!el) return;
+  ffRelayHealthAt = Date.now();
+  const rows = (msg.peers || []).filter(r => r.page && r.page !== "watchdog" && !/^(probe|unknown)/.test(r.page))
+    .map(r => {
+      const now = Math.max(r.lastMs || 0, r.waitingMs || 0);
+      return { name: FF_SOURCE_NAMES[r.page] || r.page.replace(/^freefire_/, ""), now, worst: r.worstMs, last: r.lastMs, waiting: r.waitingMs };
+    });
+  if(!rows.length){ el.textContent = "Relay: no sources connected"; el.style.color = "#9aa7b5"; el.title = ""; return; }
+  const slow = rows.reduce((a, b) => b.now > a.now ? b : a);
+  const secs = ms => ms >= 1000 ? (ms / 1000).toFixed(1) + " s" : Math.round(ms) + " ms";
+  el.textContent = "Relay: " + rows.length + " source" + (rows.length === 1 ? "" : "s") + " \u00b7 " +
+    (slow.now >= 1000 ? slow.name + " " + secs(slow.now) + " behind" : "slowest " + secs(slow.now));
+  el.style.color = slow.now >= 2500 ? "#f87171" : slow.now >= 1000 ? "#fbbf24" : "#4ade80";
+  el.title = rows.map(r => r.name + ": " + (r.last == null ? "no state yet" : secs(r.last)) +
+    (r.worst != null ? " (worst " + secs(r.worst) + " in 30 s)" : "") + (r.waiting ? ", one on its way " + secs(r.waiting) : "")).join("\n");
+}
+// No report for a while: the relay (or the engine's link to it) is not there.
+setInterval(() => {
+  const el = document.getElementById("ffRelayHealth");
+  if(el && ffRelayHealthAt && Date.now() - ffRelayHealthAt > 20000){
+    el.textContent = "Relay: no report for " + Math.round((Date.now() - ffRelayHealthAt) / 1000) + " s";
+    el.style.color = "#fbbf24";
+  }
+}, 5000);
+
 function ffOpen(url){
   ffWs = new WebSocket(url);
   ffWs.onopen = () => {
@@ -7021,6 +7058,7 @@ function ffOpen(url){
     const msg = JSON.parse(evt.data);
     // the one-click post-match waits on replies; it reads them, never eats them
     if(typeof ffFeedWaiters === "function") ffFeedWaiters(msg);
+    if(msg.type === "relay_health"){ ffShowRelayHealth(msg); return; }
     if(msg.type === "whoami"){
       /* The relay drops anything a viewer sends, without a word. That is
          right for an overlay and disastrous for a dashboard: it showed

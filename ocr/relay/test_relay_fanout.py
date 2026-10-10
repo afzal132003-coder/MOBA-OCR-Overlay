@@ -63,6 +63,12 @@ class FakeWS:
             await asyncio.Event().wait()    # never returns
         self.received.append((time.time(), json.loads(raw)))
 
+    async def ping(self):
+        """A browser answers at once: the pong is here."""
+        f = asyncio.get_running_loop().create_future()
+        f.set_result(0.0)
+        return f
+
     async def close(self, code=None, reason=None):
         pass
 
@@ -76,9 +82,63 @@ class FakeWS:
         return item
 
 
+class SlowLink(FakeWS):
+    """A page far away behind the proxy: every send is TAKEN at once (the
+    proxy and the kernel buffer it), and arrives when a link of `rate`
+    bytes a second gets to it -- and its pong with it, as a browser's
+    does. `pongs=False` is a page that never answers (only the deadline
+    gets it anything)."""
+
+    def __init__(self, path, rate, pongs=True):
+        super().__init__(path)
+        self.rate, self.pongs, self.free_at = rate, pongs, 0.0
+
+    async def send(self, raw):
+        now = time.time()
+        self.free_at = max(now, self.free_at) + len(raw) / self.rate
+        self.received.append((self.free_at, json.loads(raw)))
+
+    async def ping(self):
+        loop = asyncio.get_running_loop()
+        f = loop.create_future()
+        if self.pongs:
+            loop.call_later(max(0.0, self.free_at - time.time()),
+                            lambda: f.done() or f.set_result(0.0))
+        return f
+
+
+async def slow_link(relay, pongs=True, rate=50_000):
+    """The engine offers twice what the link carries for four seconds:
+    how far behind is the page, and does it end on the latest state?"""
+    handler = relay["handler"]
+    engine = FakeWS("/?token=o-test")
+    page = SlowLink("/?token=v-test&page=freefire_map&rostercache=1", rate=rate, pongs=pongs)
+    tasks = [asyncio.create_task(handler(ws)) for ws in (page, engine)]
+    await asyncio.sleep(0.05)
+    sent, pad = {}, "x" * 20_000
+    for n in range(20):
+        sent[n] = time.time()
+        await engine.inbox.put(json.dumps({"type": "state_sync", "data": {"seq": n, "pad": pad}}))
+        await asyncio.sleep(0.2)
+    end = time.time()
+    await asyncio.sleep(3.0)
+    states = [(t, m["data"]["seq"]) for t, m in page.received if m.get("type") == "state_sync"]
+    for ws in (engine, page):
+        await ws.inbox.put(None)
+    for tk in tasks:
+        tk.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+    # how stale the page's picture was when the engine stopped: the newest
+    # state it had by then, against the newest that existed
+    had = max([seq for t, seq in states if t <= end] or [-1])
+    behind = (end - sent[had]) if had >= 0 else float("inf")
+    last_at = max((t for t, seq in states if seq == 19), default=None)
+    return behind, (last_at - sent[19]) if last_at else None, len(states)
+
+
 async def run():
     os.environ.update(OCR_TOKEN="o-test", ADMIN_TOKEN="a-test",
-                      VIEWER_TOKEN="v-test")
+                      VIEWER_TOKEN="v-test", RELAY_HEALTH_SECONDS="0.3")
     relay = runpy.run_path(SERVER)
     handler = relay["handler"]
 
@@ -134,6 +194,38 @@ async def run():
         await ws.inbox.put(None)
     for t in tasks:
         t.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+    # A FAR PAGE ON A SLOW LINK (Bengaluru, 2026-10-11): behind the proxy
+    # nothing pushes back, so the relay must wait for each state to land.
+    behind, last, n = await slow_link(relay)
+    print("slow link: %.2f s behind when the engine stopped, latest state landed after %s s, %d of 20 sent"
+          % (behind, "%.2f" % last if last else "never", n))
+    check("a page on a slow link stays within a second of the engine", behind < 1.0, "%.2f s behind" % behind)
+    check("and ends on the latest state, promptly", last is not None and last < 1.0, str(last))
+    check("it is sent what its link can carry, not everything", n < 20, "%d of 20" % n)
+    behind, last, n = await slow_link(relay, pongs=False, rate=10_000_000)
+    check("a page that never answers a ping is still sent the latest, by the deadline",
+          last is not None and last < relay["DELIVERY_WAIT_SECONDS"] + 1.0, str(last))
+
+    # THE HEALTH REPORT: the dashboard is told how each page is doing.
+    handler = relay["handler"]
+    admin = FakeWS("/?token=a-test&page=freefire_dashboard")
+    page = SlowLink("/?token=v-test&page=freefire_ingame", rate=1_000_000)
+    engine = FakeWS("/?token=o-test")
+    tasks = [asyncio.create_task(handler(ws)) for ws in (admin, page, engine)]
+    await asyncio.sleep(0.05)
+    await engine.inbox.put(json.dumps({"type": "state_sync", "data": {"seq": 1}}))
+    await asyncio.sleep(0.9)
+    reports = [m for _, m in admin.received if m.get("type") == "relay_health"]
+    row = next((r for r in (reports[-1]["peers"] if reports else []) if r["page"] == "freefire_ingame"), None)
+    check("the dashboard is sent a health report naming each page", row is not None, str(reports[-1:]))
+    check("with how long its latest state took to land", row is not None and row.get("lastMs") is not None
+          and row.get("waitingMs") == 0, str(row))
+    for ws in (admin, page, engine):
+        await ws.inbox.put(None)
+    for tk in tasks:
+        tk.cancel()
     await asyncio.gather(*tasks, return_exceptions=True)
 
 
