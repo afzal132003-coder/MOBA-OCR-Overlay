@@ -2193,8 +2193,10 @@
         A normal room's log never says, so without this the Director falls back to the log's own squad numbers,
         which do <strong>not</strong> match the panel. Paste one team per line, <strong>slot 1 first</strong>
         &mdash; full or short names both work, and the Team Bank's teams are offered as you type &mdash; then
-        Save. With the Team Bank's box ticked, saving also fills Team Info in this order. A league room takes
-        its slots from the game and ignores this.</p>
+        Save. <strong>Saving also sets Team Info (the roster) to these teams in slot order</strong>: a team the
+        Team Bank has comes with its players, one already in Team Info keeps its own, and a new name goes in
+        ready for its players (untick &ldquo;every time Room Slots are saved&rdquo; in the Team Bank to stop it).
+        A league room takes its slots from the game and ignores this.</p>
       <textarea id="ff_roomSlotsPaste" rows="5" style="width:100%;max-width:520px;"
         placeholder="NG PROS&#10;RNTX&#10;TEAM APEX&#10;4ENDS ESP&#10;..."></textarea>
       <div class="row" style="gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
@@ -10977,17 +10979,39 @@ function ffOnTeamBank(msg){
 /* Team Info in slot order from the bank: names, short names, IGNs, UIDs.
    A logo, group photo, display name or player photo already on the roster
    for that team is kept. Saved straight to the engine. */
+/* A short name made from a team name, for a team the paste brings in that
+   nothing else knows: its initials ("TEAM ALPHA GODS" -> "TAG"), a single
+   word cut to four, the filler words left out. */
+function ffShortFromName(n){
+  const filler = new Set(["ESPORTS", "ESPORT", "ESP", "E", "SPORTS", "GAMING", "CLAN", "THE", "OFFICIAL"]);
+  const words = String(n || "").toUpperCase().replace(/[^A-Z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
+  const core = words.filter(w => !filler.has(w));
+  const use = core.length ? core : words;
+  if(!use.length) return String(n || "").toUpperCase().slice(0, 4);
+  return use.length === 1 ? use[0].slice(0, 4) : use.map(w => w[0]).join("").slice(0, 4);
+}
+
+/* THE ROOM'S SLOTS BECOME THE ROSTER, in slot order. Each team from the
+   Team Bank when the bank has it (players, UIDs, short name), else the team
+   already in Team Info under that name, else a new team under the pasted
+   name -- the paste is the room, so a team nothing knows yet still goes in,
+   ready for its players. It used to be skipped, and with an empty bank the
+   whole fill refused. */
 function ffFillTeamInfoFromSlots(slots){
-  const bankTeams = (ffTeamBank && ffTeamBank.teams) || [];
-  if(!bankTeams.length) return { error: "The Team Bank is empty \u2014 import the team sheet first.", missing: [] };
   if(!ffState) return { error: "Not connected to the Free Fire engine.", missing: [] };
   const prev = ((ffState.roster || {}).teams) || [];
-  const used = new Set(), missing = [], teams = [];
+  const used = new Set(), missing = [], fresh = [], teams = [];
   for(let i = 1; i <= FF_ROOM_SLOTS; i++){
     const v = (slots[String(i)] || "").trim();
     if(!v) continue;
-    const b = ffBankFind(v);
-    if(!b){ missing.push("slot " + i + " " + v); continue; }
+    let b = ffBankFind(v);
+    if(!b){
+      // not in the bank: the team already in Team Info by that name, else a new one
+      const have = prev.find(t => [t.name, t.shortName, t.displayName].some(x => x && ffBankNorm(x) === ffBankNorm(v)));
+      b = have ? { name: have.name, shortName: have.shortName || "", players: have.players || [] }
+               : { name: v.toUpperCase(), shortName: ffShortFromName(v), players: [] };
+      if(!have) fresh.push("slot " + i + " " + v);
+    }
     if(used.has(b.name)){ missing.push("slot " + i + " " + v + " (already in a slot)"); continue; }
     used.add(b.name);
     const carried = prev.find(t => ffBankNorm(t.name) === ffBankNorm(b.name))
@@ -11004,14 +11028,14 @@ function ffFillTeamInfoFromSlots(slots){
       }),
     });
   }
-  if(!teams.length) return { error: "None of the Room Slots names a team in the bank.", missing };
+  if(!teams.length) return { error: "No team names in the Room Slots.", missing };
   ffRosterDraft = ffNormaliseRoster(teams);
   // the normaliser has no tagRead; put it back so the save keeps it
   teams.forEach((t, i) => { if(ffRosterDraft.teams[i]) ffRosterDraft.teams[i].tagRead = t.tagRead; });
   const kept = ffSaveRoster();
   try { ffDrawRosterBoxes(); } catch(e) {}
   ffRenderTeamBank();
-  return { kept, missing };
+  return { kept, missing, fresh };
 }
 
 (function ffWireTeamBank(){
@@ -11175,11 +11199,14 @@ function ffDrawRoomSlots(slots) {
     ffDrawRoomSlots(roomSlots);
     say("Saved " + Object.keys(roomSlots).length + " slot(s) \u2014 the Director uses them from its next update.");
     ffRenderTeamBank();
-    if(document.getElementById("ff_bankAuto").checked && ffTeamBank && (ffTeamBank.teams || []).length){
+    if(document.getElementById("ff_bankAuto").checked){
+      // the roster follows the room, bank or no bank
       const r = ffFillTeamInfoFromSlots(roomSlots);
+      if(r.error){ say("Saved " + Object.keys(roomSlots).length + " slot(s) \u2014 Team Info not changed: " + r.error); return; }
       ffBankSay(r);
-      if(r.kept) say("Saved " + Object.keys(roomSlots).length + " slot(s) and filled Team Info: " + r.kept +
-                     " team(s) from the Team Bank" + (r.missing.length ? " \u2014 not in the bank: " + r.missing.join(", ") : "") + ".");
+      say("Saved " + Object.keys(roomSlots).length + " slot(s) \u2014 Team Info is now these " + r.kept +
+          " team(s) in slot order" + ((r.fresh || []).length ? " (new, add their players: " + r.fresh.join(", ") + ")" : "") +
+          (r.missing.length ? " \u2014 skipped: " + r.missing.join(", ") : "") + ".");
     }
   });
 
