@@ -51,7 +51,7 @@ def main():
     E.server_state["settings"]["eliminationApproval"] = False
     E.server_state["roster"] = {"teams": [
         {"name": "ALPHA ESPORTS", "shortName": "ALP", "players": [{"ign": "ALPHA.ONE"}, {"ign": "ALPHA.TWO"}]},
-        {"name": "BRAVO ESPORTS", "shortName": "BRV", "players": [{"ign": "BRAVO.ONE"}, {"ign": "BRAVO.TWO"}]},
+        {"name": "BRAVO ESPORTS", "shortName": "BRV", "logo": "data:image/png;base64," + "A" * 4000, "players": [{"ign": "BRAVO.ONE"}, {"ign": "BRAVO.TWO"}]},
         {"name": "CHARLIE ESPORTS", "shortName": "CHR", "players": [{"ign": "CHARLIE.ONE"}]}]}
     E.server_state.setdefault("liveOps", {})["wipedBy"] = {}
     E._live_match.clear()
@@ -67,6 +67,10 @@ def main():
     print("the banner's data, for the in-game source")
     asyncio.run(E.handle_live_signals(signals, {3: "ALPHA ESPORTS", 5: "BRAVO ESPORTS", 7: "CHARLIE ESPORTS"}))
     wb = E.server_state["liveOps"].get("wipedBy") or {}
+    asyncio.run(E.handle_live_signals([wipes[5]], {5: "BRAVO ESPORTS"}))          # BRAVO has a logo
+    te = E.server_state.get("teamEliminated") or {}
+    check("the card's state carries no logo image (the pages hold the roster's)",
+          te.get("teamName") == "BRAVO ESPORTS" and not te.get("photo"), "%s, %d chars" % (te.get("teamName"), len(str(te))))
     check("BRAVO ESPORTS wiped by ALPHA ESPORTS", (wb.get("BRAVO ESPORTS") or {}).get("by") == "ALPHA ESPORTS", str(wb))
     check("no banner for a zone death", "CHARLIE ESPORTS" not in wb, str(wb))
 

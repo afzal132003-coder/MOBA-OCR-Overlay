@@ -866,6 +866,10 @@ def load_state():
             with open(STATE_PATH, "r", encoding="utf-8") as f:
                 loaded = json.load(f)
             state = deep_merge_defaults(loaded, default_state())
+            # An image left in the elimination card by an older engine would
+            # ride in every state_sync until the next card: dropped.
+            if isinstance(state.get("teamEliminated"), dict):
+                state["teamEliminated"]["photo"] = ""
             # Bootstrap the roster on startup too, not only when a match is
             # committed. Hooking this to the commit path alone left an
             # already-committed match unable to seed anything: the state
@@ -4475,6 +4479,8 @@ def drain_elim_card_queue():
     seconds = server_state.get("settings", {}).get("elimCardSeconds") or FREEFIRE_ELIM_CARD_SECONDS
     te["status"] = "shown"
     te["shownUntil"] = now_ms + int(float(seconds) * 1000)
+    if (te.get("teamName") or "") != nxt["teamName"]:
+        te["photo"] = ""
     te["teamName"] = nxt["teamName"]
     te["rank"] = nxt["rank"]
     te["kills"] = nxt["kills"]
@@ -5239,6 +5245,8 @@ def announce_elimination(row, finish_rank):
     te["status"] = "shown"
     seconds = server_state.get("settings", {}).get("elimCardSeconds") or FREEFIRE_ELIM_CARD_SECONDS
     te["shownUntil"] = now_ms + int(float(seconds) * 1000)
+    if (te.get("teamName") or "") != (row.get("teamName") or ""):
+        te["photo"] = ""
     te["teamName"] = row.get("teamName") or ""
     te["rank"] = finish_rank
     te["kills"] = _sheet_elim_value(row)
@@ -10757,6 +10765,36 @@ def _drop_outbox(client):
     box = _outboxes.pop(client, None)
     if box is not None:
         box.close()
+    _last_sync_sent.pop(client, None)
+
+
+# The state_sync each client was last given, so the same one is not given
+# again. Measured on the live engine (2026-10-10): 98 of 112 state_syncs in
+# twelve seconds were identical to the one before -- ~10 a second of the
+# same 125 KB -- and the map preview on the relay lagged behind them. The
+# pages hold what they were sent and time their own cards from shownUntil,
+# so a repeat tells them nothing.
+_last_sync_sent = {}
+# The relay's catch-up: a change that lands inside the relay's gap is sent
+# when the gap is up. Before, the next repeat carried it; with repeats gone
+# nothing else would.
+_relay_catch_up_task = None
+
+
+def _relay_catch_up(delay):
+    global _relay_catch_up_task
+    if _relay_catch_up_task is not None and not _relay_catch_up_task.done():
+        return
+
+    async def later():
+        global _relay_catch_up_task
+        # A little past the gap: Windows wakes a sleep up to a timer tick
+        # (~16 ms) early, and a catch-up that finds the gap not yet up
+        # must be free to book another rather than lose the change.
+        await asyncio.sleep(max(0.0, delay) + 0.03)
+        _relay_catch_up_task = None
+        await _broadcast_state_sync()
+    _relay_catch_up_task = asyncio.ensure_future(later())
 
 
 _STATE_SYNC_PREFIX = '{"type": "state_sync"'
@@ -10947,14 +10985,18 @@ async def _broadcast_state_sync():
     # old roster (missing logos, long names) until an engine restart sent
     # a full one again.
     relay_due = roster_moved or now_mono - _last_relay_sync_at >= gap
-    if relay_due:
-        _last_relay_sync_at = now_mono
     sends = []
     for c in list(connected_clients):
-        if c is relay_websocket and not relay_due:
-            continue
-        sends.append(_send_guarded(c, slim if (slim and c in cachers) else full,
-                                   full=full))
+        payload = slim if (slim and c in cachers) else full
+        if _last_sync_sent.get(c) == payload:
+            continue                      # it has this one already
+        if c is relay_websocket:
+            if not relay_due:
+                _relay_catch_up(gap - (now_mono - _last_relay_sync_at))
+                continue
+            _last_relay_sync_at = now_mono
+        _last_sync_sent[c] = payload
+        sends.append(_send_guarded(c, payload, full=full))
     await asyncio.gather(*sends, return_exceptions=True)
 
 
@@ -11079,6 +11121,9 @@ async def broadcast(message):
             await broadcast_to_page("freefire_dashboard", {
                 "type": "freefire_dashboard_extras", "data": dashboard_extras()})
     data = json.dumps(message)
+    if isinstance(message, dict) and message.get("type") == "state_sync":
+        for c in list(connected_clients):
+            _last_sync_sent[c] = data
     # A snapshot: a client connecting or disconnecting mid-fanout must not
     # change the set being iterated.
     await asyncio.gather(*[_send_guarded(c, data) for c in list(connected_clients)],
@@ -13028,6 +13073,7 @@ async def handle_client(websocket, path=None):
             elif payload.get("type") == "team_eliminated_hide":
                 server_state["teamEliminated"]["status"] = "idle"
                 server_state["teamEliminated"]["shownUntil"] = None
+                server_state["teamEliminated"]["photo"] = ""
                 save_state()
                 await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
     finally:
@@ -13093,7 +13139,12 @@ async def handle_live_signals(signals, gs_names):
             te["teamName"] = name
             te["rank"] = total - signal["order"] + 1
             te["kills"] = signal.get("kills", 0)
-            te["photo"] = (roster_team or {}).get("logo") or ""
+            # Not the roster's logo copied in: it is an image (80 KB and
+            # more) and teamEliminated rides in EVERY state_sync -- half of
+            # each one, ~10 a second, and through the relay the remote
+            # graphics lagged behind it. The card falls back to the
+            # roster's logo, which the pages already hold.
+            te["photo"] = ""
             # THE WIPE BANNER: who wiped them, for the in-game source to
             # play "TSG WIPED NG" before the elimination card. Not for the
             # zone or a fall, and never a squad "wiping" itself.
