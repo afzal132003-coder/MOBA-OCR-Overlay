@@ -1557,7 +1557,8 @@ const elimCarded = new Set();
 // Squads whose wipe banner has played this match, and whether one is up.
 const wipeShown = new Set();
 let wipeBusy = false;
-const WIPE_MS = 2200;
+const WIPE_MS = 1800;
+let wipeTimer = 0, wipeShownAt = 0, wipeNext = null;
 const ELIM_CARDED_FRESH_MS = 5000;
 let elimCardedFreshRenders = 0;
 let elimCardedFreshSince = 0;
@@ -1763,12 +1764,30 @@ function playWipeBanner(state, byName, row, next){
   el.querySelector(".na").textContent = (by && by.shortName) || byName;
   el.querySelector(".nb").textContent = (out && out.shortName) || row.short || row.teamName || "";
   wipeBusy = true;
+  wipeShownAt = Date.now();
+  wipeNext = next;
   el.classList.remove("out");
   el.classList.add("show", "in");
+  clearTimeout(wipeTimer);
+  wipeTimer = setTimeout(endWipeBanner, WIPE_MS);
+}
+function endWipeBanner(){
+  const el = document.getElementById("wipeBanner");
+  clearTimeout(wipeTimer); wipeTimer = 0;
+  el.classList.remove("in"); el.classList.add("out");
   setTimeout(() => {
-    el.classList.remove("in"); el.classList.add("out");
-    setTimeout(() => { el.classList.remove("show", "out"); wipeBusy = false; next(); }, 320);
-  }, WIPE_MS);
+    el.classList.remove("show", "out"); wipeBusy = false;
+    const n = wipeNext; wipeNext = null;
+    if(n) n();
+  }, 320);
+}
+// Another squad out while the banner is up: it gives up the rest of its
+// time (it has had at least 0.7s to be read) and the cards follow.
+function rushWipeBanner(){
+  if(!wipeBusy || !wipeTimer) return;
+  const left = Math.max(0, wipeShownAt + 700 - Date.now());
+  clearTimeout(wipeTimer);
+  wipeTimer = setTimeout(endWipeBanner, left);
 }
 
 function showElimCard(state, rowEl, L, forced){
@@ -1801,8 +1820,10 @@ function showElimCard(state, rowEl, L, forced){
   // zone): "TSG WIPED NG", then this same card.
   const wkey = rowKeyOf(row);
   const wb = (((state.liveOps || {}).wipedBy) || {})[wkey];
+  // In a burst -- squads already queued behind this one -- the card goes
+  // straight up: a banner per squad made the queue trail the game.
   if(wb && wb.by && (state.settings || {}).wipeBanner !== false && !wipeShown.has(wkey)
-     && !wipeBusy && !card.classList.contains("show")){
+     && !wipeBusy && !card.classList.contains("show") && !pendingElimCards.length){
     wipeShown.add(wkey);
     playWipeBanner(state, wb.by, row, () => {
       const st = lastState || state;
@@ -1816,6 +1837,7 @@ function showElimCard(state, rowEl, L, forced){
        && !pendingElimCards.some(r => rowKeyOf(r) === key)){
       pendingElimCards.push(row);
       rushCurrentElimCard();
+      rushWipeBanner();
     }
     return;
   }

@@ -8045,6 +8045,23 @@ def link_live_teams(live, roster):
                     if tid not in stated and gs not in taken}
         inferred.update(stated)
 
+    # THE LAST ONE LEFT. Every other team joined and exactly one squad
+    # unclaimed: it is that team. A squad playing with players the roster
+    # does not list (substitutes, another org's tag) matched nothing --
+    # TSG PROS on 2026-10-10 sat with no alive bars and was never
+    # eliminated while all eleven others were tracked.
+    have = {}
+    for tid, name in (live.get("teamNames") or {}).items():
+        rt = match_roster_team(name, roster_teams)
+        idx = roster_teams.index(rt) if rt in roster_teams else None
+        g = roster_to_gs.get(idx) if idx is not None else None
+        have[tid] = g if g is not None else inferred.get(tid)
+    open_tids = [tid for tid, g in have.items() if g is None]
+    claimed = {g for g in have.values() if g is not None}
+    free = [gs for gs, players in (live.get("gsIgns") or {}).items() if players and gs not in claimed]
+    if len(open_tids) == 1 and len(free) == 1:
+        inferred[open_tids[0]] = free[0]
+
     ended = live.get("ended")
     wiped = live.get("wiped", [])
     rows = []

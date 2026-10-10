@@ -86,6 +86,20 @@ def main():
           race[0]["ign"] == "BRAVO.ONE" and race[0]["teamOut"] and not race[1]["teamOut"], str(race[:2]))
     check("never more than three", len(E.frag_race(E._live_match, linked, id_map, top=3)) <= 3)
 
+    print("the last team left takes the last squad left")
+    E.server_state.setdefault("aliases", {})["squads"] = {}
+    live = E.blank_live_match()
+    live["teamNames"] = {1: "ALPHA ESPORTS", 2: "BRAVO ESPORTS", 3: "CHARLIE ESPORTS"}
+    live["gsIgns"] = {3: {str(A1): "ALPHA.ONE", str(A2): "ALPHA.TWO"}, 5: {str(B1): "BRAVO.ONE", str(B2): "BRAVO.TWO"},
+                      7: {str(C1): "SUB.PLAYER"}}                        # CHARLIE plays a substitute
+    linked = E.link_live_teams(live, E.server_state["roster"])
+    by = {r["teamName"]: r.get("gsTeam") for r in linked["rows"]}
+    check("the two that match their roster join as before", by.get("ALPHA ESPORTS") == 3 and by.get("BRAVO ESPORTS") == 5, str(by))
+    check("the team whose players match nothing takes the one squad left", by.get("CHARLIE ESPORTS") == 7, str(by))
+    live["gsIgns"][9] = {"999": "SOMEONE.ELSE"}                         # two squads left: no guess
+    by = {r["teamName"]: r.get("gsTeam") for r in E.link_live_teams(live, E.server_state["roster"])["rows"]}
+    check("with two squads left over it does not guess", by.get("CHARLIE ESPORTS") is None, str(by))
+
     print("\n%d checks, %d failed" % (checks, len(failures)))
     sys.exit(1 if failures else 0)
 
