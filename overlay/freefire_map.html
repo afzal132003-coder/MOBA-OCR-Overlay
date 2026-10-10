@@ -162,6 +162,10 @@
   .trow .k small{font-size:12px;letter-spacing:.06em;margin-left:4px;opacity:.8;}
   .trow .p{width:48px;text-align:right;color:var(--text-1);}
   .trow.dim{opacity:.42;}
+  /* the drop tours' list: the team the camera is on, lit */
+  .trow[data-k]{transition:background .35s ease, box-shadow .35s ease, opacity .35s ease;}
+  .trow.cur{background:rgba(255,255,255,.13);box-shadow:inset 0 0 0 1px rgba(255,255,255,.22);}
+  .trow.ahead{filter:brightness(.5) saturate(.6);}
   .trow.win .p{color:var(--next);}
   #panel.on .trow{animation:rowin .45s cubic-bezier(.2,.8,.3,1) both;}
   @keyframes rowin{from{opacity:0;transform:translateX(26px);}to{opacity:1;transform:none;}}
@@ -238,6 +242,11 @@
   /* The next circle, live: its dashes march while it waits to close. */
   .march{animation:march 1.6s linear infinite;}
   @keyframes march{to{stroke-dashoffset:var(--step);}}
+  /* the live plane's contrail, drawn out behind it at its own speed */
+  .contrail{animation:contrail var(--dur) linear var(--reps) both;}
+  @keyframes contrail{from{stroke-dashoffset:var(--len);}to{stroke-dashoffset:0;}}
+  .cloud{animation:cloudpass var(--dur) linear infinite;}
+  @keyframes cloudpass{from{transform:translate(var(--x0),0);}to{transform:translate(var(--x1),0);}}
   /* Nothing animates while the layout is hidden: a push builds the whole
      map and table first (a quarter of a second of work), and the entrance
      used to start during it and stutter. Everything waits, then plays. */
@@ -703,10 +712,68 @@ function sideMatch(view, cfg, roster){
 
 /* ---- LIVE ---------------------------------------------------------- */
 
+/* THE PLANE, LIVE: its real run across this match's map (the client
+   writes where it starts and ends as the match loads), flown nose-first
+   with a contrail drawing out behind it and its shadow on the ground,
+   under clouds drifting across. Round and round while the squads are in
+   the air -- until the first circle is drawn -- and once as the live map
+   first comes up after that. Where each team LANDS is not in the live
+   log (the game writes landings to its replay at the end): that is the
+   post-game drop tour. */
+const LIVE_PLANE_S = 9;
+function planePath(L){
+  // nose to +x, as binPlaneShape: fuselage, swept wings, tailplane
+  const f = n => +(n * L).toFixed(2);
+  return `M${f(.5)},0 C${f(.5)},${f(-.05)} ${f(.35)},${f(-.07)} ${f(.2)},${f(-.07)} L${f(.14)},${f(-.06)} L${f(-.1)},${f(-.5)} ` +
+         `L${f(-.2)},${f(-.5)} L${f(-.06)},${f(-.07)} L${f(-.36)},${f(-.06)} L${f(-.45)},${f(-.19)} L${f(-.51)},${f(-.19)} ` +
+         `L${f(-.47)},0 L${f(-.51)},${f(.19)} L${f(-.45)},${f(.19)} L${f(-.36)},${f(.06)} L${f(-.06)},${f(.07)} ` +
+         `L${f(-.2)},${f(.5)} L${f(-.1)},${f(.5)} L${f(.14)},${f(.06)} L${f(.2)},${f(.07)} C${f(.35)},${f(.07)} ${f(.5)},${f(.05)} ${f(.5)},0 Z`;
+}
+function drawLivePlane(svg, g, plane, loop){
+  if(!plane || !plane.from || !plane.to) return;
+  const [x1, y1] = P(plane.from), [x2, y2] = P(plane.to);
+  const len = Math.hypot(x2 - x1, y2 - y1);
+  if(len < 1) return;
+  const defs = svg.querySelector("defs");
+  if(!defs.querySelector("#cloudsoft")){
+    const f = el("filter", { id: "cloudsoft", x: "-50%", y: "-50%", width: "200%", height: "200%" }, defs);
+    el("feGaussianBlur", { stdDeviation: u(16) }, f);
+  }
+  const reps = loop ? "infinite" : "1";
+  // the contrail
+  const trail = el("line", { x1, y1, x2, y2, stroke: "rgba(255,255,255,.8)", "stroke-width": u(5),
+                             "stroke-linecap": "round", "stroke-dasharray": len + " " + len }, g);
+  trail.classList.add("contrail");
+  trail.style.setProperty("--len", len); trail.style.setProperty("--dur", LIVE_PLANE_S + "s"); trail.style.setProperty("--reps", reps);
+  // the plane and its shadow, along the route
+  const L = u(70);
+  const mover = el("g", {}, g);
+  el("path", { d: planePath(L), fill: "rgba(0,0,0,.4)", transform: `translate(${u(14)},${u(20)}) scale(.92)` }, mover);
+  el("path", { d: planePath(L), fill: "#f2f5fb", stroke: "rgba(20,26,38,.85)", "stroke-width": u(1.6) }, mover);
+  el("rect", { x: -L * .47, y: -L * .02, width: L * .14, height: L * .04, fill: "var(--accent, #f7941d)" }, mover);
+  const am = el("animateMotion", { dur: LIVE_PLANE_S + "s", repeatCount: loop ? "indefinite" : "1", fill: "freeze",
+                                   rotate: "auto", begin: "indefinite", path: `M${x1},${y1} L${x2},${y2}` }, mover);
+  // clouds at height while they fly: soft, drifting with the wind
+  if(loop){
+    [[180, 260, 1], [620, 160, .8], [420, 700, 1.1], [820, 560, .9]].forEach(([cx, cy, k], i) => {
+      const c = el("g", { opacity: .45 }, g);
+      c.classList.add("cloud");
+      c.style.setProperty("--dur", (38 + i * 7) + "s"); c.style.setProperty("--x0", "-260px"); c.style.setProperty("--x1", "260px");
+      c.style.animationDelay = (-i * 9) + "s";
+      [[0, 0, 70], [55, 12, 52], [-50, 14, 48], [20, -26, 44]].forEach(([dx, dy, r]) =>
+        el("circle", { cx: cx + dx * k, cy: cy + dy * k, r: r * k, fill: "#ffffff", filter: "url(#cloudsoft)" }, c));
+    });
+  }
+  requestAnimationFrame(() => { try { am.beginElement(); } catch(e){} });
+}
+
 function drawLive(svg, view, animate, zoom){
   applyZoom(svg, zoomBox(view.zones, zoom, true));
   const g = baseMap(svg, view.image);
   drawPlane(g, view.plane, 0);
+  // the plane in flight: on loop until the first circle, once on a fresh entrance after
+  const flying = !(view.zones || []).length;
+  if(flying || animate) drawLivePlane(svg, g, view.plane, flying);
   const zs = view.zones || [];
   zs.forEach((z, i) => {
     const last = i === zs.length - 1;
@@ -745,7 +812,7 @@ function dropPins(state, cfg){
   teams.forEach(t => {
     const keys = [t.name, t.displayName, t.shortName].map(n => String(n || "").trim().toUpperCase()).filter(Boolean);
     const hit = keys.map(k => pins[k]).find(Boolean);
-    if(hit && hit.at) out.push({ team: t, at: hit.at });
+    if(hit && hit.at) out.push({ team: t, at: hit.at, label: hit.label || "" });
   });
   return out;
 }
@@ -1043,7 +1110,7 @@ function startBin(view, cfg, roster, animate){
   bin.tilt = cfg.bin3d === false ? 0 : BIN_TILT;
   // The plane's crossing. The files say where it flew, not when, so it
   // is given until shortly before the first squad touches down.
-  bin.anim = ["stream", "booyah", "drops"].includes(bin.mode);
+  bin.anim = ["stream", "booyah", "drops", "postdrops"].includes(bin.mode);
   bin.time = binTimeMap(d, view, bin.secs);
   // A photo shared by players of different squads is the folder's stand-in,
   // not a face: those players (and any with no photo) wear their team's
@@ -1059,6 +1126,7 @@ function startBin(view, cfg, roster, animate){
   binClouds();
   if(bin.mode === "booyah") binBooyahPrep();
   if(bin.mode === "drops") binDropsPrep();
+  if(bin.mode === "postdrops"){ bin.kind = "post"; tourSetup(tourPostDrops()); }
   bin.planeEnd = Math.max(45, Math.min(150, (isFinite(bin.firstOn) && bin.firstOn < 1e8 ? bin.firstOn : 105) - 15));
   // Where each squad dropped: the middle of where its players first stood
   // on the ground, and when (the middle of their landings) -- marked on
@@ -1092,12 +1160,13 @@ function startBin(view, cfg, roster, animate){
     }
     bin.last = now;
     if(bin.mode === "drops") binDropFrame(dt, bin.started == null ? 0 : (now - bin.started) / 1000);
+    else if(bin.mode === "postdrops") tourFrame(dt, bin.started == null ? 0 : (now - bin.started) / 1000);
     else if(bin.anim) binFrame(t, dt, bin.started == null ? 0 : (now - bin.started) / 1000);
     else binStatic(now);
     // done a beat after the end, once the camera has settled and the
     // pictures are in -- except the 3D MapStream, whose camera keeps
     // circling the Booyah squad for as long as it is on air
-    if(!bin.anim || bin.still || (t >= bin.dur && !bin.tilt && bin.mode !== "drops")){
+    if(!bin.anim || bin.still || (t >= bin.dur && !bin.tilt && bin.mode !== "drops" && bin.mode !== "postdrops")){
       bin.doneAt = bin.doneAt || now;
       if(now - bin.doneAt > 2500 && bin.map.ready) return;
     }
@@ -1620,9 +1689,10 @@ function binScreen(cam, tilt, yaw){
 // turned into the camera's frame on a ground canvas, then laid down in
 // strips, each as wide as its distance makes it -- the classic way to draw
 // a floor, and it keeps the turn and the tilt one picture.
-function binBase(S){
+function binBase(S, keep){
   const b = bin, ctx = b.ctx, W = b.W;
-  ctx.fillStyle = "#05070b"; ctx.fillRect(0, 0, W, W);
+  // `keep`: what is already painted round the map stays (the tours' sky)
+  if(!keep){ ctx.fillStyle = "#05070b"; ctx.fillRect(0, 0, W, W); }
   if(!b.map.ready) return;
   const img = b.map.canvas;
   if(!S.tilt){ const [x0, y0] = S(0, 0); ctx.drawImage(img, x0, y0, 1000 * S.s, 1000 * S.s); return; }
@@ -1635,7 +1705,8 @@ function binBase(S){
   const gw = Math.min(G, Math.ceil(wU * gs)), gh = Math.min(G, Math.ceil(hU * gs));
   const gc = g.getContext("2d");
   gc.setTransform(1, 0, 0, 1, 0, 0);
-  gc.fillStyle = "#05070b"; gc.fillRect(0, 0, gw + 2, gh + 2);
+  if(keep) gc.clearRect(0, 0, gw + 2, gh + 2);
+  else { gc.fillStyle = "#05070b"; gc.fillRect(0, 0, gw + 2, gh + 2); }
   // (u, v) -> turned frame -> ground canvas pixels
   gc.setTransform(gs, 0, 0, gs, halfX * gs, -yTop * gs);
   gc.rotate(S.yaw);
@@ -2139,6 +2210,368 @@ function binDropFrame(dt, rt){
   ctx.fillStyle = "#e8edf6"; ctx.fillText(note, 30, W - 23);
 }
 
+/* ---- THE DROP TOURS: a weather report over the map ------------------
+   PRE-EVENT: the spots the teams said they would drop -- the drop-spot
+   pins set on the dashboard, with the place each was given. POST-GAME:
+   where each team actually came down, from the replay -- its PLAYER 1's
+   first moment on the ground (player 1 = the first player the roster lists
+   for the team; one who did not play falls back to the team's first to
+   join, and the caption says whose landing it is).
+   Either way: the map as a thick lit slab under a sky, the plane crossing
+   under the clouds, then the camera swooping onto each team in the order
+   the plane passed them, a beam rising off the spot to the team's card,
+   and at the end every card at once, the camera breathing. */
+const TOUR_PLANE = 5.5;            // seconds of the plane's crossing
+const TOUR_END = 8;                // the closing shot, all of them
+function tourRoundRect(ctx, x, y, w, h, r){
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r); ctx.arcTo(x + w, y + h, x + w - r, y + h, r); ctx.lineTo(x + r, y + h);
+  ctx.arcTo(x, y + h, x, y + h - r, r); ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r); ctx.closePath();
+}
+// Pre-event there is no flight to follow: the line the spots lie along,
+// run from one edge of the map to the other.
+function tourFitPlane(drops){
+  if(!drops.length) return { from: [.08, .22], to: [.92, .78] };
+  const mx = drops.reduce((a, d) => a + d.u, 0) / drops.length, my = drops.reduce((a, d) => a + d.v, 0) / drops.length;
+  let sxx = 0, syy = 0, sxy = 0;
+  drops.forEach(d => { const dx = d.u - mx, dy = d.v - my; sxx += dx * dx; syy += dy * dy; sxy += dx * dy; });
+  const ang = drops.length < 2 ? Math.PI / 5 : .5 * Math.atan2(2 * sxy, sxx - syy);
+  const dx = Math.cos(ang), dy = Math.sin(ang);
+  const reach = (sx, sy) => {
+    let t = 1e9;
+    if(sx > 1e-6) t = Math.min(t, (950 - mx) / sx); if(sx < -1e-6) t = Math.min(t, (50 - mx) / sx);
+    if(sy > 1e-6) t = Math.min(t, (950 - my) / sy); if(sy < -1e-6) t = Math.min(t, (50 - my) / sy);
+    return Math.max(0, t);
+  };
+  const t1 = reach(dx, dy), t0 = reach(-dx, -dy);
+  return { from: [(mx - dx * t0) / 1000, (my - dy * t0) / 1000], to: [(mx + dx * t1) / 1000, (my + dy * t1) / 1000] };
+}
+// Post-game: each team's player 1 where it first stood on the ground.
+function tourPostDrops(){
+  const key = s => binName(s).toUpperCase().replace(/\s+/g, "");
+  const land = p => {
+    if(!p || !p.t.length) return null;
+    const k = p.airAt.indexOf(0);
+    return k < 0 ? null : [p.u[k], p.v[k], p.t[k]];
+  };
+  const out = [];
+  bin.squads.forEach(q => {
+    // the engine names each player's place in its roster team (slot 0 =
+    // player 1) through the game's result file; else the name, if it matches
+    const first = q.team && (q.team.players || [])[0];
+    let p1 = q.players.find(p => p.slot === 0) || (first ? q.players.find(p => key(p.name) === key(first.ign)) : null);
+    let how = "PLAYER 1";
+    if(!land(p1)){
+      p1 = q.players.slice().sort((a, c) => a.pid - c.pid).find(p => land(p));
+      how = "FIRST TO JOIN";
+    }
+    if(!p1) return;
+    const [u, v, t] = land(p1);
+    out.push({ q, u, v, t, who: binName(p1.name), how });
+  });
+  return out;
+}
+function tourSetup(drops){
+  const b = bin, pl = b.view.plane;
+  if(pl && pl.from && pl.to){
+    const fx = pl.from[0] * 1000, fy = pl.from[1] * 1000, dx = pl.to[0] * 1000 - fx, dy = pl.to[1] * 1000 - fy;
+    const L2 = Math.max(1, dx * dx + dy * dy);
+    drops.forEach(d => { d.along = ((d.u - fx) * dx + (d.v - fy) * dy) / L2; });
+    drops.sort((a, c) => a.along - c.along);
+  }
+  b.drops = drops;
+  b.stopS = Math.max(3, Math.min(7, (b.secs - TOUR_PLANE - TOUR_END) / Math.max(1, drops.length)));
+  b.sideCur = -2;
+}
+function startTour(view, cfg, roster, animate, pins){
+  stopBin();
+  const box = document.getElementById("mapbox");
+  const cv = document.getElementById("binCanvas");
+  const W = box.clientWidth || 700, dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(W * dpr);
+  const css = getComputedStyle(document.body);
+  const drops = pins.map((p, k) => ({
+    q: { squad: k, players: [], colour: SQUAD_COLOURS[k % SQUAD_COLOURS.length], team: p.team, name: fullOf(p.team) },
+    u: p.at[0] * 1000, v: p.at[1] * 1000, label: p.label || "" }));
+  bin = { d: { players: [], kills: [] }, view: Object.assign({}, view, { plane: tourFitPlane(drops) }), cv,
+          ctx: cv.getContext("2d"), W, dpr, dur: 1, secs: binSecs(cfg), picked: new Set(), squads: drops.map(d => d.q),
+          cam: null, started: null, raf: 0, last: 0, still: !animate, mode: "tour", kind: "pre",
+          map: binMap(view.image), font: css.fontFamily, standIn: new Set(), firstOn: Infinity, planeEnd: 100,
+          next: css.getPropertyValue("--next").trim() || "#ffe97a",
+          accent: css.getPropertyValue("--accent").trim() || "#f7941d",
+          tilt: cfg.bin3d === false ? 0 : BIN_TILT };
+  binClouds();
+  tourSetup(drops);
+  box.classList.add("bin");
+  document.getElementById("clock").classList.remove("on");
+  const panel = document.getElementById("panel");
+  const tick = now => {
+    if(!bin) return;
+    const dt = bin.last ? Math.min(0.1, (now - bin.last) / 1000) : 1;
+    if(!bin.still && !panel.classList.contains("on")){ bin.started = null; bin.pos = 0; }
+    else if(bin.started == null){ bin.started = now; bin.pos = -BIN_LEAD; }
+    else bin.pos += (bin.last ? dt : 0) * replaySpeed;
+    bin.last = now;
+    tourFrame(dt, bin.started == null ? 0 : (now - bin.started) / 1000);
+    bin.raf = requestAnimationFrame(tick);
+  };
+  bin.raf = requestAnimationFrame(tick);
+}
+// The list beside the map: every team, in the tour's order.
+function sideTour(drops, kind){
+  if(!drops.length) return "";
+  return `<div class="tourl">` + drops.map((d, i) => {
+    const t = d.q.team;
+    const logo = t && t.logo ? `<img src="${t.logo}">` : `<span style="width:30px"></span>`;
+    const what = kind === "pre" ? (d.label || "") : "LANDED " + mmss(d.t);
+    return `<div class="trow" data-k="${i}" style="animation-delay:${(.3 + i * .05).toFixed(2)}s"><i style="background:${d.q.colour}"></i>${logo}` +
+           `<span class="nm">${esc(binTag(d.q))}</span><span class="k" style="width:190px;overflow:hidden;text-overflow:ellipsis;">${esc(what)}</span>` +
+           `<span class="p">${i + 1}</span></div>`;
+  }).join("") + `</div>`;
+}
+// The stage: a sky, and the map as a thick slab lit along its rim.
+function tourStage(S){
+  const b = bin, ctx = b.ctx, W = b.W;
+  let g = ctx.createLinearGradient(0, 0, 0, W);
+  g.addColorStop(0, "#050f22"); g.addColorStop(.42, "#14396a"); g.addColorStop(.7, "#0d2747"); g.addColorStop(1, "#050b16");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, W);
+  g = ctx.createRadialGradient(W / 2, W * .36, 0, W / 2, W * .36, W * .7);
+  g.addColorStop(0, "rgba(120,180,255,.22)"); g.addColorStop(1, "rgba(120,180,255,0)");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, W);
+  if(S.tilt){
+    const TH = 32, edges = [[[0, 0], [1000, 0]], [[1000, 0], [1000, 1000]], [[1000, 1000], [0, 1000]], [[0, 1000], [0, 0]]];
+    edges.forEach(([a, c]) => {
+      const p1 = S(a[0], a[1]), p2 = S(c[0], c[1]), p3 = S(c[0], c[1], -TH), p4 = S(a[0], a[1], -TH);
+      if(![p1, p2, p3, p4].every(p => isFinite(p[0]) && isFinite(p[1]))) return;
+      const wg = ctx.createLinearGradient(0, Math.min(p1[1], p2[1]), 0, Math.max(p3[1], p4[1]) + 1);
+      wg.addColorStop(0, "#3a74b4"); wg.addColorStop(.25, "#16365e"); wg.addColorStop(1, "#040a14");
+      ctx.beginPath(); ctx.moveTo(p1[0], p1[1]); ctx.lineTo(p2[0], p2[1]); ctx.lineTo(p3[0], p3[1]); ctx.lineTo(p4[0], p4[1]); ctx.closePath();
+      ctx.fillStyle = wg; ctx.fill();
+    });
+  }
+  binBase(S, true);
+  const cs = [S(0, 0), S(1000, 0), S(1000, 1000), S(0, 1000)];
+  if(cs.every(p => isFinite(p[0]) && isFinite(p[1]))){
+    ctx.save();
+    ctx.beginPath(); cs.forEach((p, k) => k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath();
+    ctx.save(); ctx.clip();
+    const top = Math.min(...cs.map(p => p[1])), bot = Math.max(...cs.map(p => p[1]));
+    const gl = ctx.createLinearGradient(0, top, W * .5, bot);
+    gl.addColorStop(0, "rgba(255,255,255,.18)"); gl.addColorStop(.4, "rgba(255,255,255,.03)"); gl.addColorStop(1, "rgba(0,0,0,.12)");
+    ctx.fillStyle = gl; ctx.fillRect(0, 0, W, W);
+    ctx.restore();
+    ctx.shadowColor = "rgba(140,210,255,.95)"; ctx.shadowBlur = 16;
+    ctx.strokeStyle = "rgba(185,232,255,.95)"; ctx.lineWidth = 2.2; ctx.stroke();
+    ctx.restore();
+  }
+}
+// Clouds drifting over it all: thick while the plane crosses, a haze after.
+function tourClouds(S, rt, alpha){
+  const b = bin, ctx = b.ctx, W = b.W;
+  if(!S.tilt || !b.clouds || alpha <= 0) return;
+  const drift = rt * 7;
+  b.clouds.map(c => [c, ((c.u + drift + 150) % 1350) - 175, c.v + ((drift * .3) % 200)])
+    .sort((m, n) => S.depth(n[1], n[2]) - S.depth(m[1], m[2]))
+    .forEach(([c, u, v]) => {
+      const [x, y] = S(u, v, c.h);
+      if(!isFinite(x)) return;
+      const w = c.w * S.k(u, v) * .9, h = w * .56;
+      if(x + w / 2 < 0 || x - w / 2 > W || y + h / 2 < 0 || y - h / 2 > W) return;
+      ctx.globalAlpha = c.a * alpha;
+      ctx.drawImage(b.cloudSprites[c.k], x - w / 2, y - h / 2, w, h);
+    });
+  ctx.globalAlpha = 1;
+}
+// A team's card, standing on its beam: logo, tag, and (for the team the
+// camera is on) the place or the landing under it.
+function tourCard(x, y, d, big, sc){
+  const b = bin, ctx = b.ctx, q = d.q;
+  const k = Math.max(.78, Math.min(1.25, sc)) * (big ? 1.18 : .82);
+  const name = binTag(q);
+  const sub = big ? String(b.kind === "pre" ? (d.label || "") : "LANDED " + mmss(d.t)).toUpperCase() : "";
+  ctx.font = binFont(900, Math.round(20 * k), true);
+  const nw = ctx.measureText(name).width;
+  ctx.font = binFont(800, Math.round(12 * k), true);
+  const sw = sub ? ctx.measureText(sub).width : 0;
+  const R = 21 * k, pad = 9 * k, w = R * 2 + pad * 3.4 + Math.max(nw, sw), h = (sub ? 56 : 46) * k;
+  const x0 = x - w / 2, y0 = y - h - 8 * k;
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,.55)"; ctx.shadowBlur = 14 * k; ctx.shadowOffsetY = 3 * k;
+  tourRoundRect(ctx, x0, y0, w, h, 10 * k); ctx.fillStyle = "rgba(248,251,255,.95)"; ctx.fill();
+  ctx.restore();
+  ctx.beginPath(); ctx.moveTo(x - 8 * k, y0 + h - 1); ctx.lineTo(x + 8 * k, y0 + h - 1); ctx.lineTo(x, y0 + h + 8 * k); ctx.closePath();
+  ctx.fillStyle = "rgba(248,251,255,.95)"; ctx.fill();
+  ctx.fillStyle = q.colour; tourRoundRect(ctx, x0, y0, 6 * k, h, 3 * k); ctx.fill();
+  const cx = x0 + pad + R + 3 * k, cy = y0 + h / 2;
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fillStyle = "#0b0f14"; ctx.fill();
+  const logo = q.team && binImg(q.team.logo);
+  if(logo){
+    ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R - 2 * k, 0, Math.PI * 2); ctx.clip();
+    ctx.drawImage(logo, cx - R + 2 * k, cy - R + 2 * k, (R - 2 * k) * 2, (R - 2 * k) * 2); ctx.restore();
+  } else {
+    ctx.font = binFont(900, Math.round(R * .6), true); ctx.fillStyle = q.colour; ctx.textAlign = "center";
+    ctx.fillText(name.replace(/[^A-Z0-9]/g, "").slice(0, 3), cx, cy + R * .22); ctx.textAlign = "left";
+  }
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.lineWidth = 2.5 * k; ctx.strokeStyle = q.colour; ctx.stroke();
+  const tx = cx + R + pad;
+  ctx.font = binFont(900, Math.round(20 * k), true); ctx.fillStyle = "#0c1321";
+  ctx.fillText(name, tx, sub ? y0 + h * .48 : y0 + h * .64);
+  if(sub){ ctx.font = binFont(800, Math.round(12 * k), true); ctx.fillStyle = "#47546e"; ctx.fillText(sub, tx, y0 + h * .8); }
+}
+// A team on the map: rings pulsing out from its spot, a beam of its
+// colour rising off it, and its card on top.
+function tourMarker(S, o, rt){
+  const b = bin, ctx = b.ctx, d = o.d, col = d.q.colour, cur = o.cur;
+  for(const j of [0, .5]){
+    const ph = (rt * .7 + j + o.k * .13) % 1;
+    binRing(S, d.u, d.v, 6 + ph * (cur ? 48 : 24));
+    ctx.globalAlpha = (1 - ph) * (cur ? .95 : .45); ctx.strokeStyle = col; ctx.lineWidth = cur ? 3 : 2; ctx.stroke();
+  }
+  binRing(S, d.u, d.v, 6);
+  ctx.globalAlpha = .7; ctx.fillStyle = col; ctx.fill(); ctx.globalAlpha = 1;
+  const H = (cur ? 92 : 60) * o.pop;
+  const [bx, by] = S(d.u, d.v), [tx0, ty] = S(d.u, d.v, H);
+  if(!isFinite(bx) || !isFinite(tx0)) return;
+  const tx = tx0 + o.dx;
+  const lg = ctx.createLinearGradient(bx, by, tx, ty);
+  lg.addColorStop(0, col); lg.addColorStop(1, "rgba(255,255,255,.95)");
+  ctx.save(); ctx.shadowColor = col; ctx.shadowBlur = cur ? 20 : 8;
+  ctx.strokeStyle = lg; ctx.lineWidth = (cur ? 5 : 3) * Math.min(1.3, o.sc); ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(tx, ty); ctx.stroke(); ctx.restore();
+  if(o.pop < .3) return;
+  ctx.globalAlpha = Math.min(1, (o.pop - .3) / .35) * (o.dim ? .8 : 1);
+  tourCard(tx, ty, d, cur, o.sc);
+  ctx.globalAlpha = 1;
+}
+// The lower third for the team the camera is on.
+function tourCaption(d, i, n, f){
+  const b = bin, ctx = b.ctx, W = b.W, q = d.q;
+  const a = Math.max(0, Math.min(1, f / .16, (1 - f) / .1));
+  if(a <= 0) return;
+  ctx.globalAlpha = a;
+  const name = String((q.team && (q.team.displayName || q.team.name)) || q.name || "").toUpperCase();
+  const sub = b.kind === "pre" ? (d.label ? "PREFERRED DROP  ·  " + d.label.toUpperCase() : "PREFERRED DROP")
+                               : "LANDED " + mmss(d.t) + (d.who ? "  ·  " + d.how + ": " + d.who.toUpperCase() : "");
+  const slide = (1 - Math.min(1, f / .16)) * -36;
+  ctx.font = binFont(900, 28);
+  const nw = ctx.measureText(name).width;
+  ctx.font = binFont(800, 14);
+  const sw = ctx.measureText(sub).width;
+  const h = 74, w = Math.min(W - 40, Math.max(nw, sw) + 134), x0 = 22 + slide, y0 = W - BIN_TL - h - 26;
+  binPlate(x0, y0, w, h, "rgba(7,12,22,.92)", 12);
+  ctx.fillStyle = q.colour; ctx.fillRect(x0, y0, 7, h);
+  const logo = q.team && binImg(q.team.logo);
+  if(logo) ctx.drawImage(logo, x0 + 20, y0 + 9, 56, 56);
+  ctx.font = binFont(900, 28); ctx.fillStyle = "#ffffff"; ctx.fillText(name, x0 + 90, y0 + 37);
+  ctx.font = binFont(800, 14); ctx.fillStyle = "#b9c3d6"; ctx.fillText(sub, x0 + 90, y0 + 60);
+  const tag = (b.kind === "pre" ? "TEAM " : "DROP ") + (i + 1) + "/" + n;
+  ctx.font = binFont(900, 13); binSpacing(1);
+  const tw = ctx.measureText(tag).width + 22;
+  binPlate(x0 + 6, y0 - 22, tw, 22, b.accent, 6);
+  ctx.fillStyle = "#101318"; ctx.fillText(tag, x0 + 16, y0 - 6); binSpacing(0);
+  ctx.globalAlpha = 1;
+}
+function tourFrame(dt, rt){
+  const b = bin, ctx = b.ctx, W = b.W, n = b.drops.length, r = b.pos || 0;
+  ctx.setTransform(b.dpr, 0, 0, b.dpr, 0, 0);
+  const A = TOUR_PLANE, C = A + n * b.stopS;
+  let phase = "plane", i = -1, f = 0;
+  if(b.still || !n || r >= C) phase = "all";
+  else if(r >= A){ phase = "tour"; i = Math.min(n - 1, Math.floor((r - A) / b.stopS)); f = (r - A - i * b.stopS) / b.stopS; }
+  const T = phase === "plane" ? Math.max(0, r) / A * b.planeEnd : b.planeEnd + 10;
+  // THE SHOT
+  let x = 500, y = 500, z = 1, tilt = b.tilt * .62, yaw = 0;
+  if(phase === "plane"){
+    const pp = binPlaneAt(T);
+    if(pp){ x = 500 + (pp[0] - 500) * .4; y = 500 + (pp[1] - 500) * .4; }
+    // from far out, the slab in the sky, closing in as the plane crosses
+    z = .78 + .3 * Math.min(1, Math.max(0, r) / A); yaw = -.38 + .3 * Math.max(0, r) / A;
+  } else if(phase === "tour"){
+    // a swoop: lifted between stops, down onto this one, then a slow turn
+    const d = b.drops[i], g = Math.min(1, f / .3), e = g * g * (3 - 2 * g);
+    x = d.u; y = d.v; z = 3.1 * (.58 + .42 * e);
+    tilt = Math.min(1.15, b.tilt * 1.15); yaw = [-.34, .12, .38, -.16][i % 4] + .18 * f;
+  } else if(n){
+    const us = b.drops.map(d => d.u), vs = b.drops.map(d => d.v);
+    const span = Math.max(180, Math.max(...us) - Math.min(...us), Math.max(...vs) - Math.min(...vs)) + 200;
+    x = (Math.min(...us) + Math.max(...us)) / 2; y = (Math.min(...vs) + Math.max(...vs)) / 2 + 30;
+    z = Math.max(.9, Math.min(2.2, 1000 / span * (W - BIN_HUD - BIN_TL) / W));
+    tilt = b.tilt * .72; yaw = .12 * Math.sin(rt * 2 * Math.PI / 30);
+  }
+  if(!b.tilt){ tilt = 0; yaw = 0; }
+  const half = 500 / z;
+  x = Math.max(half * .55, Math.min(1000 - half * .55, x)); y = Math.max(half * .55, Math.min(1000 - half * .55, y));
+  if(!b.cam || dt >= 1) b.cam = { x, y, z, tilt, yaw };
+  else {
+    binSpring(b.cam, "x", x, 2.5, dt); binSpring(b.cam, "y", y, 2.5, dt);
+    binSpring(b.cam, "z", z, 2.1, dt); binSpring(b.cam, "tilt", tilt, 1.6, dt); binSpring(b.cam, "yaw", yaw, 1.3, dt);
+  }
+  const S = binScreen(b.cam, b.cam.tilt, b.cam.yaw);
+  tourStage(S);
+  // the flight line, faint all through
+  const pl = b.view.plane;
+  if(pl && pl.from && pl.to){
+    const [x1, y1] = S(pl.from[0] * 1000, pl.from[1] * 1000), [x2, y2] = S(pl.to[0] * 1000, pl.to[1] * 1000);
+    if(isFinite(x1) && isFinite(x2)){
+      ctx.globalAlpha = phase === "plane" ? .7 : .3;
+      ctx.setLineDash([12, 9]); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    }
+  }
+  // the teams so far, far to near; the one now rising off its spot
+  const shown = phase === "all" ? b.drops : phase === "tour" ? b.drops.slice(0, i + 1) : [];
+  const pins = shown.map((d, k) => {
+    const [gx, gy] = S(d.u, d.v), cur = phase === "tour" && k === i;
+    const pop = cur ? Math.min(1, f / .42) : phase === "all" ? Math.min(1, Math.max(0, (r - C) / .8 + 1 - k * .06)) : 1;
+    return { d, k, gx, gy, cur, pop: pop * pop * (3 - 2 * pop), dim: phase === "tour" && !cur,
+             sc: Math.max(.7, Math.min(1.6, S.k(d.u, d.v) / S.s)), dx: 0, depth: S.depth(d.u, d.v) };
+  }).filter(o => isFinite(o.gx)).sort((m, o) => o.depth - m.depth);
+  // cards side by side never stacked: eased apart sideways
+  for(let pass = 0; pass < 6; pass++){
+    for(let a = 0; a < pins.length; a++) for(let c = a + 1; c < pins.length; c++){
+      const P1 = pins[a], P2 = pins[c], need = 120 * Math.min(P1.sc, P2.sc) * .9;
+      const ax = P1.gx + P1.dx, cx = P2.gx + P2.dx;
+      if(Math.abs(P1.gy - P2.gy) > 70 || Math.abs(ax - cx) >= need) continue;
+      const push = (need - Math.abs(ax - cx)) / 2 + .5, dir = ax <= cx ? 1 : -1;
+      if(P1.cur) P2.dx += dir * push * 2; else if(P2.cur) P1.dx -= dir * push * 2;
+      else { P1.dx -= dir * push; P2.dx += dir * push; }
+    }
+  }
+  pins.forEach(o => tourMarker(S, o, rt));
+  // the plane under the clouds while it crosses; a haze of cloud after
+  if(phase === "plane"){
+    binPlane(S, T);
+    tourClouds(S, rt, 1);
+    const cap = b.kind === "pre" ? "THE FLIGHT  ·  WHERE THE TEAMS WILL DROP" : "THE FLIGHT PATH";
+    ctx.font = binFont(900, 22); binSpacing(1.5);
+    const cw = ctx.measureText(cap).width + 40;
+    binPlate(W / 2 - cw / 2, W - BIN_TL - 70, cw, 38, "rgba(8,11,17,.88)", 10);
+    ctx.fillStyle = b.accent; ctx.fillRect(W / 2 - cw / 2, W - BIN_TL - 70, 5, 38);
+    ctx.fillStyle = "#ffffff"; ctx.textAlign = "center"; ctx.fillText(cap, W / 2 + 4, W - BIN_TL - 44);
+    ctx.textAlign = "left"; binSpacing(0);
+  } else tourClouds(S, rt, .26);
+  if(phase === "tour") tourCaption(b.drops[i], i, n, f);
+  binHud(b.kind === "pre" ? "PREFERRED DROPS" : "DROP LOCATIONS", [[n, "TEAMS"]]);
+  const note = !n ? "NO DROP SPOTS SET FOR THIS MAP -- PIN THEM IN DROP SPOTS ON THE DASHBOARD"
+             : b.kind === "pre" ? "PRE-EVENT  ·  AS THE TEAMS SHARED THEM  ·  " + String(b.view.mapName || "").toUpperCase()
+             : "FROM THE GAME'S REPLAY  ·  EACH TEAM'S PLAYER 1  ·  " + String(b.view.mapName || "").toUpperCase();
+  ctx.font = binFont(800, 12);
+  binPlate(16, W - 40, ctx.measureText(note).width + 26, 24, "rgba(8,11,17,.88)", 7);
+  ctx.fillStyle = b.accent; ctx.fillRect(16, W - 40, 4, 24);
+  ctx.fillStyle = "#e8edf6"; ctx.fillText(note, 30, W - 23);
+  // the list beside the map follows the camera
+  const lit = phase === "tour" ? i : -1;
+  if(b.sideCur !== lit){
+    b.sideCur = lit;
+    document.querySelectorAll("#sideBody .trow[data-k]").forEach(row => {
+      const k = Number(row.dataset.k);
+      row.classList.toggle("cur", k === lit);
+      row.classList.toggle("ahead", lit >= 0 && k > lit);
+    });
+  }
+}
+
 /* ---- render -------------------------------------------------------- */
 
 let lastSig = "";
@@ -2204,7 +2637,13 @@ function render(state){
   const roster = state.roster || {};
   const maps = state.ffMaps || {};
   let view = null, pins = [];
-  if(mode === "match" || mode === "stats") view = cfg.match;
+  // The pre-event drop tour: the drop-spot pins on their map, no match needed.
+  const tourPre = mode === "stats" && cfg.statsMap === "tour-pre";
+  if(tourPre){
+    const m = maps[dropMapId(state, cfg)];
+    pins = dropPins(state, cfg);
+    view = m ? { image: m.image, mapName: m.name } : null;
+  } else if(mode === "match" || mode === "stats") view = cfg.match;
   else if(mode === "live") view = ((state.liveOps || {}).zone || {}).view;
   else {
     const m = maps[dropMapId(state, cfg)];
@@ -2254,8 +2693,14 @@ function render(state){
     const nodes = drawMatch(svg, view, cfg, roster, animate && !replaying);
     side.innerHTML = sideMatch(view, cfg, roster);
     if(replaying) startReplay(nodes, view.duration, cfg.replaySeconds);
+  } else if(tourPre){
+    document.getElementById("legend").innerHTML = "";
+    document.getElementById("title").textContent = "Preferred Drop Locations";
+    document.getElementById("sub").textContent = [cfg.mapLabel || view.mapName, cfg.roundLabel || ev.roundName].filter(Boolean).join(" · ");
+    startTour(view, cfg, roster, animate, pins);
+    side.innerHTML = sideTour(bin ? bin.drops : [], "pre");
   } else if(mode === "stats"){
-    document.getElementById("title").textContent = "Map & Team Stats";
+    document.getElementById("title").textContent = binView(cfg) === "postdrops" && binNow === "ready" ? "Drop Locations" : "Map & Team Stats";
     document.getElementById("sub").textContent =
       [gameLabel, view.mapName, mmss(view.duration), (view.kills || []).length + ((view.kills || []).length === 1 ? " elimination" : " eliminations")].filter(Boolean).join(" · ");
     if(binNow === "waiting"){
@@ -2275,6 +2720,10 @@ function render(state){
         ? sideStats(view, roster, Object.assign({ s0: BIN_LEAD }, binTimeMap(binData, view, binSecs(cfg))))
         : sideStats(view, roster);
       startBin(view, cfg, roster, animate);
+      if(bin && bin.mode === "postdrops"){
+        side.innerHTML = sideTour(bin.drops, "post");
+        document.getElementById("legend").innerHTML = "";
+      }
     } else {
     // the map: the zones and the plane, nothing over them
     // fitted to the first circle so the zones read large; Endgame still zooms in further
@@ -2324,7 +2773,7 @@ function render(state){
     }
     ss3Grid(teams, roster);
   }
-  if(revealPending) reveal(binNow === "ready" ? binMapSrc(view.image) : (view && view.image), tpl);
+  if(revealPending) reveal((binNow === "ready" || tourPre) && view ? binMapSrc(view.image) : (view && view.image), tpl);
 }
 
 /* The entrance, once the draw is built AND its map image decoded (or

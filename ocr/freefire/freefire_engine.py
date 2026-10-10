@@ -9518,6 +9518,34 @@ MAP_BIN_AIR = 150          # above this the player is in the plane / the air
 _map_bin = {"file": "", "msg": None}
 
 
+def replay_roster_slots(match_id):
+    """{in-game name key: the player's place in its roster team (0 = player
+    1)} for one game. The replay names players as they played; the roster
+    holds them as they registered, and the two differ ("CTZ.KOU27IK" for
+    "CTZ.KOUSHIK") -- so the game's own result file is the bridge: it has
+    each player's in-game name AND their UID, and the UID is the roster's.
+    Empty when the result file or the roster cannot say."""
+    slots = {}
+    try:
+        folder = (server_state.get("settings") or {}).get("matchResultFolder") or ""
+        res = build_match_result_payload(folder, match_id) if folder and match_id else {}
+        uid_slot = {}
+        for team in (server_state.get("roster") or {}).get("teams") or []:
+            for i, pl in enumerate(team.get("players") or []):
+                uid = str(pl.get("uid") or "").strip()
+                if uid:
+                    uid_slot[uid] = i
+        for team in res.get("teams") or []:
+            for pl in team.get("players") or []:
+                uid = str(pl.get("uid") or "").strip()
+                key = _ign_key(pl.get("fileName") or pl.get("name"))
+                if uid in uid_slot and key:
+                    slots[key] = uid_slot[uid]
+    except Exception as e:
+        print("[map] roster places for the replay not found: %s" % e)
+    return slots
+
+
 def build_map_bin(match_file):
     """The loaded match's .bin as the map graphic draws it:
       players: {pid, squad, name, t[], u[], v[], air[[from, to)], cut[]}
@@ -9545,9 +9573,11 @@ def build_map_bin(match_file):
                 int(round((cal["az"] * z + cal["cz"]) / cal["size"] * 1000)))
 
     players = []
+    slots = replay_roster_slots(mid)
     for p in decoded.get("players") or []:
         ts, xs, zs, ys = p.get("t") or [], p.get("x") or [], p.get("z") or [], p.get("y") or []
         out = {"pid": p.get("pid"), "squad": p.get("squad"), "name": p.get("name") or "",
+               "slot": slots.get(_ign_key(p.get("name"))),
                "t": [], "u": [], "v": [], "air": [], "cut": []}
         last = None                                   # (t, x, z, y) of the last sample kept
         n = len(ts)
@@ -12281,7 +12311,24 @@ async def handle_client(websocket, path=None):
                     reply.update(ok=False, error="no map")
                 elif op == "set" and team and isinstance(payload.get("at"), list):
                     u, v = [max(0.0, min(1.0, float(x))) for x in payload["at"][:2]]
-                    mv["drops"].setdefault(key, {})[team] = {"at": [round(u, 4), round(v, 4)], "by": "hand"}
+                    pins = mv["drops"].setdefault(key, {})
+                    # moving a pin keeps the place name it was given
+                    label = (pins.get(team) or {}).get("label") or ""
+                    pins[team] = {"at": [round(u, 4), round(v, 4)], "by": "hand"}
+                    if label:
+                        pins[team]["label"] = label
+                elif op == "label" and team:
+                    # Where the team said it will drop, for the pre-event
+                    # drop tour. A team with no pin yet keeps the name for
+                    # when it is placed.
+                    pin = mv["drops"].setdefault(key, {}).get(team)
+                    text = str(payload.get("label") or "").strip()[:40]
+                    if pin is None:
+                        reply.update(ok=False, error="place the pin first, then name it")
+                    elif text:
+                        pin["label"] = text
+                    else:
+                        pin.pop("label", None)
                 elif op == "clear" and team:
                     mv["drops"].get(key, {}).pop(team, None)
                 elif op == "clearAll":

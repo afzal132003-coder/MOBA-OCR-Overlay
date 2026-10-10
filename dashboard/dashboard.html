@@ -3600,7 +3600,9 @@
               <option value="bin-rotations">BIN: Rotations</option><option value="bin-paths">BIN: Paths</option>
               <option value="bin-booyah">BIN: Booyah route (follow the winners)</option>
               <option value="bin-heatmap">BIN: Elimination heatmap</option>
-              <option value="bin-drops">BIN: Drop locations (cinematic tour)</option></select>
+              <option value="bin-drops">BIN: Drop locations (cinematic tour)</option>
+              <option value="tour-pre">Pre-event: preferred drop locations (cinematic, from the drop-spot pins)</option>
+              <option value="bin-postdrops">Post-game: drop locations (cinematic, each team's player 1)</option></select>
             <select id="ff_mvBinSecs" title="How long the BIN replay takes to play the whole match" style="width:auto;">
               <option value="30">30 s</option><option value="45">45 s</option><option value="60">60 s</option>
               <option value="90">90 s</option><option value="120">120 s</option>
@@ -3666,6 +3668,8 @@
           <select id="ff_mvDropMap" style="width:auto;"><option value="">Auto (the live match's map)</option></select>
           <span class="hint" style="margin:0 0 0 8px;">Team</span>
           <select id="ff_mvDropTeam" style="width:auto;min-width:200px;"></select>
+          <input type="text" id="ff_mvDropLabel" placeholder="Place name, e.g. Clock Tower" maxlength="40" style="width:190px;"
+                 title="Where the team said it will drop -- shown on the pre-event drop tour. Saved with the pin when you press Enter or leave the box.">
           <button class="secondary" id="ff_mvDropClear">Remove Its Pin</button>
           <span class="hint" style="margin:0 0 0 8px;">Fill from the last</span>
           <input type="number" id="ff_mvDropGames" min="1" max="20" value="6" style="width:54px;">
@@ -11664,7 +11668,8 @@ function ffMvDrawDrops(){
     return `<div style="position:absolute;left:${(p.at[0] * 100).toFixed(2)}%;top:${(p.at[1] * 100).toFixed(2)}%;transform:translate(-50%,-100%);` +
            `display:flex;flex-direction:column;align-items:center;">` +
            `<span style="font:700 11px/1 sans-serif;color:#fff;background:${on ? "#ee1c25" : "rgba(0,0,0,.75)"};padding:2px 5px;border-radius:3px;` +
-           `border:1px ${p.by === "hand" ? "solid" : "dashed"} ${on ? "#fff" : "#ee1c25"};white-space:nowrap;">${label(key).replace(/</g, "&lt;")}</span>` +
+           `border:1px ${p.by === "hand" ? "solid" : "dashed"} ${on ? "#fff" : "#ee1c25"};white-space:nowrap;">${label(key).replace(/</g, "&lt;")}` +
+           `${p.label ? " &middot; " + String(p.label).replace(/</g, "&lt;") : ""}</span>` +
            `<span style="width:2px;height:8px;background:#ee1c25;"></span>` +
            `<span style="width:8px;height:8px;border-radius:50%;background:#ee1c25;border:1px solid #fff;margin-top:-1px;"></span></div>`;
   }).join("");
@@ -11699,7 +11704,13 @@ function ffMvStepSpeed(dir){
 // The Map view choice is Map & team stats' own: shown only with it.
 function ffMvStatsBox(){
   const box = document.getElementById("ff_mvStatsBox");
-  if(box) box.style.display = document.getElementById("ff_mvSource").value === "stats" ? "" : "none";
+  const src = document.getElementById("ff_mvSource").value;
+  if(box) box.style.display = src === "stats" ? "" : "none";
+  // the pins: for Drop spots, and for the pre-event drop tour that plays them
+  const pre = src === "stats" && document.getElementById("ff_mvStatsMap").value === "tour-pre";
+  const db = document.getElementById("ff_mvDropBox"), mb = document.getElementById("ff_mvMatchBox");
+  if(db) db.style.display = (src === "drops" || pre) ? "" : "none";
+  if(mb) mb.style.display = src === "drops" ? "none" : "";
 }
 function ffSyncMapView(){
   if(!ffState || !document.getElementById("ff_mvSource")) return;
@@ -11736,8 +11747,6 @@ function ffSyncMapView(){
     tp.innerHTML = names.map(n => `<option value="${n.replace(/"/g, "&quot;")}">${n.replace(/</g, "&lt;")}</option>`).join("");
     if(names.includes(keep)) tp.value = keep;
   }
-  document.getElementById("ff_mvDropBox").style.display = mv.source === "drops" ? "" : "none";
-  document.getElementById("ff_mvMatchBox").style.display = mv.source === "drops" ? "none" : "";
   ffMvDrawDrops();
   if(!ffMvListAsked) ffMvAskList();
   set("ff_mvZoom", mv.zoom || "map");
@@ -11792,13 +11801,26 @@ function ffSyncMapView(){
    "ff_mvStatsMap", "ff_mvBinSecs", "ff_mvBin3d"].forEach(id =>
     document.getElementById(id).addEventListener("change", ffMvStage));
   document.getElementById("ff_mvSource").addEventListener("change", ffMvStatsBox);
+  document.getElementById("ff_mvStatsMap").addEventListener("change", ffMvStatsBox);
   document.getElementById("ff_mvPick").addEventListener("change", () => { ffMvGameDirty = true; ffMvStage(); });
   const drops = (op, extra) => {
     if(!(ffWs && ffWs.readyState === WebSocket.OPEN)) return false;
     ffWs.send(JSON.stringify(Object.assign({ type: "map_drops", op, map: Number(ffMvDropMapId()) }, extra || {})));
     return true;
   };
-  document.getElementById("ff_mvDropTeam").addEventListener("change", ffMvDrawDrops);
+  const fillLabel = () => {
+    const tp = document.getElementById("ff_mvDropTeam"), lb = document.getElementById("ff_mvDropLabel");
+    const pin = ((((ffState && ffState.mapView) || {}).drops || {})[ffMvDropMapId()] || {})[(tp.value || "").toUpperCase()];
+    if(lb !== document.activeElement) lb.value = (pin && pin.label) || "";
+  };
+  document.getElementById("ff_mvDropTeam").addEventListener("change", () => { fillLabel(); ffMvDrawDrops(); });
+  document.getElementById("ff_mvDropMap").addEventListener("change", fillLabel);
+  const saveLabel = () => {
+    const tp = document.getElementById("ff_mvDropTeam"), lb = document.getElementById("ff_mvDropLabel");
+    if(tp.value) drops("label", { team: tp.value, label: lb.value.trim() });
+  };
+  document.getElementById("ff_mvDropLabel").addEventListener("change", saveLabel);
+  document.getElementById("ff_mvDropLabel").addEventListener("keydown", e => { if(e.key === "Enter"){ e.preventDefault(); saveLabel(); } });
   document.querySelectorAll(".ff-mv-label").forEach(el => el.addEventListener("change", ffMvStage));
   document.getElementById("ff_mvDropPad").addEventListener("click", e => {
     const pad = e.currentTarget.getBoundingClientRect();
