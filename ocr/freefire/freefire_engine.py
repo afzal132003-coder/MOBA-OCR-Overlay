@@ -6689,6 +6689,29 @@ def player_aliases():
     return ((server_state.get("aliases") or {}).get("players") or {})
 
 
+def keep_short_names(new_roster, old_roster):
+    """Short names a save left blank, put back from the team of the same name
+    in the roster it replaces. A league room names its teams by tag ("TEV",
+    "LFP") and the table joins them through the roster's short names: a fill
+    from a Team Bank holding none blanked every one on 2026-10-10, and five
+    squads lost their alive status mid-match. Returns how many were kept."""
+    if not isinstance(new_roster, dict) or not isinstance(new_roster.get("teams"), list):
+        return 0
+    old = {}
+    for t in ((old_roster or {}).get("teams") or []):
+        short = (t.get("shortName") or "").strip() if isinstance(t, dict) else ""
+        if short:
+            old[normalize_for_match(t.get("name"))] = short
+    kept = 0
+    for t in new_roster["teams"]:
+        if isinstance(t, dict) and not (t.get("shortName") or "").strip():
+            was = old.get(normalize_for_match(t.get("name")))
+            if was:
+                t["shortName"] = was
+                kept += 1
+    return kept
+
+
 def squad_aliases():
     """IGN -> roster team name, taught when an operator maps a squad the
     matcher could not place. Squad resolution only ever needs to know which
@@ -11343,6 +11366,10 @@ async def handle_client(websocket, path=None):
                 data = payload.get("data", {})
                 if "freefire" in data:
                     _mvp_before = server_state.get("mvpOverride", "")
+                    if "roster" in data["freefire"]:
+                        n_kept = keep_short_names(data["freefire"]["roster"], server_state.get("roster"))
+                        if n_kept:
+                            print(f"[roster] kept {n_kept} short name(s) the save left blank")
                     server_state.update(data["freefire"])
                     if server_state.get("mvpOverride", "") != _mvp_before:
                         await asyncio.get_running_loop().run_in_executor(None, refresh_post_game)

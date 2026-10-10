@@ -100,6 +100,15 @@ def main():
     by = {r["teamName"]: r.get("gsTeam") for r in E.link_live_teams(live, E.server_state["roster"])["rows"]}
     check("with two squads left over it does not guess", by.get("CHARLIE ESPORTS") is None, str(by))
 
+    print("a roster save keeps the short names it did not carry")
+    old_r = {"teams": [{"name": "TEAM EVOLUTION", "shortName": "TEV"}, {"name": "LEARN FROM PAST", "shortName": "LFP"}]}
+    new_r = {"teams": [{"name": "Team Evolution", "shortName": ""}, {"name": "LEARN FROM PAST", "shortName": "LEARN"},
+                       {"name": "NEW TEAM", "shortName": ""}]}
+    n = E.keep_short_names(new_r, old_r)
+    check("a blank short name is put back from the same team", new_r["teams"][0]["shortName"] == "TEV", str(new_r))
+    check("one the save does set is left as set", new_r["teams"][1]["shortName"] == "LEARN")
+    check("a team that never had one stays blank", new_r["teams"][2]["shortName"] == "" and n == 1)
+
     print("\n%d checks, %d failed" % (checks, len(failures)))
     sys.exit(1 if failures else 0)
 
