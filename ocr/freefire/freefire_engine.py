@@ -10933,8 +10933,9 @@ async def broadcast_state_sync():
     await _broadcast_state_sync()
 
 
-async def _broadcast_state_sync():
-    """A state_sync to everyone, slim to whoever can take it.
+async def _broadcast_state_sync(urgent=False):
+    """A state_sync to everyone, slim to whoever can take it. `urgent` (an
+    operator's action) goes to the relay without waiting for its gap.
 
     Built at most twice, whatever the number of clients: the full state
     and, if anyone has opted in and the roster has not changed, the slim
@@ -10954,9 +10955,6 @@ async def _broadcast_state_sync():
                                "locked": list(locked_fields)})
         else:
             roster_moved = trimmed.get("roster") is not None
-    if extras_changed():
-        await broadcast_to_page("freefire_dashboard", {
-            "type": "freefire_dashboard_extras", "data": dashboard_extras()})
     # The connection out to the cloud relay is rationed separately from
     # the ones on this machine.
     #
@@ -10984,7 +10982,7 @@ async def _broadcast_state_sync():
     # skipping it here left the relay, and every page behind it, on the
     # old roster (missing logos, long names) until an engine restart sent
     # a full one again.
-    relay_due = roster_moved or now_mono - _last_relay_sync_at >= gap
+    relay_due = urgent or roster_moved or now_mono - _last_relay_sync_at >= gap
     sends = []
     for c in list(connected_clients):
         payload = slim if (slim and c in cachers) else full
@@ -10996,8 +10994,18 @@ async def _broadcast_state_sync():
                 continue
             _last_relay_sync_at = now_mono
         _last_sync_sent[c] = payload
-        sends.append(_send_guarded(c, payload, full=full))
-    await asyncio.gather(*sends, return_exceptions=True)
+        sends.append((c, payload))
+    # Into the outboxes with nothing awaited between building the state and
+    # queueing it (_send_guarded never waits): a catch-up that built its
+    # state earlier must not get a turn here and land after a newer one.
+    for c, payload in sends:
+        try:
+            await _send_guarded(c, payload, full=full)
+        except Exception:
+            pass
+    if extras_changed():
+        await broadcast_to_page("freefire_dashboard", {
+            "type": "freefire_dashboard_extras", "data": dashboard_extras()})
 
 
 def _bump_lobby_rev():
@@ -11110,6 +11118,15 @@ async def broadcast(message):
         return
     if isinstance(message, dict) and message.get("type") == "state_sync":
         postmatch_one_at_a_time()
+    # A handler's state_sync is the server state: it goes the way the poll
+    # loop's does -- the roster only when it changed, nothing to a client
+    # that has it already -- and to the relay at once. Sent whole, every
+    # click on the dashboard put all twelve logos (224 KB) on the wire to
+    # every page behind the relay, seven of them on 2026-10-10.
+    if (isinstance(message, dict) and message.get("type") == "state_sync"
+            and message.get("data") is server_state):
+        await _broadcast_state_sync(urgent=True)
+        return
     # EVERY state_sync, from any of the three dozen handlers that send
     # one, is leaned here rather than at each call site. Doing it in one
     # place is the only way it stays true: a handler added next month
@@ -13257,7 +13274,13 @@ FREEFIRE_TABLE_SYNC_GAP = 0.04
 # four times a second onto the uplink, which is the saturation this whole
 # thing was about. This cannot get that wrong: full payload, slow rate.
 FREEFIRE_RELAY_SYNC_GAP = 0.50
-FREEFIRE_RELAY_SYNC_GAP_SLIM = 0.25
+# 0.5, not 0.25 (2026-10-10): seven pages hang off the relay, each sent
+# every state, and through Caddy a page that cannot keep up does not slow
+# the relay down -- the backlog sits in the proxy's socket buffers, and the
+# graphics on titanium-relay ran 10-19 s behind the engine. Every change
+# still arrives (the catch-up sends the latest when the gap is up), and a
+# push from the dashboard is not held by this at all.
+FREEFIRE_RELAY_SYNC_GAP_SLIM = 0.50
 _last_relay_sync_at = 0.0
 # And the state file is written at most this often.
 FREEFIRE_MIN_SAVE_GAP = 1.0

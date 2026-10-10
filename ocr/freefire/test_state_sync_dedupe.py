@@ -76,15 +76,28 @@ async def main():
           str([m["data"]["liveOps"].get("probe") for m in relay.states()]))
     check("the catch-up gives the page nothing it had", len(page.states()) == p0 + 2, str(len(page.states())))
 
-    print("a handler's own state_sync")
+    print("a handler's own state_sync (an operator's push)")
+    n_page, n_relay = len(page.states()), len(relay.states())
     await E.broadcast({"type": "state_sync", "data": E.server_state, "locked": list(E.locked_fields)})
     await asyncio.sleep(0.05)
-    n_page = len(page.states())
-    await E._broadcast_state_sync()
-    await E._broadcast_state_sync()
+    check("nothing changed: nothing sent", len(page.states()) == n_page and len(relay.states()) == n_relay)
+    E.server_state["liveOps"]["probe"] = 4
+    await E._broadcast_state_sync()                      # the relay's gap starts now
     await asyncio.sleep(0.05)
-    check("after it, the slim form goes once, not again and again",
-          len(page.states()) == n_page + 1, "%d -> %d" % (n_page, len(page.states())))
+    E.server_state["liveOps"]["probe"] = 5
+    await E.broadcast({"type": "state_sync", "data": E.server_state, "locked": list(E.locked_fields)})
+    await asyncio.sleep(0.05)
+    check("a push reaches the relay at once, gap or no gap",
+          relay.states()[-1]["data"]["liveOps"]["probe"] == 5, str([m["data"]["liveOps"].get("probe") for m in relay.states()]))
+    check("without the roster (the pages hold it)", "roster" not in relay.states()[-1]["data"]
+          and "roster" not in page.states()[-1]["data"])
+    E.server_state["roster"] = {"teams": [{"name": "NEW", "shortName": "NW"}]}
+    p1, r1 = len(page.states()), len(relay.states())
+    await E.broadcast({"type": "state_sync", "data": E.server_state, "locked": list(E.locked_fields)})
+    await asyncio.sleep(0.05)
+    new_roster = lambda ms: any(((m["data"].get("roster") or {}).get("teams") or [{}])[0].get("name") == "NEW" for m in ms)
+    check("a changed roster is sent, to the page and the relay",
+          new_roster(page.states()[p1:]) and new_roster(relay.states()[r1:]))
 
     print("a client that leaves and comes back")
     E._drop_outbox(page)
