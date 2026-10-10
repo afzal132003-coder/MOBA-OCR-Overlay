@@ -2411,6 +2411,8 @@
             <input type="checkbox" id="ff_elimPopup" checked> Elimination pop-up</label>
           <label class="hint" style="margin:0;" title="Before the ELIMINATED card: a banner naming the squad that wiped them -- TSG WIPED NG (not for the zone). In the in-game source.">
             <input type="checkbox" id="ff_wipeBanner" checked> Wipe banner first</label>
+          <label class="hint" style="margin:0;" title="A revive on the side table: the player's name and REVIVED sweep across their team's row, the way ELIMINATED does. In the in-game source.">
+            <input type="checkbox" id="ff_reviveRow" checked> Revive on the side table</label>
           <span class="hint" style="margin:0;">Side pop-ups:</span>
           <label class="hint" style="margin:0;"><input type="checkbox" class="ff-sidepop" data-k="firstBlood"> First blood</label>
           <label class="hint" style="margin:0;" title="A new player on top of the kill table, from 3 kills"><input type="checkbox" class="ff-sidepop" data-k="killLeader"> Kill leader</label>
@@ -2419,7 +2421,6 @@
           <label class="hint" style="margin:0;" title="The last one alive in a squad gets a kill"><input type="checkbox" class="ff-sidepop" data-k="clutch"> Clutch</label>
           <label class="hint" style="margin:0;" title="Every headshot kill -- busy in a fight"><input type="checkbox" class="ff-sidepop" data-k="headshot"> Headshot</label>
           <label class="hint" style="margin:0;" title="At 8, 6, 4 and 2 squads left"><input type="checkbox" class="ff-sidepop" data-k="teamsLeft"> Teams left</label>
-          <label class="hint" style="margin:0;" title="A player brought back at a revival point -- their photo and name, and the teammate who revived them"><input type="checkbox" class="ff-sidepop" data-k="revive"> Revive</label>
           <label class="hint" style="margin:0;">Hold <input type="number" id="ff_sidePopupSeconds" min="2" max="15" step="0.5" value="5" style="width:52px;">s</label>
         </div>
         <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;">
@@ -12168,6 +12169,8 @@ function ffRenderPopupControls(ff){
   if(idle(ep)) ep.checked = st.elimPopup !== false;
   const wbx = document.getElementById("ff_wipeBanner");
   if(idle(wbx)) wbx.checked = st.wipeBanner !== false;
+  const rvx = document.getElementById("ff_reviveRow");
+  if(idle(rvx)) rvx.checked = st.reviveRow !== false;
   document.querySelectorAll(".ff-sidepop").forEach(el => { if(idle(el)) el.checked = !!sw[el.dataset.k]; });
   const sec = document.getElementById("ff_sidePopupSeconds");
   if(idle(sec)) sec.value = st.sidePopupSeconds || 5;
@@ -12184,6 +12187,9 @@ function ffRenderPopupControls(ff){
   const note = t => { const n = document.getElementById("ff_popupNote"); n.textContent = t; setTimeout(() => { if(n.textContent === t) n.textContent = ""; }, 4000); };
   document.getElementById("ff_elimPopup").addEventListener("change", e => {
     if(ffPopupSettings({ elimPopup: e.target.checked })) note(e.target.checked ? "Elimination pop-up on." : "Elimination pop-up off.");
+  });
+  document.getElementById("ff_reviveRow").addEventListener("change", e => {
+    if(ffPopupSettings({ reviveRow: e.target.checked })) note(e.target.checked ? "Revives sweep across their team's row on the side table." : "Revives off the side table.");
   });
   document.getElementById("ff_wipeBanner").addEventListener("change", e => {
     if(ffPopupSettings({ wipeBanner: e.target.checked })) note(e.target.checked ? "Wipe banner on -- it plays before each card." : "Wipe banner off.");

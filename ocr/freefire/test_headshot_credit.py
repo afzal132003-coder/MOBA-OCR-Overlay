@@ -149,8 +149,11 @@ def main():
         print("SKIP: no reference log at", LOG)
         return 0
     print("engine under test:", E.__file__)
-    cutoff = ((json.load(io.open("freefire_state.json", encoding="utf-8"))
-               .get("settings") or {}).get("debuggerStartAt") or "")
+    # The whole reference log. The operator's saved "read from" time
+    # belongs to whatever event is running now, and against this older
+    # log it skipped every line -- the engine counted no headshots and the
+    # test had nothing to compare.
+    cutoff = ""
     E.server_state.setdefault("settings", {})["debuggerStartAt"] = cutoff
 
     E._live_match.clear()

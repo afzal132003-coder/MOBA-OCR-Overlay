@@ -4738,9 +4738,6 @@ SIDE_POPUP_TYPES = {
     "clutch":     ("CLUTCH", "ELIMINATIONS"),
     "headshot":   ("HEADSHOT", "ELIMINATIONS"),
     "teamsLeft":  ("TEAMS LEFT", "REMAINING"),
-    # The revived player's photo and name; the big line is the teammate
-    # who revived them (see REVIVER_ITEM), the label their count.
-    "revive":     ("REVIVED BY", "REVIVE"),
 }
 RAMPAGE_WINDOW_SECONDS = 30.0
 RAMPAGE_MIN_KILLS = 3
@@ -5023,10 +5020,27 @@ def team_photos():
     return {k: v for k, v in out.items() if v}
 
 
-def _ordinal_suffix(n):
-    if 10 <= n % 100 <= 20:
-        return "TH"
-    return {1: "ST", 2: "ND", 3: "RD"}.get(n % 10, "TH")
+def revive_rows(new_events):
+    """Revives for the side table: the team's row, and who came back. The
+    alive table plays "<PLAYER> REVIVED" across that row the way it plays
+    ELIMINATED. settings.reviveRow off: none. Named by the row's own team
+    -- the squad's link in the table -- so the page finds the row it shows,
+    else by the player's roster team."""
+    if (server_state.get("settings") or {}).get("reviveRow") is False:
+        return []
+    rows = (server_state.get("liveOps") or {}).get("sidetableRows") or []
+    team_of = {r.get("gsTeam"): r.get("teamName") for r in rows if r.get("gsTeam") is not None}
+    out = []
+    for ev in new_events or []:
+        if ev.get("type") != "revive" or not ev.get("ign"):
+            continue
+        name = team_of.get(ev.get("team")) or resolve_team_from_igns(
+            [ev["ign"]], server_state.get("roster"), [ev["uid"]] if ev.get("uid") else None)
+        if not name:
+            continue
+        out.append({"id": "revive:%s:%s" % (ev.get("time"), ev.get("uid") or ev["ign"]),
+                    "teamName": name, "ign": ev["ign"], "by": ev.get("byIgn") or ""})
+    return out
 
 
 def _squad_alive(live, gs):
@@ -5082,21 +5096,6 @@ def detect_side_popups(new_events, live):
                          "short": short, "photo": _photo_lookup(uid, ign)}, **(extra or {})))
 
     for ev in new_events:
-        if ev.get("type") == "revive":
-            if not switches.get("revive") or not ev.get("ign"):
-                continue
-            by = ev.get("byIgn") or ""
-            if by:
-                counts = P.setdefault("revivers", {})
-                key = str(ev.get("byUid") or by)
-                counts[key] = counts.get(key, 0) + 1
-                n = counts[key]
-                popup("revive", ev, by, ign=ev["ign"], uid=ev.get("uid", ""), gs=ev.get("team"),
-                      label="%d%s REVIVE" % (n, _ordinal_suffix(n)), extra={"valueIsName": True, "by": by})
-            else:
-                popup("revive", ev, "+1", ign=ev["ign"], uid=ev.get("uid", ""), gs=ev.get("team"),
-                      title="REVIVED", label="BACK IN THE FIGHT")
-            continue
         if ev.get("type") != "kill":
             continue
         killer = str(ev.get("killerUid") or ev.get("killerIgn") or "")
@@ -13658,6 +13657,12 @@ async def ocr_loop():
                                                         {"type": "side_popup", "popup": pop})
                         except Exception as e:
                             print("[popup] detection failed: %s" % e)
+                        # Revives, across their team's row on the side table.
+                        try:
+                            for rv in revive_rows(new_events):
+                                await broadcast_to_page("freefire_alive_status", {"type": "row_revive", **rv})
+                        except Exception as e:
+                            print("[revive] not sent: %s" % e)
 
                     # The 12-team side table, straight from the client's own
                     # narration rather than read back off the screen.

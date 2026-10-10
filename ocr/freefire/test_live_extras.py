@@ -135,16 +135,18 @@ def main():
           revs and revs[0]["ign"] == "ALPHA.TWO" and revs[0]["byIgn"] == "ALPHA.ONE", str(revs[:1]))
     check("the second has no teammate's line: no reviver, and never another squad's player",
           len(revs) > 1 and revs[1]["ign"] == "ALPHA.ONE" and revs[1]["byIgn"] == "", str(revs[1:]))
-    E.server_state["settings"]["sidePopups"] = {"revive": True}
-    pops = E.detect_side_popups(revs, rlive)
-    check("pop-up: REVIVED BY, the reviver's name in the big line, the revived player's name",
-          bool(pops) and pops[0]["title"] == "REVIVED BY" and pops[0]["value"] == "ALPHA.ONE"
-          and pops[0]["ign"] == "ALPHA.TWO" and bool(pops[0].get("valueIsName")) and pops[0]["label"] == "1ST REVIVE"
-          and pops[0]["teamName"] == "ALPHA ESPORTS", str(pops[:1]))
-    check("without a reviver: REVIVED, +1", len(pops) > 1 and pops[1]["title"] == "REVIVED" and pops[1]["value"] == "+1",
-          str(pops[1:]))
-    E.server_state["settings"]["sidePopups"] = {"revive": False}
-    check("switched off: nothing", E.detect_side_popups(revs, E.blank_live_match()) == [])
+    print("revives on the side table, not as a pop-up")
+    E.server_state["liveOps"]["sidetableRows"] = [{"gsTeam": 3, "teamName": "ALPHA ESPORTS"}]
+    E.server_state["settings"].pop("reviveRow", None)
+    rows = E.revive_rows(revs)
+    check("each revive names its team's row and the player",
+          [(r["teamName"], r["ign"]) for r in rows] == [("ALPHA ESPORTS", "ALPHA.TWO"), ("ALPHA ESPORTS", "ALPHA.ONE")], str(rows))
+    check("each has its own id, so a page never plays one twice", len({r["id"] for r in rows}) == 2)
+    E.server_state["settings"]["reviveRow"] = False
+    check("the tick off: none", E.revive_rows(revs) == [])
+    E.server_state["settings"].pop("reviveRow", None)
+    E.server_state["settings"]["sidePopups"] = {"revive": True, "firstBlood": True}
+    check("and never a side pop-up", not [p for p in E.detect_side_popups(revs, E.blank_live_match()) if p["type"] == "revive"])
 
     print("\n%d checks, %d failed" % (checks, len(failures)))
     sys.exit(1 if failures else 0)

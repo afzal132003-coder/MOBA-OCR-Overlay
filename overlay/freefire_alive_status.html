@@ -504,6 +504,16 @@
     100% { box-shadow: inset 0 0 0 999px var(--accent-flash-0); }
   }
   .row.just-eliminated { animation: ff-elim-flash 1150ms ease-out; }
+  /* A REVIVE: the same sweep across the row -- the player's name and
+     REVIVED -- in green, and the row flares green under it. */
+  .flyby.rev .word { font-size: 22px; text-shadow: 0 0 18px rgba(46, 230, 120, .95); }
+  .flyby.rev .word.trail { color: #2ee678; }
+  @keyframes ff-rev-flash {
+    0%   { box-shadow: inset 0 0 0 999px rgba(46, 230, 120, 0); }
+    20%  { box-shadow: inset 0 0 0 999px rgba(46, 230, 120, .42); }
+    100% { box-shadow: inset 0 0 0 999px rgba(46, 230, 120, 0); }
+  }
+  .row.just-revived { animation: ff-rev-flash 1150ms ease-out; }
   /* ---- TOP 4: the final squads across the top, pushed on its own ----
      Separate from the side table so the operator can pull the table down
      once four remain and keep this up. Drawn from the package's artwork
@@ -1050,6 +1060,10 @@ function connect(){
       queuePopup(msg.popup);
       return;
     }
+    if(msg.type === "row_revive"){
+      reviveRow(msg);
+      return;
+    }
     if(msg.type === "race_photos"){
       Object.assign(racePhotos, msg.photos || {});
       if(lastState) renderRace(lastState);
@@ -1468,7 +1482,8 @@ function makeRowEl(){
     '<div class="status-pip"></div>' +
     '<div class="crtile"></div>' +
     '<div class="flyby"><span class="word trail">ELIMINATED</span>' +
-    '<span class="word">ELIMINATED</span></div>';
+    '<span class="word">ELIMINATED</span></div>' +
+    '<div class="flyby rev"><span class="word trail"></span><span class="word"></span></div>';
   return el;
 }
 
@@ -1950,10 +1965,33 @@ function queueFlyby(el){
 }
 
 function runFlybyQueue(){
-  const el = flybyQueue.shift();
-  if(!el){ flybyTimer = null; return; }
-  playFlyby(el);
+  const item = flybyQueue.shift();
+  if(!item){ flybyTimer = null; return; }
+  if(item.revive) playRevive(item.el, item.revive); else playFlyby(item);
   flybyTimer = setTimeout(runFlybyQueue, FLYBY_MS + 120);
+}
+
+/* A REVIVE, across its team's row: "TAG.YASH REVIVED" in the same sweep as
+   ELIMINATED, in the same queue -- one at a time, never over each other.
+   Sent by the engine as the log reports it (settings.reviveRow). */
+const revivesSeen = new Set();
+function reviveRow(rv){
+  if(!rv || !rv.id || revivesSeen.has(rv.id)) return;
+  revivesSeen.add(rv.id);
+  const el = rowEls.get(String(rv.teamName || "").trim().toUpperCase());
+  if(!el || el.classList.contains("out")) return;     // not on the table, or out
+  queueFlyby({ el, revive: (cleanName(rv.ign) + " REVIVED").toUpperCase() });
+}
+function playRevive(el, text){
+  const fly = el.querySelector(".flyby.rev");
+  if(!fly) return;
+  fly.querySelectorAll(".word").forEach(w => { w.textContent = text; });
+  fly.classList.remove("on");
+  el.classList.remove("just-revived");
+  void el.offsetWidth;              // restart both animations from zero
+  fly.classList.add("on");
+  el.classList.add("just-revived");
+  setTimeout(() => fly.classList.remove("on"), FLYBY_MS + 60);
 }
 
 function playFlyby(el){

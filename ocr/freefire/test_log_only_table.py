@@ -88,9 +88,21 @@ def main():
     print("engine under test:", E.__file__)
     print("cutoff cleared for the test (settings.debuggerStartAt)")
 
-    roster = (json.load(io.open("freefire_state.json", encoding="utf-8"))
-              .get("roster") or {})
-    print("roster teams:", len(roster.get("teams") or []))
+    # The roster of THAT lobby, from the match's own result file: team
+    # names as the game printed them, players by in-game name and UID.
+    # The saved roster is whatever event is running now, and against this
+    # match six of its eleven teams could not join -- a test of today's
+    # roster, not of the log. Built here rather than kept as a fixture:
+    # the repository is public and these are real players' UIDs.
+    res = E.build_match_result_payload(str(LOG.parent.parent), MATCH)
+    if res.get("error") or not res.get("teams"):
+        print("SKIP: no result file for match", MATCH, "--", res.get("error"))
+        return 0
+    roster = {"teams": [{"name": t.get("fileTeamName") or t.get("teamName"), "shortName": "",
+                         "players": [{"ign": p.get("fileName") or p.get("name"), "uid": p.get("uid") or ""}
+                                     for p in t.get("players") or []]}
+                        for t in res["teams"]]}
+    print("roster teams (from the match's result file):", len(roster["teams"]))
 
     lines = io.open(LOG, encoding="utf-8", errors="replace").readlines()
     start = next(i for i, l in enumerate(lines)
@@ -107,7 +119,8 @@ def main():
         io.open(tmp, "w", encoding="utf-8").writelines(lines[start:cut])
         E._live_match.clear()
         E._live_match.update(E.blank_live_match())
-        E.read_debugger_events(tmp, 0, {}, live=E._live_match, emit=False)
+        E._debugger_id_map.clear()
+        E.read_debugger_events(tmp, 0, E._debugger_id_map, live=E._live_match, emit=False)
         rows = E.link_live_teams(E._live_match, roster)["rows"]
 
         # Against the log's own list of teams, so this cannot be

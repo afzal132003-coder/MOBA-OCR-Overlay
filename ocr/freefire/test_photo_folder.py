@@ -59,6 +59,10 @@ def main():
     put(os.path.join(tmp, "DEFAULT"), "Team_Photo.png", (9, 9, 9), (832, 274))
     try:
         ff.server_state.setdefault("settings", {})["playerPhotoFolder"] = tmp
+        # The team logo folder is the operator's real one, and a file there
+        # wins over a team folder's Logo.png -- the real TSG PROS logo
+        # (166x200) stood in for the test's. An empty folder of its own.
+        ff.server_state["settings"]["teamLogoFolder"] = os.path.join(tmp, "_no_team_logos")
         ff.server_state["roster"] = {"teams": [
             {"name": "TSG PROS", "shortName": "TSGP", "players": [
                 {"ign": "TSGP.BLOOD14", "uid": "2451778281"}, {"ign": "TSGP.ARJUN", "uid": "134463391"},
