@@ -812,14 +812,22 @@ def roster_from_debugger_log(log_path):
         elif index < start:
             continue
         members[m.group("pid")] = ((m.group("ign") or "").strip(),
-                                   m.group("gs_team"))
+                                   m.group("gs_team"), index)
 
+    # ONE SQUAD PER PERSON. A player who changes squad in the lobby is
+    # added again under a new runtime id in the new squad, and the old
+    # entry is never withdrawn -- so they were counted in both (2026-10-11:
+    # NebulaPATLU and NebulaSWARUP in two squads, one squad of six, 50
+    # players for 48). The squad they were added to LAST is theirs.
+    latest = {}
+    for pid, (ign, gs, at) in members.items():
+        uid = uid_by_pid.get(pid) or uid_by_ign.get(ign) or ""
+        person = uid or _ign_key(ign) or pid
+        if person not in latest or at > latest[person][2]:
+            latest[person] = (ign, gs, at, uid)
     squads = {}
-    for pid, (ign, gs) in members.items():
-        squads.setdefault(gs, []).append({
-            "ign": ign,
-            "uid": uid_by_pid.get(pid) or uid_by_ign.get(ign) or "",
-        })
+    for ign, gs, at, uid in sorted(latest.values(), key=lambda r: r[2]):
+        squads.setdefault(gs, []).append({"ign": ign, "uid": uid})
     out = []
     for gs in sorted(squads, key=lambda k: int(k) if k.isdigit() else 0):
         out.append({"gsTeam": gs, "players": squads[gs]})
@@ -829,6 +837,105 @@ def roster_from_debugger_log(log_path):
             # squads above.
             "names": [teams[k] for k in sorted(
                 teams, key=lambda k: int(k) if k.isdigit() else 0) if teams[k]]}
+
+
+def place_lobby_squads(squads, names, roster_teams, bank_teams=(), live=None):
+    """Which team each lobby squad is: {gsTeam: (team name, how)}.
+
+    Best evidence first, each team given to one squad at most:
+      uid   -- its players' UIDs are a roster team's (exact: the way the
+               live table itself joins squads)
+      bank  -- they are a Team Bank team's (exact; the team may not be in
+               the roster yet)
+      live  -- the running match has already paired this squad (timing,
+               the last one left...) -- used only when that match's squad
+               holds these same players, so a finished game's numbering
+               can never name the next lobby's squads
+      tags  -- the players' name tags read against the team names the
+               client printed
+
+    Tags alone placed 6 of 12 squads on 2026-10-11 ("Nebula..." players
+    are NBE; "TE.Pikolo" plays for IQOOTE, not TECHNO ACADEMY)."""
+    uid_team = {}
+    for source, teams in (("uid", roster_teams or []), ("bank", bank_teams or [])):
+        for t in teams:
+            name = (t.get("name") or "").strip()
+            for p in t.get("players") or []:
+                uid = str(p.get("uid") or "").strip()
+                if name and uid and uid not in uid_team:
+                    uid_team[uid] = (source, name)
+    out, taken = {}, set()
+
+    def give(gs, name, how):
+        out[gs] = (name, how)
+        taken.add(name.strip().upper())
+
+    # by UID: the strongest squads first, so a split vote cannot take a
+    # team from the squad that is plainly it
+    ranked = []
+    for sq in squads:
+        votes = {}
+        for p in sq.get("players") or []:
+            hit = uid_team.get(str(p.get("uid") or "").strip())
+            if hit:
+                votes[hit] = votes.get(hit, 0) + 1
+        if votes:
+            (how, name), n = max(votes.items(), key=lambda kv: kv[1])
+            if n >= 2 or n == len(sq.get("players") or []):
+                ranked.append((n, sq["gsTeam"], name, how))
+    def printed_for(bank_name):
+        """The name the client printed for a Team Bank team. The bank spells
+        teams in full where the game prints a tag -- DESI GAMERS ESP is
+        DG, W SQUAD is WSQ, NEBULA ESPORTS is NBE -- so the tag's letters,
+        in order, from the full name's first. Only when exactly one
+        printed name fits: a guess here would put a squad under the wrong
+        team, and adding the bank's spelling would put one team in twice."""
+        def abbrev(short, full):
+            a, b = _ign_key(short), _ign_key(full)
+            if not a or not b or a[0] != b[0]:
+                return False
+            rest = iter(b)
+            return all(ch in rest for ch in a)
+        fits = [n for n in names if n.strip().upper() not in taken and
+                (match_roster_team(bank_name, [{"name": n, "shortName": ""}]) is not None or abbrev(n, bank_name))]
+        if len(fits) != 1:
+            return None
+        rt = match_roster_team(fits[0], roster_teams or [])
+        return ((rt or {}).get("name") or fits[0]).strip()
+
+    for n, gs, name, how in sorted(ranked, key=lambda r: -r[0]):
+        if how == "bank":
+            name = printed_for(name)
+            if not name:
+                continue
+        if gs not in out and name.strip().upper() not in taken:
+            give(gs, name, how)
+
+    # the live match's own pairing, where it is this same lobby
+    live = live or {}
+    for sq in squads:
+        gs = sq["gsTeam"]
+        if gs in out:
+            continue
+        key = int(gs) if str(gs).isdigit() else gs
+        name = (live.get("names") or {}).get(key)
+        playing = {_ign_key(v) for v in ((live.get("igns") or {}).get(key) or {}).values()}
+        mine = {_ign_key(p.get("ign")) for p in sq.get("players") or []}
+        if name and name.strip().upper() not in taken and len(playing & mine) >= 2:
+            give(gs, name, "live")
+
+    # the players' tags
+    for sq in squads:
+        gs = sq["gsTeam"]
+        if gs in out:
+            continue
+        free = [n for n in names if n.strip().upper() not in taken and
+                ((match_roster_team(n, roster_teams or []) or {}).get("name") or "").strip().upper() not in taken]
+        guess = name_squad_by_tags([p.get("ign") for p in sq.get("players") or []], free)
+        if guess:
+            rt = match_roster_team(guess, roster_teams or [])
+            give(gs, ((rt or {}).get("name") or guess).strip(), "tags")
+    return out
 
 
 def roster_from_matches(matches):
@@ -12875,16 +12982,32 @@ async def handle_client(websocket, path=None):
                 # fit, because guessing there puts one team's players into
                 # another team's roster slot -- and a squad left blank is
                 # one the operator can see and set.
-                taken = set()
+                # Best evidence first: the players' UIDs in the roster,
+                # then in the Team Bank, then the running match's own
+                # pairing, then their name tags -- see place_lobby_squads.
+                bank = read_team_bank().get("teams") or []
+                live = {}
+                if not _live_match.get("ended"):
+                    try:
+                        live = {"names": link_live_teams(_live_match, server_state.get("roster") or {}).get("gsNames") or {},
+                                "igns": _live_match.get("gsIgns") or {}}
+                    except Exception as e:
+                        print("[lobby] live pairing not used: %s" % e)
+                placed_by = place_lobby_squads(squads, names, roster, bank, live)
+                how_many = {}
                 placed = 0
                 for squad in squads:
-                    igns = [p.get("ign") for p in (squad.get("players") or [])]
-                    free = [n for n in names if n not in taken]
-                    guess = name_squad_by_tags(igns, free)
-                    squad["guessedTeam"] = guess
-                    if guess:
-                        taken.add(guess)
+                    hit = placed_by.get(squad["gsTeam"])
+                    name = hit[0] if hit else ""
+                    if hit and name.upper() not in by_name:
+                        # the roster's own spelling, for its dropdown
+                        rt = match_roster_team(name, roster)
+                        if rt is not None:
+                            name = (rt.get("name") or "").strip()
+                    squad["guessedTeam"] = name
+                    if hit:
                         placed += 1
+                        how_many[hit[1]] = how_many.get(hit[1], 0) + 1
 
                 lobby = []
                 for squad in squads:
@@ -12905,7 +13028,7 @@ async def handle_client(websocket, path=None):
                     # How many squads the players' tags could place, so
                     # the operator knows how many are left to do by hand
                     # rather than counting blank dropdowns.
-                    "placed": placed, "squadCount": len(squads),
+                    "placed": placed, "squadCount": len(squads), "placedBy": how_many,
                     # The names that resemble an existing team, with the
                     # roster to choose from. Nothing was done to these.
                     "pending": pending,

@@ -7316,8 +7316,11 @@ function ffOpen(url){
              operator reading "6 of 10" knows four dropdowns are waiting;
              without it they have to scroll and count blanks. */
           (msg.squadCount
-            ? `<b>${msg.placed || 0} of ${msg.squadCount}</b> squad(s) matched to a team ` +
-              `by the players' tags. ` : "") +
+            ? `<b>${msg.placed || 0} of ${msg.squadCount}</b> squad(s) matched to a team` +
+              (msg.placedBy && Object.keys(msg.placedBy).length
+                ? " (" + Object.entries(msg.placedBy).map(([how, n]) => n + " " + ({ uid: "by roster UIDs", bank: "by Team Bank UIDs",
+                    live: "by the live match", tags: "by name tags" }[how] || how)).join(", ") + ")"
+                : " by the players' tags") + ". " : "") +
           ffLobbyNameChoices(msg) +
           "<div style='margin-top:4px;color:#fbbf24;'>Next: in <b>Live Lobby</b> just below, pair each squad to its team and press <b>Add these players to the roster</b>. " + "<a href='#' id='ff_goLobby' style='color:#7db2ff;'>Jump to it</a></div>" +
           "<div style='margin-top:4px;color:#9aa7b5;'>The game does not say which " +
