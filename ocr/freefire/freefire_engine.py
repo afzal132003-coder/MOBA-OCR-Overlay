@@ -1433,6 +1433,70 @@ def blank_live_match():
 MAX_KILL_EVENTS = 60
 
 
+# A match running longer than this is not one: a match start with no end
+# that long ago is a game the client never finished writing.
+FREEFIRE_MATCH_MAX_MINUTES = 45
+# How far before the match's first line to read from: its lobby joins can
+# come a little ahead of it.
+FREEFIRE_MATCH_LEAD_SECONDS = 90
+
+
+def snap_cutoff_to_match(cutoff, log_path=None):
+    """(cutoff, when the running match began or None).
+
+    "Start From Now" is pressed to leave EARLIER events behind -- never the
+    match being played. Pressed five minutes into a match (2026-10-11,
+    18:42 for a match from 18:37) it skipped that match's team names and
+    every player's join, and the alive table came up empty. So when the
+    log shows a match under way at the cutoff -- started, not ended, and
+    not impossibly long ago -- the cutoff goes back to just before its
+    start (never past the end of the match before it)."""
+    cut = (cutoff or "").strip()[:19]
+    if not cut:
+        return cutoff, None
+    if log_path is None:
+        st = server_state.get("settings", {})
+        folder = st.get("debuggerFolder") or st.get("matchResultFolder") or ""
+        if folder:
+            log_path = (find_latest_debugger_log(Path(folder) / "Debugger")
+                        or find_latest_debugger_log(folder))
+    if not log_path:
+        return cutoff, None
+    start = end = None
+    try:
+        with io.open(log_path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line[:1] != "[":
+                    continue
+                ts = line[1:20]
+                if ts >= cut:
+                    break
+                if "matchend matchid" in line:
+                    end = ts
+                elif "SendJoinMatch" in line or "airline start" in line:
+                    if start is None or (end is not None and end >= start):
+                        start = ts
+    except OSError:
+        return cutoff, None
+    if not start or (end is not None and end >= start):
+        return cutoff, None
+    fmt = "%Y-%m-%d %H:%M:%S"
+    try:
+        began = _datetime.datetime.strptime(start, fmt)
+        at = _datetime.datetime.strptime(cut, fmt)
+    except ValueError:
+        return cutoff, None
+    if (at - began).total_seconds() > FREEFIRE_MATCH_MAX_MINUTES * 60:
+        return cutoff, None
+    snapped = began - _datetime.timedelta(seconds=FREEFIRE_MATCH_LEAD_SECONDS)
+    if end:
+        try:
+            snapped = max(snapped, _datetime.datetime.strptime(end, fmt) + _datetime.timedelta(seconds=1))
+        except ValueError:
+            pass
+    return snapped.strftime(fmt), start
+
+
 def find_latest_debugger_log(folder):
     path = Path(folder) if folder else None
     if not path or not path.is_dir():
@@ -12213,7 +12277,11 @@ async def handle_client(websocket, path=None):
                 # derived under the old one -- otherwise the previous
                 # event's squads and scores sit in the live table until the
                 # next match happens to overwrite them.
-                cutoff = (payload.get("startAt") or "").strip()
+                asked = (payload.get("startAt") or "").strip()
+                cutoff, began = snap_cutoff_to_match(asked)
+                if cutoff != asked:
+                    print(f"[live] a match was already running (from {began}) -- "
+                          f"reading from {cutoff}, not {asked}")
                 server_state.setdefault("settings", {})["debuggerStartAt"] = cutoff
                 _live_match.clear()
                 _live_match.update(blank_live_match())
@@ -12230,6 +12298,9 @@ async def handle_client(websocket, path=None):
                 print(f"[live] ignoring log entries before {cutoff or 'the start of the file'}")
                 await broadcast({"type": "state_sync", "data": server_state,
                                  "locked": list(locked_fields)})
+                await websocket.send(json.dumps({"type": "freefire_debugger_cutoff_result",
+                                                 "startAt": cutoff, "asked": asked,
+                                                 "matchFrom": began if cutoff != asked else None}))
             elif payload.get("type") == "freefire_asset_name":
                 # Name one icon. Written straight through to names.json as
                 # well as the state, so the naming lives beside the artwork

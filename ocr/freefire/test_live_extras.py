@@ -148,6 +148,26 @@ def main():
     E.server_state["settings"]["sidePopups"] = {"revive": True, "firstBlood": True}
     check("and never a side pop-up", not [p for p in E.detect_side_popups(revs, E.blank_live_match()) if p["type"] == "revive"])
 
+    print("Start From Now never cuts off the match being played")
+    L = Path(tempfile.gettempdir()) / "ff_cutoff.log"
+    io.open(L, "w", encoding="utf-8").write(
+        "[2026-10-11 17:00:00.000][1][1] [UGC] SendJoinMatch, EnableUGC=False\n"
+        "[2026-10-11 17:20:00.000][1][2] matchend matchid = 1 / user id = 9\n"
+        "[2026-10-11 18:37:50.000][1][3] [UGC] SendJoinMatch, EnableUGC=False\n"
+        "[2026-10-11 18:37:50.500][1][4] airline start(1.0, 350.0, 2.0), 50\n"
+        "[2026-10-11 18:45:00.000][1][5] Player 1 Dead, killed by 2\n")
+    got, began = E.snap_cutoff_to_match("2026-10-11 18:42:46", L)
+    check("pressed during a match: back to just before its start",
+          got == "2026-10-11 18:36:20" and began == "2026-10-11 18:37:50", "%s %s" % (got, began))
+    got, began = E.snap_cutoff_to_match("2026-10-11 18:30:00", L)
+    check("pressed between matches: as pressed", got == "2026-10-11 18:30:00" and began is None, str(got))
+    got, began = E.snap_cutoff_to_match("2026-10-11 17:10:00", L)
+    check("never back past the match before it", got == "2026-10-11 16:58:30" and began == "2026-10-11 17:00:00", str(got))
+    io.open(L, "a", encoding="utf-8").write("[2026-10-11 18:38:30.000][1][6] [UGC] SendJoinMatch, EnableUGC=False\n")
+    got, began = E.snap_cutoff_to_match("2026-10-11 21:00:00", L)
+    check("a start hours ago with no end is not a running match", got == "2026-10-11 21:00:00" and began is None, str(got))
+    check("blank stays blank (read the whole log)", E.snap_cutoff_to_match("", L) == ("", None))
+
     print("\n%d checks, %d failed" % (checks, len(failures)))
     sys.exit(1 if failures else 0)
 

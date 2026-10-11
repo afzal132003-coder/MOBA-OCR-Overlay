@@ -7299,6 +7299,17 @@ function ffOpen(url){
     } else if(msg.type === "freefire_match_files"){
       ffReplyArrived("matchList");
       ffShowMatchFiles(msg);
+    } else if(msg.type === "freefire_debugger_cutoff_result"){
+      // The engine keeps a match already under way: it may have moved the
+      // time back to that match's start. Show what it is actually using.
+      const inp = document.getElementById("ff_debuggerStartAt");
+      if(inp){ inp.value = msg.startAt || ""; if(typeof ffHeldInputs === "object") delete ffHeldInputs["ff_debuggerStartAt"]; }
+      const st = document.getElementById("ff_debuggerCutoffStatus");
+      if(st && msg.matchFrom){
+        st.style.color = "#fbbf24";
+        st.textContent = "A match was already under way (it started " + String(msg.matchFrom).slice(11) +
+          "), so it is kept: reading from " + msg.startAt + ". Everything before that is ignored.";
+      }
     } else if(msg.type === "freefire_live_lobby_result"){
       const el = document.getElementById("ff_lobbyStatus");
       if(el){
