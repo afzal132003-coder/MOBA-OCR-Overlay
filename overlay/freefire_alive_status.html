@@ -2341,6 +2341,8 @@ function apply(state){
   const championTeams = new Set(
     ((state.display || {}).championRushBadgeVisible ? ((state.championRush || {}).totals || []) : [])
       .filter(t => t.activated).map(t => String(t.teamName || "").trim().toUpperCase()));
+  // ...and the teams the operator has switched on by hand (In-Game tab).
+  ((state.display || {}).crTeams || []).forEach(t => championTeams.add(String(t || "").trim().toUpperCase()));
   ROW_TOPS = L.rowTops;
   ROW_BLOCK = { x: L.row.x, y: L.rowTops[0] };
   RANK_PREFIX = (L.rank && L.rank.prefix) || "";

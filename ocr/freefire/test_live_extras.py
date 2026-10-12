@@ -168,6 +168,16 @@ def main():
     check("a start hours ago with no end is not a running match", got == "2026-10-11 21:00:00" and began is None, str(got))
     check("blank stays blank (read the whole log)", E.snap_cutoff_to_match("", L) == ("", None))
 
+    print("a whole-state save never puts back what only the engine changes")
+    sent = {"settings": {"x": 1}, "roster": {"teams": []}, "qmeRowOrder": ["A"],
+            "aliases": {"teams": {}}, "pending": {"teams": []}, "knownContexts": {}, "assetCatalogue": {},
+            "loadoutChoices": {}}
+    kept = E.without_engine_owned(sent)
+    check("learned spellings, the mapping queue and the rest are left out",
+          not any(k in kept for k in ("aliases", "pending", "knownContexts", "assetCatalogue", "loadoutChoices")), str(sorted(kept)))
+    check("what the dashboard does set through a save is kept",
+          kept.get("qmeRowOrder") == ["A"] and "settings" in kept and "roster" in kept)
+
     print("\n%d checks, %d failed" % (checks, len(failures)))
     sys.exit(1 if failures else 0)
 

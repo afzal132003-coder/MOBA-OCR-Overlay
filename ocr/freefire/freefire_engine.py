@@ -11127,6 +11127,27 @@ DASHBOARD_ONLY_KEYS = ("pending", "qmeRowOrder", "aliases",
 _last_extras_fp = None
 
 
+# WHAT ONLY THE ENGINE CHANGES, and a whole-state save must not put back.
+#
+# Many of the dashboard's buttons save by sending its WHOLE copy of the
+# state, and that copy carries these from whenever it was last told them.
+# The learned spellings above all: "NONSTOP PROS is NG PROS" was taught on
+# 2026-10-11, then the next save (changing to game 2) sent the dashboard's
+# older list back over it -- the spelling was gone and NP was on air again,
+# twice. Each of these has its own message (freefire_map_alias for the
+# spellings, the Mapping tab for the queue...), so a manual_update simply
+# leaves them alone. qmeRowOrder is not here: the dashboard sets that one
+# through a save.
+ENGINE_OWNED_KEYS = ("aliases", "pending", "knownContexts", "assetCatalogue", "loadoutChoices")
+
+
+def without_engine_owned(update):
+    """`update` (a manual_update's freefire part) without ENGINE_OWNED_KEYS."""
+    if not isinstance(update, dict):
+        return update
+    return {k: v for k, v in update.items() if k not in ENGINE_OWNED_KEYS}
+
+
 def lean_state(data):
     """`data` without the keys only the dashboard reads -- and without
     liveOps.killEvents, which nothing reads at all: 14 KB of every state
@@ -11743,6 +11764,7 @@ async def handle_client(websocket, path=None):
             if payload.get("type") == "manual_update":
                 data = payload.get("data", {})
                 if "freefire" in data:
+                    data = dict(data, freefire=without_engine_owned(data["freefire"]))
                     _mvp_before = server_state.get("mvpOverride", "")
                     if "roster" in data["freefire"]:
                         n_kept = keep_short_names(data["freefire"]["roster"], server_state.get("roster"))
@@ -12358,6 +12380,25 @@ async def handle_client(websocket, path=None):
                     save_state()
                     await broadcast({"type": "state_sync", "data": server_state,
                                      "locked": list(locked_fields)})
+            elif payload.get("type") == "freefire_cr_team":
+                # The Champion Rush tile beside a team's row on the side
+                # table, by hand: {team, on} for one team, {clear: true}
+                # for all. Its own message, so a whole-state save from a
+                # dashboard holding an older list cannot undo a tick.
+                disp = server_state.setdefault("display", {})
+                on = {str(t).strip().upper() for t in (disp.get("crTeams") or []) if str(t).strip()}
+                team = (payload.get("team") or "").strip().upper()
+                if payload.get("clear"):
+                    on = set()
+                elif team:
+                    if payload.get("on"):
+                        on.add(team)
+                    else:
+                        on.discard(team)
+                disp["crTeams"] = sorted(on)
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state,
+                                 "locked": list(locked_fields)})
             elif payload.get("type") == "freefire_map_alias":
                 # Teach (or, with a blank target, forget) one mapping. Done
                 # as its own message rather than a manual_update so the
