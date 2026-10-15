@@ -520,16 +520,46 @@
     100% { box-shadow: inset 0 0 0 999px var(--accent-flash-0); }
   }
   .row.just-eliminated { animation: ff-elim-flash 1150ms ease-out; }
-  /* A REVIVE: the same sweep across the row -- the player's name and
-     REVIVED -- in green, and the row flares green under it. */
-  .flyby.rev .word { font-size: 22px; text-shadow: 0 0 18px rgba(46, 230, 120, .95); }
+  /* A REVIVE: the player's name and REVIVED across the row in green, the
+     row flaring green under it. Slower than ELIMINATED -- there is a name
+     to read: it slides in, holds centred on the row (drifting a touch),
+     then slides out (REVIVE_MS). The trail shows only while it moves. */
+  /* centred left of the status bars, which stay in view: the bar coming
+     back is half of what a revive is */
+  .flyby.rev .word { left: 37%; font-size: 22px; text-shadow: 0 0 18px rgba(46, 230, 120, .95); }
   .flyby.rev .word.trail { color: #2ee678; }
+  .flyby.rev.on .word       { animation: ff-revive 3200ms cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+  .flyby.rev.on .word.trail { animation: ff-revive-trail 3200ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+                              animation-delay: 70ms; }
+  @keyframes ff-revive {
+    0%   { transform: translate(-250%, -50%) skewX(-12deg); opacity: 0; }
+    12%  { transform: translate(-50%, -50%) skewX(-12deg); opacity: 1; }
+    84%  { transform: translate(-43%, -50%) skewX(-12deg); opacity: 1; }
+    100% { transform: translate(150%, -50%) skewX(-12deg); opacity: 0; }
+  }
+  @keyframes ff-revive-trail {
+    0%   { transform: translate(-250%, -50%) skewX(-12deg); opacity: 0; }
+    12%  { transform: translate(-50%, -50%) skewX(-12deg); opacity: .55; }
+    18%  { transform: translate(-49%, -50%) skewX(-12deg); opacity: 0; }
+    80%  { transform: translate(-44%, -50%) skewX(-12deg); opacity: 0; }
+    86%  { transform: translate(-40%, -50%) skewX(-12deg); opacity: .55; }
+    100% { transform: translate(150%, -50%) skewX(-12deg); opacity: 0; }
+  }
   @keyframes ff-rev-flash {
     0%   { box-shadow: inset 0 0 0 999px rgba(46, 230, 120, 0); }
-    20%  { box-shadow: inset 0 0 0 999px rgba(46, 230, 120, .42); }
+    10%  { box-shadow: inset 0 0 0 999px rgba(46, 230, 120, .42); }
+    80%  { box-shadow: inset 0 0 0 999px rgba(46, 230, 120, .28); }
     100% { box-shadow: inset 0 0 0 999px rgba(46, 230, 120, 0); }
   }
-  .row.just-revived { animation: ff-rev-flash 1150ms ease-out; }
+  .row.just-revived { animation: ff-rev-flash 3200ms ease-out; }
+  /* the row's own rank, logo, name and kills fade out under the words
+     while they hold, so the player's name reads clean */
+  @keyframes ff-rev-dim {
+    0%, 100% { opacity: 1; }
+    10%, 82% { opacity: 0.08; }
+  }
+  .row.just-revived .rank, .row.just-revived .logo, .row.just-revived .name,
+  .row.just-revived .kills, .row.just-revived .points { animation: ff-rev-dim 3200ms ease-in-out both; }
   /* ---- TOP 4: the final squads across the top, pushed on its own ----
      Separate from the side table so the operator can pull the table down
      once four remain and keep this up. Drawn from the package's artwork
@@ -1386,6 +1416,7 @@ function logoFor(teamName, roster){
    change-detection guard it needed is gone -- updating a text node
    that already holds the same string costs nothing and shows nothing. */
 const FLYBY_MS = 1150;
+const REVIVE_MS = 3200;            // the revive's sweep, slower: see .flyby.rev
 const rowEls = new Map();        // team key -> row element
 let displayOrder = [];           // team keys, in the order currently on screen
 let holdOrderUntil = 0;          // while in the future, don't re-sort
@@ -2057,11 +2088,19 @@ function queueFlyby(el){
   if(flybyTimer === null) runFlybyQueue();
 }
 
+function flybyMs(item){ return (item && item.revive ? REVIVE_MS : FLYBY_MS) + 120; }
+let flybyEndsAt = 0;
 function runFlybyQueue(){
   const item = flybyQueue.shift();
   if(!item){ flybyTimer = null; return; }
   if(item.revive) playRevive(item.el, item.revive); else playFlyby(item);
-  flybyTimer = setTimeout(runFlybyQueue, FLYBY_MS + 120);
+  flybyEndsAt = Date.now() + flybyMs(item);
+  flybyTimer = setTimeout(runFlybyQueue, flybyMs(item));
+}
+// How long until everything queued has played -- a revive ahead of an
+// elimination is longer than its sweep.
+function flybyQueueEndsIn(){
+  return Math.max(0, flybyEndsAt - Date.now()) + flybyQueue.reduce((sum, item) => sum + flybyMs(item), 0);
 }
 
 /* A REVIVE, across its team's row: "TAG.YASH REVIVED" in the same sweep as
@@ -2084,7 +2123,7 @@ function playRevive(el, text){
   void el.offsetWidth;              // restart both animations from zero
   fly.classList.add("on");
   el.classList.add("just-revived");
-  setTimeout(() => fly.classList.remove("on"), FLYBY_MS + 60);
+  setTimeout(() => fly.classList.remove("on"), REVIVE_MS + 60);
 }
 
 function playFlyby(el){
@@ -2650,6 +2689,7 @@ function apply(state){
     flybyDone = new Set();
     flybyQueue = [];
     if(flybyTimer !== null){ clearTimeout(flybyTimer); flybyTimer = null; }
+    flybyEndsAt = 0;
   }
 
   // Anything no longer in the table (roster changed, new match) goes.
@@ -2682,7 +2722,7 @@ function apply(state){
     // Long enough for the whole queue, not just the first: rows sliding
     // to new places under a word that is still playing is the jumpiness
     // that was reported.
-    const span = (FLYBY_MS + 120) * newlyOut.length;
+    const span = Math.max((FLYBY_MS + 120) * newlyOut.length, flybyQueueEndsIn());
     holdOrderUntil = Date.now() + span;
     setTimeout(() => { if(lastState) apply(lastState); }, span + 40);
   }
