@@ -10,23 +10,29 @@ function ffTheme(state){
   // GC, used to fall to the green ARROW look).
   return pick.includes("arrow") ? "arrow" : "ss3";
 }
-// CHIRAYU GOLD LEAGUE is the SS3 package copied: the same cards, drawn
-// from its own recoloured art (assets/freefire/CHIRAYU/) and, on top of
-// body.ss3, body.chirayu for the kit's navy / slate / gold.
-function ffChirayu(state){
+// The SS3 layouts in another package's own look, on top of body.ss3:
+//   CHIRAYU GOLD LEAGUE -- recoloured art (assets/freefire/CHIRAYU/),
+//     body.chirayu for the kit's navy / slate / gold;
+//   GNG -- its art (assets/freefire/gng/, see make_gng_art.py there),
+//     body.gng for its browns, orange, Moanslight and display face.
+function ffSkin(state){
   const ev = (state && state.event) || {};
-  return String(new URLSearchParams(location.search).get("theme") || ev.assetFolder || "")
-    .toLowerCase().includes("chirayu");
+  const pick = String(new URLSearchParams(location.search).get("theme") || ev.assetFolder || "").toLowerCase();
+  return pick.includes("chirayu") ? "chirayu" : pick === "gng" ? "gng" : "";
 }
+function ffChirayu(state){ return ffSkin(state) === "chirayu"; }
 // The folder an SS3-layout card takes its art from.
 function ffArtDir(state){
-  return "assets/freefire/" + (ffChirayu(state) ? "CHIRAYU" : "ss3") + "/";
+  const skin = ffSkin(state);
+  return "assets/freefire/" + (skin === "chirayu" ? "CHIRAYU" : skin === "gng" ? "gng" : "ss3") + "/";
 }
 function ffApplyTheme(state){
   const t = ffTheme(state);
+  const skin = t === "ss3" ? ffSkin(state) : "";
   document.body.classList.toggle("ss3", t === "ss3");
   document.body.classList.toggle("arrow", t !== "ss3");
-  document.body.classList.toggle("chirayu", t === "ss3" && ffChirayu(state));
+  document.body.classList.toggle("chirayu", skin === "chirayu");
+  document.body.classList.toggle("gng", skin === "gng");
   return t;
 }
 function ffTeam(name, roster){
@@ -123,9 +129,10 @@ function ffFitTitle(el, again){
     // fonts after the first check.
     setTimeout(() => ffFitTitle(el, true), 1200);
   }
-  // CHIRAYU: the last word in orange-gold, the rest black.
+  // CHIRAYU: the last word in orange-gold, the rest black. GNG: in its
+  // orange, the rest white.
   const words = (el.textContent || "").trim().split(/\s+/);
-  const gold = document.body.classList.contains("chirayu") && words.length > 1;
+  const gold = (document.body.classList.contains("chirayu") || document.body.classList.contains("gng")) && words.length > 1;
   if(gold && !el.querySelector(".w2")){
     el.textContent = words.slice(0, -1).join(" ") + " ";
     const w = document.createElement("span"); w.className = "w2"; w.textContent = words[words.length - 1];

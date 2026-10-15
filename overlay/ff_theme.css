@@ -16,6 +16,8 @@
 @font-face { font-family:'SMBlack'; src:url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype'); font-weight:900; }
 @font-face { font-family:'SMXB'; src:url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype'); font-weight:800; }
 @font-face { font-family:'SMBI'; src:url('assets/fonts/TT Supermolot Neue Trial Black Italic.ttf') format('truetype'); font-weight:900; }
+@font-face { font-family:'Moanslight'; src:url('assets/freefire/gng/font/MOANSLIGHT-BOLD.OTF') format('opentype'); font-weight:100 900; }
+@font-face { font-family:'GNG Display'; src:url('assets/freefire/gng/font/Sddystopiandemo-GO7xa.otf') format('opentype'); font-weight:100 900; }
 
 :root{
   --ss3-red:#eb0000; --ss3-label:#e11b17; --ss3-yellow:#fff694; --ss3-bar:#fff594; --ss3-black:#050505;
@@ -69,6 +71,29 @@ body.chirayu{ --ss3-red:#4e6181; --ss3-label:#4e6181; --ss3-yellow:#a8692a; --ss
 .chirayu .ff-num{color:#a8692a;}
 .chirayu .ff-text{color:#262626;}
 .chirayu .ff-muted{color:#7a8597;}
+
+/* ---- GNG: the SS3 layouts in the event's own look ----
+   From its art (assets/freefire/gng): dark brown rows (#2f1307), brown
+   cards lit to the right, the orange of its status bars and WR tab
+   (#ffa976) for every highlight, light type (#e4e4e4) in Moanslight Bold,
+   titles in its distressed display face -- white, the last word orange
+   (a letters-only face: figures and marks fall to Moanslight).
+   Its own frame (kit/gng_frame.png), no SS3 or PRG branding. */
+body.gng{ --ss3-red:#5c2d12; --ss3-label:#ffa976; --ss3-yellow:#ffa976; --ss3-bar:#ffa976; --ss3-black:#1d0e06;
+  --gng-orange:#ffa976; --gng-dark:#2a1206; --gng-ink:#ece4dc; }
+.gng .ff-frame{background-image:url('assets/freefire/kit/gng_frame.png');}
+.gng .ff-title{font-family:'GNG Display','Moanslight',Arial,sans-serif;font-style:normal;color:#f2ece6;background:none;
+  -webkit-background-clip:border-box;background-clip:border-box;letter-spacing:.02em;
+  text-shadow:0 4px 0 rgba(0,0,0,.35);}
+.gng .ff-title .w2{color:var(--gng-orange);}
+.gng .ff-round{font-family:'Moanslight',Arial,sans-serif;color:var(--gng-dark);}
+.gng .ff-zebra{background:url('assets/freefire/kit/gng_zebra.png') center/cover,#5c2d12;}
+.gng .ff-black{background:#1d0e06;box-shadow:inset 0 0 0 2px rgba(255,169,118,.55);}
+.gng .ff-yellow{background:var(--gng-orange);color:var(--gng-dark);font-family:'Moanslight',Arial,sans-serif;}
+.gng .ff-label{background:var(--gng-orange);color:var(--gng-dark);font-family:'Moanslight',Arial,sans-serif;}
+.gng .ff-num{color:var(--gng-orange);font-family:'Moanslight',Arial,sans-serif;}
+.gng .ff-text{color:var(--gng-ink);font-family:'Moanslight',Arial,sans-serif;}
+.gng .ff-muted{color:#e8b896;font-family:'Moanslight',Arial,sans-serif;}
 
 /* ---- ARROW ---- */
 .arrow .ff-frame{position:absolute;left:150px;top:100px;width:1620px;height:880px;

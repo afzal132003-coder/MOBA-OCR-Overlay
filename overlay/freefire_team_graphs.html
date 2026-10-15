@@ -82,6 +82,18 @@
     border-top-color:#e8a33a;
   }
   body.ss3.chirayu .kicker::before{ background:#e8a33a; }
+  @font-face{font-family:'Moanslight';src:url('assets/freefire/gng/font/MOANSLIGHT-BOLD.OTF') format('opentype');font-weight:100 900;font-display:block;}
+  @font-face{font-family:'GNG Display';src:url('assets/freefire/gng/font/Sddystopiandemo-GO7xa.otf') format('opentype');font-weight:100 900;font-display:block;}
+  body.ss3.gng{ --surface:#24120a; --amber:#ffa976; --grid:#5a3a28; --text-3:#c9a48c; }
+  body.ss3.gng #panel.bg{
+    background:
+      radial-gradient(120% 90% at 50% 0%, rgba(150,75,30,.40) 0%, rgba(47,19,7,0) 60%),
+      repeating-linear-gradient(115deg, rgba(43,43,43,.35) 0 2px, transparent 2px 22px),
+      var(--surface);
+    border-top-color:#ffa976;
+  }
+  body.ss3.gng .kicker::before{ background:#ffa976; }
+  body.ss3.gng, body.ss3.gng *{ font-family:'Moanslight',Arial,sans-serif !important; }
   body.ss3 .title{ font-style:normal; }
 
   html,body{margin:0;padding:0;background:transparent;overflow:hidden;}
@@ -724,11 +736,13 @@ function render(state){
   const ev = state.event || {};
   const themePick = String(_params.get("theme") || cfg.theme || "auto").toLowerCase();
   const theme = themePick === "auto"
-    ? (["ss3", "chirayu"].includes(String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase()) ? "ss3" : "arrow")
+    ? (["ss3", "chirayu", "gng"].includes(String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase()) ? "ss3" : "arrow")
     : themePick;
   document.body.classList.toggle("ss3", theme === "ss3");
   document.body.classList.toggle("chirayu", theme === "ss3" &&
     String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase() === "chirayu");
+  document.body.classList.toggle("gng", theme === "ss3" &&
+    String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase() === "gng");
   panel.classList.toggle("on", visible);
   document.getElementById("sample").classList.toggle("on", demo);
   if(!visible){ lastSig = ""; return; }

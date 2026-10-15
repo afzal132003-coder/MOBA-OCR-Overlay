@@ -67,3 +67,6 @@ ocr/bgmi/bgmi_config.json
 
 # Result-screen captures, kept locally for the reader to be built from.
 ocr/bgmi/result_captures/
+# GNG: the event's team logos and photos stay on the engine machine
+overlay/assets/freefire/gng/Logo/
+overlay/assets/freefire/gng/teams png/

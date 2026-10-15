@@ -106,6 +106,23 @@
     background:linear-gradient(90deg, #e8a33a 0%, rgba(232,163,58,.15) 38%, rgba(232,163,58,.15) 62%, #e8a33a 100%);
   }
   body.chirayu[data-theme="ss3"] .slot{ border-color:rgba(127,151,187,.35); }
+  @font-face{font-family:'Moanslight';src:url('assets/freefire/gng/font/MOANSLIGHT-BOLD.OTF') format('opentype');font-weight:100 900;font-display:block;}
+  @font-face{font-family:'GNG Display';src:url('assets/freefire/gng/font/Sddystopiandemo-GO7xa.otf') format('opentype');font-weight:100 900;font-display:block;}
+  /* GNG: its dark browns, the orange of its status bars, Moanslight */
+  body.gng[data-theme="ss3"]{ --amber:#ffa976; --amber-deep:#e8915f; --green-0:#5c2d12; --green-1:#2f1307;
+    --panel:#1d0e06; --panel-lit:#3a1a0a; --muted:#c9a48c; }
+  body.gng[data-theme="ss3"] #stage{
+    background:
+      radial-gradient(120% 180% at 50% 0%, rgba(150,75,30,.40) 0%, rgba(47,19,7,0) 68%),
+      repeating-linear-gradient(115deg, rgba(43,43,43,.35) 0 2px, transparent 2px 18px),
+      linear-gradient(180deg, var(--green-0) 0%, var(--green-1) 100%);
+    border-top-color:#ffa976;
+  }
+  body.gng[data-theme="ss3"] #stage::before{
+    background:linear-gradient(90deg, #ffa976 0%, rgba(255,169,118,.15) 38%, rgba(255,169,118,.15) 62%, #ffa976 100%);
+  }
+  body.gng[data-theme="ss3"] .slot{ border-color:rgba(255,169,118,.35); }
+  body.gng[data-theme="ss3"], body.gng[data-theme="ss3"] *{ font-family:'Moanslight',Arial,sans-serif !important; }
   /* Tactic Sans runs wider than Supermolot: "YET TO JOIN" was clipped. */
   body[data-theme="ss3"] .state{ font-size:11px; letter-spacing:.01em; gap:5px; }
   body[data-theme="ss3"] .head .title,
@@ -610,7 +627,7 @@ function lobbyTheme(ff){
   if(pick === "ss3" || pick === "arrow") return pick;
   const ev = ff.event || {};
   const folder = String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase();
-  return (folder === "ss3" || folder === "chirayu") ? "ss3" : "arrow";
+  return (folder === "ss3" || folder === "chirayu" || folder === "gng") ? "ss3" : "arrow";
 }
 
 function render(ff){
@@ -620,6 +637,8 @@ function render(ff){
   const lev = ff.event || {};
   document.body.classList.toggle("chirayu", document.body.dataset.theme === "ss3" &&
     String(lev.aliveAssetFolder || lev.assetFolder || "").toLowerCase() === "chirayu");
+  document.body.classList.toggle("gng", document.body.dataset.theme === "ss3" &&
+    String(lev.aliveAssetFolder || lev.assetFolder || "").toLowerCase() === "gng");
   timerState = lobby.timer || null;
   drawTimer();
   const joined = lobby.joined || {};

@@ -75,6 +75,18 @@
     src: url('assets/fonts/TT Supermolot Neue Trial ExtraBold.ttf') format('truetype');
     font-weight: 400 900; font-style: normal; font-display: block;
   }
+  /* GNG's faces, shipped in its package: Moanslight Bold for the table (the
+     demo's TEAM NAME / 00 / 1.), the distressed display face for titles. */
+  @font-face {
+    font-family: 'Moanslight';
+    src: url('assets/freefire/gng/font/MOANSLIGHT-BOLD.OTF') format('opentype');
+    font-weight: 100 900; font-style: normal; font-display: block;
+  }
+  @font-face {
+    font-family: 'GNG Display';
+    src: url('assets/freefire/gng/font/Sddystopiandemo-GO7xa.otf') format('opentype');
+    font-weight: 100 900; font-style: normal; font-display: block;
+  }
   @font-face {
     font-family: 'Nippo';
     src: url('assets/freefire/GC/fonts/Nippo-Variable.woff2') format('woff2-variations'),
@@ -318,14 +330,14 @@
   .rank {
     position: absolute; display: var(--rank-display);
     left: var(--rank-x); top: 0; width: var(--rank-w); height: var(--row-h);
-    align-items: center; justify-content: center;
+    align-items: center; justify-content: var(--rank-align, center);
     color: var(--rank-ink, var(--ink)); font-weight: 800; font-size: var(--rank-size);
     font-variant-numeric: tabular-nums;
   }
   .logo {
     position: absolute; left: var(--logo-x); top: 0;
     width: var(--logo-w); height: var(--row-h);
-    display: flex; align-items: center; justify-content: center;
+    display: var(--logo-display, flex); align-items: center; justify-content: center;
   }
   .logo img {
     max-width: var(--logo-img); max-height: var(--logo-img); object-fit: contain;
@@ -433,6 +445,9 @@
   /* Keeps the text above the glow. */
   .row .rank, .row .points,
   .row .logo, .row .name, .row .kills, .row .status-pip { z-index: 1; }
+  /* A face whose own spacing sits it off the row's centre (GNG's Moanslight
+     rides 5px high) is put back where the package's demo has it. */
+  .row .rank, .row .name, .row .kills, .row .points { transform: translateY(var(--text-dy, 0px)); }
 
   /* A squad can be in the zone AND on a run. These no longer fight:
      the zone tints the inside via box-shadow, fire rings the outside
@@ -549,9 +564,12 @@
       font-family: 'SMBI', Arial, sans-serif; font-size: 15px; color: #151515; }
   #top4 .t4logo { position: absolute; display: flex; align-items: center; justify-content: center; }
   #top4 .t4logo img { max-width: 100%; max-height: 100%; object-fit: contain; }
-  #top4 .t4bar { position: absolute; background: #ffffff; border-radius: 1px;
+  #top4 .t4bar { position: absolute; background: var(--t4-alive, #ffffff); border-radius: 1px;
                  transition: background .3s ease, opacity .3s ease; }
-  #top4 .t4bar.down { background: rgba(0, 0, 0, .38); }
+  #top4 .t4bar.down { background: var(--t4-dead, rgba(0, 0, 0, .38)); }
+  /* GNG: the team's tag in the card where other packages put the logo. */
+  #top4 .t4name { position: absolute; display: flex; align-items: center; white-space: nowrap;
+                  overflow: hidden; text-transform: uppercase; line-height: 1; }
   #top4 .t4win { position: absolute; text-align: right; font-family: var(--top4-face, var(--face));
                  font-weight: 900; line-height: 1; white-space: nowrap; }
   /* ---- SIDE POP-UPS: first blood, kill leader, rampage... ----
@@ -956,6 +974,66 @@ const LAYOUTS = {
    CHIRAYU/ recoloured navy / slate / gold -- with the inks that sat on
    the yellow moved to navy and the pale yellow ones to gold. It shares
    SS3's Graphic Fixing nudges (placementKey "ss3"): same geometry. */
+/* GNG: the event's own alive table and Top 4 (assets/freefire/gng),
+   measured against "Alive Status - DEMO.png" and "Top 4 - DEMO.png":
+   twelve 40px rows from y 285 (panel x 1512..1919, the gaps between them
+   part of the art), the rank "1." at x 1527, the name at 1567, kills
+   centred on 1757.5, four 10px status bars 5 apart at x 1828..1882,
+   y +8..+35 -- in the colours of its own Live Stats icons (alive
+   #ffa976, dead #5c5c5c). No logo column. Moanslight Bold throughout,
+   #e4e4e4. The elimination card, pop-up and crown tile are the SS3
+   geometry drawn in GNG's look (generated into the folder under SS3's
+   file names -- see make_gng_art.py there). */
+LAYOUTS.gng = (() => {
+  const c = {
+    placementKey: "gng",
+    bg: "Alive Status - BLANK.png",
+    pipBase: "Live Stats/",
+    pipBars: { w: 10, gap: 5, alive: "#ffa976", dead: "#5c5c5c", unknown: "rgba(255,169,118,0.32)" },
+    rowTops: [285, 334, 384, 433, 482, 531, 581, 630, 679, 728, 778, 827],
+    row: { x: 1512, w: 408, h: 40 },
+    ink: "#e4e4e4",
+    face: "'Moanslight'",
+    textDy: 5,
+    accent: "#ffa976", accentGlow: "rgba(255, 169, 118, 0.9)",
+    accentFlash: ["rgba(255, 169, 118, 0)", "rgba(255, 169, 118, 0.45)"],
+    rank: { x: 15, w: 40, size: 19.5, align: "flex-start", suffix: "." },
+    logo: null,
+    name: { x: 55, w: 160, size: 20, align: "flex-start" },
+    points: null,
+    kills: { x: 221, w: 50, size: 20, pad: 2 },
+    pip: { x: 316, y: 8, w: 55, h: 28, size: 62.2, px: -3.6, py: -17.2 },
+    originY: 576,
+    crTile: "cr_tile.png",
+    // Four cards x 336 / 648 / 961 / 1275, 293 wide, y 42..118: the tag
+    // 40px at +33 (caps y 72..101), the bars 12x42 at +159/176/194/212
+    // from y 63, the win rate right-aligned at +134 in the tab, dark
+    // brown on the orange.
+    top4: {
+      bg: "Top 4 - BLANK.png",
+      cards: [336, 648, 961, 1275],
+      logo: null,
+      name: { dx: 33, y: 64, w: 124, h: 46, size: 40, ls: 3.5, ink: "#fcfcfc", face: "Moanslight" },
+      bars: { dx: 159, y: 63, w: 12, h: 42, at: [0, 17, 35, 53], alive: "#fcac7c", dead: "#5c5c5c" },
+      win: { right: 134, y: 47, size: 17, ink: "#502408", face: "Moanslight", weight: 700 },
+      cardW: 293, pitch: 313, slice: 336,
+      // as SS3's: drawn higher than the art, clear of the elimination card
+      lift: 26,
+    },
+  };
+  // The cards that keep SS3's geometry, in GNG's art and inks.
+  const s = LAYOUTS.ss3;
+  c.elimCard = Object.assign(JSON.parse(JSON.stringify(s.elimCard)), { placementKey: "gng" });
+  c.elimCard.name = Object.assign({}, c.elimCard.name, { ink: "#2a1206", face: "Moanslight" });
+  c.elimCard.rank = Object.assign({}, c.elimCard.rank, { ink: "#ffa976", face: "Moanslight" });
+  c.achievement = JSON.parse(JSON.stringify(s.achievement));
+  c.achievement.title = Object.assign({}, c.achievement.title, { ink: "#2a1206", face: "Moanslight" });
+  c.achievement.value = Object.assign({}, c.achievement.value, { ink: "#ffffff", face: "Moanslight" });
+  c.achievement.label = Object.assign({}, c.achievement.label, { ink: "#ffa976", face: "Moanslight" });
+  c.achievement.name = Object.assign({}, c.achievement.name, { ink: "#2a1206", face: "Moanslight" });
+  return c;
+})();
+
 LAYOUTS.CHIRAYU = (() => {
   const c = JSON.parse(JSON.stringify(LAYOUTS.ss3));
   // the league's look: rank and name on the white part of the row in its
@@ -988,7 +1066,7 @@ let activeLayout = null;
    this runs on every sync, and rewriting a dozen properties on the root
    element four times a second invalidates style for the whole page. */
 function applyLayout(L, showPoints){
-  const sig = JSON.stringify([L.row, L.ink, L.nameInk, L.killsInk, L.face, showPoints]);
+  const sig = JSON.stringify([L.row, L.ink, L.nameInk, L.killsInk, L.face, L.rank, L.logo, L.name, L.kills, L.pip, L.textDy, showPoints]);
   if(activeLayout === sig) return;
   activeLayout = sig;
   const r = document.documentElement.style;
@@ -1005,9 +1083,13 @@ function applyLayout(L, showPoints){
   r.setProperty("--rank-x", ((L.rank && L.rank.x) || 0) + "px");
   r.setProperty("--rank-w", ((L.rank && L.rank.w) || 0) + "px");
   r.setProperty("--rank-size", ((L.rank && L.rank.size) || 16) + "px");
-  r.setProperty("--logo-x", L.logo.x + "px");
-  r.setProperty("--logo-w", L.logo.w + "px");
-  r.setProperty("--logo-img", L.logo.img + "px");
+  r.setProperty("--rank-align", (L.rank && L.rank.align) || "center");
+  r.setProperty("--text-dy", (L.textDy || 0) + "px");
+  // GNG's table has no logo column.
+  r.setProperty("--logo-display", L.logo ? "flex" : "none");
+  r.setProperty("--logo-x", ((L.logo && L.logo.x) || 0) + "px");
+  r.setProperty("--logo-w", ((L.logo && L.logo.w) || 0) + "px");
+  r.setProperty("--logo-img", ((L.logo && L.logo.img) || 0) + "px");
   r.setProperty("--name-x", L.name.x + "px");
   r.setProperty("--name-w", L.name.w + "px");
   r.setProperty("--name-size", L.name.size + "px");
@@ -1046,6 +1128,8 @@ let ROW_BLOCK = { x: LAYOUTS.CLT.row.x, y: ROW_TOPS[0] };
 // What goes before the slot number: "#" for a package whose reference
 // render reads "#1", nothing for one that prints a bare "01".
 let RANK_PREFIX = "";
+// ...and after it: "." for GNG, which prints "1." .. "12.".
+let RANK_SUFFIX = "";
 
 let _lastRoster = null;
 // Each squad's Team_Photo from the engine's photo folder, by roster team
@@ -1354,8 +1438,11 @@ const lastKnownStatus = new Map();
    nothing. */
 const pipsPreloaded = new Set();
 const pipImages = [];
-function preloadPips(base){
-  ["", "Live Stats/"].forEach(sub => {
+function preloadPips(base, L){
+  // Only what this layout draws: none for drawn bars (SS3, GNG), else its
+  // own folder -- asking for both left five failed requests per load.
+  if(L && L.pipBars) return;
+  [(L && L.pipBase) || ""].forEach(sub => {
     const key = base + sub;
     if(pipsPreloaded.has(key)) return;
     pipsPreloaded.add(key);
@@ -1712,7 +1799,7 @@ function renderRace(state){
   box.classList.toggle("on", on);
   if(!on) return;
   const pk = String(aliveFolder(state)).toLowerCase();
-  box.style.setProperty("--race-acc", pk === "ss3" ? "#ff1e1e" : pk === "chirayu" ? "#e8a33a" : "#f7941d");
+  box.style.setProperty("--race-acc", pk === "ss3" ? "#ff1e1e" : pk === "chirayu" ? "#e8a33a" : pk === "gng" ? "#ffa976" : "#f7941d");
   const race = ((state.liveOps || {}).fragRace) || [];
   const roster = state.roster || {};
   const rows = box.querySelector(".rows");
@@ -1772,7 +1859,7 @@ function playWipeBanner(state, byName, row, next){
   const el = document.getElementById("wipeBanner");
   const by = logoFor(byName, state.roster), out = logoFor(row.teamName, state.roster);
   const pk = String(aliveFolder(state)).toLowerCase();
-  el.style.setProperty("--wb-acc", pk === "ss3" ? "#ff1e1e" : pk === "chirayu" ? "#e8a33a" : "#f7941d");
+  el.style.setProperty("--wb-acc", pk === "ss3" ? "#ff1e1e" : pk === "chirayu" ? "#e8a33a" : pk === "gng" ? "#ffa976" : "#f7941d");
   const set = (sel, img) => { const i = el.querySelector(sel); if(img){ i.src = img; i.style.display = ""; } else i.style.display = "none"; };
   set("img.a", by && by.logo);
   set("img.b", out && out.logo);
@@ -2072,6 +2159,8 @@ function renderTop4(state, source){
   if(!T){ box.querySelectorAll(".t4card").forEach(c => c.remove()); t4Order = []; return false; }
   if(!on){ t4Order = []; return false; }
   const base = assetBase(state);
+  box.style.setProperty("--t4-alive", (T.bars && T.bars.alive) || "#ffffff");
+  box.style.setProperty("--t4-dead", (T.bars && T.bars.dead) || "rgba(0, 0, 0, .38)");
 
   // The standing squads -- four at most, the four with most kills when
   // more than four are still in (the bar pushed early by hand).
@@ -2115,7 +2204,7 @@ function renderTop4(state, source){
       card.dataset.key = key;
       card.style.setProperty("--enter", (i * 90) + "ms");
       card.innerHTML = (T.kit ? '<div class="t4panel"></div><div class="t4plate"></div><div class="t4lab">WIN RATE</div>' : "") +
-        '<div class="t4logo"><img alt=""></div>' +
+        '<div class="t4logo"><img alt=""></div><div class="t4name"></div>' +
         [0, 1, 2, 3].map(k => '<div class="t4bar" data-k="' + k + '"></div>').join("") +
         '<div class="t4win"></div>';
       box.appendChild(card);
@@ -2123,6 +2212,7 @@ function renderTop4(state, source){
       setTimeout(() => card.style.setProperty("--enter", "0s"), 1200);
     }
     card.style.left = Math.round(x0 + i * pitch) + "px";
+    card.style.width = W + "px";
     card.style.top = -(T.lift || 0) + "px";
     if(!T.kit){
       const art = `url("${base + encodeURI(T.bg)}")`;
@@ -2133,15 +2223,36 @@ function renderTop4(state, source){
     }
     const team = logoFor(row.teamName, state.roster);
     const lg = card.querySelector(".t4logo");
-    Object.assign(lg.style, { left: T.logo.dx + "px", top: T.logo.y + "px",
-                              width: T.logo.w + "px", height: T.logo.h + "px" });
-    const img = lg.querySelector("img");
-    const src = (team && team.logo) || "";
-    if(img.getAttribute("src") !== src){ if(src) img.src = src; img.style.display = src ? "" : "none"; }
+    const nm = card.querySelector(".t4name");
+    lg.style.display = T.logo ? "" : "none";
+    nm.style.display = T.name ? "" : "none";
+    if(T.logo){
+      Object.assign(lg.style, { left: T.logo.dx + "px", top: T.logo.y + "px",
+                                width: T.logo.w + "px", height: T.logo.h + "px" });
+      const img = lg.querySelector("img");
+      const src = (team && team.logo) || "";
+      if(img.getAttribute("src") !== src){ if(src) img.src = src; img.style.display = src ? "" : "none"; }
+    }
+    if(T.name){
+      // GNG: the team's tag, as the demo's "AAA", shrunk to its box
+      Object.assign(nm.style, { left: T.name.dx + "px", top: T.name.y + "px", width: T.name.w + "px",
+                                height: T.name.h + "px", color: T.name.ink, fontSize: T.name.size + "px",
+                                letterSpacing: (T.name.ls || 0) + "px",
+                                fontFamily: `'${T.name.face}', Arial, sans-serif` });
+      const tag = cleanName((team && team.shortName) || row.short || row.teamName || "");
+      if(nm.textContent !== tag){
+        nm.textContent = tag;
+        let size = T.name.size;
+        nm.style.fontSize = size + "px";
+        while(nm.scrollWidth > nm.clientWidth + 1 && size > T.name.size * 0.5){ size -= 1; nm.style.fontSize = size + "px"; }
+      }
+    }
     const up = Math.max(0, Math.min(4, row.aliveCount != null ? row.aliveCount : 4));
     card.querySelectorAll(".t4bar").forEach(b => {
       const k = Number(b.dataset.k);
-      Object.assign(b.style, { left: (T.bars.dx + k * T.bars.pitch) + "px", top: T.bars.y + "px",
+      // whole pixels where the art's bars sit on them (GNG: 0, 17, 35, 53)
+      const bx = T.bars.at ? T.bars.at[k] : k * T.bars.pitch;
+      Object.assign(b.style, { left: (T.bars.dx + bx) + "px", top: T.bars.y + "px",
                                width: T.bars.w + "px", height: T.bars.h + "px" });
       b.classList.toggle("down", k >= up);
     });
@@ -2302,7 +2413,7 @@ function apply(state){
   const live = state.liveOps || {};
   const source = fillFromRoster((live.sidetableRows || []).slice(0, 12), state);
   const base = assetBase(state);
-  preloadPips(base);
+  preloadPips(base, layoutFor(state));
   // ?preview=1 draws regardless of whether the graphic is on air. A
   // preview that only works once something is already live isn't a
   // preview -- it can't be used to check a graphic BEFORE showing it,
@@ -2346,6 +2457,7 @@ function apply(state){
   ROW_TOPS = L.rowTops;
   ROW_BLOCK = { x: L.row.x, y: L.rowTops[0] };
   RANK_PREFIX = (L.rank && L.rank.prefix) || "";
+  RANK_SUFFIX = (L.rank && L.rank.suffix) || "";
 
   const backdrop = document.getElementById("backdrop");
   const bgSrc = base + ((showPoints && L.bgPoints) ? L.bgPoints : L.bg);
@@ -2417,7 +2529,8 @@ function apply(state){
     // says otherwise, and a blank cell in a column of numbers reads as a
     // fault rather than as a score.
     const effective = effectiveKills(row);
-    const kills = effective < 0 ? "0" : String(effective);
+    // GNG prints kills in two digits ("05"), as its demo's "00".
+    const kills = (effective < 0 ? "0" : String(effective)).padStart((L.kills && L.kills.pad) || 1, "0");
     const killsEl = el.querySelector(".kills");
     if(killsEl.textContent !== kills) killsEl.textContent = kills;
 
@@ -2643,7 +2756,7 @@ function apply(state){
     // because it belongs to the SLOT, not the team -- a squad that
     // climbs the table takes its neighbour's number, not its own.
     const rankEl = el.querySelector(".rank");
-    const rank = RANK_PREFIX + String(slot + 1);
+    const rank = RANK_PREFIX + String(slot + 1) + RANK_SUFFIX;
     if(rankEl && rankEl.textContent !== rank) rankEl.textContent = rank;
     slot++;
     // First placement lands instantly; every move after that animates.
