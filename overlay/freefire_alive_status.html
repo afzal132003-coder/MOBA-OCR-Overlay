@@ -448,6 +448,7 @@
   /* A face whose own spacing sits it off the row's centre (GNG's Moanslight
      rides 5px high) is put back where the package's demo has it. */
   .row .rank, .row .name, .row .kills, .row .points { transform: translateY(var(--text-dy, 0px)); }
+  .row .logo { transform: translateY(var(--logo-dy, 0px)); }
 
   /* A squad can be in the zone AND on a run. These no longer fight:
      the zone tints the inside via box-shadow, fire rings the outside
@@ -980,7 +981,9 @@ const LAYOUTS = {
    part of the art), the rank "1." at x 1527, the name at 1567, kills
    centred on 1757.5, four 10px status bars 5 apart at x 1828..1882,
    y +8..+35 -- in the colours of its own Live Stats icons (alive
-   #ffa976, dead #5c5c5c). No logo column. Moanslight Bold throughout,
+   #ffa976, dead #5c5c5c). The DEMO has no logo; the team's logo goes
+   between the rank and the name (x 47..77, level with the names' caps),
+   the name after it. Moanslight Bold throughout,
    #e4e4e4. The elimination card, pop-up and crown tile are the SS3
    geometry drawn in GNG's look (generated into the folder under SS3's
    file names -- see make_gng_art.py there). */
@@ -998,8 +1001,8 @@ LAYOUTS.gng = (() => {
     accent: "#ffa976", accentGlow: "rgba(255, 169, 118, 0.9)",
     accentFlash: ["rgba(255, 169, 118, 0)", "rgba(255, 169, 118, 0.45)"],
     rank: { x: 15, w: 40, size: 19.5, align: "flex-start", suffix: "." },
-    logo: null,
-    name: { x: 55, w: 160, size: 20, align: "flex-start" },
+    logo: { x: 47, w: 30, img: 28, dy: 3 },
+    name: { x: 81, w: 139, size: 20, align: "flex-start" },
     points: null,
     kills: { x: 221, w: 50, size: 20, pad: 2 },
     pip: { x: 316, y: 8, w: 55, h: 28, size: 62.2, px: -3.6, py: -17.2 },
@@ -1085,11 +1088,12 @@ function applyLayout(L, showPoints){
   r.setProperty("--rank-size", ((L.rank && L.rank.size) || 16) + "px");
   r.setProperty("--rank-align", (L.rank && L.rank.align) || "center");
   r.setProperty("--text-dy", (L.textDy || 0) + "px");
-  // GNG's table has no logo column.
+  // A package whose table has no logo column passes logo: null.
   r.setProperty("--logo-display", L.logo ? "flex" : "none");
   r.setProperty("--logo-x", ((L.logo && L.logo.x) || 0) + "px");
   r.setProperty("--logo-w", ((L.logo && L.logo.w) || 0) + "px");
   r.setProperty("--logo-img", ((L.logo && L.logo.img) || 0) + "px");
+  r.setProperty("--logo-dy", ((L.logo && L.logo.dy) || 0) + "px");
   r.setProperty("--name-x", L.name.x + "px");
   r.setProperty("--name-w", L.name.w + "px");
   r.setProperty("--name-size", L.name.size + "px");
