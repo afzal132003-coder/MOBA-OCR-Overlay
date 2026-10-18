@@ -428,7 +428,10 @@ if __name__ == "__main__":
     booyah_title = ((500, 150, 1440, 234), ["BOOYAH", "TEAM", "STATS"])
     ss3_screen("booyah team stats R - BLANK1.png", frame_no_bar, booyah_off, title=booyah_title, bar=(746, 240, 1018, 275))
     ss3_screen("booyah team stats character R - BLANK.png", frame_no_bar, booyah_off, title=booyah_title, bar=(746, 240, 1018, 275))
-    ss3_screen("head to head R - BLANK.png", frame, [[(470, 125), (1460, 125), (1460, 262), (470, 262)]],
+    # SS3's own title; the tail of its lettered SURVIVOR SERIES ribbon where
+    # it crosses the right-hand card
+    ss3_screen("head to head R - BLANK.png", frame, [[(470, 125), (1460, 125), (1460, 262), (470, 262)],
+               [(1794, 380), (1920, 380), (1920, 520), (1794, 520)]],
                title=((495, 144, 1440, 241), ["HEAD", "TO", "HEAD"]))
     drop_spot()
     print("written: the in-game cards, the kit (gng_frame / gng_zebra / gng_roundbar), and the SS3 screens in GNG")

@@ -94,6 +94,17 @@
   }
   body.ss3.gng .kicker::before{ background:#ffa976; }
   body.ss3.gng, body.ss3.gng *{ font-family:'Moanslight',Arial,sans-serif !important; }
+  @font-face{font-family:'RNX Sans';src:local('Winner Sans'),local('Winner Sans Bold'),local('WinnerSans-Bold'),url('assets/freefire/RNX/font/winner-sans.otf') format('opentype'),url('assets/freefire/RNX/font/winner-sans.ttf') format('truetype'),url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');font-weight:100 900;font-display:block;}
+  @font-face{font-family:'RNX Black';src:local('Winner Sans Black'),local('WinnerSans-Black'),url('assets/freefire/RNX/font/winner-sans-black.otf') format('opentype'),url('assets/freefire/RNX/font/winner-sans-black.ttf') format('truetype'),url('assets/freefire/RNX/font/winner-sans.otf') format('opentype'),url('assets/freefire/RNX/font/winner-sans.ttf') format('truetype'),url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');font-weight:100 900;font-display:block;}
+  body.ss3.rnx{ --surface:#2a0a3c; --amber:#fcd02c; --grid:#4d2a66; --text-3:#c9b0dc; }
+  body.ss3.rnx #panel.bg{
+    background:
+      radial-gradient(120% 90% at 50% 0%, rgba(150,60,200,.40) 0%, rgba(42,10,60,0) 60%),
+      var(--surface);
+    border-top-color:#fcd02c;
+  }
+  body.ss3.rnx .kicker::before{ background:#fcd02c; }
+  body.ss3.rnx, body.ss3.rnx *{ font-family:'RNX Sans',Arial,sans-serif !important; }
   body.ss3 .title{ font-style:normal; }
 
   html,body{margin:0;padding:0;background:transparent;overflow:hidden;}
@@ -585,8 +596,17 @@ function drawBreakdown(svg, data, cfg, roster, head){
 }
 
 // Sequential: one hue, more is further from the surface. Five steps of
-// the blue ramp, the dark surface's "near zero" at the deep end.
+// the blue ramp, the dark surface's "near zero" at the deep end -- or of
+// the package's own accent where it has a skin (GNG's orange, RNX's gold).
 const RAMP = ["#104281", "#1c5cab", "#2a78d6", "#5598e7", "#86b6ef"];
+const RAMPS = {
+  gng: ["#4a2210", "#7a3a18", "#b5602e", "#f08a52", "#ffc9a5"],
+  rnx: ["#5a3a0c", "#8a6410", "#c49416", "#f0c020", "#ffe27a"],
+};
+function ramp(){
+  const k = Object.keys(RAMPS).find(k => document.body.classList.contains(k));
+  return k ? RAMPS[k] : RAMP;
+}
 
 function drawKills(svg, data, cfg, roster, head){
   const rows = data.teams.map(t => ({ t, total: sum(t, "kills") }))
@@ -594,6 +614,7 @@ function drawKills(svg, data, cfg, roster, head){
   const n = data.games.length;
   const cells = rows.flatMap(r => r.t.games.map(g => g ? g.kills : 0));
   const max = Math.max(1, ...cells);
+  const RAMP = ramp();
   head("Eliminations By Game", "Each team's eliminations in every game · darker = fewer, lighter = more", []);
   const L = 250, colW = Math.min(150, (W - L - 170) / Math.max(1, n));
   const pitch = Math.min(52, (H - 40) / Math.max(1, rows.length));
@@ -736,13 +757,15 @@ function render(state){
   const ev = state.event || {};
   const themePick = String(_params.get("theme") || cfg.theme || "auto").toLowerCase();
   const theme = themePick === "auto"
-    ? (["ss3", "chirayu", "gng"].includes(String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase()) ? "ss3" : "arrow")
+    ? (["ss3", "chirayu", "gng", "rnx"].includes(String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase()) ? "ss3" : "arrow")
     : themePick;
   document.body.classList.toggle("ss3", theme === "ss3");
   document.body.classList.toggle("chirayu", theme === "ss3" &&
     String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase() === "chirayu");
   document.body.classList.toggle("gng", theme === "ss3" &&
     String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase() === "gng");
+  document.body.classList.toggle("rnx", theme === "ss3" &&
+    String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase() === "rnx");
   panel.classList.toggle("on", visible);
   document.getElementById("sample").classList.toggle("on", demo);
   if(!visible){ lastSig = ""; return; }

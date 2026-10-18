@@ -41,9 +41,15 @@
   /* GNG: its browns and orange, Moanslight for every word (after the
      SS3 face below, so it wins) */
   body.ss3.gng{ --surface:#24120a; --accent:#ffa976; --next:#ffc9a5; --text-2:#e8dcd2; --text-3:#c9a48c; --pin:#ffa976; }
+  @font-face{font-family:'RNX Sans';src:local('Winner Sans'),local('Winner Sans Bold'),local('WinnerSans-Bold'),url('assets/freefire/RNX/font/winner-sans.otf') format('opentype'),url('assets/freefire/RNX/font/winner-sans.ttf') format('truetype'),url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');font-weight:100 900;font-display:block;}
+  @font-face{font-family:'RNX Black';src:local('Winner Sans Black'),local('WinnerSans-Black'),url('assets/freefire/RNX/font/winner-sans-black.otf') format('opentype'),url('assets/freefire/RNX/font/winner-sans-black.ttf') format('truetype'),url('assets/freefire/RNX/font/winner-sans.otf') format('opentype'),url('assets/freefire/RNX/font/winner-sans.ttf') format('truetype'),url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');font-weight:100 900;font-display:block;}
+  /* RNX: its purple and gold, Winner Sans (see the faces above) */
+  body.ss3.rnx{ --surface:#2a0a3c; --accent:#fcd02c; --next:#ffe27a; --text-2:#ece0f4; --text-3:#c9b0dc; --pin:#fcd02c; }
   body.ss3, body.ss3 svg text, body.tpl-ss3, body.tpl-ss3 svg text{ font-family:'TacticSans',Arial,sans-serif !important; }
   body.gng, body.gng svg text, body.gng .tagtxt, body.gng .cell .nm, body.gng #ss3Round{ font-family:'Moanslight',Arial,sans-serif !important; }
   body.gng #ss3Match{ color:#2a1206; }
+  body.rnx, body.rnx svg text, body.rnx .tagtxt, body.rnx .cell .nm, body.rnx #ss3Round{ font-family:'RNX Sans',Arial,sans-serif !important; }
+  body.rnx #ss3Match{ color:#500864; }
 
   html,body{margin:0;padding:0;background:transparent;overflow:hidden;}
   body{width:1920px;height:1080px;font-family:'Supermolot',Arial,sans-serif;color:var(--text-1);
@@ -67,6 +73,10 @@
   body.ss3 #panel.bg{
     background:radial-gradient(120% 90% at 50% 0%, rgba(255,30,30,.28) 0%, rgba(14,14,14,0) 60%),
                repeating-linear-gradient(115deg, rgba(255,30,30,.05) 0 2px, transparent 2px 22px), var(--surface);
+  }
+  body.ss3.rnx #panel.bg{
+    background:radial-gradient(120% 90% at 50% 0%, rgba(150,60,200,.40) 0%, rgba(42,10,60,0) 60%), var(--surface);
+    border-top-color:#fcd02c;
   }
   body.ss3.gng #panel.bg{
     background:radial-gradient(120% 90% at 50% 0%, rgba(150,75,30,.40) 0%, rgba(47,19,7,0) 60%),
@@ -2620,14 +2630,17 @@ function render(state){
   const ev = state.event || {};
   const theme = String(_params.get("theme") || cfg.theme || "auto").toLowerCase();
   const pkg = String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase();
-  const ss3Theme = theme === "ss3" || ((theme === "auto" || theme === "") && (pkg === "ss3" || pkg === "chirayu" || pkg === "gng"));
+  const ss3Theme = theme === "ss3" || ((theme === "auto" || theme === "") && (pkg === "ss3" || pkg === "chirayu" || pkg === "gng" || pkg === "rnx"));
   // CHIRAYU GOLD LEAGUE: the SS3 graphic with its own art and colours
   const chirayu = pkg === "chirayu" && (ss3Theme || cfg.template === "ss3");
   document.body.classList.toggle("chirayu", chirayu);
   // GNG: the SS3 graphic in its own look and art (assets/freefire/gng)
   const gng = pkg === "gng" && (ss3Theme || cfg.template === "ss3");
   document.body.classList.toggle("gng", gng);
-  SS3_ART = "assets/freefire/" + (chirayu ? "CHIRAYU" : gng ? "gng" : "ss3") + "/" + encodeURI("prg br ss3 drop spot - BLANK.png");
+  // RNX: likewise (assets/freefire/RNX)
+  const rnx = pkg === "rnx" && (ss3Theme || cfg.template === "ss3");
+  document.body.classList.toggle("rnx", rnx);
+  SS3_ART = "assets/freefire/" + (chirayu ? "CHIRAYU" : gng ? "gng" : rnx ? "RNX" : "ss3") + "/" + encodeURI("prg br ss3 drop spot - BLANK.png");
   const mode = ["match", "drops", "stats"].includes(cfg.source) ? cfg.source : "live";
   document.body.classList.toggle("stats", mode === "stats");
   // The SS3 artwork has "PREFERRED DROP SPOT" in it, so it is used for the

@@ -18,6 +18,9 @@
 @font-face { font-family:'SMBI'; src:url('assets/fonts/TT Supermolot Neue Trial Black Italic.ttf') format('truetype'); font-weight:900; }
 @font-face { font-family:'Moanslight'; src:url('assets/freefire/gng/font/MOANSLIGHT-BOLD.OTF') format('opentype'); font-weight:100 900; }
 @font-face { font-family:'GNG Display'; src:url('assets/freefire/gng/font/Sddystopiandemo-GO7xa.otf') format('opentype'); font-weight:100 900; }
+@font-face{font-family:'RNX Sans';src:local('Winner Sans'),local('Winner Sans Bold'),local('WinnerSans-Bold'),url('assets/freefire/RNX/font/winner-sans.otf') format('opentype'),url('assets/freefire/RNX/font/winner-sans.ttf') format('truetype'),url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');font-weight:100 900;font-display:block;}
+@font-face{font-family:'RNX Black';src:local('Winner Sans Black'),local('WinnerSans-Black'),url('assets/freefire/RNX/font/winner-sans-black.otf') format('opentype'),url('assets/freefire/RNX/font/winner-sans-black.ttf') format('truetype'),url('assets/freefire/RNX/font/winner-sans.otf') format('opentype'),url('assets/freefire/RNX/font/winner-sans.ttf') format('truetype'),url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');font-weight:100 900;font-display:block;}
+
 
 :root{
   --ss3-red:#eb0000; --ss3-label:#e11b17; --ss3-yellow:#fff694; --ss3-bar:#fff594; --ss3-black:#050505;
@@ -94,6 +97,28 @@ body.gng{ --ss3-red:#5c2d12; --ss3-label:#ffa976; --ss3-yellow:#ffa976; --ss3-ba
 .gng .ff-num{color:var(--gng-orange);font-family:'Moanslight',Arial,sans-serif;}
 .gng .ff-text{color:var(--gng-ink);font-family:'Moanslight',Arial,sans-serif;}
 .gng .ff-muted{color:#e8b896;font-family:'Moanslight',Arial,sans-serif;}
+
+/* ---- RNX: the SS3 layouts in the event's own look ----
+   From its art (assets/freefire/RNX): purple panels (#600c84), its gold
+   (#fcd02c) for every highlight with dark violet (#500864) on it, white
+   type, in Winner Sans ('RNX Sans' / 'RNX Black' -- the face where it is
+   installed or its file is in RNX/font, else Supermolot). Titles white,
+   the last word gold. Its own frame (kit/rnx_frame.png). */
+body.rnx{ --ss3-red:#600c84; --ss3-label:#fcd02c; --ss3-yellow:#fcd02c; --ss3-bar:#fcd02c; --ss3-black:#22062f;
+  --rnx-gold:#fcd02c; --rnx-violet:#500864; --rnx-ink:#ffffff; }
+.rnx .ff-frame{background-image:url('assets/freefire/kit/rnx_frame.png');}
+.rnx .ff-title{font-family:'RNX Black',Arial,sans-serif;font-style:normal;color:#ffffff;background:none;
+  -webkit-background-clip:border-box;background-clip:border-box;letter-spacing:.01em;
+  text-shadow:0 4px 0 rgba(0,0,0,.35);}
+.rnx .ff-title .w2{color:var(--rnx-gold);}
+.rnx .ff-round{font-family:'RNX Black',Arial,sans-serif;color:var(--rnx-violet);}
+.rnx .ff-zebra{background:url('assets/freefire/kit/rnx_zebra.png') center/cover,#600c84;}
+.rnx .ff-black{background:#22062f;box-shadow:inset 0 0 0 2px rgba(252,208,44,.55);}
+.rnx .ff-yellow{background:var(--rnx-gold);color:var(--rnx-violet);font-family:'RNX Black',Arial,sans-serif;}
+.rnx .ff-label{background:var(--rnx-gold);color:var(--rnx-violet);font-family:'RNX Black',Arial,sans-serif;}
+.rnx .ff-num{color:var(--rnx-gold);font-family:'RNX Black',Arial,sans-serif;}
+.rnx .ff-text{color:var(--rnx-ink);font-family:'RNX Sans',Arial,sans-serif;}
+.rnx .ff-muted{color:#dcc6ec;font-family:'RNX Sans',Arial,sans-serif;}
 
 /* ---- ARROW ---- */
 .arrow .ff-frame{position:absolute;left:150px;top:100px;width:1620px;height:880px;

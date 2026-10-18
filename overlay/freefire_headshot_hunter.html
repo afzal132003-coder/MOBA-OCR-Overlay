@@ -57,6 +57,9 @@
   .chirayu #tTitle{ color:#111 !important; } .chirayu #tLabel{ color:#f6c45c !important; }
   .gng #tTitle{ color:#2a1206 !important; } .gng #tLabel{ color:#ffa976 !important; }
   .gng #tTitle, .gng #tLabel, .gng #tValue, .gng #tName{ font-family:'Moanslight',Arial,sans-serif !important; }
+  .rnx #tTitle{ color:#500864 !important; } .rnx #tLabel{ color:#fcd02c !important; } .rnx #tName{ color:#000000 !important; }
+  .rnx #tTitle, .rnx #tValue, .rnx #tName{ font-family:'RNX Black',Arial,sans-serif !important; }
+  .rnx #tLabel{ font-family:'RNX Sans',Arial,sans-serif !important; }
   .ss3 #tTitle{ color:#ff1810; } .ss3 #tValue{ color:#fff; } .ss3 #tLabel{ color:#fff894; } .ss3 #tName{ color:#111; }
   /* ARROW draws what the SS3 art carries */
   #aPanel, #aTab, #aPhotoBox, #aPlate, #aLogoBox{ display:none; }
@@ -152,7 +155,7 @@ function hidePopup(el){
 function look(state){
   const ev = (state && state.event) || {};
   const f = String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase();
-  return (f === "ss3" || f === "chirayu" || f === "gng") ? "ss3" : (f === "prg arrow" ? "arrow" : "");
+  return (f === "ss3" || f === "chirayu" || f === "gng" || f === "rnx") ? "ss3" : (f === "prg arrow" ? "arrow" : "");
 }
 
 function fillThemed(hh, state, theme){
@@ -163,7 +166,9 @@ function fillThemed(hh, state, theme){
   document.body.classList.toggle("chirayu", chirayu);
   const gng = theme === "ss3" && String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase() === "gng";
   document.body.classList.toggle("gng", gng);
-  SS3_ART = "assets/freefire/" + (chirayu ? "CHIRAYU" : gng ? "gng" : "ss3") + "/" + encodeURI("prg br ss3 achivement - BLANK.png");
+  const rnx = theme === "ss3" && String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase() === "rnx";
+  document.body.classList.toggle("rnx", rnx);
+  SS3_ART = "assets/freefire/" + (chirayu ? "CHIRAYU" : gng ? "gng" : rnx ? "RNX" : "ss3") + "/" + encodeURI("prg br ss3 achivement - BLANK.png");
   const art = document.getElementById("tArt");
   if(theme === "ss3" && art.getAttribute("src") !== SS3_ART) art.src = SS3_ART;
   const roster = (state && state.roster) || {};

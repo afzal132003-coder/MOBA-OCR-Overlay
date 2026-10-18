@@ -123,6 +123,22 @@
   }
   body.gng[data-theme="ss3"] .slot{ border-color:rgba(255,169,118,.35); }
   body.gng[data-theme="ss3"], body.gng[data-theme="ss3"] *{ font-family:'Moanslight',Arial,sans-serif !important; }
+  @font-face{font-family:'RNX Sans';src:local('Winner Sans'),local('Winner Sans Bold'),local('WinnerSans-Bold'),url('assets/freefire/RNX/font/winner-sans.otf') format('opentype'),url('assets/freefire/RNX/font/winner-sans.ttf') format('truetype'),url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');font-weight:100 900;font-display:block;}
+  @font-face{font-family:'RNX Black';src:local('Winner Sans Black'),local('WinnerSans-Black'),url('assets/freefire/RNX/font/winner-sans-black.otf') format('opentype'),url('assets/freefire/RNX/font/winner-sans-black.ttf') format('truetype'),url('assets/freefire/RNX/font/winner-sans.otf') format('opentype'),url('assets/freefire/RNX/font/winner-sans.ttf') format('truetype'),url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');font-weight:100 900;font-display:block;}
+  /* RNX: its purple, its gold, Winner Sans */
+  body.rnx[data-theme="ss3"]{ --amber:#fcd02c; --amber-deep:#fcb814; --green-0:#6c1694; --green-1:#2a0a3c;
+    --panel:#22062f; --panel-lit:#4a0f68; --muted:#c9b0dc; }
+  body.rnx[data-theme="ss3"] #stage{
+    background:
+      radial-gradient(120% 180% at 50% 0%, rgba(150,60,200,.40) 0%, rgba(42,10,60,0) 68%),
+      linear-gradient(180deg, var(--green-0) 0%, var(--green-1) 100%);
+    border-top-color:#fcd02c;
+  }
+  body.rnx[data-theme="ss3"] #stage::before{
+    background:linear-gradient(90deg, #fcd02c 0%, rgba(252,208,44,.15) 38%, rgba(252,208,44,.15) 62%, #fcd02c 100%);
+  }
+  body.rnx[data-theme="ss3"] .slot{ border-color:rgba(252,208,44,.35); }
+  body.rnx[data-theme="ss3"], body.rnx[data-theme="ss3"] *{ font-family:'RNX Sans',Arial,sans-serif !important; }
   /* Tactic Sans runs wider than Supermolot: "YET TO JOIN" was clipped. */
   body[data-theme="ss3"] .state{ font-size:11px; letter-spacing:.01em; gap:5px; }
   body[data-theme="ss3"] .head .title,
@@ -627,7 +643,7 @@ function lobbyTheme(ff){
   if(pick === "ss3" || pick === "arrow") return pick;
   const ev = ff.event || {};
   const folder = String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase();
-  return (folder === "ss3" || folder === "chirayu" || folder === "gng") ? "ss3" : "arrow";
+  return (folder === "ss3" || folder === "chirayu" || folder === "gng" || folder === "rnx") ? "ss3" : "arrow";
 }
 
 function render(ff){
@@ -639,6 +655,8 @@ function render(ff){
     String(lev.aliveAssetFolder || lev.assetFolder || "").toLowerCase() === "chirayu");
   document.body.classList.toggle("gng", document.body.dataset.theme === "ss3" &&
     String(lev.aliveAssetFolder || lev.assetFolder || "").toLowerCase() === "gng");
+  document.body.classList.toggle("rnx", document.body.dataset.theme === "ss3" &&
+    String(lev.aliveAssetFolder || lev.assetFolder || "").toLowerCase() === "rnx");
   timerState = lobby.timer || null;
   drawTimer();
   const joined = lobby.joined || {};

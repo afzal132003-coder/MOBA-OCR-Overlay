@@ -70,3 +70,7 @@ ocr/bgmi/result_captures/
 # GNG: the event's team logos and photos stay on the engine machine
 overlay/assets/freefire/gng/Logo/
 overlay/assets/freefire/gng/teams png/
+# RNX: its paid face (Winner Sans) and its demos, which show a real team
+overlay/assets/freefire/RNX/font/
+overlay/assets/freefire/RNX/* - DEMO.png
+!overlay/assets/freefire/RNX/zone bug - DEMO.png

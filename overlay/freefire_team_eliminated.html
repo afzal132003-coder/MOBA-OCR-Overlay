@@ -393,7 +393,7 @@ function apply(state){
   // "eliminated bug" art, team photo and all), so this one stands down
   // rather than doubling it. ARROW has no art for it and is drawn below.
   const pkg = String((state.event && (state.event.aliveAssetFolder || state.event.assetFolder)) || "").toLowerCase();
-  if(pkg === "ss3" || pkg === "chirayu" || pkg === "gng"){
+  if(pkg === "ss3" || pkg === "chirayu" || pkg === "gng" || pkg === "rnx"){
     const c = document.getElementById("card");
     c.classList.remove("show", "anim-enter", "anim-exit");
     lastStatus = te.status;
