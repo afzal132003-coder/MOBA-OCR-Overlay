@@ -627,6 +627,83 @@
   /* ...and the strip in front of it: the same art again, clipped to the
      ribbon, the logo box and the name bar (A.over), so the player stands
      behind them as the design has it rather than pasted over the top. */
+  /* ---- THE ZONE TIMER BUG ------------------------------------------
+     The zone's countdown -- ZONE SHRINKS IN 0:40, then ZONE SHRINKING
+     while it closes -- with the squads still standing under it, logo and
+     tag. Where the elimination card goes (#zonePlace; moved from Graphic
+     Fixing as "zoneBug"), stepping aside while a card or a wipe banner is
+     up. Drawn here, in the package's own colours (ZB_THEMES), rather than
+     baked into an image: the squad list changes length all match. */
+  #zonePlace { position: absolute; left: 746px; top: 101px; width: 428px;
+               transform-origin: center top; z-index: 2; pointer-events: none; }
+  #zoneBug { position: relative; width: 428px; display: none;
+             font-family: var(--zb-face, Arial), Arial, sans-serif;
+             transition: opacity .25s ease, transform .25s ease; }
+  #zoneBug.show { display: block; }
+  #zoneBug.yield { opacity: 0; transform: translateY(-10px); }
+  .zb-head { position: relative; height: 66px; overflow: hidden;
+    background: repeating-linear-gradient(115deg, rgba(255,255,255,.045) 0 2px, transparent 2px 20px),
+                linear-gradient(120deg, var(--zb-a, #262626) 0%, var(--zb-b, #0e0e0e) 100%);
+    clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 16px 100%, 0 calc(100% - 16px)); }
+  .zb-stage { position: absolute; left: 0; top: 0; height: 22px; padding: 0 16px 0 12px;
+    display: flex; align-items: center; background: var(--zb-acc, #f7941d); color: var(--zb-dark, #111);
+    font-size: 13px; font-weight: 800; letter-spacing: 1.5px;
+    clip-path: polygon(0 0, 100% 0, calc(100% - 10px) 100%, 0 100%); }
+  .zb-label { position: absolute; left: 14px; top: 29px; font-size: 22px; font-weight: 800;
+    letter-spacing: 1px; color: var(--zb-ink, #f2f2f2); white-space: nowrap; }
+  .zb-time { position: absolute; right: 20px; top: 5px; height: 56px; display: flex; align-items: center;
+    font-size: 46px; font-weight: 800; color: var(--zb-acc, #f7941d); letter-spacing: 1px;
+    font-variant-numeric: tabular-nums; }
+  .zb-time span { display: inline-block; }
+  .zb-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.08); }
+  .zb-bar i { position: absolute; left: 0; top: 0; bottom: 0; width: var(--zb-frac, 100%);
+    background: var(--zb-acc, #f7941d); box-shadow: 0 0 10px var(--zb-acc, #f7941d); transition: width .95s linear; }
+  #zoneBug.untimed .zb-time, #zoneBug.untimed .zb-bar { display: none; }
+  .zb-teams { position: relative; margin-top: 4px; padding: 8px 10px 10px; transform-origin: top center;
+    background: linear-gradient(180deg, var(--zb-b, #0e0e0e) 0%, rgba(0,0,0,.84) 100%);
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%); }
+  .zb-count { font-size: 12px; letter-spacing: 2px; color: var(--zb-acc, #f7941d); font-weight: 800; margin: 0 0 7px 2px; }
+  .zb-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 7px 4px; }
+  .zb-team { display: flex; flex-direction: column; align-items: center; gap: 3px;
+    transition: opacity .4s ease, transform .4s ease, filter .4s ease; }
+  .zb-team .lg { width: 40px; height: 34px; display: flex; align-items: center; justify-content: center; }
+  .zb-team .lg img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .zb-team .sn { font-size: 13px; font-weight: 800; color: var(--zb-ink, #f2f2f2); letter-spacing: .5px;
+    white-space: nowrap; max-width: 66px; overflow: hidden; }
+  .zb-team.gone { opacity: 0; transform: scale(.55); filter: grayscale(1); }
+
+  /* In: the head wipes open from the left, the squads unfold under it and
+     pop in one after another. Out: it lifts away. */
+  #zoneBug.in .zb-head { animation: zb-wipe .5s cubic-bezier(.2,.8,.25,1) both; }
+  #zoneBug.in .zb-teams { animation: zb-unfold .36s cubic-bezier(.2,.8,.25,1) .24s both; }
+  #zoneBug.in .zb-team, .zb-team.new { animation: zb-pop .32s ease-out both;
+    animation-delay: calc(.38s + var(--i, 0) * 40ms); }
+  .zb-team.new { animation-delay: 0s; }
+  #zoneBug.out { animation: zb-out .3s cubic-bezier(.55,0,.85,.35) both; }
+  @keyframes zb-wipe {
+    from { clip-path: polygon(0 0, 0 0, 0 18px, 0 100%, 0 100%, 0 calc(100% - 16px)); }
+    to   { clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 16px 100%, 0 calc(100% - 16px)); }
+  }
+  @keyframes zb-unfold { from { transform: scaleY(0); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes zb-pop { from { opacity: 0; transform: translateY(7px) scale(.88); } to { opacity: 1; transform: none; } }
+  @keyframes zb-out { to { opacity: 0; transform: translateY(-14px); } }
+  /* every second the figure drops in; in the last ten it pulses and the
+     head is ringed in the accent */
+  .zb-time span.tick { animation: zb-tick .24s ease-out; }
+  @keyframes zb-tick { from { transform: translateY(-5px) scale(1.08); opacity: .55; } to { transform: none; opacity: 1; } }
+  #zoneBug.urgent .zb-time { animation: zb-urgent 1s ease-in-out infinite; }
+  @keyframes zb-urgent { 0%, 100% { color: var(--zb-acc, #f7941d); text-shadow: none; }
+                         50% { color: #fff; text-shadow: 0 0 18px var(--zb-acc, #f7941d); } }
+  #zoneBug.urgent .zb-head::before { content: ""; position: absolute; inset: 0; z-index: 1;
+    box-shadow: inset 0 0 0 2px var(--zb-acc, #f7941d); animation: zb-ring 1s ease-in-out infinite; }
+  @keyframes zb-ring { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+  /* a new phase: the words slide in, a shine crosses the head */
+  .zb-label.swap { animation: zb-swap .4s cubic-bezier(.2,.8,.25,1) both; }
+  @keyframes zb-swap { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: none; } }
+  .zb-head.shine::after { content: ""; position: absolute; top: 0; bottom: 0; left: -120px; width: 90px; z-index: 2;
+    background: linear-gradient(100deg, transparent, rgba(255,255,255,.26), transparent);
+    animation: zb-shine .9s ease-out both; }
+  @keyframes zb-shine { to { left: 470px; } }
   #popOver { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; display: none; }
   #popLogo img { max-width: 100%; max-height: 100%; object-fit: contain; }
 </style>
@@ -653,6 +730,12 @@
 
 <div id="wipeBanner"><div class="wb"><img class="a" alt=""><span class="na"></span><span class="w">WIPED</span>
   <span class="nb"></span><img class="b" alt=""></div></div>
+
+<div id="zonePlace"><div id="zoneBug">
+  <div class="zb-head"><div class="zb-stage"></div><div class="zb-label"></div>
+    <div class="zb-time"><span></span></div><div class="zb-bar"><i></i></div></div>
+  <div class="zb-teams"><div class="zb-count"></div><div class="zb-grid"></div></div>
+</div></div>
 
 <div id="elimCard">
   <div id="elimPlace">
@@ -1182,6 +1265,10 @@ function connect(){
     }
     if(msg.type === "row_revive"){
       reviveRow(msg);
+      return;
+    }
+    if(msg.type === "zone_clock"){
+      zoneClock(msg.clock);
       return;
     }
     if(msg.type === "race_photos"){
@@ -2455,6 +2542,7 @@ function queuePopup(pop){
 function apply(state){
   lastState = state;
   syncElimCarded(state);
+  try { zbApply(state); } catch(e){ console.error("zone bug:", e); }
   const live = state.liveOps || {};
   const source = fillFromRoster((live.sidetableRows || []).slice(0, 12), state);
   const base = assetBase(state);
@@ -2885,6 +2973,169 @@ function applyElementOverrides(state){
     });
   });
 }
+
+/* THE ZONE TIMER BUG (see its CSS). The engine sends its clock on a
+   message of its own, once a second while the zone counts (zone_clock,
+   with settings.zoneBug on); this counts down smoothly between them and
+   draws the squads still standing from the state. The time is the
+   engine's estimate from earlier matches -- the client writes no timer. */
+const ZB_THEMES = {
+  gng:   { acc: "#ffa976", a: "#5c2d12", b: "#2f1307", dark: "#2a1206", ink: "#ece4dc" },
+  ss3:   { acc: "#ff1e1e", a: "#3a0808", b: "#0b0b0b", dark: "#fff694", ink: "#f4f4f4" },
+  arrow: { a: "#123224", b: "#07120d", dark: "#0b0b0b", ink: "#f2f2f2" },
+};
+const zb = { clock: null, deadline: 0, key: "", sec: null, shown: false, outTimer: null, inTimer: null,
+             tiles: new Map() };
+const ZB_DEMO = _params.get("zonedemo") === "1";      // a sample clock, for previews and Graphic Fixing
+function zbFmt(sec){ return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0"); }
+function zoneClock(clock){
+  zb.clock = clock || null;
+  if(clock && clock.left != null){
+    // `left` is whole seconds rounded down: the moment it hits zero is
+    // half a second on, on average. Re-anchored only when the page has
+    // drifted, so the figure never jitters between ticks.
+    const deadline = Date.now() + (clock.left + 0.5) * 1000;
+    const key = clock.stage + ":" + clock.phase;
+    if(key !== zb.key || Math.abs(deadline - zb.deadline) > 1200) zb.deadline = deadline;
+  }
+  zbRender();
+}
+function zbApply(state){
+  const place = document.getElementById("zonePlace");
+  const L = layoutFor(state);
+  const panel = L.elimCard && L.elimCard.panel;
+  const at = L.zoneBug || (panel ? { x: Math.round(panel.x + (panel.w - 428) / 2), y: panel.y } : { x: 746, y: 101 });
+  place.style.left = at.x + "px";
+  place.style.top = at.y + "px";
+  const T = ZB_THEMES[L.placementKey] || {};
+  const vars = { "--zb-acc": T.acc || L.accent || "#f7941d", "--zb-a": T.a || "#262626", "--zb-b": T.b || "#0e0e0e",
+                 "--zb-dark": T.dark || "#111111", "--zb-ink": T.ink || "#f2f2f2",
+                 "--zb-face": (L.face || "Arial").split(",")[0] };
+  Object.entries(vars).forEach(([k, v]) => { if(place.style.getPropertyValue(k) !== v) place.style.setProperty(k, v); });
+  // The Graphic Fixing nudge, the package's own (zoneBug@gng ...)
+  const o = (state.graphicOverrides || {})["zoneBug" + (L.placementKey ? "@" + L.placementKey : "")] || {};
+  const dx = o.dx || 0, dy = o.dy || 0, sc = o.scale || 1;
+  const t = (dx || dy || sc !== 1) ? `translate(${dx}px, ${dy}px) scale(${sc})` : "";
+  if(place.style.transform !== t) place.style.transform = t;
+  zbTeams(state);
+  zbRender();
+}
+// The squads still standing, most kills first, each by its logo and tag.
+// One that goes out greys and shrinks away; one that comes back pops in.
+function zbTeams(state){
+  const grid = document.querySelector("#zoneBug .zb-grid");
+  const rows = ((state.liveOps || {}).sidetableRows || []).filter(r => r && r.teamName);
+  const alive = rows.filter(r => !(r.eliminated === true || r.aliveCount === 0))
+                    .sort((a, b) => (Number(b.elims) || 0) - (Number(a.elims) || 0));
+  const keep = new Set(alive.map(rowKeyOf));
+  zb.tiles.forEach((tile, key) => {
+    if(keep.has(key) || tile.classList.contains("gone")) return;
+    tile.classList.add("gone");
+    setTimeout(() => { if(tile.classList.contains("gone")){ tile.remove(); zb.tiles.delete(key); } }, 420);
+  });
+  alive.forEach((row, i) => {
+    const key = rowKeyOf(row);
+    let tile = zb.tiles.get(key);
+    if(!tile || tile.classList.contains("gone")){
+      if(tile) tile.remove();
+      tile = document.createElement("div");
+      tile.className = "zb-team" + (zb.shown ? " new" : "");
+      tile.innerHTML = '<div class="lg"><img alt=""></div><div class="sn"></div>';
+      zb.tiles.set(key, tile);
+    }
+    tile.style.setProperty("--i", i);
+    const team = logoFor(row.teamName, state.roster);
+    const img = tile.querySelector("img");
+    const src = (team && team.logo) || "";
+    if(img.getAttribute("src") !== src){ if(src) img.src = src; else img.removeAttribute("src"); }
+    img.style.visibility = src ? "" : "hidden";
+    const sn = (row.short || (team && team.shortName) || row.teamName || "").toUpperCase();
+    const snEl = tile.querySelector(".sn");
+    if(snEl.textContent !== sn){ snEl.textContent = sn; snEl.dataset.fit = "1"; }
+    if(grid.children[i] !== tile) grid.insertBefore(tile, grid.children[i] || null);
+  });
+  const n = alive.length;
+  document.querySelector("#zoneBug .zb-count").textContent = n + (n === 1 ? " TEAM" : " TEAMS") + " ALIVE";
+  zbFitTags();
+}
+// A long tag shrinks to its tile rather than being cut off. Measured only
+// while the bug is drawn -- hidden, every width reads 0 -- so a tag set
+// while it was down is fitted when it comes up.
+function zbFitTags(){
+  if(!document.getElementById("zoneBug").classList.contains("show")) return;
+  document.querySelectorAll('#zoneBug .sn[data-fit="1"]').forEach(el => {
+    el.style.fontSize = "";
+    for(let size = 13; size > 8 && el.scrollWidth > el.clientWidth + 0.5; size--) el.style.fontSize = (size - 1) + "px";
+    delete el.dataset.fit;
+  });
+}
+function zbRender(){
+  const el = document.getElementById("zoneBug");
+  const st = lastState;
+  if(ZB_DEMO && !zb.clock){
+    zb.clock = { stage: 2, phase: "PRE_SHRINK", label: "ZONE SHRINKS IN", left: 38, expected: 50 };
+    zb.deadline = Date.now() + 38500;
+  }
+  const on = !!(zb.clock && st && (ZB_DEMO || (st.settings || {}).zoneBug));
+  if(on && !zb.shown){
+    zb.shown = true;
+    clearTimeout(zb.outTimer);
+    el.classList.remove("out");
+    el.classList.add("show", "in");
+    zbFitTags();
+    clearTimeout(zb.inTimer);
+    zb.inTimer = setTimeout(() => el.classList.remove("in"), 1400);
+  } else if(!on && zb.shown){
+    zb.shown = false;
+    el.classList.remove("in");
+    el.classList.add("out");
+    zb.outTimer = setTimeout(() => el.classList.remove("show", "out"), 320);
+  }
+  if(!zb.clock) return;
+  const c = zb.clock;
+  const key = c.stage + ":" + c.phase;
+  const label = el.querySelector(".zb-label");
+  if(key !== zb.key){
+    const fresh = zb.key !== "";
+    zb.key = key;
+    zb.sec = null;
+    el.querySelector(".zb-stage").textContent = "ZONE " + ((Number(c.stage) || 0) + 1);
+    label.textContent = c.label || "ZONE";
+    if(fresh && zb.shown){
+      label.classList.remove("swap"); void label.offsetWidth; label.classList.add("swap");
+      const head = el.querySelector(".zb-head");
+      head.classList.remove("shine"); void head.offsetWidth; head.classList.add("shine");
+    }
+  }
+  el.classList.toggle("untimed", c.left == null);
+  zbTick();
+}
+function zbTick(){
+  if(!zb.clock || zb.clock.left == null) return;
+  const el = document.getElementById("zoneBug");
+  const sec = Math.max(0, Math.floor((zb.deadline - Date.now()) / 1000));
+  if(sec === zb.sec) return;
+  zb.sec = sec;
+  const span = el.querySelector(".zb-time span");
+  span.textContent = zbFmt(sec);
+  span.classList.remove("tick"); void span.offsetWidth; span.classList.add("tick");
+  el.classList.toggle("urgent", sec <= 10);
+  const exp = Number(zb.clock.expected) || 0;
+  el.querySelector(".zb-head").style.setProperty("--zb-frac", (exp ? Math.min(100, sec / exp * 100) : 0) + "%");
+  // the demo loops
+  if(ZB_DEMO && sec === 0) setTimeout(() => { zb.deadline = Date.now() + 38500; }, 900);
+}
+setInterval(zbTick, 200);
+// Out of the way of the elimination card and the wipe banner, which play
+// where it sits; back when they have gone.
+(function zbYield(){
+  const card = document.getElementById("elimCard"), banner = document.getElementById("wipeBanner");
+  const check = () => {
+    const busy = card.classList.contains("show") || banner.classList.contains("show");
+    document.getElementById("zoneBug").classList.toggle("yield", busy);
+  };
+  [card, banner].forEach(n => new MutationObserver(check).observe(n, { attributes: true, attributeFilter: ["class"] }));
+})();
 
 connect();
 </script>

@@ -2420,6 +2420,8 @@
             <input type="checkbox" id="ff_wipeBanner" checked> Wipe banner first</label>
           <label class="hint" style="margin:0;" title="A revive on the side table: the player's name and REVIVED sweep across their team's row, the way ELIMINATED does. In the in-game source.">
             <input type="checkbox" id="ff_reviveRow" checked> Revive on the side table</label>
+          <label class="hint" style="margin:0;" title="The zone's countdown -- ZONE SHRINKS IN 0:40, then ZONE SHRINKING while it closes -- with the squads still alive under it, logo and tag. Comes up by itself while the zone counts and goes while it waits; steps aside for the elimination card. Where the card sits; move it in Graphic Fixing → Zone timer bug. The time is estimated from earlier matches -- the client writes no timer. In the in-game source.">
+            <input type="checkbox" id="ff_zoneBug"> Zone timer bug</label>
           <span class="hint" style="margin:0;">Side pop-ups:</span>
           <label class="hint" style="margin:0;"><input type="checkbox" class="ff-sidepop" data-k="firstBlood"> First blood</label>
           <label class="hint" style="margin:0;" title="A new player on top of the kill table, from 3 kills"><input type="checkbox" class="ff-sidepop" data-k="killLeader"> Kill leader</label>
@@ -3319,6 +3321,12 @@
           <input type="number" id="ff_elimCardSeconds" min="1" max="15" step="0.5" value="4">
         </div>
         <span class="hint" id="ff_elimCardSecondsNote" style="margin:0;"></span>
+      </div>
+      <div class="row" style="gap:8px;margin-bottom:10px;align-items:center;">
+        <span class="hint" style="margin:0;">Zone timer bug:</span>
+        <button class="secondary" id="ffgfx_page_zoneBug">Whole bug</button>
+        <span class="hint" style="margin:0;">Starts where the elimination card sits -- drag it anywhere, size it with Panel scale.
+          Each graphics package keeps its own spot.</span>
       </div>
       <div id="ffgfx_stage_wrap" style="position:relative;width:960px;height:540px;
            background:#000;border:1px solid #1b2430;border-radius:8px;overflow:hidden;">
@@ -12228,6 +12236,8 @@ function ffRenderPopupControls(ff){
   if(idle(wbx)) wbx.checked = st.wipeBanner !== false;
   const rvx = document.getElementById("ff_reviveRow");
   if(idle(rvx)) rvx.checked = st.reviveRow !== false;
+  const zbx = document.getElementById("ff_zoneBug");
+  if(idle(zbx)) zbx.checked = st.zoneBug === true;
   document.querySelectorAll(".ff-sidepop").forEach(el => { if(idle(el)) el.checked = !!sw[el.dataset.k]; });
   const sec = document.getElementById("ff_sidePopupSeconds");
   if(idle(sec)) sec.value = st.sidePopupSeconds || 5;
@@ -12247,6 +12257,11 @@ function ffRenderPopupControls(ff){
   });
   document.getElementById("ff_reviveRow").addEventListener("change", e => {
     if(ffPopupSettings({ reviveRow: e.target.checked })) note(e.target.checked ? "Revives sweep across their team's row on the side table." : "Revives off the side table.");
+  });
+  document.getElementById("ff_zoneBug").addEventListener("change", e => {
+    if(ffPopupSettings({ zoneBug: e.target.checked })) note(e.target.checked
+      ? "Zone timer bug on -- it comes up by itself while the zone counts down and shrinks."
+      : "Zone timer bug off.");
   });
   document.getElementById("ff_wipeBanner").addEventListener("change", e => {
     if(ffPopupSettings({ wipeBanner: e.target.checked })) note(e.target.checked ? "Wipe banner on -- it plays before each card." : "Wipe banner off.");
@@ -15074,19 +15089,27 @@ const FFGFX_ELIM_BOXES_SS3 = {
   elimName: { left: 836, top: 253, width: 334, height: 42 },
   elimRank: { left: 1148, top: 101, width: 42, height: 45 },
 };
-function ffgfxElimPackage(){
+// The alive page's placement key for the event's package -- the suffix the
+// overlay reads its nudges under (its layouts' placementKey).
+function ffgfxAlivePackage(){
   const ev = (ffState && ffState.event) || {};
-  // CHIRAYU is the SS3 package copied, same card geometry: SS3's nudges
-  return ["ss3", "CHIRAYU"].includes(ev.aliveAssetFolder || ev.assetFolder || "CLT") ? "ss3" : "";
+  const f = ev.aliveAssetFolder || ev.assetFolder || "";
+  return { "ss3": "ss3", "CHIRAYU": "ss3", "PRG ARROW": "arrow", "gng": "gng" }[f]
+    || { "ss3": "ss3", "chirayu": "ss3", "prg arrow": "arrow", "gng": "gng" }[f.toLowerCase()] || "";
+}
+function ffgfxElimPackage(){
+  // CHIRAYU is the SS3 package copied, same card geometry: SS3's nudges.
+  // GNG's card is SS3's geometry in its own art, under its own nudges.
+  const pk = ffgfxAlivePackage();
+  return pk === "ss3" || pk === "gng" ? pk : "";
 }
 // Where a page's nudge is stored: the SS3 card's under its own keys, and
 // the alive table's under the alive package's own (SS3 / PRG ARROW), so a
 // nudge for one table never moves another.
 function ffgfxStoreKey(pageKey){
   if(FFGFX_ELIM_BOXES[pageKey] && ffgfxElimPackage()) return pageKey + "@" + ffgfxElimPackage();
-  if(/^aliveStatus/.test(pageKey)){
-    const ev = (ffState && ffState.event) || {};
-    const pk = { "ss3": "ss3", "CHIRAYU": "ss3", "PRG ARROW": "arrow" }[ev.aliveAssetFolder || ev.assetFolder || ""];
+  if(/^aliveStatus/.test(pageKey) || pageKey === "zoneBug"){
+    const pk = ffgfxAlivePackage();
     if(pk) return pageKey + "@" + pk;
   }
   return pageKey;
@@ -15096,7 +15119,9 @@ Object.entries(FFGFX_ELIM_BOXES).forEach(([key, el]) => {
   const rectNow = () => ffgfxElimPackage() ? FFGFX_ELIM_BOXES_SS3[key] : el.rect;
   FFGFX_PAGES[key] = {
     label: el.label,
-    bg: () => ffgfxElimPackage()
+    bg: () => ffgfxElimPackage() === "gng"
+      ? "../overlay/assets/freefire/gng/eliminated bug - BLANK.png"
+      : ffgfxElimPackage()
       ? "../overlay/assets/freefire/ss3/eliminated bug - DEMO.png"
       : "../overlay/assets/freefire/" +
         ((ffState && ffState.event && ffState.event.assetFolder) || "CLT") + "/Eliminated.png",
@@ -15109,6 +15134,26 @@ Object.entries(FFGFX_ELIM_BOXES).forEach(([key, el]) => {
     get origin(){ const r = rectNow(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; },
   };
 });
+
+/* The zone timer bug (in-game source): by default where the elimination
+   card sits -- centred on the card's panel, 428 wide, 224 tall with
+   twelve squads under it -- and scaled about its top centre, as the
+   overlay does. Its backdrop is the package's own demo of it where there
+   is one. */
+function ffgfxZoneBugRect(){
+  const panel = ffgfxElimPackage() ? FFGFX_ELIM_BOXES_SS3.elimCard : FFGFX_ELIM_BOXES.elimCard.rect;
+  return { left: Math.round(panel.left + (panel.width - 428) / 2), top: panel.top, width: 428, height: 224 };
+}
+FFGFX_PAGES.zoneBug = {
+  label: "Zone Timer Bug",
+  bg: () => {
+    const pk = ffgfxElimPackage();
+    return pk ? "../overlay/assets/freefire/" + pk + "/zone bug - DEMO.png"
+              : "../overlay/assets/freefire/" + ((ffState && ffState.event && ffState.event.assetFolder) || "CLT") + "/Eliminated.png";
+  },
+  get rect(){ return ffgfxZoneBugRect(); },
+  get origin(){ const r = ffgfxZoneBugRect(); return { x: r.left + r.width / 2, y: r.top }; },
+};
 
 FFGFX_PAGES.aliveStatusPanel = {
   label: "Alive Status — Whole Panel",

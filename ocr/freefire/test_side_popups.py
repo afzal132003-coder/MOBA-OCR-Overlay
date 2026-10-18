@@ -31,7 +31,12 @@ def kill(t, killer, kuid, kteam, victim, vuid, vteam, headshot=False):
 
 def main():
     keep = (dict(ff.server_state.get("settings") or {}),
-            list((ff.server_state.get("liveOps") or {}).get("sidetableRows") or []))
+            list((ff.server_state.get("liveOps") or {}).get("sidetableRows") or []),
+            ff.server_state.get("roster"))
+    # A roster of its own: the card looks the killer up in the roster
+    # first, and the saved one is whatever event ran last -- one with a
+    # real "Ace✮⋆˙" named this test's Ace for another team.
+    ff.server_state["roster"] = {"teams": []}
     tmp = tempfile.mkdtemp()
     Image.new("RGBA", (200, 400), (255, 0, 0, 255)).save(os.path.join(tmp, "1001 - Ace.png"))
     Image.new("RGBA", (200, 400), (0, 0, 255, 255)).save(os.path.join(tmp, "OnlyIgn.png"))
@@ -97,6 +102,7 @@ def main():
     finally:
         ff.server_state["settings"] = keep[0]
         ff.server_state["liveOps"]["sidetableRows"] = keep[1]
+        ff.server_state["roster"] = keep[2]
 
     print("\n%d checks, %d failed" % (checks, len(failures)))
     return 1 if failures else 0

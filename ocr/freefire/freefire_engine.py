@@ -7892,6 +7892,29 @@ def zone_countdown(live, now=None):
     }
 
 
+# THE ZONE TIMER BUG (in-game source, settings.zoneBug): the phases it
+# counts down and what it says for each. STABLE -- the circle waiting,
+# nothing drawn yet -- is not a countdown, so the bug stays down.
+ZONE_BUG_PHASES = {"PRE_SHRINK": "ZONE SHRINKS IN", "SHRINK": "ZONE SHRINKING",
+                   "RANDOM_PREMOVE": "ZONE MOVES IN", "RANDOM_MOVE": "ZONE MOVING"}
+
+
+def zone_clock(live, now=None):
+    """The zone timer bug's clock: the stage, the phase, and the seconds
+    left in it -- the same estimate as zone_countdown (the client writes
+    no timer). None while there is nothing to count: the circle waiting,
+    no match, or the match over. `left` is None for a phase not seen
+    before; the bug then says what the zone is doing without a time."""
+    zone = live.get("zone") or {}
+    phase = zone.get("phase")
+    if phase not in ZONE_BUG_PHASES or live.get("ended"):
+        return None
+    cd = zone_countdown(live, now)
+    return {"stage": zone.get("stage"), "phase": phase, "label": ZONE_BUG_PHASES[phase],
+            "left": cd["secondsLeft"] if cd else None,
+            "expected": cd["expected"] if cd else None}
+
+
 def director_feed(live, linked=None, now=None):
     """What a director would want said out loud, right now.
 
@@ -9803,6 +9826,10 @@ def build_map_bin(match_file):
 # own kill feed, for the map source's race layer.
 FREEFIRE_RACE_TOP = 3
 _race_photo_key = ""
+# The zone clock last sent to the in-game page (see zone_clock): it goes on
+# its own message, once a second while it counts, and never in the state --
+# every state change is a full sync to every page.
+_zone_clock_sent = None
 
 
 def frag_race(live, linked, id_map, top=FREEFIRE_RACE_TOP):
@@ -11737,6 +11764,10 @@ async def handle_client(websocket, path=None):
     await _send_guarded(websocket, json.dumps({
         "type": "state_sync", "data": first_state, "locked": list(locked_fields),
     }), opening=True)
+    # and the zone timer bug's clock, so a page that connects mid-countdown
+    # does not wait for the next tick
+    if _zone_clock_sent and first_page in pages_for("freefire_alive_status") and first_page != "unknown":
+        await _send_guarded(websocket, json.dumps({"type": "zone_clock", "clock": _zone_clock_sent}))
     if first_page == "freefire_map":
         try:
             await send_map_bin(only=websocket)
@@ -14089,6 +14120,16 @@ async def ocr_loop():
                     if previous is None or _shape(director) != _shape(previous):
                         server_state["liveOps"]["director"] = director
                         changed = True
+
+                    global _zone_clock_sent
+                    clock = (zone_clock(_live_match)
+                             if (server_state.get("settings") or {}).get("zoneBug") else None)
+                    if clock != _zone_clock_sent:
+                        _zone_clock_sent = clock
+                        try:
+                            await broadcast_to_page("freefire_alive_status", {"type": "zone_clock", "clock": clock})
+                        except Exception as e:
+                            print("[zone] clock not sent: %s" % e)
 
                     if await handle_live_signals(signals, linked["gsNames"]):
                         changed = True
