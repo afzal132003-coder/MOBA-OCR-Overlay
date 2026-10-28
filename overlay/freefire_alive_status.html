@@ -717,6 +717,59 @@
   @keyframes zb-shine { to { left: 470px; } }
   #popOver { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; display: none; }
   #popLogo img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+  /* ---- TOP 5 ELIMINATION LEADERS -------------------------------------
+     Pushed from the In-Game tab (settings.killLeadersUp): the five with
+     the most eliminations this match, where the side table stands -- the
+     table steps down while it is up and comes back when it is pulled.
+     The package's own colours (ZB_THEMES) and faces, like the zone bug. */
+  #leaders { position: absolute; left: 1530px; top: 250px; width: 380px; z-index: 3; pointer-events: none;
+             display: none; color: var(--zb-ink, #f2f2f2); font-family: var(--ld-bold, Arial), Arial, sans-serif; }
+  #leaders.show { display: block; }
+  .ld-head { position: relative; height: 62px; overflow: hidden;
+    background: repeating-linear-gradient(115deg, rgba(255,255,255,.05) 0 2px, transparent 2px 20px),
+                linear-gradient(120deg, var(--zb-a, #262626) 0%, var(--zb-b, #0e0e0e) 100%);
+    clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 16px 100%, 0 calc(100% - 16px)); }
+  .ld-head::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 8px; background: var(--zb-acc, #f7941d); }
+  .ld-head .k { position: absolute; left: 22px; top: 8px; font-size: 14px; letter-spacing: 4px; color: var(--zb-acc, #f7941d); }
+  .ld-head .t { position: absolute; left: 22px; top: 26px; font-size: 25px; letter-spacing: .5px; white-space: nowrap; }
+  .ld-rows { position: relative; margin-top: 8px; }
+  .ld-row { position: absolute; left: 0; right: 0; height: 76px; transition: top .45s cubic-bezier(.2,.8,.25,1), opacity .4s, filter .4s; }
+  .ld-row .bg { position: absolute; inset: 0;
+    background: repeating-linear-gradient(115deg, rgba(255,255,255,.04) 0 2px, transparent 2px 18px),
+                linear-gradient(100deg, var(--zb-a, #262626) 0%, var(--zb-b, #0e0e0e) 100%);
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 12px 100%, 0 calc(100% - 12px)); }
+  .ld-row.r1 .bg::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--zb-acc, #f7941d); }
+  .ld-row .rk { position: absolute; left: 0; top: 0; width: 46px; height: 28px; z-index: 2;
+    display: flex; align-items: center; justify-content: center; font-size: 18px;
+    background: var(--zb-acc, #f7941d); color: var(--zb-dark, #111);
+    clip-path: polygon(0 0, 100% 0, calc(100% - 8px) 100%, 0 100%); }
+  .ld-row .ph { position: absolute; left: 50px; bottom: 0; width: 80px; height: 76px; z-index: 1;
+    display: flex; align-items: flex-end; justify-content: center; overflow: hidden; }
+  .ld-row .ph img { max-width: 100%; max-height: 100%; object-fit: contain; object-position: center bottom; }
+  .ld-row .ph img.logo { max-width: 50px; max-height: 50px; margin-bottom: 13px; }
+  .ld-row .who { position: absolute; left: 138px; right: 100px; top: 13px; }
+  .ld-row.bare .who { left: 58px; top: 22px; }
+  .ld-row .ign { font-size: 21px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-transform: uppercase; }
+  .ld-row .tm { display: flex; align-items: center; gap: 6px; margin-top: 3px; font-size: 13px; letter-spacing: 1px;
+    color: var(--zb-acc, #f7941d); white-space: nowrap; overflow: hidden; font-family: var(--ld-face, Arial), Arial, sans-serif; }
+  .ld-row .tm img { width: 20px; height: 20px; object-fit: contain; }
+  .ld-row .val { position: absolute; right: 0; top: 11px; bottom: 11px; width: 94px;
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+    background: var(--zb-acc, #f7941d); color: var(--zb-dark, #111);
+    clip-path: polygon(14px 0, 100% 0, 100% 100%, 0 100%); }
+  .ld-row .val b { font-size: 31px; font-weight: 400; line-height: 1; display: inline-block; }
+  .ld-row .val small { font-size: 11px; letter-spacing: 1px; }
+  .ld-row.out { opacity: .62; filter: grayscale(.85); }
+  .ld-empty { position: relative; height: 54px; display: flex; align-items: center; justify-content: center; font-size: 16px;
+    letter-spacing: 2px; background: linear-gradient(100deg, var(--zb-a, #262626), var(--zb-b, #0e0e0e)); }
+  /* In: the head wipes open, the five slide in one after another. Out: it lifts away. */
+  #leaders.in .ld-head { animation: zb-wipe .5s cubic-bezier(.2,.8,.25,1) both; }
+  #leaders.in .ld-row { animation: ld-in .45s cubic-bezier(.2,.8,.25,1) both; animation-delay: calc(.22s + var(--i, 0) * 80ms); }
+  @keyframes ld-in { from { opacity: 0; transform: translateX(70px); } to { opacity: 1; transform: none; } }
+  #leaders.out { animation: zb-out .3s cubic-bezier(.55,0,.85,.35) both; }
+  .ld-row .val b.pop { animation: ld-pop .55s ease-out; }
+  @keyframes ld-pop { from { transform: scale(1.6); } to { transform: none; } }
 </style>
 </head>
 <body>
@@ -737,6 +790,9 @@
   <div class="pp" id="popLabel"></div><div class="pp" id="popLogo"><img alt=""></div>
   <div class="pp" id="popName"></div>
 </div></div>
+
+<div id="leaders"><div class="ld-head"><span class="k">TOP 5</span><span class="t">ELIMINATION LEADERS</span></div>
+  <div class="ld-rows"></div></div>
 
 <div id="race"><div class="rh"><span class="rt">Elimination race</span><span class="rl">LIVE</span></div><div class="rows"></div></div>
 
@@ -2105,7 +2161,8 @@ function renderRace(state){
   if(!on) return;
   const pk = String(aliveFolder(state)).toLowerCase();
   box.style.setProperty("--race-acc", pk === "ss3" ? "#ff1e1e" : pk === "chirayu" ? "#e8a33a" : pk === "gng" ? "#ffa976" : pk === "rnx" ? "#fcd02c" : pk.startsWith("enfea") ? "#ffcc00" : "#f7941d");
-  const race = ((state.liveOps || {}).fragRace) || [];
+  // the engine's list runs to five, for the leaders board; the race is three
+  const race = (((state.liveOps || {}).fragRace) || []).slice(0, 3);
   const roster = state.roster || {};
   const rows = box.querySelector(".rows");
   if(mv.raceShownAt && mv.raceShownAt !== raceShown){
@@ -2156,6 +2213,122 @@ function renderRace(state){
     }
   });
   raceRows.forEach((el, id) => { if(!seen.has(id)){ el.remove(); raceRows.delete(id); } });
+}
+
+/* ---- TOP 5 ELIMINATION LEADERS --------------------------------------
+   settings.killLeadersUp (Push / Pull in the In-Game tab; killLeadersAt
+   each push, so a second push plays it in again). Everyone with a kill
+   from liveOps.headshotBoard, with the team and photo key from
+   liveOps.fragRace where the player is in it -- the board is whole even
+   while the race is shorter than five. */
+const ldRows = new Map();
+let ldUp = false, ldShownAt = 0, ldOutTimer = 0;
+function leadersList(state){
+  const live = state.liveOps || {};
+  const by = new Map();
+  (live.headshotBoard || []).forEach(p => {
+    const id = p.uid || p.ign;
+    if(id && Number(p.kills) > 0) by.set(id, { ign: p.ign, uid: p.uid, kills: Number(p.kills), teamName: p.team || "" });
+  });
+  (live.fragRace || []).forEach(r => {
+    const id = r.uid || r.ign;
+    if(!id) return;
+    const had = by.get(id) || {};
+    by.set(id, Object.assign(had, { ign: r.ign || had.ign, uid: r.uid || had.uid, kills: Number(r.kills),
+                                    teamName: r.teamName || had.teamName || "", short: r.short, teamOut: r.teamOut }));
+  });
+  const outTeams = new Set((live.sidetableRows || []).filter(r => r.eliminated)
+    .map(r => String(r.teamName || "").trim().toUpperCase()));
+  return [...by.values()]
+    .map(p => Object.assign(p, { teamOut: p.teamOut != null ? p.teamOut
+                                          : outTeams.has(String(p.teamName || "").trim().toUpperCase()) }))
+    .sort((a, b) => b.kills - a.kills || String(a.ign).toUpperCase().localeCompare(String(b.ign).toUpperCase()))
+    .slice(0, 5);
+}
+function renderLeaders(state){
+  const st = state.settings || {};
+  const box = document.getElementById("leaders");
+  if(!st.killLeadersUp){
+    if(ldUp){
+      ldUp = false;
+      box.classList.remove("in");
+      box.classList.add("out");
+      clearTimeout(ldOutTimer);
+      ldOutTimer = setTimeout(() => box.classList.remove("show", "out"), 320);
+    }
+    return false;
+  }
+  const L = layoutFor(state);
+  const T = ZB_THEMES[L.placementKey] || {};
+  const bold = (L.elimCard && L.elimCard.name && L.elimCard.name.face) ? `'${L.elimCard.name.face}'` : (L.face || "Arial");
+  const vars = { "--zb-acc": T.acc || L.accent || "#f7941d", "--zb-a": T.a || "#262626", "--zb-b": T.b || "#0e0e0e",
+                 "--zb-dark": T.dark || "#111111", "--zb-ink": T.ink || "#f2f2f2",
+                 "--ld-bold": bold, "--ld-face": L.face || "Arial" };
+  Object.entries(vars).forEach(([k, v]) => { if(box.style.getPropertyValue(k) !== v) box.style.setProperty(k, v); });
+  // Where the table stands: its art's top, flush to the right edge.
+  box.style.top = ((L.artBox && L.artBox.top) || (L.rowTops[0] - 40)) + "px";
+  if(!ldUp || (st.killLeadersAt && st.killLeadersAt !== ldShownAt)){
+    ldUp = true;
+    ldShownAt = st.killLeadersAt || 0;
+    clearTimeout(ldOutTimer);
+    ldRows.forEach(el => el.remove()); ldRows.clear();
+    box.classList.remove("out", "in");
+    void box.offsetWidth;                // play the way in from the start
+    box.classList.add("show", "in");
+  }
+  const list = leadersList(state);
+  const rowsBox = box.querySelector(".ld-rows");
+  let empty = rowsBox.querySelector(".ld-empty");
+  if(!list.length){
+    if(!empty){ empty = document.createElement("div"); empty.className = "ld-empty"; empty.textContent = "NO ELIMINATIONS YET"; rowsBox.appendChild(empty); }
+  } else if(empty) empty.remove();
+  rowsBox.style.height = list.length ? (list.length * 83 - 7) + "px" : "";
+  const roster = state.roster || {};
+  const seen = new Set();
+  list.forEach((p, i) => {
+    const id = p.uid || p.ign;
+    seen.add(id);
+    let el = ldRows.get(id);
+    const fresh = !el;
+    if(!el){
+      el = document.createElement("div");
+      el.className = "ld-row";
+      el.innerHTML = '<div class="bg"></div><div class="rk"></div><div class="ph"><img alt=""></div>' +
+        '<div class="who"><div class="ign"></div><div class="tm"><img alt=""><span></span></div></div>' +
+        '<div class="val"><b></b><small>ELIMS</small></div>';
+      el.style.setProperty("--i", i);
+      rowsBox.appendChild(el);
+      ldRows.set(id, el);
+    }
+    el.style.top = (i * 83) + "px";
+    el.classList.toggle("r1", i === 0);
+    el.classList.toggle("out", !!p.teamOut);
+    el.querySelector(".rk").textContent = "#" + (i + 1);
+    const team = popTeamFor({ uid: p.uid, ign: p.ign, teamName: p.teamName }, roster);
+    const photo = racePhotos[p.uid || p.ign] || "";
+    const img = el.querySelector(".ph img"), src = photo || (team && team.logo) || "";
+    if(src && img.getAttribute("src") !== src) img.src = src;
+    img.style.visibility = src ? "" : "hidden";
+    img.classList.toggle("logo", !photo);
+    // no photo and no logo: the name takes the empty slot
+    if(el.classList.contains("bare") !== !src){ el.classList.toggle("bare", !src); el.querySelector(".ign").textContent = ""; }
+    const ign = el.querySelector(".ign");
+    const name = cleanName(p.ign) || "?";
+    if(ign.textContent !== name){ ign.textContent = name; fitInside(ign, 21, 12); }
+    const ti = el.querySelector(".tm img");
+    const logo = photo && team && team.logo;
+    if(logo){ if(ti.getAttribute("src") !== logo) ti.src = logo; ti.style.display = ""; }
+    else ti.style.display = "none";
+    el.querySelector(".tm span").textContent = ((team && (team.displayName || team.name)) || p.teamName || "").toUpperCase();
+    const kb = el.querySelector(".val b");
+    if(kb.textContent !== String(p.kills)){
+      const had = kb.textContent;
+      kb.textContent = p.kills;
+      if(had && !fresh){ kb.classList.remove("pop"); void kb.offsetWidth; kb.classList.add("pop"); }
+    }
+  });
+  ldRows.forEach((el, id) => { if(!seen.has(id)){ el.remove(); ldRows.delete(id); } });
+  return true;
 }
 
 /* "TSG WIPED NG": the wiping squad's logo and short name, WIPED in the
@@ -2785,6 +2958,10 @@ function apply(state){
   // pulled down.
   let top4On = false;
   try { top4On = renderTop4(state, source); } catch(e){ console.error("top4:", e); }
+  // The leaders board stands where the side table does: the table steps
+  // down while it is up.
+  let leadersOn = false;
+  try { leadersOn = renderLeaders(state); } catch(e){ console.error("leaders:", e); }
   const clear = (top4On && layoutFor(state).top4Clear) || 0;
   document.documentElement.style.setProperty("--top4-clear", clear + "px");
 
@@ -2793,7 +2970,7 @@ function apply(state){
   // rows keep updating underneath, so the table is current the moment the
   // bar goes down, and the elimination card still fires (it is not in
   // #stage).
-  document.getElementById("stage").classList.toggle("show", !!visible && source.length > 0 && !top4On);
+  document.getElementById("stage").classList.toggle("show", !!visible && source.length > 0 && !top4On && !leadersOn);
   if(!visible || !source.length){
     // SS3's eliminated card is THE elimination graphic for that package
     // (the separate lower third stands down), so it fires on a wipe

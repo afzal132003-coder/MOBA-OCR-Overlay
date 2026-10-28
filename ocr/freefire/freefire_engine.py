@@ -9938,7 +9938,7 @@ def build_map_bin(match_file):
 
 # THE LIVE ELIMINATION RACE: this match's top fraggers from the client's
 # own kill feed, for the map source's race layer.
-FREEFIRE_RACE_TOP = 3
+FREEFIRE_RACE_TOP = 5     # the race shows three; the leaders board five
 _race_photo_key = ""
 # The zone clock last sent to the in-game page (see zone_clock): it goes on
 # its own message, once a second while it counts, and never in the state --
