@@ -5172,6 +5172,93 @@ def fill_roster_logos():
     return changed
 
 
+# TEXT LOGOS (settings.textLogos): an event with no logos. Every team
+# without one takes its own short name -- its name when it has none -- as
+# its logo: plain white text on transparent, a thin dark edge so it reads
+# on the gold boxes and the purple alike. Only ever an empty logo is
+# filled, so a real one (or a logo file, which fill_roster_logos puts in
+# first) always wins; and switched off, only what this drew is taken back.
+# What it drew is known by its fingerprint (textLogoHashes): a dashboard
+# Save Roster carries it back as an ordinary logo.
+TEXT_LOGO_FONTS = [Path(__file__).resolve().parents[2] / "overlay" / "assets" / "fonts" / p for p in
+                   ("winner-sans/WinnerSans-Bold.otf", "TTSupermolotNeueTrial-Black.ttf")]
+_text_logo_cache = {}
+
+
+def _logo_fingerprint(data):
+    return hashlib.sha1(data.encode()).hexdigest()[:16]
+
+
+def make_text_logo(label):
+    """`label` as a logo: a 256px square, the words as large as fit it."""
+    label = " ".join(str(label or "").upper().split())
+    if label in _text_logo_cache:
+        return _text_logo_cache[label]
+    from PIL import Image as _Img, ImageDraw as _Draw, ImageFont as _Font
+    font_path = next((str(f) for f in TEXT_LOGO_FONTS if f.exists()), None)
+    words = label.split(" ")
+    # one line, or the words over two when that lets them stand larger
+    layouts = [[label]] + ([[" ".join(words[:i]), " ".join(words[i:])] for i in range(1, len(words))]
+                           if len(words) > 1 else [])
+    best = None
+    for lines in layouts:
+        size = 220
+        while size > 20:
+            f = _Font.truetype(font_path, size) if font_path else _Font.load_default()
+            boxes = [f.getbbox(t) for t in lines]
+            w = max(b[2] - b[0] for b in boxes)
+            line_h = max(b[3] - b[1] for b in boxes)
+            gap = int(size * 0.12)
+            h = line_h * len(lines) + gap * (len(lines) - 1)
+            if w <= 232 and h <= 232:
+                break
+            size -= 4
+        if best is None or size > best[0]:
+            best = (size, lines, f, boxes, line_h, gap, h)
+    size, lines, f, boxes, line_h, gap, h = best
+    im = _Img.new("RGBA", (256, 256), (0, 0, 0, 0))
+    d = _Draw.Draw(im)
+    y = (256 - h) / 2
+    edge = max(2, int(size * 0.06))
+    for text, b in zip(lines, boxes):
+        x = (256 - (b[2] - b[0])) / 2 - b[0]
+        d.text((x, y - b[1]), text, font=f, fill=(255, 255, 255, 255),
+               stroke_width=edge, stroke_fill=(17, 17, 17, 235))
+        y += line_h + gap
+    buf = io.BytesIO()
+    im.save(buf, "PNG", optimize=True)
+    data = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    _text_logo_cache[label] = data
+    return data
+
+
+def apply_text_logos():
+    """Puts in -- or, switched off, takes back -- the text logos. True when
+    the roster changed."""
+    on = bool((server_state.get("settings") or {}).get("textLogos"))
+    drawn = set(server_state.get("textLogoHashes") or [])
+    changed = False
+    for team in (server_state.get("roster") or {}).get("teams") or []:
+        logo = team.get("logo") or ""
+        ours = bool(logo) and _logo_fingerprint(logo) in drawn
+        if on:
+            if logo and not ours:
+                continue                    # a real logo
+            label = (team.get("shortName") or "").strip() or (team.get("name") or "").strip()
+            if not label:
+                continue
+            want = make_text_logo(label)
+            drawn.add(_logo_fingerprint(want))
+            if logo != want:
+                team["logo"] = want
+                changed = True
+        elif ours:
+            team["logo"] = ""
+            changed = True
+    server_state["textLogoHashes"] = sorted(drawn)[-300:]
+    return changed
+
+
 def team_photos():
     """{roster team name: its Team_Photo}, and "__default__" from a folder
     called DEFAULT for a team without one."""
@@ -10364,7 +10451,8 @@ async def h2h_photo_heartbeat():
         await asyncio.sleep(10)
         tick += 1
         try:
-            if await asyncio.get_running_loop().run_in_executor(None, fill_roster_logos):
+            filled = await asyncio.get_running_loop().run_in_executor(None, fill_roster_logos)
+            if await asyncio.get_running_loop().run_in_executor(None, apply_text_logos) or filled:
                 save_state()
                 await broadcast_state_sync()
         except Exception as e:
@@ -11149,7 +11237,7 @@ _roster_cache_clients = set()
 # the only hits for "pending" in that folder are local variables called
 # pendingElimCards. liveOps is NOT here -- three overlays do read it.
 DASHBOARD_ONLY_KEYS = ("pending", "qmeRowOrder", "aliases",
-                       "knownContexts", "assetCatalogue", "loadoutChoices")
+                       "knownContexts", "assetCatalogue", "loadoutChoices", "textLogoHashes")
 
 _last_extras_fp = None
 
@@ -11165,7 +11253,7 @@ _last_extras_fp = None
 # spellings, the Mapping tab for the queue...), so a manual_update simply
 # leaves them alone. qmeRowOrder is not here: the dashboard sets that one
 # through a save.
-ENGINE_OWNED_KEYS = ("aliases", "pending", "knownContexts", "assetCatalogue", "loadoutChoices")
+ENGINE_OWNED_KEYS = ("aliases", "pending", "knownContexts", "assetCatalogue", "loadoutChoices", "textLogoHashes")
 
 
 def without_engine_owned(update):
@@ -11802,6 +11890,12 @@ async def handle_client(websocket, path=None):
                         if n_kept:
                             print(f"[roster] kept {n_kept} short name(s) the save left blank")
                     server_state.update(data["freefire"])
+                    # the text logos follow their tick, and a roster saved
+                    # with new teams or tags, at once
+                    try:
+                        apply_text_logos()
+                    except Exception as e:
+                        print("[logos] text logos: %s" % e)
                     if server_state.get("mvpOverride", "") != _mvp_before:
                         await asyncio.get_running_loop().run_in_executor(None, refresh_post_game)
                     server_state["standings"] = compute_freefire_standings(

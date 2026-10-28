@@ -2242,6 +2242,9 @@
         <button class="danger" id="ff_rosterClearAll">Clear All Team Info</button>
       </div>
       <div id="ff_lobbyStatus" class="hint" style="margin-top:6px;"></div>
+      <label class="hint" style="display:flex;gap:6px;align-items:center;margin:10px 0 0;"
+             title="For an event with no team logos: every team without a logo gets its short name (its name when it has none) as its logo -- plain white text, nothing else. A team that has a logo keeps it. Untick and the text logos go again.">
+        <input type="checkbox" id="ff_textLogos"> No logos this event &mdash; use each team's short name as its logo</label>
       <div id="ff_rosterTable" style="overflow-x:auto;margin-top:10px;"></div>
       <button id="ff_rosterSave" style="display:none;">Save Roster</button>
     </div>
@@ -12238,6 +12241,8 @@ function ffRenderPopupControls(ff){
   if(idle(rvx)) rvx.checked = st.reviveRow !== false;
   const zbx = document.getElementById("ff_zoneBug");
   if(idle(zbx)) zbx.checked = st.zoneBug === true;
+  const tlx = document.getElementById("ff_textLogos");
+  if(idle(tlx)) tlx.checked = st.textLogos === true;
   document.querySelectorAll(".ff-sidepop").forEach(el => { if(idle(el)) el.checked = !!sw[el.dataset.k]; });
   const sec = document.getElementById("ff_sidePopupSeconds");
   if(idle(sec)) sec.value = st.sidePopupSeconds || 5;
@@ -12257,6 +12262,14 @@ function ffRenderPopupControls(ff){
   });
   document.getElementById("ff_reviveRow").addEventListener("change", e => {
     if(ffPopupSettings({ reviveRow: e.target.checked })) note(e.target.checked ? "Revives sweep across their team's row on the side table." : "Revives off the side table.");
+  });
+  // Text logos: the engine draws them into the roster (apply_text_logos)
+  document.getElementById("ff_textLogos").addEventListener("change", e => {
+    if(ffPopupSettings({ textLogos: e.target.checked })){
+      document.getElementById("ff_lobbyStatus").textContent = e.target.checked
+        ? "Text logos on -- every team without a logo now shows its short name as its logo."
+        : "Text logos off -- the name logos are taken away again (real logos stay).";
+    } else e.target.checked = !e.target.checked;
   });
   document.getElementById("ff_zoneBug").addEventListener("change", e => {
     if(ffPopupSettings({ zoneBug: e.target.checked })) note(e.target.checked
