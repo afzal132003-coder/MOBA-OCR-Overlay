@@ -35,7 +35,12 @@ FONTS = os.path.join(HERE, "..", "..", "fonts")
 
 
 WINNER = os.path.join(FONTS, "winner-sans", "WinnerSans-Medium.otf")
-if os.path.exists(WINNER):
+WINNER_BOLD = os.path.join(FONTS, "winner-sans", "WinnerSans-Bold.otf")
+if os.path.exists(WINNER) and os.path.exists(WINNER_BOLD):
+    # Medium for the text, the real Bold for the titles (as the pages'
+    # 'Winner Sans Bold')
+    FONT, DISPLAY, BOLD = WINNER, WINNER_BOLD, 0
+elif os.path.exists(WINNER):
     # one face, as the pages have it: Medium, and Medium made bold
     FONT = DISPLAY = WINNER
     BOLD = 0.035            # the stroke that makes it bold, per pixel of size
@@ -376,5 +381,6 @@ if __name__ == "__main__":
                [(1794, 380), (1920, 380), (1920, 520), (1794, 520)], [(1255, 860), (1400, 860), (1400, 912), (1255, 912)]],
                title=((495, 144, 1440, 241), ["HEAD", "TO", "HEAD"]))
     drop_spot()
-    print("written with %s%s: the 12-row table, the in-game cards, the kit (rnx_frame / rnx_zebra / "
-          "rnx_roundbar), and the SS3 screens in RNX" % (os.path.basename(FONT), " (and bold)" if BOLD else ""))
+    print("written with %s / %s%s: the 12-row table, the in-game cards, the kit (rnx_frame / rnx_zebra / "
+          "rnx_roundbar), and the SS3 screens in RNX" % (os.path.basename(FONT), os.path.basename(DISPLAY),
+                                                       " (made bold)" if BOLD else ""))

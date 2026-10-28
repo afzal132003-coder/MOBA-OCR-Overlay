@@ -20,6 +20,9 @@
 @font-face { font-family:'GNG Display'; src:url('assets/freefire/gng/font/Sddystopiandemo-GO7xa.otf') format('opentype'); font-weight:100 900; }
 @font-face{font-family:'Winner Sans M';src:local('WinnerSans-Medium'),local('WinnerSans Medium'),local('Winner Sans Medium'),url('assets/fonts/winner-sans/WinnerSans-Medium.otf') format('opentype'),url('assets/fonts/TTSupermolotNeueTrial-Medium.ttf') format('truetype');font-weight:100 900;font-display:block;}
 @font-face{font-family:'Winner Sans B';src:local('WinnerSans-Medium'),local('WinnerSans Medium'),local('Winner Sans Medium'),url('assets/fonts/winner-sans/WinnerSans-Medium.otf') format('opentype'),url('assets/fonts/TTSupermolotNeueTrial-Medium.ttf') format('truetype');font-weight:500;font-display:block;}
+/* the post-match titles: the real Bold, there being no demo of them to match (the cards' bold is
+   'Winner Sans B', sized to the designer's demos) */
+@font-face{font-family:'Winner Sans Bold';src:local('WinnerSans-Bold'),local('Winner Sans Bold'),url('assets/fonts/winner-sans/WinnerSans-Bold.otf') format('opentype'),url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');font-weight:100 900;font-display:block;}
 
 
 :root{
@@ -107,7 +110,7 @@ body.gng{ --ss3-red:#5c2d12; --ss3-label:#ffa976; --ss3-yellow:#ffa976; --ss3-ba
 body.rnx{ --ss3-red:#600c84; --ss3-label:#fcd02c; --ss3-yellow:#fcd02c; --ss3-bar:#fcd02c; --ss3-black:#22062f;
   --rnx-gold:#fcd02c; --rnx-violet:#500864; --rnx-ink:#ffffff; }
 .rnx .ff-frame{background-image:url('assets/freefire/kit/rnx_frame.png');}
-.rnx .ff-title{font-family:'Winner Sans B',Arial,sans-serif;font-style:normal;color:#ffffff;background:none;
+.rnx .ff-title{font-family:'Winner Sans Bold',Arial,sans-serif;font-style:normal;color:#ffffff;background:none;
   -webkit-background-clip:border-box;background-clip:border-box;letter-spacing:.01em;
   text-shadow:0 4px 0 rgba(0,0,0,.35);}
 .rnx .ff-title .w2{color:var(--rnx-gold);}
@@ -128,7 +131,7 @@ body.rnx{ --ss3-red:#600c84; --ss3-label:#fcd02c; --ss3-yellow:#fcd02c; --ss3-ba
 body.enfea{ --ss3-red:#33096b; --ss3-label:#ffcc00; --ss3-yellow:#ffcc00; --ss3-bar:#ffcc00; --ss3-black:#12002e;
   --enf-gold:#ffcc00; --enf-purple:#33096b; --enf-ink:#ffffff; }
 .enfea .ff-frame{background-image:url('assets/freefire/kit/enfea_frame.png');}
-.enfea .ff-title{font-family:'Winner Sans B',Arial,sans-serif;font-style:normal;color:#ffffff;background:none;
+.enfea .ff-title{font-family:'Winner Sans Bold',Arial,sans-serif;font-style:normal;color:#ffffff;background:none;
   -webkit-background-clip:border-box;background-clip:border-box;letter-spacing:.01em;
   text-shadow:0 4px 0 rgba(0,0,0,.35);}
 .enfea .ff-title .w2{color:var(--enf-gold);}
