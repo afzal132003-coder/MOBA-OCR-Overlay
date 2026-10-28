@@ -1188,6 +1188,7 @@ LAYOUTS.RNX = (() => {
   const c = {
     placementKey: "rnx",
     bg: "ALIVE STATS - BLANK.png",
+    artBox: { top: 314, bottom: 921 },
     bg12: "ALIVE STATS - BLANK 12.png", artRows: 11,
     pipBase: "Live Stats/",
     pipBars: { w: 4.6, gap: 3, alive: "#500864", dead: "#ffffff", unknown: "rgba(80, 8, 100, 0.3)" },
@@ -1261,6 +1262,9 @@ LAYOUTS["ENFEA STAN"] = (() => {
   const c = {
     placementKey: "enfea",
     bg: "ALIVE STATS - BLANK.png",
+    // the art y 245..970: the STANFEST plate 245..302 on top, the JIBITO
+    // plate 940..969 at the foot -- what the crop is for
+    artBox: { top: 245, bottom: 970 },
     bg12: "ALIVE STATS - BLANK 12.png", artRows: 11,
     pipBase: "Live Stats/",
     pipBars: { w: 4.6, gap: 3, alive: "#510a66", dead: "#ffffff", unknown: "rgba(81, 10, 102, 0.3)" },
@@ -1342,8 +1346,11 @@ let activeLayout = null;
 /* Writes the layout into CSS custom properties. Only on a real change:
    this runs on every sync, and rewriting a dozen properties on the root
    element four times a second invalidates style for the whole page. */
+// The operator's text size for the table (settings.aliveTextScale, the
+// in-game tab's - / +): the rank, the name and the kills, together.
+let textScale = 1;
 function applyLayout(L, showPoints){
-  const sig = JSON.stringify([L.row, L.ink, L.nameInk, L.killsInk, L.face, L.rank, L.logo, L.name, L.kills, L.pip, L.textDy, showPoints]);
+  const sig = JSON.stringify([L.row, L.ink, L.nameInk, L.killsInk, L.face, L.rank, L.logo, L.name, L.kills, L.pip, L.textDy, showPoints, textScale]);
   if(activeLayout === sig) return;
   activeLayout = sig;
   const r = document.documentElement.style;
@@ -1359,7 +1366,7 @@ function applyLayout(L, showPoints){
   r.setProperty("--rank-display", L.rank ? "flex" : "none");
   r.setProperty("--rank-x", ((L.rank && L.rank.x) || 0) + "px");
   r.setProperty("--rank-w", ((L.rank && L.rank.w) || 0) + "px");
-  r.setProperty("--rank-size", ((L.rank && L.rank.size) || 16) + "px");
+  r.setProperty("--rank-size", ((L.rank && L.rank.size) || 16) * textScale + "px");
   r.setProperty("--rank-align", (L.rank && L.rank.align) || "center");
   r.setProperty("--text-dy", (L.textDy || 0) + "px");
   // A package whose table has no logo column passes logo: null.
@@ -1368,9 +1375,12 @@ function applyLayout(L, showPoints){
   r.setProperty("--logo-w", ((L.logo && L.logo.w) || 0) + "px");
   r.setProperty("--logo-img", ((L.logo && L.logo.img) || 0) + "px");
   r.setProperty("--logo-dy", ((L.logo && L.logo.dy) || 0) + "px");
-  r.setProperty("--name-x", L.name.x + "px");
-  r.setProperty("--name-w", L.name.w + "px");
-  r.setProperty("--name-size", L.name.size + "px");
+  // bigger text: the name steps right as far as the rank grew, so "10"
+  // does not run into it
+  const grow = (textScale > 1 && L.rank) ? Math.round((L.rank.w || 0) * (textScale - 1)) : 0;
+  r.setProperty("--name-x", L.name.x + grow + "px");
+  r.setProperty("--name-w", L.name.w - grow + "px");
+  r.setProperty("--name-size", L.name.size * textScale + "px");
   r.setProperty("--name-align", L.name.align);
   r.setProperty("--name-weight", String(L.name.weight || 700));
   // The points column exists only where the package HAS one and the
@@ -1381,7 +1391,7 @@ function applyLayout(L, showPoints){
   r.setProperty("--points-w", ((L.points && L.points.w) || 0) + "px");
   r.setProperty("--kills-x", L.kills.x + "px");
   r.setProperty("--kills-w", L.kills.w + "px");
-  r.setProperty("--num-size", L.kills.size + "px");
+  r.setProperty("--num-size", L.kills.size * textScale + "px");
   r.setProperty("--pip-x", L.pip.x + "px");
   r.setProperty("--pip-y", L.pip.y + "px");
   r.setProperty("--pip-w", L.pip.w + "px");
@@ -2754,6 +2764,7 @@ function apply(state){
   // separate backdrop -- so the operator's choice picks the artwork and
   // the column together, never one without the other.
   const showPoints = !!(L.points && state.display && state.display.aliveStatusPoints);
+  textScale = Math.min(1.6, Math.max(0.6, Number((state.settings || {}).aliveTextScale) || 1));
   applyLayout(L, showPoints);
   const championTeams = new Set(
     ((state.display || {}).championRushBadgeVisible ? ((state.championRush || {}).totals || []) : [])
@@ -2766,9 +2777,20 @@ function apply(state){
   RANK_SUFFIX = (L.rank && L.rank.suffix) || "";
 
   const backdrop = document.getElementById("backdrop");
-  const bgSrc = base + ((showPoints && L.bgPoints) ? L.bgPoints
-                         : (L.bg12 && source.length > (L.artRows || 12)) ? L.bg12 : L.bg);
+  const twelve = !!(L.bg12 && source.length > (L.artRows || 12));
+  const bgSrc = base + ((showPoints && L.bgPoints) ? L.bgPoints : twelve ? L.bg12 : L.bg);
   if(backdrop.getAttribute("src") !== bgSrc) backdrop.src = bgSrc;
+  // CROP (Graphic Fixing -> Alive: crop): pixels cut off the art's top and
+  // bottom -- its branding plates -- measured from the art's own edges
+  // (artBox; the twelve-row art is one row taller), so one setting holds
+  // for both. The rows are drawn over it and are not cut.
+  const crop = (state.graphicOverrides || {})["aliveCrop" + (L.placementKey ? "@" + L.placementKey : "")] || {};
+  const box = L.artBox || { top: 0, bottom: 1080 };
+  const artBottom = box.bottom + (twelve ? (L.rowPitch || 49) : 0);
+  const cutTop = Math.max(0, box.top + (Number(crop.top) || 0));
+  const cutBottom = Math.max(0, 1080 - (artBottom - (Number(crop.bottom) || 0)));
+  const clip = (cutTop > 0 || cutBottom > 0) && (crop.top || crop.bottom) ? `inset(${cutTop}px 0 ${cutBottom}px 0)` : "";
+  if(backdrop.style.clipPath !== clip) backdrop.style.clipPath = clip;
   // The strip every row wears as its own box -- row 1's, since they're
   // all identical in the artwork. Offset by the row block's own origin
   // so the crop lands on the box and nothing either side of it.
