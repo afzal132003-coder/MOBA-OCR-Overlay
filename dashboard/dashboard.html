@@ -7185,6 +7185,8 @@ function ffOpen(url){
       if(!ffHydrated){
         ffHydrate(ffState);
         ffHydrated = true;
+      } else {
+        ffFollowFolders(ffState);
       }
       ffRenderStandings(ffState);
       ffRenderRoster(ffState);
@@ -9830,6 +9832,20 @@ function ffHydrate(ff){
   document.getElementById("ff_context").value = ff.currentContext || "";
   document.getElementById("ff_contextList").innerHTML =
     (ff.knownContexts || []).map(c => `<option value="${ffEscapeHtml(c)}">`).join("");
+}
+
+// The folder boxes follow the engine's own settings, except while someone
+// is typing in them. Filled only once, at load, a box went on showing --
+// and sending with every Fetch -- the folder the dashboard opened with: the
+// engine moved to another copy of the client mid-event, and Fetch kept
+// reading the old one, whose newest result was days old. Worse, editing a
+// box saved that stale folder back over the engine's.
+function ffFollowFolders(ff){
+  const st = (ff && ff.settings) || {};
+  [["ff_matchFolder", st.matchResultFolder], ["ff_safezoneFolder", st.safezoneFolder]].forEach(([id, v]) => {
+    const el = document.getElementById(id);
+    if(el && el !== document.activeElement && el.value !== (v || "")) el.value = v || "";
+  });
 }
 
 function ffSendSettings(){
