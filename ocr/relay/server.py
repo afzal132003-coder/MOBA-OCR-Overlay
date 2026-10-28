@@ -42,8 +42,10 @@ peers exactly as before.
 """
 
 import asyncio
+import base64
 import json
 import os
+import re
 import time
 from collections import deque
 from urllib.parse import urlparse, parse_qs
@@ -66,6 +68,55 @@ for env_name, role in (("OCR_TOKEN", "ocr"), ("ADMIN_TOKEN", "admin"), ("VIEWER_
     token = os.environ.get(env_name, "").strip()
     if token:
         TOKEN_ROLES[token] = role
+
+# FONTS THE ENGINE SENDS. An event's own face can be a paid one (Winner
+# Sans: RNX, ENFEA STAN), which cannot go in this public repo -- yet the
+# pages this VM serves ask for it at overlay/assets/fonts/winner-sans, and
+# without it every source that opens the shared link draws the stand-in.
+# So the engine, which has the files, sends them over its own connection
+# when it connects, and they are written there: that folder is git-ignored,
+# so a deploy's pull never touches them, and they are served like any
+# other file. Only from the engine's role, only font files by name, into
+# that one folder, never forwarded to a page.
+FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..",
+                        "overlay", "assets", "fonts", "winner-sans")
+FONT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,80}\.(otf|ttf|woff2?)$")
+FONT_MAX_BYTES = 4 * 1024 * 1024
+
+
+def store_fonts(files, folder=None):
+    """Writes the font files a message carries; returns the names written
+    (an unchanged file is left alone). Anything that is not a font file by
+    name, or is not base64, or is empty or over the size cap, is skipped."""
+    folder = folder or FONT_DIR
+    written = []
+    for f in (files or [])[:20]:
+        if not isinstance(f, dict):
+            continue
+        name, data = str(f.get("name") or ""), f.get("data")
+        if not FONT_NAME.match(name) or not isinstance(data, str):
+            continue
+        try:
+            blob = base64.b64decode(data, validate=True)
+        except (ValueError, TypeError):
+            continue
+        if not blob or len(blob) > FONT_MAX_BYTES:
+            continue
+        path = os.path.join(folder, name)
+        try:
+            with open(path, "rb") as fh:
+                if fh.read() == blob:
+                    continue
+        except OSError:
+            pass
+        os.makedirs(folder, exist_ok=True)
+        tmp = path + ".part"
+        with open(tmp, "wb") as fh:
+            fh.write(blob)
+        os.replace(tmp, path)
+        written.append(name)
+    return written
+
 
 # websocket -> role, for every currently-connected client
 connected = {}
@@ -382,6 +433,18 @@ async def handler(websocket):
             try:
                 msg = json.loads(raw)
             except json.JSONDecodeError:
+                continue
+
+            # The engine's fonts (see FONT_DIR): stored, never passed on.
+            if msg.get("type") == "font_files":
+                if role == "ocr":
+                    try:
+                        stored = store_fonts(msg.get("files"))
+                    except OSError as e:
+                        print(f"[fonts] not stored: {e}")
+                    else:
+                        if stored:
+                            print(f"[fonts] stored {', '.join(stored)}")
                 continue
 
             # See the file-level comment above -- an engine can't address

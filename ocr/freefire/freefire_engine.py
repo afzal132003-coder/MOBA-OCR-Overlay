@@ -14555,6 +14555,24 @@ async def ocr_loop():
             await asyncio.sleep(max(0.0, interval - poll_ms / 1000))
 
 
+# The event fonts the pages ask for (overlay/assets/fonts/winner-sans): paid
+# faces, git-ignored, so the relay's checkout has no copy. Sent to it on
+# every connect -- one file a message -- and it keeps them where the pages
+# look (see FONT_DIR in ocr/relay/server.py), so a source that opens the
+# shared link anywhere draws the real face.
+WEB_FONT_DIR = Path(__file__).resolve().parents[2] / "overlay" / "assets" / "fonts" / "winner-sans"
+
+
+def web_font_messages():
+    out = []
+    if WEB_FONT_DIR.is_dir():
+        for f in sorted(WEB_FONT_DIR.iterdir()):
+            if f.is_file() and f.suffix.lower() in (".otf", ".ttf", ".woff", ".woff2") and f.stat().st_size <= 4 * 1024 * 1024:
+                out.append(json.dumps({"type": "font_files", "files": [
+                    {"name": f.name, "data": base64.b64encode(f.read_bytes()).decode()}]}))
+    return out
+
+
 async def relay_client_loop():
     """Optional, additive: if freefire_config.json has a "relay" section
     with enabled=true, also connect OUT to the cloud relay as a client, so
@@ -14614,6 +14632,14 @@ async def relay_client_loop():
                                           ping_interval=20,
                                           ping_timeout=120) as relay_ws:
                 print(f"Connected to cloud relay at {url}")
+                try:
+                    fonts = web_font_messages()
+                    for m in fonts:
+                        await relay_ws.send(m)
+                    if fonts:
+                        print(f"[fonts] sent {len(fonts)} font file(s) to the relay")
+                except Exception as e:
+                    print(f"[fonts] not sent: {e}")
                 # Recorded so broadcast_to_page() can always include it --
                 # it is the only client whose page= tag says nothing about
                 # who is really on the other end.
