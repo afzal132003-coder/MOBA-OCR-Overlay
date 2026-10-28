@@ -180,7 +180,8 @@
      Supermolot Neue, the closest to it. Each source is tried in turn. */
   @font-face{font-family:'Winner Sans M';src:local('WinnerSans-Medium'),local('WinnerSans Medium'),local('Winner Sans Medium'),url('assets/fonts/winner-sans/WinnerSans-Medium.otf') format('opentype'),url('assets/fonts/TTSupermolotNeueTrial-Medium.ttf') format('truetype');font-weight:100 900;font-display:block;}
   @font-face{font-family:'Winner Sans B';src:local('WinnerSans-Medium'),local('WinnerSans Medium'),local('Winner Sans Medium'),url('assets/fonts/winner-sans/WinnerSans-Medium.otf') format('opentype'),url('assets/fonts/TTSupermolotNeueTrial-Medium.ttf') format('truetype');font-weight:500;font-display:block;}
-  #backdrop { position: absolute; inset: 0; width: 1920px; height: 1080px; }
+  #backdrop, #backdropFoot { position: absolute; inset: 0; width: 1920px; height: 1080px; }
+  #backdropFoot { display: none; }
 
   /* The elimination card, in THIS page rather than a source of its own.
      ---------------------------------------------------------------
@@ -725,6 +726,7 @@
 <div id="frame">
   <div id="stage">
     <img id="backdrop" alt="">
+    <img id="backdropFoot" alt="">
     <div id="rows"></div>
   </div>
 </div>
@@ -875,7 +877,7 @@ const LAYOUTS = {
     // Its own Graphic Fixing nudges ("aliveStatusPip@ss3" ...): the ones
     // saved for the CLT table shrank these status bars to 75%.
     placementKey: "ss3",
-    bg: "prg ss s3 alive - BLANK.png",
+    bg: "prg ss s3 alive - BLANK.png", fitRows: true,
     pipBase: "Live Stats/",
     // Four bars drawn on whole pixels (5 wide, 3 apart, filling the 29px
     // box) rather than the 500px icons shrunk to 43px: at that scale each
@@ -989,7 +991,7 @@ const LAYOUTS = {
       win: { right: 240, y: 106, size: 19, ink: "#111111", face: "SMBI", weight: 900 },
       cardW: 252, pitch: 273, lift: 26,
     },
-    bg: "prg arrow alive status - blank.png",
+    bg: "prg arrow alive status - blank.png", fitRows: true,
     pipBase: "Live Stats/",
     // Four bars drawn on whole pixels (5 wide, 3 apart, filling the 29px
     // box) rather than the 500px icons shrunk to 43px: at that scale each
@@ -1189,7 +1191,7 @@ LAYOUTS.RNX = (() => {
     placementKey: "rnx",
     bg: "ALIVE STATS - BLANK.png",
     artBox: { top: 314, bottom: 921 },
-    bg12: "ALIVE STATS - BLANK 12.png", artRows: 11,
+    bg12: "ALIVE STATS - BLANK 12.png", artRows: 11, fitRows: true,
     pipBase: "Live Stats/",
     pipBars: { w: 4.6, gap: 3, alive: "#500864", dead: "#ffffff", unknown: "rgba(80, 8, 100, 0.3)" },
     rowTops: [351, 400, 449, 499, 548, 597, 646, 695, 745, 794, 843, 892],
@@ -1231,7 +1233,9 @@ LAYOUTS.RNX = (() => {
   // The side pop-up keeps SS3's geometry, in RNX's art and inks.
   const a = JSON.parse(JSON.stringify(LAYOUTS.ss3.achievement));
   a.title = Object.assign({}, a.title, { ink: "#500864", face: "Winner Sans B" });
-  a.value = Object.assign({}, a.value, { ink: "#ffffff", face: "Winner Sans B" });
+  // Winner Sans's figures stand taller than Supermolot's: at SS3's 72px
+  // they sat on the label under them.
+  a.value = Object.assign({}, a.value, { ink: "#ffffff", face: "Winner Sans B", size: 62 });
   a.label = Object.assign({}, a.label, { ink: "#fcd02c", face: "Winner Sans M" });
   a.name = Object.assign({}, a.name, { ink: "#000000", face: "Winner Sans B" });
   c.achievement = a;
@@ -1265,7 +1269,7 @@ LAYOUTS["ENFEA STAN"] = (() => {
     // the art y 245..970: the STANFEST plate 245..302 on top, the JIBITO
     // plate 940..969 at the foot -- what the crop is for
     artBox: { top: 245, bottom: 970 },
-    bg12: "ALIVE STATS - BLANK 12.png", artRows: 11,
+    bg12: "ALIVE STATS - BLANK 12.png", artRows: 11, fitRows: true,
     pipBase: "Live Stats/",
     pipBars: { w: 4.6, gap: 3, alive: "#510a66", dead: "#ffffff", unknown: "rgba(81, 10, 102, 0.3)" },
     rowTops: [351, 400, 449, 499, 548, 597, 646, 695, 745, 794, 843, 892],
@@ -1308,7 +1312,9 @@ LAYOUTS["ENFEA STAN"] = (() => {
   // The side pop-up keeps SS3's geometry, in ENFEA's art and inks.
   const a = JSON.parse(JSON.stringify(LAYOUTS.ss3.achievement));
   a.title = Object.assign({}, a.title, { ink: "#33096b", face: "Winner Sans B" });
-  a.value = Object.assign({}, a.value, { ink: "#ffffff", face: "Winner Sans B" });
+  // Winner Sans's figures stand taller than Supermolot's: at SS3's 72px
+  // they sat on the label under them.
+  a.value = Object.assign({}, a.value, { ink: "#ffffff", face: "Winner Sans B", size: 62 });
   a.label = Object.assign({}, a.label, { ink: "#ffcc00", face: "Winner Sans M" });
   a.name = Object.assign({}, a.name, { ink: "#33096b", face: "Winner Sans B" });
   c.achievement = a;
@@ -1317,6 +1323,8 @@ LAYOUTS["ENFEA STAN"] = (() => {
 
 LAYOUTS.CHIRAYU = (() => {
   const c = JSON.parse(JSON.stringify(LAYOUTS.ss3));
+  // its legend is joined to the last row: the art stays whole
+  c.fitRows = false;
   // the league's look: rank and name on the white part of the row in its
   // gold-brown, the eliminations white on the slate
   c.rankInk = "#7d6545"; c.nameInk = "#9a6428"; c.killsInk = "#ffffff";
@@ -2432,14 +2440,14 @@ function teamLabel(team, row, state){
    clips -- "MENTALIST ESP" went out as "MENTALIST". So a name that does
    not fit is stepped down in size until it does, to no less than 60% of
    the package's own size; a short name never needs it and is untouched. */
-function fitName(el, size0){
+function fitName(el, size0, floor){
   // A size set for this element (the pop-up's) is where fitting starts;
   // resetting it to the stylesheet's dropped the name to a small default.
   el.style.fontSize = size0 ? size0 + "px" : "";
   if(!el.clientWidth) return;
   const base = parseFloat(getComputedStyle(el).fontSize) || 16;
   let size = base;
-  while(el.scrollWidth > el.clientWidth + 1 && size > base * 0.6){
+  while(el.scrollWidth > el.clientWidth + 1 && size > base * (floor || 0.6)){
     size -= 0.5;
     el.style.fontSize = size + "px";
   }
@@ -2620,6 +2628,33 @@ function fitTitle(el, T){
   }
 }
 
+/* Every line of the pop-up inside its box. Only with the card showing:
+   hidden, nothing has a width, so the fitting did nothing at all and
+   "SOLO ELIMINATIONS" ran out past both edges of the panel on air. */
+function fitPopText(pop, A){
+  // A NAME in the number's place (a revive: who brought them back) starts
+  // smaller and steps down until it fits the box on one line.
+  fitInside(document.getElementById("popValue"), pop.valueIsName ? Math.min(A.value.size, 38) : A.value.size,
+            pop.valueIsName ? 10 : A.value.size * 0.6);
+  fitInside(document.getElementById("popLabel"), A.label.size, A.label.size * 0.45);
+  fitTitle(document.getElementById("popTitle"), A.title);
+  fitInside(document.getElementById("popName"), A.name.size, A.name.size * 0.6);
+}
+// The text's own width, against its box less a margin each side -- a
+// line that only just fitted ran edge to edge.
+function fitInside(el, size0, min){
+  el.style.fontSize = size0 + "px";
+  const room = el.clientWidth - 12;
+  if(room <= 0) return;
+  const text = document.createRange();
+  text.selectNodeContents(el);
+  let size = size0;
+  while(text.getBoundingClientRect().width > room && size > min){
+    size = Math.max(min, size - 0.5);
+    el.style.fontSize = size + "px";
+  }
+}
+
 function popPlace(id, box, extra){
   const el = document.getElementById(id);
   Object.assign(el.style, { left: box.x + "px", top: box.y + "px",
@@ -2688,19 +2723,9 @@ function drawPopup(pop, A){
            lineHeight: A.title.line ? A.title.line + "px" : "" }, face(A.title))).textContent = pop.title || "";
   const pv = popPlace("popValue", A.value, Object.assign({ fontSize: A.value.size + "px", color: A.value.ink }, face(A.value)));
   pv.textContent = pop.value == null ? "" : (pop.valueIsName ? cleanName(pop.value) : String(pop.value));
-  // A NAME in the number's place (a revive: who brought them back) starts
-  // smaller and steps down until it fits the box on one line.
-  if(pop.valueIsName){
-    let size = Math.min(A.value.size, 38);
-    pv.style.fontSize = size + "px";
-    while(pv.scrollWidth > pv.clientWidth + 1 && size > 14){ size -= 1; pv.style.fontSize = size + "px"; }
-  }
   popPlace("popLabel", A.label, Object.assign({ fontSize: A.label.size + "px", color: A.label.ink }, face(A.label))).textContent = pop.label || "";
-  fitName(document.getElementById("popLabel"), A.label.size);
-  fitTitle(document.getElementById("popTitle"), A.title);
   const name = cleanName(pop.ign) || (team && team.shortName) || pop.teamName || "";
   popPlace("popName", A.name, Object.assign({ fontSize: A.name.size + "px", color: A.name.ink }, face(A.name))).textContent = name;
-  fitName(document.getElementById("popName"), A.name.size);
   const photo = pop.photo || roster.defaultPlayerPhoto || (team && team.groupPhoto) || "";
   const ph = popPlace("popPhoto", A.photo, { display: photo ? "block" : "none" });
   if(photo && ph.getAttribute("src") !== photo) ph.src = photo;
@@ -2719,6 +2744,9 @@ function drawPopup(pop, A){
   const card = document.getElementById("popCard");
   card.classList.remove("out");
   card.classList.add("show", "in");
+  fitPopText(pop, A);
+  // A face still loading measures as its fallback: fitted again once it is in.
+  if(document.fonts && document.fonts.status !== "loaded") document.fonts.ready.then(() => fitPopText(pop, A));
   const hold = Number((lastState.settings || {}).sidePopupSeconds) || A.seconds || 5;
   clearTimeout(popTimer);
   popTimer = setTimeout(() => {
@@ -2807,7 +2835,31 @@ function apply(state){
   const artBottom = box.bottom + (twelve ? (L.rowPitch || 49) : 0);
   const cutTop = Math.max(0, box.top + (Number(crop.top) || 0));
   const cutBottom = Math.max(0, 1080 - (artBottom - (Number(crop.bottom) || 0)));
-  const clip = (cutTop > 0 || cutBottom > 0) && (crop.top || crop.bottom) ? `inset(${cutTop}px 0 ${cutBottom}px 0)` : "";
+  const cropped = !!((cutTop > 0 || cutBottom > 0) && (crop.top || crop.bottom));
+  let clip = cropped ? `inset(${cutTop}px 0 ${cutBottom}px 0)` : "";
+  // FEWER SQUADS than the art has rows (fitRows) -- ten in an eleven-row
+  // table: the art ends under the last squad, its empty boxes cut away and
+  // what sits under them (the legend, the sponsor plate) drawn that much
+  // higher from a second copy of the art. Both cuts fall in the clear gap
+  // under a row -- at the top of the first empty one, and a row's pitch
+  // under the art's last -- so there is no seam. The crop still trims
+  // both ends. Only for art whose legend stands clear of its last row.
+  const foot = document.getElementById("backdropFoot");
+  const artRowCount = (L.artRows || 12) + (twelve ? 1 : 0);
+  const shown = Math.min(source.length, artRowCount);
+  const last = L.rowTops[artRowCount - 1];
+  const footTop = last + (last - L.rowTops[artRowCount - 2]);
+  const cutAt = L.rowTops[shown];
+  const lift = L.fitRows && shown > 0 && shown < artRowCount ? footTop - cutAt : 0;
+  if(lift){
+    clip = `inset(${cropped ? cutTop : 0}px 0 ${1080 - cutAt}px 0)`;
+    if(foot.getAttribute("src") !== bgSrc) foot.src = bgSrc;
+    foot.style.clipPath = `inset(${footTop}px 0 ${cropped ? cutBottom : 0}px 0)`;
+    foot.style.transform = `translateY(-${lift}px)`;
+    foot.style.display = "block";
+  } else if(foot.style.display !== "none"){
+    foot.style.display = "none";
+  }
   if(backdrop.style.clipPath !== clip) backdrop.style.clipPath = clip;
   // The strip every row wears as its own box -- row 1's, since they're
   // all identical in the artwork. Offset by the row block's own origin
