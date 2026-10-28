@@ -94,8 +94,8 @@
   }
   body.ss3.gng .kicker::before{ background:#ffa976; }
   body.ss3.gng, body.ss3.gng *{ font-family:'Moanslight',Arial,sans-serif !important; }
-  @font-face{font-family:'RNX Sans';src:local('Winner Sans'),local('Winner Sans Bold'),local('WinnerSans-Bold'),url('assets/freefire/RNX/font/winner-sans.otf') format('opentype'),url('assets/freefire/RNX/font/winner-sans.ttf') format('truetype'),url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');font-weight:100 900;font-display:block;}
-  @font-face{font-family:'RNX Black';src:local('Winner Sans Black'),local('WinnerSans-Black'),url('assets/freefire/RNX/font/winner-sans-black.otf') format('opentype'),url('assets/freefire/RNX/font/winner-sans-black.ttf') format('truetype'),url('assets/freefire/RNX/font/winner-sans.otf') format('opentype'),url('assets/freefire/RNX/font/winner-sans.ttf') format('truetype'),url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');font-weight:100 900;font-display:block;}
+  @font-face{font-family:'Winner Sans M';src:local('WinnerSans-Medium'),local('WinnerSans Medium'),local('Winner Sans Medium'),url('assets/fonts/winner-sans/WinnerSans-Medium.otf') format('opentype'),url('assets/fonts/TTSupermolotNeueTrial-Medium.ttf') format('truetype');font-weight:100 900;font-display:block;}
+  @font-face{font-family:'Winner Sans B';src:local('WinnerSans-Medium'),local('WinnerSans Medium'),local('Winner Sans Medium'),url('assets/fonts/winner-sans/WinnerSans-Medium.otf') format('opentype'),url('assets/fonts/TTSupermolotNeueTrial-Medium.ttf') format('truetype');font-weight:500;font-display:block;}
   body.ss3.rnx{ --surface:#2a0a3c; --amber:#fcd02c; --grid:#4d2a66; --text-3:#c9b0dc; }
   body.ss3.rnx #panel.bg{
     background:
@@ -104,7 +104,16 @@
     border-top-color:#fcd02c;
   }
   body.ss3.rnx .kicker::before{ background:#fcd02c; }
-  body.ss3.rnx, body.ss3.rnx *{ font-family:'RNX Sans',Arial,sans-serif !important; }
+  body.ss3.rnx, body.ss3.rnx *{ font-family:'Winner Sans M',Arial,sans-serif !important; }
+  body.ss3.enfea{ --surface:#1a0640; --amber:#ffcc00; --grid:#3a2a66; --text-3:#b8a8d8; }
+  body.ss3.enfea #panel.bg{
+    background:
+      radial-gradient(120% 90% at 50% 0%, rgba(90,40,180,.40) 0%, rgba(26,6,64,0) 60%),
+      var(--surface);
+    border-top-color:#ffcc00;
+  }
+  body.ss3.enfea .kicker::before{ background:#ffcc00; }
+  body.ss3.enfea, body.ss3.enfea *{ font-family:'Winner Sans M',Arial,sans-serif !important; }
   body.ss3 .title{ font-style:normal; }
 
   html,body{margin:0;padding:0;background:transparent;overflow:hidden;}
@@ -602,6 +611,7 @@ const RAMP = ["#104281", "#1c5cab", "#2a78d6", "#5598e7", "#86b6ef"];
 const RAMPS = {
   gng: ["#4a2210", "#7a3a18", "#b5602e", "#f08a52", "#ffc9a5"],
   rnx: ["#5a3a0c", "#8a6410", "#c49416", "#f0c020", "#ffe27a"],
+  enfea: ["#4a3a00", "#7a6000", "#b38f00", "#e6b800", "#ffe066"],
 };
 function ramp(){
   const k = Object.keys(RAMPS).find(k => document.body.classList.contains(k));
@@ -757,7 +767,8 @@ function render(state){
   const ev = state.event || {};
   const themePick = String(_params.get("theme") || cfg.theme || "auto").toLowerCase();
   const theme = themePick === "auto"
-    ? (["ss3", "chirayu", "gng", "rnx"].includes(String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase()) ? "ss3" : "arrow")
+    ? ((["ss3", "chirayu", "gng", "rnx"].includes(String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase()) ||
+        String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase().startsWith("enfea")) ? "ss3" : "arrow")
     : themePick;
   document.body.classList.toggle("ss3", theme === "ss3");
   document.body.classList.toggle("chirayu", theme === "ss3" &&
@@ -766,6 +777,8 @@ function render(state){
     String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase() === "gng");
   document.body.classList.toggle("rnx", theme === "ss3" &&
     String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase() === "rnx");
+  document.body.classList.toggle("enfea", theme === "ss3" &&
+    String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase().startsWith("enfea"));
   panel.classList.toggle("on", visible);
   document.getElementById("sample").classList.toggle("on", demo);
   if(!visible){ lastSig = ""; return; }

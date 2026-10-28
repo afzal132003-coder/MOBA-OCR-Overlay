@@ -74,3 +74,9 @@ overlay/assets/freefire/gng/teams png/
 overlay/assets/freefire/RNX/font/
 overlay/assets/freefire/RNX/* - DEMO.png
 !overlay/assets/freefire/RNX/zone bug - DEMO.png
+# Winner Sans (RNX, ENFEA STAN): a paid face, on this machine only
+overlay/assets/fonts/winner-sans/
+# ENFEA STAN: its fonts and its demos (a real team on them)
+overlay/assets/freefire/ENFEA STAN/Fonts/
+overlay/assets/freefire/ENFEA STAN/* - DEMO.png
+!overlay/assets/freefire/ENFEA STAN/zone bug - DEMO.png

@@ -16,17 +16,19 @@ function ffTheme(state){
 //   GNG -- its art (assets/freefire/gng/, see make_gng_art.py there),
 //     body.gng for its browns, orange, Moanslight and display face;
 //   RNX -- its art (assets/freefire/RNX/, see make_rnx_art.py there),
-//     body.rnx for its purple, gold and Winner Sans.
+//     body.rnx for its purple, gold and Winner Sans;
+//   ENFEA STAN -- its art (assets/freefire/ENFEA STAN/, make_enfea_art.py),
+//     body.enfea for its indigo, gold and Winner Sans.
 function ffSkin(state){
   const ev = (state && state.event) || {};
   const pick = String(new URLSearchParams(location.search).get("theme") || ev.assetFolder || "").toLowerCase();
-  return pick.includes("chirayu") ? "chirayu" : pick === "gng" ? "gng" : pick === "rnx" ? "rnx" : "";
+  return pick.includes("chirayu") ? "chirayu" : pick === "gng" ? "gng" : pick === "rnx" ? "rnx" : pick.startsWith("enfea") ? "enfea" : "";
 }
 function ffChirayu(state){ return ffSkin(state) === "chirayu"; }
 // The folder an SS3-layout card takes its art from.
 function ffArtDir(state){
   const skin = ffSkin(state);
-  return "assets/freefire/" + (skin === "chirayu" ? "CHIRAYU" : skin === "gng" ? "gng" : skin === "rnx" ? "RNX" : "ss3") + "/";
+  return "assets/freefire/" + (skin === "chirayu" ? "CHIRAYU" : skin === "gng" ? "gng" : skin === "rnx" ? "RNX" : skin === "enfea" ? "ENFEA%20STAN" : "ss3") + "/";
 }
 function ffApplyTheme(state){
   const t = ffTheme(state);
@@ -36,6 +38,7 @@ function ffApplyTheme(state){
   document.body.classList.toggle("chirayu", skin === "chirayu");
   document.body.classList.toggle("gng", skin === "gng");
   document.body.classList.toggle("rnx", skin === "rnx");
+  document.body.classList.toggle("enfea", skin === "enfea");
   return t;
 }
 function ffTeam(name, roster){
@@ -135,7 +138,7 @@ function ffFitTitle(el, again){
   // CHIRAYU: the last word in orange-gold, the rest black. GNG: in its
   // orange, the rest white.
   const words = (el.textContent || "").trim().split(/\s+/);
-  const gold = ["chirayu", "gng", "rnx"].some(k => document.body.classList.contains(k)) && words.length > 1;
+  const gold = ["chirayu", "gng", "rnx", "enfea"].some(k => document.body.classList.contains(k)) && words.length > 1;
   if(gold && !el.querySelector(".w2")){
     el.textContent = words.slice(0, -1).join(" ") + " ";
     const w = document.createElement("span"); w.className = "w2"; w.textContent = words[words.length - 1];

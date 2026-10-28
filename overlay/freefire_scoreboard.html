@@ -93,6 +93,7 @@
   .chirayu .th-row:nth-of-type(even){background:rgba(78,97,129,.06);}
   /* GNG: the TOTAL cell in its orange, dark figures on it */
   .gng .th-row .th-n.tot{color:#2a1206;background:linear-gradient(90deg,rgba(255,169,118,0) 0%,#ffa976 62%,#e8915f 100%);}
+  .enfea .th-row .th-n.tot{color:#33096b;background:linear-gradient(90deg,rgba(255,204,0,0) 0%,#ffcc00 62%,#f0b400 100%);}
   .rnx .th-row .th-n.tot{color:#500864;background:linear-gradient(90deg,rgba(252,208,44,0) 0%,#fcd02c 62%,#fcb814 100%);}
   .arrow .th-row.top .th-rk{color:var(--ar-gold);}
   .th-nodata{position:absolute;left:0;top:520px;width:1920px;text-align:center;font-family:'SMXB',Arial,sans-serif;font-size:30px;color:#fff;
@@ -576,7 +577,7 @@ function applyFreefire(ff){
 /* ---- SS3 / ARROW tables -------------------------------------------- */
 function themedPackage(ff){
   const f = String((ff.event && ff.event.assetFolder) || "").toLowerCase();
-  return (f === "ss3" || f === "chirayu" || f === "gng" || f === "rnx") ? "ss3" : (f === "prg arrow" ? "arrow" : "");
+  return (f === "ss3" || f === "chirayu" || f === "gng" || f === "rnx" || f.startsWith("enfea")) ? "ss3" : (f === "prg arrow" ? "arrow" : "");
 }
 
 // Overall: the same games as the Team Graphs (picked result files or the

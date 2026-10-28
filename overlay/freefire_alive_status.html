@@ -171,28 +171,15 @@
     will-change: transform;
   }
 
-  /* RNX: its own face, Winner Sans, wherever it is -- installed on the
-     machine, or its file in assets/freefire/RNX/font (a paid face, so not
-     in this public repo) -- else TT Supermolot Neue, the squared sports
-     face closest to it. Each source is tried in turn. */
-  @font-face {
-    font-family: 'RNX Sans';
-    src: local('Winner Sans'), local('Winner Sans Bold'), local('WinnerSans-Bold'),
-         url('assets/freefire/RNX/font/winner-sans.otf') format('opentype'),
-         url('assets/freefire/RNX/font/winner-sans.ttf') format('truetype'),
-         url('assets/fonts/TTSupermolotNeueTrial-ExtraBold.ttf') format('truetype');
-    font-weight: 100 900; font-display: block;
-  }
-  @font-face {
-    font-family: 'RNX Black';
-    src: local('Winner Sans Black'), local('WinnerSans-Black'),
-         url('assets/freefire/RNX/font/winner-sans-black.otf') format('opentype'),
-         url('assets/freefire/RNX/font/winner-sans-black.ttf') format('truetype'),
-         url('assets/freefire/RNX/font/winner-sans.otf') format('opentype'),
-         url('assets/freefire/RNX/font/winner-sans.ttf') format('truetype'),
-         url('assets/fonts/TTSupermolotNeueTrial-Black.ttf') format('truetype');
-    font-weight: 100 900; font-display: block;
-  }
+  /* Winner Sans, the face of RNX and ENFEA STAN (one designer's kit):
+     Medium for the text ('Winner Sans M'), Medium made bold by the browser
+     for the heavy text ('Winner Sans B' -- declared at 500, so any weight
+     from 600 is drawn bold from it; the kit has no non-condensed bold).
+     Where it is installed, else its file in assets/fonts/winner-sans (a
+     paid face: on this machine, not in this public repo), else TT
+     Supermolot Neue, the closest to it. Each source is tried in turn. */
+  @font-face{font-family:'Winner Sans M';src:local('WinnerSans-Medium'),local('WinnerSans Medium'),local('Winner Sans Medium'),url('assets/fonts/winner-sans/WinnerSans-Medium.otf') format('opentype'),url('assets/fonts/TTSupermolotNeueTrial-Medium.ttf') format('truetype');font-weight:100 900;font-display:block;}
+  @font-face{font-family:'Winner Sans B';src:local('WinnerSans-Medium'),local('WinnerSans Medium'),local('Winner Sans Medium'),url('assets/fonts/winner-sans/WinnerSans-Medium.otf') format('opentype'),url('assets/fonts/TTSupermolotNeueTrial-Medium.ttf') format('truetype');font-weight:500;font-display:block;}
   #backdrop { position: absolute; inset: 0; width: 1920px; height: 1080px; }
 
   /* The elimination card, in THIS page rather than a source of its own.
@@ -369,7 +356,7 @@
     position: absolute; left: var(--name-x); top: 0;
     width: var(--name-w); height: var(--row-h);
     display: flex; align-items: center; justify-content: var(--name-align);
-    color: var(--name-ink, var(--ink)); font-weight: 700; font-size: var(--name-size);
+    color: var(--name-ink, var(--ink)); font-weight: var(--name-weight, 700); font-size: var(--name-size);
     letter-spacing: 0.2px;
     text-transform: uppercase; white-space: nowrap; overflow: hidden;
   }
@@ -1194,7 +1181,7 @@ LAYOUTS.gng = (() => {
      logo box x 765..817 / y 302..353, the name black on the gold bar
      x 825..1179 / y 299..353, "#N" gold in the box x 1157..1220 /
      y 122..186.
-   Winner Sans, as 'RNX Sans' / 'RNX Black' (see their @font-face). The
+   Winner Sans, as 'Winner Sans M' / 'Winner Sans B' (see their @font-face). The
    side pop-up and the crown tile are SS3's geometry drawn in RNX's look
    (make_rnx_art.py). */
 LAYOUTS.RNX = (() => {
@@ -1207,14 +1194,14 @@ LAYOUTS.RNX = (() => {
     rowTops: [351, 400, 449, 499, 548, 597, 646, 695, 745, 794, 843, 892],
     row: { x: 1590, w: 330, h: 39 },
     ink: "#ffffff", killsInk: "#500864",
-    face: "'RNX Sans'",
+    face: "'Winner Sans M'",
     accent: "#fcd02c", accentGlow: "rgba(252, 208, 44, 0.9)",
     accentFlash: ["rgba(252, 208, 44, 0)", "rgba(252, 208, 44, 0.45)"],
-    rank: { x: 10, w: 26, size: 17, align: "flex-start" },
+    rank: { x: 10, w: 26, size: 14.5, align: "flex-start" },
     logo: { x: 39, w: 26, img: 24 },
-    name: { x: 74, w: 128, size: 13, align: "flex-start" },
+    name: { x: 74, w: 128, size: 11.2, align: "flex-start", weight: 500 },
     points: null,
-    kills: { x: 226, w: 40, size: 20 },
+    kills: { x: 226, w: 40, size: 17 },
     pip: { x: 284.3, y: 7.5, w: 27.4, h: 21.5, size: 0, px: 0, py: 0 },
     originY: 617,
     crTile: "cr_tile.png",
@@ -1225,8 +1212,8 @@ LAYOUTS.RNX = (() => {
       travel: 0, travelX: -1300, travelXOut: 1300,
       photo: { x: 759, y: 139, w: 427, h: 160 },
       logo: { x: 765, y: 302, w: 52, h: 51 },
-      name: { x: 832, y: 299, w: 340, h: 54, size: 46, ink: "#000000", full: true, face: "RNX Black" },
-      rank: { x: 1157, y: 122, w: 64, h: 65, size: 36, ink: "#fdd12c", face: "RNX Black" },
+      name: { x: 832, y: 299, w: 340, h: 54, size: 44, ink: "#000000", full: true, face: "Winner Sans B", ls: -1 },
+      rank: { x: 1157, y: 122, w: 64, h: 65, size: 33, ink: "#fdd12c", face: "Winner Sans B" },
       seconds: 4,
     },
     top4: {
@@ -1236,16 +1223,90 @@ LAYOUTS.RNX = (() => {
       logo: { dx: 8, y: 114, w: 58, h: 68 },
       name: null,
       bars: { dx: 93, y: 127, w: 19, h: 43, at: [0, 26, 53, 79], alive: "#ffffff", dead: "rgba(255, 255, 255, 0.16)" },
-      win: { right: 216, y: 192, size: 24, ink: "#eb0000", face: "RNX Black" },
+      win: { right: 216, y: 193, size: 22, ink: "#eb0000", face: "Winner Sans B", weight: 800 },
     },
     top4Clear: 112,
   };
   // The side pop-up keeps SS3's geometry, in RNX's art and inks.
   const a = JSON.parse(JSON.stringify(LAYOUTS.ss3.achievement));
-  a.title = Object.assign({}, a.title, { ink: "#500864", face: "RNX Black" });
-  a.value = Object.assign({}, a.value, { ink: "#ffffff", face: "RNX Black" });
-  a.label = Object.assign({}, a.label, { ink: "#fcd02c", face: "RNX Sans" });
-  a.name = Object.assign({}, a.name, { ink: "#000000", face: "RNX Black" });
+  a.title = Object.assign({}, a.title, { ink: "#500864", face: "Winner Sans B" });
+  a.value = Object.assign({}, a.value, { ink: "#ffffff", face: "Winner Sans B" });
+  a.label = Object.assign({}, a.label, { ink: "#fcd02c", face: "Winner Sans M" });
+  a.name = Object.assign({}, a.name, { ink: "#000000", face: "Winner Sans B" });
+  c.achievement = a;
+  return c;
+})();
+
+/* ENFEA STAN (STANFEST): the event's own alive table, Top 4 bar and
+   ELIMINATED pop-up (assets/freefire/ENFEA STAN), RNX's kit in its own
+   indigo and gold, measured against their DEMOs:
+     the table: RNX's geometry exactly (eleven 39px rows from y 351, 49
+     apart; a twelfth, with the legend and the JIBITO plate under it, in
+     "ALIVE STATS - BLANK 12.png" -- make_enfea_art.py), with no logo
+     column: the name from x 1628; the kills and status bars violet on
+     the gold; the STANFEST plate above it, part of the art.
+     the Top 4 bar: four cards 333 apart from x 334 (the art's are within
+     6px of that); "WIN RATE - N%" white at +25 / y 123..135, the team's
+     tag gold under it at y 143..166, the logo in the gold square
+     x +228..+270 / y 94..128, four 22x13 squares on the gold strip from
+     +42 / y 200, 28 apart -- violet up, white down. It sits over the
+     pop-up's place, so the pop-up and the zone bug go below it.
+     the ELIMINATED pop-up x 648..1272 / y 119..365: no photo; "ELIMINATED"
+     is in the art (x 741..927), the team's name gold under it from x 741,
+     left-aligned, 55px capitals; the logo in the gold box x 648..741 /
+     y 288..364; "#N" violet in the gold box x 1178..1271 / y 119..195.
+   Winner Sans ('Winner Sans M' / 'B'). The side pop-up and the crown tile
+   are SS3's geometry in ENFEA's look (make_enfea_art.py). */
+LAYOUTS["ENFEA STAN"] = (() => {
+  const c = {
+    placementKey: "enfea",
+    bg: "ALIVE STATS - BLANK.png",
+    bg12: "ALIVE STATS - BLANK 12.png", artRows: 11,
+    pipBase: "Live Stats/",
+    pipBars: { w: 4.6, gap: 3, alive: "#510a66", dead: "#ffffff", unknown: "rgba(81, 10, 102, 0.3)" },
+    rowTops: [351, 400, 449, 499, 548, 597, 646, 695, 745, 794, 843, 892],
+    row: { x: 1590, w: 330, h: 39 },
+    ink: "#ffffff", killsInk: "#510a66",
+    face: "'Winner Sans M'",
+    accent: "#ffcc00", accentGlow: "rgba(255, 204, 0, 0.9)",
+    accentFlash: ["rgba(255, 204, 0, 0)", "rgba(255, 204, 0, 0.45)"],
+    rank: { x: 10, w: 26, size: 14.5, align: "flex-start" },
+    logo: null,
+    name: { x: 38, w: 165, size: 11.2, align: "flex-start", weight: 500 },
+    points: null,
+    kills: { x: 226, w: 40, size: 17 },
+    pip: { x: 284.3, y: 7.5, w: 27.4, h: 21.5, size: 0, px: 0, py: 0 },
+    originY: 607,
+    crTile: "cr_tile.png",
+    elimCard: {
+      art: "ELIMINATION POPUP - BLANK.png",
+      placementKey: "enfea",
+      panel: { x: 648, y: 119, w: 624, h: 246 },
+      travel: 0, travelX: -1300, travelXOut: 1300,
+      photo: null,
+      logo: { x: 654, y: 293, w: 82, h: 66 },
+      name: { x: 741, y: 217, w: 500, h: 66, size: 63, ink: "#ffcc00", full: true, face: "Winner Sans B",
+              align: "flex-start", ls: -1 },
+      rank: { x: 1178, y: 119, w: 94, h: 77, size: 40, ink: "#33096b", face: "Winner Sans B", pad: false },
+      seconds: 4,
+    },
+    top4: {
+      bg: "TOP4 DEAD ALIVE - BLANK.png",
+      cards: [334, 667, 1000, 1333],
+      cardW: 271, pitch: 333, slice: 334, cardH: 225, lift: 0,
+      logo: { dx: 230, y: 96, w: 36, h: 30 },
+      name: { dx: 25, y: 135, w: 222, h: 34, size: 28, ink: "#ffcc00", face: "Winner Sans B", weight: 800 },
+      bars: { dx: 42, y: 200, w: 22, h: 13, at: [0, 28, 56, 84], alive: "#28075a", dead: "#ffffff" },
+      win: { x: 25, w: 225, y: 121, size: 16, ink: "#ffffff", face: "Winner Sans M", prefix: "WIN RATE - ", weight: 500 },
+    },
+    top4Clear: 105,
+  };
+  // The side pop-up keeps SS3's geometry, in ENFEA's art and inks.
+  const a = JSON.parse(JSON.stringify(LAYOUTS.ss3.achievement));
+  a.title = Object.assign({}, a.title, { ink: "#33096b", face: "Winner Sans B" });
+  a.value = Object.assign({}, a.value, { ink: "#ffffff", face: "Winner Sans B" });
+  a.label = Object.assign({}, a.label, { ink: "#ffcc00", face: "Winner Sans M" });
+  a.name = Object.assign({}, a.name, { ink: "#33096b", face: "Winner Sans B" });
   c.achievement = a;
   return c;
 })();
@@ -1311,6 +1372,7 @@ function applyLayout(L, showPoints){
   r.setProperty("--name-w", L.name.w + "px");
   r.setProperty("--name-size", L.name.size + "px");
   r.setProperty("--name-align", L.name.align);
+  r.setProperty("--name-weight", String(L.name.weight || 700));
   // The points column exists only where the package HAS one and the
   // operator is running the variant that shows it.
   const pts = L.points && showPoints;
@@ -1825,7 +1887,10 @@ function applyElimCardLayout(C, state){
   r.setProperty("--elim-rank-size", C.rank.size + "px");
   r.setProperty("--elim-rank-ink", C.rank.ink || "#ffffff");
   const face = f => f ? `'${f}', Arial, sans-serif` : "";
-  document.getElementById("elimName").style.fontFamily = face(C.name.face);
+  const nameEl = document.getElementById("elimName");
+  nameEl.style.fontFamily = face(C.name.face);
+  nameEl.style.justifyContent = C.name.align || "";
+  nameEl.style.letterSpacing = C.name.ls != null ? C.name.ls + "px" : "";
   document.getElementById("elimRank").style.fontFamily = face(C.rank.face);
 
   // The same placement keys the dashboard's Graphic Fixing pages save,
@@ -2021,7 +2086,7 @@ function renderRace(state){
   box.classList.toggle("on", on);
   if(!on) return;
   const pk = String(aliveFolder(state)).toLowerCase();
-  box.style.setProperty("--race-acc", pk === "ss3" ? "#ff1e1e" : pk === "chirayu" ? "#e8a33a" : pk === "gng" ? "#ffa976" : pk === "rnx" ? "#fcd02c" : "#f7941d");
+  box.style.setProperty("--race-acc", pk === "ss3" ? "#ff1e1e" : pk === "chirayu" ? "#e8a33a" : pk === "gng" ? "#ffa976" : pk === "rnx" ? "#fcd02c" : pk.startsWith("enfea") ? "#ffcc00" : "#f7941d");
   const race = ((state.liveOps || {}).fragRace) || [];
   const roster = state.roster || {};
   const rows = box.querySelector(".rows");
@@ -2081,7 +2146,7 @@ function playWipeBanner(state, byName, row, next){
   const el = document.getElementById("wipeBanner");
   const by = logoFor(byName, state.roster), out = logoFor(row.teamName, state.roster);
   const pk = String(aliveFolder(state)).toLowerCase();
-  el.style.setProperty("--wb-acc", pk === "ss3" ? "#ff1e1e" : pk === "chirayu" ? "#e8a33a" : pk === "gng" ? "#ffa976" : pk === "rnx" ? "#fcd02c" : "#f7941d");
+  el.style.setProperty("--wb-acc", pk === "ss3" ? "#ff1e1e" : pk === "chirayu" ? "#e8a33a" : pk === "gng" ? "#ffa976" : pk === "rnx" ? "#fcd02c" : pk.startsWith("enfea") ? "#ffcc00" : "#f7941d");
   const set = (sel, img) => { const i = el.querySelector(sel); if(img){ i.src = img; i.style.display = ""; } else i.style.display = "none"; };
   set("img.a", by && by.logo);
   set("img.b", out && out.logo);
@@ -2193,7 +2258,7 @@ function showElimCard(state, rowEl, L, forced){
   const rankEl = document.getElementById("elimRank");
   rankEl.innerHTML = "";
   const rankSpan = document.createElement("span");
-  const rankNum = row.finishRank == null ? "" : (C.photo ? String(row.finishRank)
+  const rankNum = row.finishRank == null ? "" : ((C.photo || C.rank.pad === false) ? String(row.finishRank)
                                                          : String(row.finishRank).padStart(2, "0"));
   // The "#" a size down with a hair of space after it: at full weight it
   // runs into the digits once there are two of them.
@@ -2468,7 +2533,7 @@ function renderTop4(state, source){
       // GNG: the team's tag, as the demo's "AAA", shrunk to its box
       Object.assign(nm.style, { left: T.name.dx + "px", top: T.name.y + "px", width: T.name.w + "px",
                                 height: T.name.h + "px", color: T.name.ink, fontSize: T.name.size + "px",
-                                letterSpacing: (T.name.ls || 0) + "px",
+                                letterSpacing: (T.name.ls || 0) + "px", fontWeight: T.name.weight || "",
                                 fontFamily: `'${T.name.face}', Arial, sans-serif` });
       const tag = cleanName((team && team.shortName) || row.short || row.teamName || "");
       if(nm.textContent !== tag){
@@ -2488,15 +2553,21 @@ function renderTop4(state, source){
       b.classList.toggle("down", k >= up);
     });
     const win = card.querySelector(".t4win");
-    Object.assign(win.style, { left: "0px", width: T.win.right + "px", top: T.win.y + "px",
+    // right-aligned to `right` (the number alone), or from `x` with its
+    // own words in front ("WIN RATE - 74%", ENFEA's)
+    Object.assign(win.style, T.win.x != null
+      ? { left: T.win.x + "px", width: T.win.w + "px", textAlign: "left" }
+      : { left: "0px", width: T.win.right + "px", textAlign: "" });
+    Object.assign(win.style, { top: T.win.y + "px",
                                fontSize: T.win.size + "px", color: T.win.ink,
                                fontFamily: T.win.face ? `'${T.win.face}', Arial, sans-serif` : "",
                                fontWeight: T.win.weight || "",
                                fontStyle: T.win.italic ? "italic" : (T.win.face ? "normal" : "") });
-    const txt = rates[i] == null ? "\u2014" : rates[i] + "%";
+    const num = rates[i] == null ? "\u2014" : rates[i] + "%";
+    const txt = (T.win.prefix || "") + num;
     if(win.textContent !== txt) win.textContent = txt;
     // "100%" is a digit wider than the box was set for: a size down.
-    win.style.fontSize = (txt.length > 3 ? T.win.size - 3 : T.win.size) + "px";
+    win.style.fontSize = (!T.win.prefix && num.length > 3 ? T.win.size - 3 : T.win.size) + "px";
   });
   return true;
 }
@@ -3087,6 +3158,7 @@ const ZB_THEMES = {
   ss3:   { acc: "#ff1e1e", a: "#3a0808", b: "#0b0b0b", dark: "#fff694", ink: "#f4f4f4" },
   arrow: { a: "#123224", b: "#07120d", dark: "#0b0b0b", ink: "#f2f2f2" },
   rnx:   { acc: "#fcd02c", a: "#6c1694", b: "#3a0852", dark: "#500864", ink: "#ffffff" },
+  enfea: { acc: "#ffcc00", a: "#3d0c80", b: "#180044", dark: "#33096b", ink: "#ffffff" },
 };
 const zb = { clock: null, deadline: 0, key: "", sec: null, shown: false, outTimer: null, inTimer: null,
              tiles: new Map() };

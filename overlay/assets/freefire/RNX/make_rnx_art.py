@@ -12,9 +12,10 @@ field on it -- and are drawn here in RNX's look, sampled from its art:
     accent deep      gold                   #fcb814   (the legend bar)
     ink on gold      dark violet            #500864   (the kills, the alive bars)
     deep             near-black violet      #22062f   (the event backdrop's corner)
-    face             Winner Sans when its file is in font/ (the event's own,
-                     a paid face -- not in this public repo), else TT
-                     Supermolot Neue, the squared sports face closest to it
+    face             Winner Sans Medium, made bold for the heavy text as the
+                     pages make it (the event's own -- a paid face, kept in
+                     overlay/assets/fonts/winner-sans, not in this public
+                     repo), else TT Supermolot Neue, the closest to it
 
 Also the alive table with a twelfth row: the event's art has eleven, and
 a twelfth squad would otherwise sit on the legend.
@@ -33,17 +34,24 @@ SS3 = os.path.join(HERE, "..", "ss3")
 FONTS = os.path.join(HERE, "..", "..", "fonts")
 
 
-def _face(names, fallback):
-    for n in names:
-        p = os.path.join(HERE, "font", n)
-        if os.path.exists(p):
-            return p
-    return os.path.join(FONTS, fallback)
+WINNER = os.path.join(FONTS, "winner-sans", "WinnerSans-Medium.otf")
+if os.path.exists(WINNER):
+    # one face, as the pages have it: Medium, and Medium made bold
+    FONT = DISPLAY = WINNER
+    BOLD = 0.035            # the stroke that makes it bold, per pixel of size
+else:
+    FONT = os.path.join(FONTS, "TTSupermolotNeueTrial-ExtraBold.ttf")
+    DISPLAY = os.path.join(FONTS, "TTSupermolotNeueTrial-Black.ttf")
+    BOLD = 0
+# the kit's files: kit/<KIT_NAME>_frame.png ... (another package drawing
+# with this module sets its own)
+KIT_NAME = "rnx"
 
 
-FONT = _face(["winner-sans.otf", "winner-sans.ttf"], "TTSupermolotNeueTrial-ExtraBold.ttf")
-DISPLAY = _face(["winner-sans-black.otf", "winner-sans-black.ttf", "winner-sans.otf", "winner-sans.ttf"],
-                "TTSupermolotNeueTrial-Black.ttf")
+def heavy(d, xy, s, font, fill, size, **kw):
+    """The heavy face: DISPLAY, bold by stroke when it is Winner Sans."""
+    w = int(round(size * BOLD)) if font == DISPLAY else 0
+    d.text(xy, s, font=ImageFont.truetype(font, size), fill=fill, stroke_width=w, stroke_fill=fill, **kw)
 
 PANEL = (96, 12, 132)
 DEEP = (34, 6, 47)
@@ -108,7 +116,7 @@ def outline_frame(canvas, box, gap=6, width=4):
 
 
 def text(canvas, xy, s, size, fill, font=FONT, anchor="mm"):
-    ImageDraw.Draw(canvas).text(xy, s, font=ImageFont.truetype(font, size), fill=fill, anchor=anchor)
+    heavy(ImageDraw.Draw(canvas), xy, s, font, fill, size, anchor=anchor)
 
 
 def shadowed(canvas, poly, blur=8, alpha=120, dy=4):
@@ -198,7 +206,7 @@ def kit_frame(round_bar=True, save=True):
     d.rectangle([0, 922, 1920, 1005], fill=DEEP + (235,))
     d.rectangle([0, 920, 1920, 922], fill=GOLD + (255,))
     if save:
-        c.save(os.path.join(KIT, "rnx_frame.png"), optimize=True)
+        c.save(os.path.join(KIT, KIT_NAME + "_frame.png"), optimize=True)
     return c
 
 
@@ -207,13 +215,13 @@ def kit_zebra():
     c = Image.new("RGBA", (485, 330), (0, 0, 0, 0))
     c.paste(gradient(485, 330, CARD_A, CARD_B), (0, 0))
     sheen(c, 0, 0, 485, 330, step=70, width=22, alpha=40)
-    c.save(os.path.join(KIT, "rnx_zebra.png"), optimize=True)
+    c.save(os.path.join(KIT, KIT_NAME + "_zebra.png"), optimize=True)
 
 
 def kit_roundbar():
     c = Image.new("RGBA", (347, 47), (0, 0, 0, 0))
     paste_shape(c, [(1, 1), (346, 1), (346, 46), (1, 46)], GOLD)
-    c.save(os.path.join(KIT, "rnx_roundbar.png"), optimize=True)
+    c.save(os.path.join(KIT, KIT_NAME + "_roundbar.png"), optimize=True)
 
 
 # ---- SS3's screens in RNX's palette, its branding taken off ------------------
@@ -268,7 +276,7 @@ def fit_text(canvas, box, s, font, fill, align="right"):
             break
         size -= 1
     x = x1 - (r - l) - l if align == "right" else x0 - l
-    d.text((x, y0 - t + ((y1 - y0) - (b - t)) / 2), s, font=f, fill=fill)
+    heavy(d, (x, y0 - t + ((y1 - y0) - (b - t)) / 2), s, font, fill, size)
 
 
 def rnx_title(canvas, box, words):
@@ -290,8 +298,8 @@ def rnx_title(canvas, box, words):
     y = y0 + ((y1 - y0) - (b - t)) / 2 - t
     for i, (w, wd) in enumerate(zip(words, widths)):
         colour = GOLD if i == len(words) - 1 and len(words) > 1 else WHITE
-        d.text((x + 4, y + 5), w, font=f, fill=(0, 0, 0, 110))
-        d.text((x, y), w, font=f, fill=colour + (255,))
+        heavy(d, (x + 4, y + 5), w, DISPLAY, (0, 0, 0, 110), size)
+        heavy(d, (x, y), w, DISPLAY, colour + (255,), size)
         x += wd + space
 
 
@@ -368,5 +376,5 @@ if __name__ == "__main__":
                [(1794, 380), (1920, 380), (1920, 520), (1794, 520)], [(1255, 860), (1400, 860), (1400, 912), (1255, 912)]],
                title=((495, 144, 1440, 241), ["HEAD", "TO", "HEAD"]))
     drop_spot()
-    print("written with %s / %s: the 12-row table, the in-game cards, the kit (rnx_frame / rnx_zebra / "
-          "rnx_roundbar), and the SS3 screens in RNX" % (os.path.basename(FONT), os.path.basename(DISPLAY)))
+    print("written with %s%s: the 12-row table, the in-game cards, the kit (rnx_frame / rnx_zebra / "
+          "rnx_roundbar), and the SS3 screens in RNX" % (os.path.basename(FONT), " (and bold)" if BOLD else ""))
