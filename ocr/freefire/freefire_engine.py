@@ -1931,6 +1931,11 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
         self_inflicted = killer_id == victim_id
         if kill:
             live["gsDown"].setdefault(gs_team_of(victim_id), set()).add(victim_id)
+            # The order squads lose players in, for the order they went out
+            # (assign_finish_ranks): a normal room writes no wipe lines, so
+            # a squad's last death is the only record of when it finished.
+            live["deathSeq"] = live.get("deathSeq", 0) + 1
+            live.setdefault("gsLastDeath", {})[gs_team_of(victim_id)] = live["deathSeq"]
             # Who took this squad's latest life -- when it is wiped, the wipe
             # banner names them. None for the zone or a fall: nobody to name.
             live.setdefault("lastDeathBy", {})[gs_team_of(victim_id)] = (
@@ -4574,7 +4579,29 @@ def assign_finish_ranks(rows):
         if name and not row.get("eliminated"):
             _finish_ranks.pop(name, None)
 
+    # And the place of a name that no longer exists -- on the table or in
+    # the roster. Positions are kept by name, so a squad renamed mid-match
+    # (a normal room's lobby read names them SQUAD 1..12, the operator
+    # types the real names in) left its old name holding its place: four
+    # squads renamed after going out kept 12th..9th taken, and every
+    # elimination after that was dealt from 8th down. A name merely not
+    # read this poll is still in the roster, and keeps its place.
+    present = {n for _, n in named if n} | {
+        (t.get("name") or "").strip().upper()
+        for t in ((server_state.get("roster") or {}).get("teams") or [])}
+    for gone in [n for n in _finish_ranks if n not in present]:
+        _finish_ranks.pop(gone, None)
+
     fresh = [(r, n) for r, n in named if n and r.get("eliminated") and n not in _finish_ranks]
+    # Several at once (a restart mid-match, a rename, the table first
+    # resolving) are dealt their places in the order they went out -- each
+    # squad's last death in the log -- not in table order: the first out
+    # takes the lowest place left. Squads with no record keep table order,
+    # after them.
+    last_death = _live_match.get("gsLastDeath") or {}
+    order = {id(r): i for i, (r, _) in enumerate(fresh)}
+    fresh.sort(key=lambda rn: (last_death.get(rn[0].get("gsTeam")) is None,
+                               last_death.get(rn[0].get("gsTeam")) or 0, order[id(rn[0])]))
 
     # Positions are handed out from the bottom of what is left, one each.
     # Giving them all len(live) + 1 -- which is what this did -- put five
