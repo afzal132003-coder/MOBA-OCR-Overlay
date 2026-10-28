@@ -2189,6 +2189,23 @@ function rushWipeBanner(){
   wipeTimer = setTimeout(endWipeBanner, left);
 }
 
+/* SHUTDOWN: the announcer's call as the ELIMINATED card comes up
+   (settings.shutdownSound, on unless switched off; shutdownVolume 0..100).
+   Loaded up front, so it lands with the card rather than after a fetch
+   over the relay. Never from the dashboard's preview frames. In OBS the
+   browser source plays it -- "Control audio via OBS" puts it on the mixer. */
+const shutdownSfx = new Audio("assets/sfx/shutdown.wav");
+shutdownSfx.preload = "auto";
+function playShutdown(state){
+  const st = (state && state.settings) || {};
+  if(PREVIEW_MODE || st.shutdownSound === false) return;
+  const vol = st.shutdownVolume == null ? 80 : Number(st.shutdownVolume);
+  shutdownSfx.volume = Math.min(1, Math.max(0, (Number.isFinite(vol) ? vol : 80) / 100));
+  try { shutdownSfx.currentTime = 0; } catch(e){}
+  const p = shutdownSfx.play();
+  if(p && p.catch) p.catch(() => {});
+}
+
 function showElimCard(state, rowEl, L, forced){
   const C = L.elimCard;
   if(!C) return;                       // this package has no such card
@@ -2305,6 +2322,7 @@ function showElimCard(state, rowEl, L, forced){
   clearTimeout(elimCardOutTimer);
   card.classList.remove("out");
   card.classList.add("show", "in");
+  playShutdown(state);
   if(C.name.full) fitName(document.getElementById("elimName"));
   // "#11" is wider than "#1": shrunk until it sits inside its corner box
   // with a few pixels either side, instead of running out of it.

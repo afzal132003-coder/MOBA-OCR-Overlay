@@ -2427,6 +2427,13 @@
           <strong style="font-size:12px;">Pop-ups</strong>
           <label class="hint" style="margin:0;" title="The ELIMINATED card when a squad is wiped. Off: no card at all, from the engine or the table.">
             <input type="checkbox" id="ff_elimPopup" checked> Elimination pop-up</label>
+          <span style="display:inline-flex;gap:6px;align-items:center;"
+                title="A female announcer calls SHUTDOWN as each ELIMINATED card comes up, from the in-game source. In OBS, tick &quot;Control audio via OBS&quot; on that browser source to get it on the mixer. Test plays it here, on this PC only.">
+            <label class="hint" style="margin:0;"><input type="checkbox" id="ff_shutdownSound" checked> SHUTDOWN sound</label>
+            <input type="range" id="ff_shutdownVolume" min="0" max="100" step="5" value="80" style="width:80px;">
+            <span id="ff_shutdownVolumeVal" class="hint" style="margin:0;min-width:32px;">80%</span>
+            <button class="secondary" id="ff_shutdownTest" style="margin:0;padding:2px 8px;">Test</button>
+          </span>
           <label class="hint" style="margin:0;" title="Before the ELIMINATED card: a banner naming the squad that wiped them -- TSG WIPED NG (not for the zone). In the in-game source.">
             <input type="checkbox" id="ff_wipeBanner" checked> Wipe banner first</label>
           <label class="hint" style="margin:0;" title="A revive on the side table: the player's name and REVIVED sweep across their team's row, the way ELIMINATED does. In the in-game source.">
@@ -12269,6 +12276,13 @@ function ffRenderPopupControls(ff){
   const idle = el => el && el !== document.activeElement;
   const ep = document.getElementById("ff_elimPopup");
   if(idle(ep)) ep.checked = st.elimPopup !== false;
+  const sdx = document.getElementById("ff_shutdownSound");
+  if(idle(sdx)) sdx.checked = st.shutdownSound !== false;
+  const sdv = document.getElementById("ff_shutdownVolume");
+  if(idle(sdv)){
+    sdv.value = st.shutdownVolume == null ? 80 : st.shutdownVolume;
+    document.getElementById("ff_shutdownVolumeVal").textContent = sdv.value + "%";
+  }
   const wbx = document.getElementById("ff_wipeBanner");
   if(idle(wbx)) wbx.checked = st.wipeBanner !== false;
   const rvx = document.getElementById("ff_reviveRow");
@@ -12295,6 +12309,23 @@ function ffRenderPopupControls(ff){
   const note = t => { const n = document.getElementById("ff_popupNote"); n.textContent = t; setTimeout(() => { if(n.textContent === t) n.textContent = ""; }, 4000); };
   document.getElementById("ff_elimPopup").addEventListener("change", e => {
     if(ffPopupSettings({ elimPopup: e.target.checked })) note(e.target.checked ? "Elimination pop-up on." : "Elimination pop-up off.");
+  });
+  // SHUTDOWN with each ELIMINATED card: on air from the in-game source;
+  // Test plays the same file here only.
+  document.getElementById("ff_shutdownSound").addEventListener("change", e => {
+    if(ffPopupSettings({ shutdownSound: e.target.checked })) note(e.target.checked
+      ? "SHUTDOWN sound on -- it plays with each elimination card." : "SHUTDOWN sound off.");
+  });
+  const sdVol = document.getElementById("ff_shutdownVolume");
+  sdVol.addEventListener("input", () => { document.getElementById("ff_shutdownVolumeVal").textContent = sdVol.value + "%"; });
+  sdVol.addEventListener("change", () => {
+    if(ffPopupSettings({ shutdownVolume: Number(sdVol.value) })) note("SHUTDOWN volume " + sdVol.value + "%.");
+  });
+  const sdTest = new Audio("../overlay/assets/sfx/shutdown.wav");
+  document.getElementById("ff_shutdownTest").addEventListener("click", () => {
+    sdTest.volume = Number(sdVol.value) / 100;
+    sdTest.currentTime = 0;
+    sdTest.play().catch(() => note("Could not play the test sound here."));
   });
   document.getElementById("ff_reviveRow").addEventListener("change", e => {
     if(ffPopupSettings({ reviveRow: e.target.checked })) note(e.target.checked ? "Revives sweep across their team's row on the side table." : "Revives off the side table.");
