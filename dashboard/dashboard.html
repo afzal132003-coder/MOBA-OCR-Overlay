@@ -2466,6 +2466,11 @@
           <button class="secondary" id="ff_defaultPlayerPhotoClear" title="Remove it">&times;</button>
           <span class="hint" id="ff_popupNote" style="margin:0;"></span>
         </div>
+        <div class="row" style="gap:6px 12px;align-items:center;flex-wrap:wrap;margin-top:6px;"
+             title="Ticked: that team's ELIMINATED card goes up with no photo at all -- not its own, not the default stand-in. For a team whose photo is missing or wrong.">
+          <span class="hint" style="margin:0;">No team photo on the ELIMINATED card:</span>
+          <span id="ff_photoOffTeams" style="display:flex;gap:4px 12px;flex-wrap:wrap;"></span>
+        </div>
         <p class="hint" style="margin:6px 0 0;">Side pop-ups are read from the kill log as they happen and use the event's achievement art.
           A player's photo is found in the folder by UID, then by IGN; with none there, the default player photo is used.
           The elimination card uses the squad's group photo from the roster, else the default team photo.
@@ -12289,8 +12294,37 @@ document.addEventListener("change", e => {
 document.getElementById("ff_crClear").addEventListener("click", () => {
   if(ffWs && ffWs.readyState === WebSocket.OPEN) ffWs.send(JSON.stringify({ type: "freefire_cr_team", clear: true }));
 });
+/* No team photo on the ELIMINATED card, per team (roster team.photoOff):
+   a tick beside each roster team, as the Champion Rush tiles have. */
+function ffRenderPhotoOff(ff){
+  const box = document.getElementById("ff_photoOffTeams");
+  if(!box) return;
+  const teams = (((ff && ff.roster) || {}).teams || []).filter(t => (t.name || "").trim());
+  const key = teams.map(t => t.name + "|" + (t.shortName || "")).join("~");
+  if(box.dataset.key !== key){
+    box.dataset.key = key;
+    box.innerHTML = teams.map(t =>
+      `<label class="hint" style="margin:0;display:flex;gap:4px;align-items:center;" title="${ffEscapeHtml(t.name)}">` +
+      `<input type="checkbox" class="ff-photo-off" data-team="${ffEscapeHtml(t.name)}"> ${ffEscapeHtml(t.shortName || t.name)}</label>`).join("") ||
+      '<span class="hint">No teams in the roster yet.</span>';
+  }
+  const off = new Set(teams.filter(t => t.photoOff).map(t => t.name));
+  box.querySelectorAll(".ff-photo-off").forEach(el => {
+    if(el !== document.activeElement) el.checked = off.has(el.dataset.team);
+  });
+}
+document.addEventListener("change", e => {
+  const el = e.target.closest && e.target.closest(".ff-photo-off");
+  if(!el || !ffState) return;
+  const teams = (((ffState.roster || {}).teams) || []).map(t =>
+    t.name === el.dataset.team ? Object.assign({}, t, { photoOff: el.checked }) : t);
+  ffPopupRoster({ teams });
+  const n = document.getElementById("ff_popupNote");
+  if(n) n.textContent = el.dataset.team + (el.checked ? ": no photo on its card." : ": photo back on its card.");
+});
 function ffRenderPopupControls(ff){
   try { ffRenderCrTiles(ff); } catch(e){ console.error("cr tiles:", e); }
+  try { ffRenderPhotoOff(ff); } catch(e){ console.error("photo off:", e); }
   const st = (ff && ff.settings) || {};
   const sw = st.sidePopups || {};
   const idle = el => el && el !== document.activeElement;

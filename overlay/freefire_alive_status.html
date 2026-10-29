@@ -2231,7 +2231,9 @@ function showAnnouncedElimCard(state, L){
 function setElimPhoto(state, row, C){
   const ph = document.getElementById("elimPhoto");
   const team = logoFor(row.teamName, state.roster);
-  const photo = C.photo ? ((team && team.groupPhoto) ||
+  // a team switched off in the dashboard (roster team.photoOff) goes up
+  // with none, not even the default stand-in
+  const photo = (C.photo && !(team && team.photoOff)) ? ((team && team.groupPhoto) ||
                            teamPhotoCache[(team && team.name) || row.teamName || ""] ||
                            ((state.roster || {}).defaultTeamPhoto) ||
                            teamPhotoCache.__default__ || "") : "";
