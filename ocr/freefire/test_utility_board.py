@@ -116,8 +116,11 @@ def real():
     if not LOG.exists():
         print("  SKIP: no reference log at", LOG)
         return 0
-    roster = (json.load(io.open("freefire_state.json", encoding="utf-8"))
-              .get("roster") or {})
+    # The operator's roster names the squads where this PC has one; a fresh
+    # checkout (CI) has none, and the board is built from the log alone.
+    state = Path("freefire_state.json")
+    roster = ((json.load(io.open(state, encoding="utf-8")).get("roster") or {})
+              if state.exists() else {})
     lines = io.open(LOG, encoding="utf-8", errors="replace").readlines()
     path = Path(tempfile.gettempdir()) / "ff_util_real.log"
     io.open(path, "w", encoding="utf-8").writelines(lines[:int(len(lines) * 0.94)])
