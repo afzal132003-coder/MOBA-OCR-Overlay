@@ -15176,6 +15176,8 @@ const FFGFX_ELIM_BOXES = {
               rect: { left: 901, top: 325, width: 307, height: 26 } },
   elimRank: { label: "Elimination Card — position (#00)",
               rect: { left: 677, top: 316, width: 50, height: 18 } },
+  elimPhoto: { label: "Elimination Card — team photo",
+               rect: { left: 631, top: 303, width: 651, height: 179 } },
 };
 
 /* The SS3 card is a different shape in a different place, and keeps its
@@ -15189,6 +15191,7 @@ const FFGFX_ELIM_BOXES_SS3 = {
   elimLogo: { left: 770, top: 250, width: 58, height: 50 },
   elimName: { left: 836, top: 253, width: 334, height: 42 },
   elimRank: { left: 1148, top: 101, width: 42, height: 45 },
+  elimPhoto: { left: 764, top: 108, width: 416, height: 137 },
 };
 // The alive page's placement key for the event's package -- the suffix the
 // overlay reads its nudges under (its layouts' placementKey).
@@ -15216,6 +15219,7 @@ const FFGFX_ELIM_BOXES_ENFEA = {
   elimLogo: { left: 654, top: 293, width: 82, height: 66 },
   elimName: { left: 741, top: 221, width: 500, height: 66 },
   elimRank: { left: 1178, top: 119, width: 94, height: 77 },
+  elimPhoto: { left: 648, top: 119, width: 624, height: 246 },   // no photo on this card
 };
 /* GamerCult's, from "Eliminated - BLANK/DEMO": card 631..1281 / 127..481
    (the squad photo's heads above its yellow); the logo in the red box
@@ -15226,6 +15230,7 @@ const FFGFX_ELIM_BOXES_GAMERCULT = {
   elimLogo: { left: 645, top: 341, width: 118, height: 118 },
   elimName: { left: 838, top: 303, width: 425, height: 64 },
   elimRank: { left: 632, top: 157, width: 86, height: 38 },
+  elimPhoto: { left: 686, top: 150, width: 594, height: 196 },
 };
 /* RNX's ELIMINATED pop-up, measured from "ELIMINATIONPOPUP - BLANK/DEMO":
    card 753..1225 / 119..367; logo box 765..817 / 302..353; the name on the
@@ -15235,6 +15240,7 @@ const FFGFX_ELIM_BOXES_RNX = {
   elimLogo: { left: 765, top: 302, width: 52, height: 51 },
   elimName: { left: 832, top: 299, width: 340, height: 54 },
   elimRank: { left: 1157, top: 122, width: 64, height: 65 },
+  elimPhoto: { left: 759, top: 139, width: 427, height: 160 },
 };
 // Where a page's nudge is stored: the SS3 card's under its own keys, and
 // the alive table's under the alive package's own (SS3 / PRG ARROW), so a

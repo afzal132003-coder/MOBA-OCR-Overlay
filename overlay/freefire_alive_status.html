@@ -282,7 +282,10 @@
                            to   { opacity: 0; transform: translate(var(--elim-travel-x-out, 0px), var(--elim-travel, -520px)); } }
   /* The team's group photo, between the artwork and the text -- in front
      of the package's lettering, the way its demo has it. */
-  #elimPhoto { position: absolute; display: none; object-fit: cover; object-position: center bottom; }
+  /* The whole photo, always: fitted INSIDE its box, never filled and
+     trimmed. The team photos are 832 x 274 strips; a box of another shape
+     trimmed their ends, and the players standing there lost their faces. */
+  #elimPhoto { position: absolute; display: none; object-fit: contain; object-position: center bottom; }
   /* In it overshoots very slightly and settles; out it accelerates away,
      because a graphic being pulled should leave rather than drift. */
   #elimCard.in  #elimInner { animation: ff-elim-in  620ms cubic-bezier(0.18, 0.96, 0.32, 1) both; }
@@ -1436,7 +1439,9 @@ LAYOUTS.GamerCult = (() => {
       placementKey: "gamercult",
       panel: { x: 631, y: 127, w: 651, h: 355 },
       travel: 0, travelX: -1300, travelXOut: 1300,
-      photo: { x: 640, y: 112, w: 626, h: 300, pos: "center top" },
+      // the team photos' own shape (832 x 274), clear of the "#N" tab,
+      // heads on the yellow, the rest behind the bar and the panel
+      photo: { x: 686, y: 150, w: 594, h: 196 },
       // in front of the photo: the logo box, the name bar, the white panel
       over: [[630, 442], [636, 336], [767, 341], [770, 359], [829, 361], [822, 330], [833, 302], [1276, 301],
              [1283, 377], [1257, 375], [1257, 482], [673, 482]],
@@ -2075,6 +2080,7 @@ function applyElimCardLayout(C, state){
   nudge("#elimLogo", "elimLogo" + sfx);
   nudge("#elimName", "elimName" + sfx);
   nudge("#elimRank", "elimRank" + sfx);
+  nudge("#elimPhoto", "elimPhoto" + sfx);
 }
 
 /* The engine's own announcement, as a second way in.
