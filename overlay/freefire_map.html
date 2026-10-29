@@ -43,7 +43,10 @@
   body.ss3.gng{ --surface:#24120a; --accent:#ffa976; --next:#ffc9a5; --text-2:#e8dcd2; --text-3:#c9a48c; --pin:#ffa976; }
   @font-face{font-family:'Winner Sans M';src:local('WinnerSans-Medium'),local('WinnerSans Medium'),local('Winner Sans Medium'),url('assets/fonts/winner-sans/WinnerSans-Medium.otf') format('opentype'),url('assets/fonts/TTSupermolotNeueTrial-Medium.ttf') format('truetype');font-weight:100 900;font-display:block;}
   @font-face{font-family:'Winner Sans B';src:local('WinnerSans-Medium'),local('WinnerSans Medium'),local('Winner Sans Medium'),url('assets/fonts/winner-sans/WinnerSans-Medium.otf') format('opentype'),url('assets/fonts/TTSupermolotNeueTrial-Medium.ttf') format('truetype');font-weight:500;font-display:block;}
+  @font-face{font-family:'GC Sans';src:url('assets/fonts/bricolage-grotesque/BricolageGrotesque_24pt-SemiBold.ttf') format('truetype');font-weight:100 900;font-display:block;}
+  @font-face{font-family:'GC Black';src:url('assets/fonts/bricolage-grotesque/BricolageGrotesque_48pt-ExtraBold.ttf') format('truetype');font-weight:100 900;font-display:block;}
   /* RNX: its purple and gold, Winner Sans (see the faces above) */
+  body.ss3.gamercult{ --surface:#5a0000; --accent:#feea3c; --next:#fff38f; --text-2:#ffe3df; --text-3:#ffb3aa; --pin:#feea3c; }
   body.ss3.enfea{ --surface:#1a0640; --accent:#ffcc00; --next:#ffe066; --text-2:#e6def4; --text-3:#b8a8d8; --pin:#ffcc00; }
   body.ss3.rnx{ --surface:#2a0a3c; --accent:#fcd02c; --next:#ffe27a; --text-2:#ece0f4; --text-3:#c9b0dc; --pin:#fcd02c; }
   body.ss3, body.ss3 svg text, body.tpl-ss3, body.tpl-ss3 svg text{ font-family:'TacticSans',Arial,sans-serif !important; }
@@ -53,6 +56,8 @@
   body.rnx #ss3Match{ color:#500864; }
   body.enfea, body.enfea svg text, body.enfea .tagtxt, body.enfea .cell .nm, body.enfea #ss3Round{ font-family:'Winner Sans M',Arial,sans-serif !important; }
   body.enfea #ss3Match{ color:#33096b; }
+  body.gamercult, body.gamercult svg text, body.gamercult .tagtxt, body.gamercult .cell .nm, body.gamercult #ss3Round{ font-family:'GC Sans',Arial,sans-serif !important; }
+  body.gamercult #ss3Match{ color:#080808; }
 
   html,body{margin:0;padding:0;background:transparent;overflow:hidden;}
   body{width:1920px;height:1080px;font-family:'Supermolot',Arial,sans-serif;color:var(--text-1);
@@ -76,6 +81,10 @@
   body.ss3 #panel.bg{
     background:radial-gradient(120% 90% at 50% 0%, rgba(255,30,30,.28) 0%, rgba(14,14,14,0) 60%),
                repeating-linear-gradient(115deg, rgba(255,30,30,.05) 0 2px, transparent 2px 22px), var(--surface);
+  }
+  body.ss3.gamercult #panel.bg{
+    background:radial-gradient(120% 90% at 50% 0%, rgba(255,60,40,.38) 0%, rgba(90,0,0,0) 60%), var(--surface);
+    border-top-color:#feea3c;
   }
   body.ss3.enfea #panel.bg{
     background:radial-gradient(120% 90% at 50% 0%, rgba(90,40,180,.40) 0%, rgba(26,6,64,0) 60%), var(--surface);
@@ -2637,7 +2646,7 @@ function render(state){
   const ev = state.event || {};
   const theme = String(_params.get("theme") || cfg.theme || "auto").toLowerCase();
   const pkg = String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase();
-  const ss3Theme = theme === "ss3" || ((theme === "auto" || theme === "") && (pkg === "ss3" || pkg === "chirayu" || pkg === "gng" || pkg === "rnx" || pkg.startsWith("enfea")));
+  const ss3Theme = theme === "ss3" || ((theme === "auto" || theme === "") && (pkg === "ss3" || pkg === "chirayu" || pkg === "gng" || pkg === "rnx" || pkg.startsWith("enfea") || pkg === "gamercult"));
   // CHIRAYU GOLD LEAGUE: the SS3 graphic with its own art and colours
   const chirayu = pkg === "chirayu" && (ss3Theme || cfg.template === "ss3");
   document.body.classList.toggle("chirayu", chirayu);
@@ -2649,7 +2658,9 @@ function render(state){
   document.body.classList.toggle("rnx", rnx);
   const enfea = pkg.startsWith("enfea") && (ss3Theme || cfg.template === "ss3");
   document.body.classList.toggle("enfea", enfea);
-  SS3_ART = "assets/freefire/" + (chirayu ? "CHIRAYU" : gng ? "gng" : rnx ? "RNX" : enfea ? "ENFEA%20STAN" : "ss3") + "/" + encodeURI("prg br ss3 drop spot - BLANK.png");
+  const gamercult = pkg === "gamercult" && (ss3Theme || cfg.template === "ss3");
+  document.body.classList.toggle("gamercult", gamercult);
+  SS3_ART = "assets/freefire/" + (chirayu ? "CHIRAYU" : gng ? "gng" : rnx ? "RNX" : enfea ? "ENFEA%20STAN" : gamercult ? "GamerCult" : "ss3") + "/" + encodeURI("prg br ss3 drop spot - BLANK.png");
   const mode = ["match", "drops", "stats"].includes(cfg.source) ? cfg.source : "live";
   document.body.classList.toggle("stats", mode === "stats");
   // The SS3 artwork has "PREFERRED DROP SPOT" in it, so it is used for the

@@ -180,6 +180,11 @@
      Supermolot Neue, the closest to it. Each source is tried in turn. */
   @font-face{font-family:'Winner Sans M';src:local('WinnerSans-Medium'),local('WinnerSans Medium'),local('Winner Sans Medium'),url('assets/fonts/winner-sans/WinnerSans-Medium.otf') format('opentype'),url('assets/fonts/TTSupermolotNeueTrial-Medium.ttf') format('truetype');font-weight:100 900;font-display:block;}
   @font-face{font-family:'Winner Sans B';src:local('WinnerSans-Medium'),local('WinnerSans Medium'),local('Winner Sans Medium'),url('assets/fonts/winner-sans/WinnerSans-Medium.otf') format('opentype'),url('assets/fonts/TTSupermolotNeueTrial-Medium.ttf') format('truetype');font-weight:500;font-display:block;}
+  /* GamerCult's face, Bricolage Grotesque (SIL OFL -- bundled, served with
+     the pages): the 24pt SemiBold its table is set in, the 48pt ExtraBold
+     of its heavy lettering (leaned by the browser where the art leans). */
+  @font-face{font-family:'GC Sans';src:url('assets/fonts/bricolage-grotesque/BricolageGrotesque_24pt-SemiBold.ttf') format('truetype');font-weight:100 900;font-display:block;}
+  @font-face{font-family:'GC Black';src:url('assets/fonts/bricolage-grotesque/BricolageGrotesque_48pt-ExtraBold.ttf') format('truetype');font-weight:100 900;font-display:block;}
   #backdrop, #backdropFoot { position: absolute; inset: 0; width: 1920px; height: 1080px; }
   #backdropFoot { display: none; }
 
@@ -284,6 +289,9 @@
   #elimCard.out #elimInner { animation: ff-elim-out 420ms cubic-bezier(0.55, 0, 0.85, 0.35) both; }
 
   #elimArt { position: absolute; inset: 0; width: 1920px; height: 1080px; }
+  /* The card's art again, in front of the photo, cut to the parts the
+     photo stands behind (C.over: GamerCult's bars and logo box). */
+  #elimOver { position: absolute; inset: 0; width: 1920px; height: 1080px; display: none; }
   #elimLogo {
     position: absolute;
     left: var(--elim-logo-x); top: var(--elim-logo-y);
@@ -810,6 +818,7 @@
     <div id="elimInner">
       <img id="elimArt" alt="">
       <img id="elimPhoto" alt="">
+      <img id="elimOver" alt="">
       <div id="elimRank"></div>
       <div id="elimLogo"><img id="elimLogoImg" alt=""></div>
       <div id="elimName"></div>
@@ -1373,6 +1382,87 @@ LAYOUTS["ENFEA STAN"] = (() => {
   a.value = Object.assign({}, a.value, { ink: "#ffffff", face: "Winner Sans B", size: 62 });
   a.label = Object.assign({}, a.label, { ink: "#ffcc00", face: "Winner Sans M" });
   a.name = Object.assign({}, a.name, { ink: "#33096b", face: "Winner Sans B" });
+  c.achievement = a;
+  return c;
+})();
+
+/* GamerCult: the event's own alive table and ELIMINATED pop-up
+   (assets/freefire/GamerCult), measured against their DEMOs. GC's table
+   (above) redrawn: the same twelve rows, columns and status triangles,
+   with the points column gone and everything 50px right:
+     the table x 1505..1920 / y 254..818: the yellow header (its words in
+     the art), twelve 43px rows from y 290 on a 44px pitch, white at half
+     opacity, the logo on its white slant x 1565..1642; the rank centred on
+     x 1531, the name from 1661, the kills "00" centred on 1878, the
+     triangles x 1776..1834 / y +13..+30 -- Bricolage Grotesque 24pt
+     SemiBold, 24.5px, near-black.
+     the ELIMINATED pop-up x 631..1281 / y 127..481: the squad photo on the
+     yellow x 632..1256 / y 160..355 (heads above it, as the demo), behind
+     the red name bar, the white ELIMINATED panel and the red logo box
+     (the art drawn again in front of it: `over`); the name white, leaned,
+     centred on the bar x 838..1263 / y 303..367; the logo in the red box
+     645..763 / 341..459; "#N" leaned in the white tab 632..718 / 157..195.
+     the Top 4 bar: drawn for it (make_gamercult_art.py, the package has
+     none) in the pop-up's language -- the red logo box, the tag white on
+     the red bar, WIN RATE on the white panel, four triangles as the
+     status icons have them.
+   The side pop-up, the crown tile and the post-match kit are SS3's
+   geometry in GamerCult's red and yellow (make_gamercult_art.py). */
+LAYOUTS.GamerCult = (() => {
+  const c = {
+    placementKey: "gamercult",
+    bg: "Alive Status - BLANK.png",
+    artBox: { top: 254, bottom: 818 },
+    fitRows: true,
+    pipBase: "Live Stats/",
+    rowTops: [290, 334, 378, 422, 466, 510, 555, 599, 643, 687, 731, 775],
+    row: { x: 1505, w: 415, h: 43 },
+    ink: "#080808",
+    face: "'GC Sans'",
+    accent: "#e30000", accentGlow: "rgba(227, 0, 0, 0.9)",
+    accentFlash: ["rgba(227, 0, 0, 0)", "rgba(227, 0, 0, 0.45)"],
+    rank: { x: 0, w: 52, size: 24.5 },
+    logo: { x: 64, w: 68, img: 28 },
+    name: { x: 156, w: 112, size: 24.5, align: "flex-start", weight: 600 },
+    points: null,
+    kills: { x: 348, w: 50, size: 24.5, pad: 2 },
+    // the five icons share one content box, x 10..491 / y 181..320 of the
+    // 500 canvas, shown 59 wide
+    pip: { x: 271, y: 13, w: 59, h: 17.05, size: 61.33, px: -1.23, py: -22.2 },
+    originY: 536,
+    crTile: "cr_tile.png",
+    elimCard: {
+      art: "Eliminated - BLANK.png",
+      placementKey: "gamercult",
+      panel: { x: 631, y: 127, w: 651, h: 355 },
+      travel: 0, travelX: -1300, travelXOut: 1300,
+      photo: { x: 640, y: 112, w: 626, h: 300, pos: "center top" },
+      // in front of the photo: the logo box, the name bar, the white panel
+      over: [[630, 442], [636, 336], [767, 341], [770, 359], [829, 361], [822, 330], [833, 302], [1276, 301],
+             [1283, 377], [1257, 375], [1257, 482], [673, 482]],
+      logo: { x: 645, y: 341, w: 118, h: 118 },
+      name: { x: 838, y: 303, w: 425, h: 64, size: 42, ink: "#ffffff", full: true, face: "GC Black", italic: true },
+      rank: { x: 632, y: 157, w: 86, h: 38, size: 31, ink: "#080808", face: "GC Black", italic: true,
+              pad: false, hash: "own" },
+      seconds: 4,
+    },
+    top4: {
+      bg: "Top 4 - BLANK.png",
+      cards: [353, 661, 969, 1277],
+      cardW: 291, pitch: 308, slice: 353, cardH: 138, lift: 0,
+      logo: { dx: 8, y: 40, w: 70, h: 70 },
+      name: { dx: 104, y: 19, w: 180, h: 40, size: 28, ink: "#ffffff", face: "GC Black", italic: true },
+      bars: { dx: 186, y: 90, w: 30, h: 26, at: [0, 22, 44, 66], alive: "#e30000", dead: "#cfcfcf", shape: "tri" },
+      win: { x: 100, w: 84, y: 84, size: 30, ink: "#080808", face: "GC Black", italic: true },
+    },
+    top4Clear: 16,
+  };
+  // The side pop-up keeps SS3's geometry, in GamerCult's art and inks.
+  const a = JSON.parse(JSON.stringify(LAYOUTS.ss3.achievement));
+  a.title = Object.assign({}, a.title, { ink: "#080808", face: "GC Black" });
+  a.value = Object.assign({}, a.value, { ink: "#ffffff", face: "GC Black", size: 64 });
+  a.label = Object.assign({}, a.label, { ink: "#feea3c", face: "GC Sans" });
+  a.name = Object.assign({}, a.name, { ink: "#080808", face: "GC Black" });
   c.achievement = a;
   return c;
 })();
@@ -1965,7 +2055,9 @@ function applyElimCardLayout(C, state){
   nameEl.style.fontFamily = face(C.name.face);
   nameEl.style.justifyContent = C.name.align || "";
   nameEl.style.letterSpacing = C.name.ls != null ? C.name.ls + "px" : "";
+  nameEl.style.fontStyle = C.name.italic ? "italic" : "";
   document.getElementById("elimRank").style.fontFamily = face(C.rank.face);
+  document.getElementById("elimRank").style.fontStyle = C.rank.italic ? "italic" : "";
 
   // The same placement keys the dashboard's Graphic Fixing pages save,
   // so dragging the card there moves it here.
@@ -2139,9 +2231,17 @@ function setElimPhoto(state, row, C){
                            teamPhotoCache.__default__ || "") : "";
   if(photo){
     Object.assign(ph.style, { left: C.photo.x + "px", top: C.photo.y + "px",
-                              width: C.photo.w + "px", height: C.photo.h + "px", display: "block" });
+                              width: C.photo.w + "px", height: C.photo.h + "px", display: "block",
+                              objectPosition: C.photo.pos || "" });
     if(ph.getAttribute("src") !== photo) ph.src = photo;
   } else ph.style.display = "none";
+  const over = document.getElementById("elimOver");
+  if(photo && C.over){
+    const art = assetBase(state) + C.art;
+    if(over.getAttribute("src") !== art) over.src = art;
+    over.style.clipPath = "polygon(" + C.over.map(([x, y]) => x + "px " + y + "px").join(", ") + ")";
+    over.style.display = "block";
+  } else over.style.display = "none";
 }
 
 
@@ -2160,7 +2260,7 @@ function renderRace(state){
   box.classList.toggle("on", on);
   if(!on) return;
   const pk = String(aliveFolder(state)).toLowerCase();
-  box.style.setProperty("--race-acc", pk === "ss3" ? "#ff1e1e" : pk === "chirayu" ? "#e8a33a" : pk === "gng" ? "#ffa976" : pk === "rnx" ? "#fcd02c" : pk.startsWith("enfea") ? "#ffcc00" : "#f7941d");
+  box.style.setProperty("--race-acc", pk === "ss3" ? "#ff1e1e" : pk === "chirayu" ? "#e8a33a" : pk === "gng" ? "#ffa976" : pk === "rnx" ? "#fcd02c" : pk.startsWith("enfea") ? "#ffcc00" : pk === "gamercult" ? "#feea3c" : "#f7941d");
   // the engine's list runs to five, for the leaders board; the race is three
   const race = (((state.liveOps || {}).fragRace) || []).slice(0, 3);
   const roster = state.roster || {};
@@ -2337,7 +2437,7 @@ function playWipeBanner(state, byName, row, next){
   const el = document.getElementById("wipeBanner");
   const by = logoFor(byName, state.roster), out = logoFor(row.teamName, state.roster);
   const pk = String(aliveFolder(state)).toLowerCase();
-  el.style.setProperty("--wb-acc", pk === "ss3" ? "#ff1e1e" : pk === "chirayu" ? "#e8a33a" : pk === "gng" ? "#ffa976" : pk === "rnx" ? "#fcd02c" : pk.startsWith("enfea") ? "#ffcc00" : "#f7941d");
+  el.style.setProperty("--wb-acc", pk === "ss3" ? "#ff1e1e" : pk === "chirayu" ? "#e8a33a" : pk === "gng" ? "#ffa976" : pk === "rnx" ? "#fcd02c" : pk.startsWith("enfea") ? "#ffcc00" : pk === "gamercult" ? "#feea3c" : "#f7941d");
   const set = (sel, img) => { const i = el.querySelector(sel); if(img){ i.src = img; i.style.display = ""; } else i.style.display = "none"; };
   set("img.a", by && by.logo);
   set("img.b", out && out.logo);
@@ -2476,7 +2576,9 @@ function showElimCard(state, rowEl, L, forced){
     // spaced. Two digits are shrunk to fit below rather than squeezed.
     const hash = document.createElement("span");
     hash.textContent = "#";
-    Object.assign(hash.style, { fontFamily: "'Arial Black', Arial, sans-serif", fontWeight: 900, fontSize: "0.78em" });
+    // (a face whose own "#" sits with its digits keeps it: GamerCult's)
+    Object.assign(hash.style, C.rank.hash === "own" ? { fontSize: "0.9em" }
+      : { fontFamily: "'Arial Black', Arial, sans-serif", fontWeight: 900, fontSize: "0.78em" });
     const num = document.createElement("span");
     num.textContent = rankNum;
     // Two digits: Arial Black, whose thick "1" stays a "1" at this size --
@@ -2743,6 +2845,7 @@ function renderTop4(state, source){
       Object.assign(nm.style, { left: T.name.dx + "px", top: T.name.y + "px", width: T.name.w + "px",
                                 height: T.name.h + "px", color: T.name.ink, fontSize: T.name.size + "px",
                                 letterSpacing: (T.name.ls || 0) + "px", fontWeight: T.name.weight || "",
+                                fontStyle: T.name.italic ? "italic" : "", justifyContent: T.name.align || "center",
                                 fontFamily: `'${T.name.face}', Arial, sans-serif` });
       const tag = cleanName((team && team.shortName) || row.short || row.teamName || "");
       if(nm.textContent !== tag){
@@ -2760,6 +2863,9 @@ function renderTop4(state, source){
       Object.assign(b.style, { left: (T.bars.dx + bx) + "px", top: T.bars.y + "px",
                                width: T.bars.w + "px", height: T.bars.h + "px" });
       b.classList.toggle("down", k >= up);
+      // as GamerCult's status icons: up, down, up, down, interlocked
+      b.style.clipPath = T.bars.shape === "tri"
+        ? (k % 2 ? "polygon(0 0, 100% 0, 50% 100%)" : "polygon(50% 0, 100% 100%, 0 100%)") : "";
     });
     const win = card.querySelector(".t4win");
     // right-aligned to `right` (the number alone), or from `x` with its
@@ -3428,6 +3534,7 @@ const ZB_THEMES = {
   arrow: { a: "#123224", b: "#07120d", dark: "#0b0b0b", ink: "#f2f2f2" },
   rnx:   { acc: "#fcd02c", a: "#6c1694", b: "#3a0852", dark: "#500864", ink: "#ffffff" },
   enfea: { acc: "#ffcc00", a: "#3d0c80", b: "#180044", dark: "#33096b", ink: "#ffffff" },
+  gamercult: { acc: "#feea3c", a: "#e30000", b: "#8c0000", dark: "#080808", ink: "#ffffff" },
 };
 const zb = { clock: null, deadline: 0, key: "", sec: null, shown: false, outTimer: null, inTimer: null,
              tiles: new Map() };

@@ -80,3 +80,11 @@ overlay/assets/fonts/winner-sans/
 overlay/assets/freefire/ENFEA STAN/Fonts/
 overlay/assets/freefire/ENFEA STAN/* - DEMO.png
 !overlay/assets/freefire/ENFEA STAN/zone bug - DEMO.png
+# GamerCult: its paid face (Vanguard CF) and the whole Bricolage family
+# (the two faces used are in overlay/assets/fonts/bricolage-grotesque),
+# the PSDs, its demos (real teams) and its branded backdrop
+overlay/assets/freefire/GamerCult/Fonts/
+overlay/assets/freefire/GamerCult/*.psd
+overlay/assets/freefire/GamerCult/* - DEMO.png
+!overlay/assets/freefire/GamerCult/zone bug - DEMO.png
+overlay/assets/freefire/GamerCult/BG-Raw.png

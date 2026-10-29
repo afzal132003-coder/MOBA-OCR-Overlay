@@ -15197,16 +15197,16 @@ function ffgfxAlivePackage(){
   const f = ev.aliveAssetFolder || ev.assetFolder || "";
   return { "ss3": "ss3", "CHIRAYU": "ss3", "PRG ARROW": "arrow", "gng": "gng", "RNX": "rnx" }[f]
     || { "ss3": "ss3", "chirayu": "ss3", "prg arrow": "arrow", "gng": "gng", "rnx": "rnx" }[f.toLowerCase()]
-    || (f.toLowerCase().startsWith("enfea") ? "enfea" : "");
+    || (f.toLowerCase().startsWith("enfea") ? "enfea" : f.toLowerCase() === "gamercult" ? "gamercult" : "");
 }
 // Its folder, spelled as on disk (the server is case-sensitive).
-const FFGFX_PACKAGE_DIR = { ss3: "ss3", gng: "gng", rnx: "RNX", enfea: "ENFEA STAN" };
+const FFGFX_PACKAGE_DIR = { ss3: "ss3", gng: "gng", rnx: "RNX", enfea: "ENFEA STAN", gamercult: "GamerCult" };
 function ffgfxElimPackage(){
   // CHIRAYU is the SS3 package copied, same card geometry: SS3's nudges.
   // GNG's card is SS3's geometry in its own art, under its own nudges;
   // RNX's is its own card (FFGFX_ELIM_BOXES_RNX), under its own.
   const pk = ffgfxAlivePackage();
-  return pk === "ss3" || pk === "gng" || pk === "rnx" || pk === "enfea" ? pk : "";
+  return pk === "ss3" || pk === "gng" || pk === "rnx" || pk === "enfea" || pk === "gamercult" ? pk : "";
 }
 /* ENFEA STAN's, from "ELIMINATION POPUP - BLANK/DEMO": card 648..1272 /
    119..365; logo in the gold box 654..736 / 293..359; the name, gold and
@@ -15216,6 +15216,16 @@ const FFGFX_ELIM_BOXES_ENFEA = {
   elimLogo: { left: 654, top: 293, width: 82, height: 66 },
   elimName: { left: 741, top: 221, width: 500, height: 66 },
   elimRank: { left: 1178, top: 119, width: 94, height: 77 },
+};
+/* GamerCult's, from "Eliminated - BLANK/DEMO": card 631..1281 / 127..481
+   (the squad photo's heads above its yellow); the logo in the red box
+   645..763 / 341..459; the name on the red bar 838..1263 / 303..367; "#N"
+   in the white tab 632..718 / 157..195. */
+const FFGFX_ELIM_BOXES_GAMERCULT = {
+  elimCard: { left: 631, top: 127, width: 651, height: 355 },
+  elimLogo: { left: 645, top: 341, width: 118, height: 118 },
+  elimName: { left: 838, top: 303, width: 425, height: 64 },
+  elimRank: { left: 632, top: 157, width: 86, height: 38 },
 };
 /* RNX's ELIMINATED pop-up, measured from "ELIMINATIONPOPUP - BLANK/DEMO":
    card 753..1225 / 119..367; logo box 765..817 / 302..353; the name on the
@@ -15241,6 +15251,7 @@ function ffgfxStoreKey(pageKey){
 Object.entries(FFGFX_ELIM_BOXES).forEach(([key, el]) => {
   const rectNow = () => ffgfxElimPackage() === "rnx" ? FFGFX_ELIM_BOXES_RNX[key]
                       : ffgfxElimPackage() === "enfea" ? FFGFX_ELIM_BOXES_ENFEA[key]
+                      : ffgfxElimPackage() === "gamercult" ? FFGFX_ELIM_BOXES_GAMERCULT[key]
                       : ffgfxElimPackage() ? FFGFX_ELIM_BOXES_SS3[key] : el.rect;
   FFGFX_PAGES[key] = {
     label: el.label,
@@ -15250,6 +15261,8 @@ Object.entries(FFGFX_ELIM_BOXES).forEach(([key, el]) => {
       ? "../overlay/assets/freefire/RNX/ELIMINATIONPOPUP - DEMO.png"
       : ffgfxElimPackage() === "enfea"
       ? "../overlay/assets/freefire/ENFEA STAN/ELIMINATION POPUP - DEMO.png"
+      : ffgfxElimPackage() === "gamercult"
+      ? "../overlay/assets/freefire/GamerCult/Eliminated - DEMO.png"
       : ffgfxElimPackage()
       ? "../overlay/assets/freefire/ss3/eliminated bug - DEMO.png"
       : "../overlay/assets/freefire/" +
@@ -15273,6 +15286,7 @@ function ffgfxZoneBugRect(){
   const pk = ffgfxElimPackage();
   const panel = pk === "rnx" ? FFGFX_ELIM_BOXES_RNX.elimCard
               : pk === "enfea" ? FFGFX_ELIM_BOXES_ENFEA.elimCard
+              : pk === "gamercult" ? FFGFX_ELIM_BOXES_GAMERCULT.elimCard
               : pk ? FFGFX_ELIM_BOXES_SS3.elimCard : FFGFX_ELIM_BOXES.elimCard.rect;
   return { left: Math.round(panel.left + (panel.width - 428) / 2), top: panel.top, width: 428, height: 224 };
 }

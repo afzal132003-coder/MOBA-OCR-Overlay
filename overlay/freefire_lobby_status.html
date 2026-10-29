@@ -125,6 +125,8 @@
   body.gng[data-theme="ss3"], body.gng[data-theme="ss3"] *{ font-family:'Moanslight',Arial,sans-serif !important; }
   @font-face{font-family:'Winner Sans M';src:local('WinnerSans-Medium'),local('WinnerSans Medium'),local('Winner Sans Medium'),url('assets/fonts/winner-sans/WinnerSans-Medium.otf') format('opentype'),url('assets/fonts/TTSupermolotNeueTrial-Medium.ttf') format('truetype');font-weight:100 900;font-display:block;}
   @font-face{font-family:'Winner Sans B';src:local('WinnerSans-Medium'),local('WinnerSans Medium'),local('Winner Sans Medium'),url('assets/fonts/winner-sans/WinnerSans-Medium.otf') format('opentype'),url('assets/fonts/TTSupermolotNeueTrial-Medium.ttf') format('truetype');font-weight:500;font-display:block;}
+  @font-face{font-family:'GC Sans';src:url('assets/fonts/bricolage-grotesque/BricolageGrotesque_24pt-SemiBold.ttf') format('truetype');font-weight:100 900;font-display:block;}
+  @font-face{font-family:'GC Black';src:url('assets/fonts/bricolage-grotesque/BricolageGrotesque_48pt-ExtraBold.ttf') format('truetype');font-weight:100 900;font-display:block;}
   /* RNX: its purple, its gold, Winner Sans */
   body.rnx[data-theme="ss3"]{ --amber:#fcd02c; --amber-deep:#fcb814; --green-0:#6c1694; --green-1:#2a0a3c;
     --panel:#22062f; --panel-lit:#4a0f68; --muted:#c9b0dc; }
@@ -153,6 +155,20 @@
   }
   body.enfea[data-theme="ss3"] .slot{ border-color:rgba(255,204,0,.35); }
   body.enfea[data-theme="ss3"], body.enfea[data-theme="ss3"] *{ font-family:'Winner Sans M',Arial,sans-serif !important; }
+  /* GamerCult: its red, its yellow, Bricolage Grotesque */
+  body.gamercult[data-theme="ss3"]{ --amber:#feea3c; --amber-deep:#f5cd14; --green-0:#e30000; --green-1:#8c0000;
+    --panel:#4a0000; --panel-lit:#a00000; --muted:#ffc9c4; }
+  body.gamercult[data-theme="ss3"] #stage{
+    background:
+      radial-gradient(120% 180% at 50% 0%, rgba(255,70,50,.35) 0%, rgba(140,0,0,0) 68%),
+      linear-gradient(180deg, var(--green-0) 0%, var(--green-1) 100%);
+    border-top-color:#feea3c;
+  }
+  body.gamercult[data-theme="ss3"] #stage::before{
+    background:linear-gradient(90deg, #feea3c 0%, rgba(254,234,60,.15) 38%, rgba(254,234,60,.15) 62%, #feea3c 100%);
+  }
+  body.gamercult[data-theme="ss3"] .slot{ border-color:rgba(254,234,60,.4); }
+  body.gamercult[data-theme="ss3"], body.gamercult[data-theme="ss3"] *{ font-family:'GC Sans',Arial,sans-serif !important; }
   /* Tactic Sans runs wider than Supermolot: "YET TO JOIN" was clipped. */
   body[data-theme="ss3"] .state{ font-size:11px; letter-spacing:.01em; gap:5px; }
   body[data-theme="ss3"] .head .title,
@@ -657,7 +673,7 @@ function lobbyTheme(ff){
   if(pick === "ss3" || pick === "arrow") return pick;
   const ev = ff.event || {};
   const folder = String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase();
-  return (folder === "ss3" || folder === "chirayu" || folder === "gng" || folder === "rnx" || folder.startsWith("enfea")) ? "ss3" : "arrow";
+  return (folder === "ss3" || folder === "chirayu" || folder === "gng" || folder === "rnx" || folder.startsWith("enfea") || folder === "gamercult") ? "ss3" : "arrow";
 }
 
 function render(ff){
@@ -673,6 +689,8 @@ function render(ff){
     String(lev.aliveAssetFolder || lev.assetFolder || "").toLowerCase() === "rnx");
   document.body.classList.toggle("enfea", document.body.dataset.theme === "ss3" &&
     String(lev.aliveAssetFolder || lev.assetFolder || "").toLowerCase().startsWith("enfea"));
+  document.body.classList.toggle("gamercult", document.body.dataset.theme === "ss3" &&
+    String(lev.aliveAssetFolder || lev.assetFolder || "").toLowerCase() === "gamercult");
   timerState = lobby.timer || null;
   drawTimer();
   const joined = lobby.joined || {};

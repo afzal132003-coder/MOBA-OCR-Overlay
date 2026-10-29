@@ -63,6 +63,9 @@
   .enfea #tTitle{ color:#33096b !important; } .enfea #tLabel{ color:#ffcc00 !important; } .enfea #tName{ color:#33096b !important; }
   .enfea #tTitle, .enfea #tValue, .enfea #tName{ font-family:'Winner Sans B',Arial,sans-serif !important; }
   .enfea #tLabel{ font-family:'Winner Sans M',Arial,sans-serif !important; }
+  .gamercult #tTitle{ color:#080808 !important; } .gamercult #tLabel{ color:#feea3c !important; } .gamercult #tName{ color:#080808 !important; }
+  .gamercult #tTitle, .gamercult #tValue, .gamercult #tName{ font-family:'GC Black',Arial,sans-serif !important; }
+  .gamercult #tLabel{ font-family:'GC Sans',Arial,sans-serif !important; }
   .ss3 #tTitle{ color:#ff1810; } .ss3 #tValue{ color:#fff; } .ss3 #tLabel{ color:#fff894; } .ss3 #tName{ color:#111; }
   /* ARROW draws what the SS3 art carries */
   #aPanel, #aTab, #aPhotoBox, #aPlate, #aLogoBox{ display:none; }
@@ -158,7 +161,7 @@ function hidePopup(el){
 function look(state){
   const ev = (state && state.event) || {};
   const f = String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase();
-  return (f === "ss3" || f === "chirayu" || f === "gng" || f === "rnx" || f.startsWith("enfea")) ? "ss3" : (f === "prg arrow" ? "arrow" : "");
+  return (f === "ss3" || f === "chirayu" || f === "gng" || f === "rnx" || f.startsWith("enfea") || f === "gamercult") ? "ss3" : (f === "prg arrow" ? "arrow" : "");
 }
 
 function fillThemed(hh, state, theme){
@@ -173,7 +176,9 @@ function fillThemed(hh, state, theme){
   document.body.classList.toggle("rnx", rnx);
   const enfea = theme === "ss3" && String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase().startsWith("enfea");
   document.body.classList.toggle("enfea", enfea);
-  SS3_ART = "assets/freefire/" + (chirayu ? "CHIRAYU" : gng ? "gng" : rnx ? "RNX" : enfea ? "ENFEA%20STAN" : "ss3") + "/" + encodeURI("prg br ss3 achivement - BLANK.png");
+  const gamercult = theme === "ss3" && String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase() === "gamercult";
+  document.body.classList.toggle("gamercult", gamercult);
+  SS3_ART = "assets/freefire/" + (chirayu ? "CHIRAYU" : gng ? "gng" : rnx ? "RNX" : enfea ? "ENFEA%20STAN" : gamercult ? "GamerCult" : "ss3") + "/" + encodeURI("prg br ss3 achivement - BLANK.png");
   const art = document.getElementById("tArt");
   if(theme === "ss3" && art.getAttribute("src") !== SS3_ART) art.src = SS3_ART;
   const roster = (state && state.roster) || {};

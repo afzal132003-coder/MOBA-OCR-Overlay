@@ -96,6 +96,8 @@
   body.ss3.gng, body.ss3.gng *{ font-family:'Moanslight',Arial,sans-serif !important; }
   @font-face{font-family:'Winner Sans M';src:local('WinnerSans-Medium'),local('WinnerSans Medium'),local('Winner Sans Medium'),url('assets/fonts/winner-sans/WinnerSans-Medium.otf') format('opentype'),url('assets/fonts/TTSupermolotNeueTrial-Medium.ttf') format('truetype');font-weight:100 900;font-display:block;}
   @font-face{font-family:'Winner Sans B';src:local('WinnerSans-Medium'),local('WinnerSans Medium'),local('Winner Sans Medium'),url('assets/fonts/winner-sans/WinnerSans-Medium.otf') format('opentype'),url('assets/fonts/TTSupermolotNeueTrial-Medium.ttf') format('truetype');font-weight:500;font-display:block;}
+  @font-face{font-family:'GC Sans';src:url('assets/fonts/bricolage-grotesque/BricolageGrotesque_24pt-SemiBold.ttf') format('truetype');font-weight:100 900;font-display:block;}
+  @font-face{font-family:'GC Black';src:url('assets/fonts/bricolage-grotesque/BricolageGrotesque_48pt-ExtraBold.ttf') format('truetype');font-weight:100 900;font-display:block;}
   body.ss3.rnx{ --surface:#2a0a3c; --amber:#fcd02c; --grid:#4d2a66; --text-3:#c9b0dc; }
   body.ss3.rnx #panel.bg{
     background:
@@ -114,6 +116,15 @@
   }
   body.ss3.enfea .kicker::before{ background:#ffcc00; }
   body.ss3.enfea, body.ss3.enfea *{ font-family:'Winner Sans M',Arial,sans-serif !important; }
+  body.ss3.gamercult{ --surface:#5a0000; --amber:#feea3c; --grid:#8a2a2a; --text-3:#ffb3aa; }
+  body.ss3.gamercult #panel.bg{
+    background:
+      radial-gradient(120% 90% at 50% 0%, rgba(255,60,40,.38) 0%, rgba(90,0,0,0) 60%),
+      var(--surface);
+    border-top-color:#feea3c;
+  }
+  body.ss3.gamercult .kicker::before{ background:#feea3c; }
+  body.ss3.gamercult, body.ss3.gamercult *{ font-family:'GC Sans',Arial,sans-serif !important; }
   body.ss3 .title{ font-style:normal; }
 
   html,body{margin:0;padding:0;background:transparent;overflow:hidden;}
@@ -612,6 +623,7 @@ const RAMPS = {
   gng: ["#4a2210", "#7a3a18", "#b5602e", "#f08a52", "#ffc9a5"],
   rnx: ["#5a3a0c", "#8a6410", "#c49416", "#f0c020", "#ffe27a"],
   enfea: ["#4a3a00", "#7a6000", "#b38f00", "#e6b800", "#ffe066"],
+  gamercult: ["#5a4a00", "#8a7600", "#c4a800", "#f0d820", "#fff38f"],
 };
 function ramp(){
   const k = Object.keys(RAMPS).find(k => document.body.classList.contains(k));
@@ -768,7 +780,8 @@ function render(state){
   const themePick = String(_params.get("theme") || cfg.theme || "auto").toLowerCase();
   const theme = themePick === "auto"
     ? ((["ss3", "chirayu", "gng", "rnx"].includes(String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase()) ||
-        String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase().startsWith("enfea")) ? "ss3" : "arrow")
+        String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase().startsWith("enfea") ||
+        String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase() === "gamercult") ? "ss3" : "arrow")
     : themePick;
   document.body.classList.toggle("ss3", theme === "ss3");
   document.body.classList.toggle("chirayu", theme === "ss3" &&
@@ -779,6 +792,8 @@ function render(state){
     String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase() === "rnx");
   document.body.classList.toggle("enfea", theme === "ss3" &&
     String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase().startsWith("enfea"));
+  document.body.classList.toggle("gamercult", theme === "ss3" &&
+    String(ev.aliveAssetFolder || ev.assetFolder || "").toLowerCase() === "gamercult");
   panel.classList.toggle("on", visible);
   document.getElementById("sample").classList.toggle("on", demo);
   if(!visible){ lastSig = ""; return; }
