@@ -9029,6 +9029,109 @@ def find_freefire_match_file(folder, match_id):
     return best or (None, None)
 
 
+# ---- FOLLOW THE RUNNING CLIENT ------------------------------------------
+# The operator keeps several copies of the PC client (D:\Games\..., one in
+# Downloads ...) and plays whichever is to hand. The engine read the ONE
+# typed into settings.matchResultFolder, so the day the other was launched
+# the lobby read nothing, the alive table nothing and Fetch brought last
+# week's result -- twice in two days, live (2026-10-28, -29). The client
+# itself says where it is: its exe sits beside its "<exe>_Data" folder,
+# which holds Debugger\debugger-*.log and MatchResult_*.log. So while a
+# client runs, the folder is that one (settings.followClient, on unless
+# switched off).
+FOLLOW_CLIENT_SECONDS = 5
+_follow_checked_at = 0.0
+
+
+def _client_exe_paths():
+    """Full paths of every running Free Fire client exe, from Windows' own
+    process list (no package needed; [] anywhere else)."""
+    if os.name != "nt":
+        return []
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+    class PROCESSENTRY32W(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                    ("th32ProcessID", wintypes.DWORD), ("th32DefaultHeapID", ctypes.c_void_p),
+                    ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", ctypes.c_long),
+                    ("dwFlags", wintypes.DWORD), ("szExeFile", ctypes.c_wchar * 260)]
+
+    k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    k32.OpenProcess.restype = wintypes.HANDLE
+    snap = k32.CreateToolhelp32Snapshot(0x2, 0)          # TH32CS_SNAPPROCESS
+    if not snap or snap == wintypes.HANDLE(-1).value:
+        return []
+    paths = []
+    try:
+        entry = PROCESSENTRY32W()
+        entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+        ok = k32.Process32FirstW(snap, ctypes.byref(entry))
+        while ok:
+            exe = entry.szExeFile.lower()
+            if exe.endswith(".exe") and exe.replace(" ", "").startswith("freefire"):
+                h = k32.OpenProcess(0x1000, False, entry.th32ProcessID)   # QUERY_LIMITED_INFORMATION
+                if h:
+                    try:
+                        buf = ctypes.create_unicode_buffer(1024)
+                        size = wintypes.DWORD(len(buf))
+                        if k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)):
+                            paths.append(buf.value)
+                    finally:
+                        k32.CloseHandle(h)
+            ok = k32.Process32NextW(snap, ctypes.byref(entry))
+    finally:
+        k32.CloseHandle(snap)
+    return paths
+
+
+def running_client_data_folder(exe_paths=None):
+    """The "<exe>_Data" folder of the running client, or None. Two running:
+    the one whose debugger log was written last."""
+    best, best_at = None, -1.0
+    for exe in (_client_exe_paths() if exe_paths is None else exe_paths):
+        p = Path(exe)
+        data = p.parent / (p.stem + "_Data")
+        if not data.is_dir():
+            continue
+        logs = list((data / "Debugger").glob("debugger-*.log")) if (data / "Debugger").is_dir() else []
+        at = max((f.stat().st_mtime for f in logs), default=0.0)
+        if at > best_at:
+            best, best_at = data, at
+    return best
+
+
+def follow_running_client(now=None, exe_paths=None):
+    """Points settings.matchResultFolder at the running client's own data
+    folder when it is somewhere else. Returns the new folder when it moved
+    it, else None. Checked every FOLLOW_CLIENT_SECONDS; nothing running,
+    nothing changes. An explicit debuggerFolder somewhere else would keep
+    the log reader on the old copy, so it is cleared with the move."""
+    global _follow_checked_at
+    now = time.time() if now is None else now
+    st = server_state.setdefault("settings", {})
+    if st.get("followClient") is False or now - _follow_checked_at < FOLLOW_CLIENT_SECONDS:
+        return None
+    _follow_checked_at = now
+    try:
+        found = running_client_data_folder(exe_paths)
+    except Exception as e:
+        print("[follow] could not read the process list: %s" % e)
+        return None
+    if found is None:
+        return None
+    same = lambda a, b: os.path.normcase(os.path.normpath(str(a or ""))) == os.path.normcase(os.path.normpath(str(b or "")))
+    if same(st.get("matchResultFolder"), found):
+        return None
+    st["matchResultFolder"] = str(found)
+    if (st.get("debuggerFolder") or "").strip() and not same(st["debuggerFolder"], found / "Debugger"):
+        st["debuggerFolder"] = ""
+    print("[follow] the running client is %s -- reading its logs and results from there" % found)
+    return found
+
+
 def debugger_log_folder():
     """Where the client's debugger logs are, by the same rule the live
     reader uses: an explicit setting, else a Debugger folder beside the
@@ -14009,6 +14112,15 @@ async def ocr_loop():
             # and side table before deciding whether OCR needs to run at
             # all -- see the note on ocr_tasks below for why that matters.
             global _debugger_offset, _debugger_path, _debugger_id_map
+            # Whichever copy of the client is running is the one read
+            # (FOLLOW THE RUNNING CLIENT); the dashboard's folder box
+            # follows the setting.
+            if follow_running_client():
+                save_state()
+                try:
+                    await _broadcast_state_sync(urgent=True)
+                except Exception as e:
+                    print("[follow] state not sent: %s" % e)
             debugger_folder = (server_state.get("settings", {}).get("debuggerFolder")
                                or server_state.get("settings", {}).get("matchResultFolder", ""))
             if debugger_folder:

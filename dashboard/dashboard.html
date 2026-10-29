@@ -2989,6 +2989,9 @@
         <div class="team-form">
           <label>Match Result Folder</label>
           <input type="text" id="ff_matchFolder" placeholder="C:\path\to\match-results">
+          <label class="hint" style="display:flex;gap:6px;align-items:center;margin-top:4px;"
+                 title="While a copy of the Free Fire client is running, the engine reads that copy's own Free Fire_64_Data folder -- its debugger log (lobby, alive table, kills) and its MatchResult files -- whichever copy it is. Untick to keep the folder typed here.">
+            <input type="checkbox" id="ff_followClient" checked> Follow the running game (whichever copy is open)</label>
         </div>
         <div class="team-form">
           <label>Safezone Folder</label>
@@ -9856,7 +9859,13 @@ function ffFollowFolders(ff){
     const el = document.getElementById(id);
     if(el && el !== document.activeElement && el.value !== (v || "")) el.value = v || "";
   });
+  const fc = document.getElementById("ff_followClient");
+  if(fc && fc !== document.activeElement) fc.checked = st.followClient !== false;
 }
+document.getElementById("ff_followClient").addEventListener("change", e => {
+  // the engine moves the folder to the running client within 5 seconds
+  if(!ffPopupSettings({ followClient: e.target.checked })) e.target.checked = !e.target.checked;
+});
 
 function ffSendSettings(){
   if(!ffState) return;
