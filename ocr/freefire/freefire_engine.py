@@ -8470,6 +8470,13 @@ def link_live_teams(live, roster):
 
     ended = live.get("ended")
     wiped = live.get("wiped", [])
+    # The roster teams a printed name already matches: a squad's players
+    # cannot hand one of these to a second row (below).
+    named = set()
+    for printed in (live.get("teamNames") or {}).values():
+        rt = match_roster_team(printed, roster_teams)
+        if rt in roster_teams:
+            named.add(roster_teams.index(rt))
     rows = []
     for tid, name in sorted(live.get("teamNames", {}).items()):
         roster_team = match_roster_team(name, roster_teams)
@@ -8482,6 +8489,16 @@ def link_live_teams(live, roster):
         elif gs_team is None and tid in inferred:
             gs_team = inferred[tid]
             joined_by = "timing"
+        # A name the roster does not know, on a squad whose PLAYERS it does:
+        # the players say which team this is. The client printed "OGxELITE"
+        # for the squad of the four players (UIDs and all) the roster lists
+        # under "iQOOxOGxTE", and the row went on air as OGXE with no logo
+        # until the name was mapped by hand (2026-10-29).
+        if roster_team is None and gs_team is not None:
+            by_players = gs_to_roster.get(gs_team)
+            if by_players is not None and by_players not in named:
+                roster_team = roster_teams[by_players]
+                named.add(by_players)
 
         bars = []
         alive_count = None
