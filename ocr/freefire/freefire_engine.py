@@ -8315,6 +8315,97 @@ def director_feed(live, linked=None, now=None):
     }
 
 
+# ---- THE ROSTER LEARNS ITS PLAYERS ----------------------------------------
+# A league room's log names the teams and the squads separately and never
+# says which is which (link_live_teams); the roster's player UIDs are what
+# joins them the moment a squad enters the lobby. Without them the alive
+# table waited, game after game, for an operator to fetch the lobby and
+# assign players. Both of the moments the engine is TOLD who a squad is
+# now teach the roster, so it is told once:
+#   - a finished game's result file: every team by name, with its players'
+#     UIDs (learn_roster_from_result, on the automatic fetch);
+#   - the operator's "which team?" pick for a squad in the match
+#     (learn_squad_players, on freefire_join_squad).
+
+def _roster_uid_owner():
+    owner = {}
+    for t in ((server_state.get("roster") or {}).get("teams") or []):
+        for p in t.get("players") or []:
+            uid = str(p.get("uid") or "").strip()
+            if uid:
+                owner[uid] = t
+    return owner
+
+
+def learn_roster_from_result(teams):
+    """Players a result names that the roster does not know yet, under the
+    roster team the file names. Only new UIDs, never a move: a team any of
+    whose players the roster already files under ANOTHER team is the
+    operator's to settle (TSG ARMY / TSG PROS, 2026-10-29), and a name no
+    roster team matches is left alone -- a result never creates a team.
+    Returns how many players were added."""
+    roster_teams = (server_state.get("roster") or {}).get("teams") or []
+    owner = _roster_uid_owner()
+    added = 0
+    for team in teams or []:
+        name = (team.get("fileTeamName") or "").strip()
+        rt = match_roster_team(name, roster_teams) if name else None
+        if rt is None:
+            continue
+        players = [(str(p.get("uid") or "").strip(), p) for p in team.get("players") or []]
+        if any(uid in owner and owner[uid] is not rt for uid, _ in players if uid):
+            continue
+        for uid, p in players:
+            if not uid or uid in owner:
+                continue
+            rt.setdefault("players", []).append({
+                "ign": (p.get("fileName") or p.get("name") or "").strip(), "uid": uid,
+                "displayIgn": "", "photo": ""})
+            owner[uid] = rt
+            added += 1
+    return added
+
+
+def learn_squad_players(gs_team, team_name):
+    """The operator has said squad gs_team is team_name: its players go
+    under that roster team (made, if the roster has no such team), off any
+    other they were filed under -- a player is on one team. Returns how
+    many were added or moved."""
+    team_name = (team_name or "").strip()
+    if not team_name:
+        return 0
+    roster = server_state.setdefault("roster", {}).setdefault("teams", [])
+    rt = next((t for t in roster if (t.get("name") or "").strip().upper() == team_name.upper()), None) \
+        or match_roster_team(team_name, roster)
+    if rt is None:
+        rt = {"name": team_name, "displayName": "", "shortName": "", "tagRead": "", "logo": "",
+              "groupPhoto": "", "players": []}
+        roster.append(rt)
+    squad = (_live_match.get("gsIgns") or {}).get(gs_team) or {}
+    found = []
+    for pid, ign in squad.items():
+        uid = str((_debugger_id_map.get(str(pid)) or {}).get("uid") or "").strip()
+        if uid:
+            found.append((uid, (_debugger_id_map.get(str(pid)) or {}).get("ign") or ign or ""))
+    uids = {uid for uid, _ in found}
+    changed = 0
+    for other in roster:
+        if other is rt:
+            continue
+        before = other.get("players") or []
+        kept = [q for q in before if str(q.get("uid") or "").strip() not in uids]
+        if len(kept) != len(before):
+            changed += len(before) - len(kept)
+            other["players"] = kept
+    have = {str(q.get("uid") or "").strip() for q in rt.setdefault("players", [])}
+    for uid, ign in found:
+        if uid not in have:
+            rt["players"].append({"ign": ign.strip(), "uid": uid, "displayIgn": "", "photo": ""})
+            have.add(uid)
+            changed += 1
+    return changed
+
+
 def unjoined_prompt(live, linked):
     """What the dashboard has to ask about: squads nothing could place.
 
@@ -13440,6 +13531,11 @@ async def handle_client(websocket, path=None):
                     for other in [k for k, v in joins.items() if v == gs_team]:
                         joins.pop(other, None)
                     joins[str(tid)] = gs_team
+                    # ...and the roster learns it, so the next game needs
+                    # no pick (THE ROSTER LEARNS).
+                    names = _live_match.get("teamNames") or {}
+                    if learn_squad_players(gs_team, names.get(tid) or names.get(str(tid)) or ""):
+                        save_state()
                 await broadcast({"type": "state_sync", "data": server_state,
                                  "locked": list(locked_fields)})
             elif payload.get("type") in ("freefire_team_bank_get", "freefire_team_bank_import",
@@ -13898,6 +13994,12 @@ async def handle_live_signals(signals, gs_names):
             print(f"[live] auto-fetched {payload['fileName']} "
                   f"({len(payload['teams'])} teams) -- review and commit")
             _pending_match_fetch = None
+            # The result says who played for whom: the next game joins
+            # its squads by UID from the lobby on (THE ROSTER LEARNS).
+            learned = learn_roster_from_result(payload["teams"])
+            if learned:
+                save_state()
+                print(f"[live] {learned} player(s) learned into the roster from the result")
             # The post-match cards follow the newest game unless one was
             # picked, and the Booyah stats likewise.
             loop = asyncio.get_running_loop()
