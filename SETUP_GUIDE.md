@@ -1,5 +1,9 @@
 # MOBA Broadcast OCR + Overlay — Setup Guide
 
+> The full, current setup (relay VM, broadcast PC, dashboard, OBS, sheets) is in
+> [docs/SETUP.md](docs/SETUP.md); this guide is the original MOBA one. What is planned
+> next is in [docs/ROADMAP.md](docs/ROADMAP.md).
+
 Folder layout:
 ```
 MOBA-OCR-Overlay/
