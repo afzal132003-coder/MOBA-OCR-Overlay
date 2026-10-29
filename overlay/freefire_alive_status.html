@@ -1429,6 +1429,13 @@ LAYOUTS.GamerCult = (() => {
     name: { x: 156, w: 112, size: 24.5, align: "flex-start", weight: 600 },
     points: null,
     kills: { x: 348, w: 50, size: 24.5, pad: 2 },
+    // With the PTS. column (make_gamercult_art.py): the table from x 1455,
+    // everything left of ELIMS 50px further left, PTS. centred on 1828,
+    // ELIMS where it was (1878). The columns above keep their offsets
+    // from the row's left edge.
+    bgPoints: "Alive Status - BLANK PTS.png",
+    points: { x: 348, w: 50, size: 24.5 },
+    withPoints: { row: { x: 1455, w: 465, h: 43 }, kills: { x: 398, w: 50, size: 24.5, pad: 2 } },
     // the five icons share one content box, x 10..491 / y 181..320 of the
     // 500 canvas, shown 59 wide
     pip: { x: 271, y: 13, w: 59, h: 17.05, size: 61.33, px: -1.23, py: -22.2 },
@@ -3096,11 +3103,14 @@ function apply(state){
     return;
   }
 
-  const L = layoutFor(state);
+  const L0 = layoutFor(state);
   // The PTS. column only exists in some packages, and even there it is a
   // separate backdrop -- so the operator's choice picks the artwork and
   // the column together, never one without the other.
-  const showPoints = !!(L.points && state.display && state.display.aliveStatusPoints);
+  const showPoints = !!(L0.points && state.display && state.display.aliveStatusPoints);
+  // A table whose PTS. column is its own, wider art (GamerCult's) takes
+  // that art's row geometry while the column shows.
+  const L = (showPoints && L0.withPoints) ? Object.assign({}, L0, L0.withPoints) : L0;
   textScale = Math.min(1.6, Math.max(0.6, Number((state.settings || {}).aliveTextScale) || 1));
   applyLayout(L, showPoints);
   const championTeams = new Set(

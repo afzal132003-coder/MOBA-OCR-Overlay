@@ -107,7 +107,40 @@ def top4():
     c.save(os.path.join(HERE, "Top 4 - BLANK.png"), optimize=True)
 
 
+# ---- the alive table with a PTS. column -----------------------------------
+# GC's own table had one between ALIVE and ELIMS; GamerCult's art dropped it.
+# Put back the same way: everything left of ELIMS 50px further left (the
+# table from x 1455), a 50px column of plain row strip at 1795..1845 headed
+# "PTS." in the header's red, ELIMS where it was (centred on 1878).
+def pts_table():
+    src = Image.open(os.path.join(HERE, "Alive Status - BLANK.png")).convert("RGBA")
+    out = Image.new("RGBA", src.size, (0, 0, 0, 0))
+    out.paste(src.crop((1505, 0, 1845, 1080)), (1455, 0))
+    plain = src.crop((1848, 0, 1849, 1080))            # header yellow, row strips, the gaps between
+    for x in range(1795, 1845):
+        out.paste(plain, (x, 0))
+    out.paste(src.crop((1845, 0, 1920, 1080)), (1845, 0))
+    # the header's own words: 10px caps from y 266, red #ff1f08, in the
+    # family's SemiCondensed ExtraBold at 15px (it sets ELIMS. at the art's
+    # own 45px) -- the package's font folder, not in the repo, else the
+    # bundled ExtraBold
+    semi = os.path.join(HERE, "Fonts", "BricolageGrotesque_24pt_SemiCondensed-ExtraBold.ttf")
+    f = ImageFont.truetype(semi, 15) if os.path.exists(semi) else ImageFont.truetype(BLACK, 14)
+    d = ImageDraw.Draw(out)
+    # set a pixel tighter a letter, as the art's own words are
+    track = -1
+    advances = [d.textlength(ch, font=f) + track for ch in "PTS."]
+    width = sum(advances) - track
+    l, t, r, b = d.textbbox((0, 0), "PTS.", font=f)
+    x = 1828 - width / 2
+    for ch, adv in zip("PTS.", advances):
+        d.text((x, 266 - t), ch, font=f, fill=(255, 31, 8, 255))
+        x += adv
+    out.save(os.path.join(HERE, "Alive Status - BLANK PTS.png"), optimize=True)
+
+
 if __name__ == "__main__":
+    pts_table()
     top4()
     k.achievement()
     k.crown_tile()

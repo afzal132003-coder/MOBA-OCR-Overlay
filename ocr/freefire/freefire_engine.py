@@ -5715,12 +5715,56 @@ _last_carry_fetch_at = 0.0
 _last_carry_error_at = 0.0
 
 
+_file_carry_key = None
+
+
+def carry_from_result_files(match_ids, folder):
+    """{team (normalised): total points} over the result files ticked for
+    the alive table's PTS. column (settings.aliveCarryMatchIds) -- each
+    file read and resolved to the roster as a fetch is, its TotalScore
+    (kills + placement) summed per team. The games before this one, for
+    an event whose earlier games were never committed or sheeted."""
+    totals = {}
+    for mid in match_ids or []:
+        built = build_match_result_payload(folder, str(mid), recover=False)
+        for t in built.get("teams") or []:
+            key = normalize_for_match(t.get("teamName"))
+            if key:
+                totals[key] = totals.get(key, 0) + int(t.get("totalScore") or 0)
+    return totals
+
+
 async def refresh_live_carry_points():
     """Pulls the carried totals in on a slow timer. Slow on purpose: a
     team's series total only changes when a match is committed, so
-    polling it faster buys nothing and spends someone's quota."""
-    global _last_carry_fetch_at, _last_carry_error_at, _carry_points
+    polling it faster buys nothing and spends someone's quota.
+
+    Ticked result files win over the sheet: when the operator has picked
+    the earlier games (aliveCarryMatchIds), their totals are the carry,
+    read once per change of the ticks, the roster or the files."""
+    global _last_carry_fetch_at, _last_carry_error_at, _carry_points, _file_carry_key
     settings = server_state.get("settings", {})
+    ids = [str(i) for i in (settings.get("aliveCarryMatchIds") or []) if str(i).strip()]
+    if ids:
+        folder = settings.get("matchResultFolder", "")
+        roster_sig = hashlib.md5(json.dumps([(t.get("name"), sorted(str(p.get("uid")) for p in t.get("players") or []))
+                                             for t in (server_state.get("roster") or {}).get("teams") or []]).encode()).hexdigest()
+        key = (folder, tuple(ids), roster_sig)
+        if key != _file_carry_key:
+            try:
+                _carry_points = await asyncio.get_running_loop().run_in_executor(
+                    ocr_executor, carry_from_result_files, ids, folder)
+                _file_carry_key = key
+                print(f"[live points] carried totals from {len(ids)} ticked game(s): "
+                      f"{len(_carry_points)} team(s)")
+            except Exception as e:
+                print(f"[live points] couldn't read the ticked games -- {e}")
+        return
+    if _file_carry_key is not None:
+        # the ticks were cleared: back to the sheet (or nothing)
+        _file_carry_key = None
+        _carry_points = {}
+        _last_carry_fetch_at = 0
     sheet_id = (settings.get("livePointsSheetId") or "").strip()
     if not sheet_id:
         return
