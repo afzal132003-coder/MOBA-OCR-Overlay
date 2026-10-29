@@ -15276,10 +15276,15 @@ Object.entries(FFGFX_ELIM_BOXES).forEach(([key, el]) => {
     // Read when the page is drawn, so switching the alive package
     // switches the box with it.
     get rect(){ return rectNow(); },
-    // Everything on this card scales about its own centre, matching the
-    // overlay: a box that grows from a corner walks away from the slot it
-    // was lined up with.
-    get origin(){ const r = rectNow(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; },
+    // Each part scales about its own centre, matching the overlay: a box
+    // that grows from a corner walks away from the slot it was lined up
+    // with. The whole card is the overlay's full-frame layer (#elimPlace),
+    // so it scales about the frame's centre -- previewed about the card's
+    // own, a scaled card landed somewhere else on air.
+    get origin(){
+      if(key === "elimCard") return { x: 960, y: 540 };
+      const r = rectNow(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    },
   };
 });
 
