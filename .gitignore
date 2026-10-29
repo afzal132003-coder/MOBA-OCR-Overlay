@@ -88,3 +88,6 @@ overlay/assets/freefire/GamerCult/*.psd
 overlay/assets/freefire/GamerCult/* - DEMO.png
 !overlay/assets/freefire/GamerCult/zone bug - DEMO.png
 overlay/assets/freefire/GamerCult/BG-Raw.png
+
+# npm (the dashboard tests install jsdom locally / in CI)
+node_modules/

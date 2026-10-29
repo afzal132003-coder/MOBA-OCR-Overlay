@@ -74,7 +74,8 @@ function mkEnv() {
     id => (nodes[id] = Object.assign(mk(id), { style: {} })));
   const vm = require("vm");
   const sandbox = {
-    document: { getElementById: id => nodes[id] || null, body: { dataset: {} } },
+    // body carries the package's theme classes (gng, rnx, enfea, gamercult...)
+    document: { getElementById: id => nodes[id] || null, body: Object.assign(mk("body"), { dataset: {} }) },
     setTimeout: () => 0,
     JSON, console, Math, Number, Date,
   };

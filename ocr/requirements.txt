@@ -1,5 +1,13 @@
-mss
-opencv-python
-numpy
-pytesseract
-websockets
+# The engines' packages, pinned to what the broadcast PC runs on Python 3.12.
+# Upgrade one deliberately: change its version here, run the tests
+# (python tools/run_tests.py), then roll it out -- a websockets release
+# once changed its API under the relay with no warning.
+#
+#   pip install -r ocr/requirements.txt
+keyboard==0.13.5
+mss==10.2.0
+numpy==2.5.2
+opencv-python==5.0.0.93
+pillow==12.3.0
+pytesseract==0.3.13
+websockets==17.0.1

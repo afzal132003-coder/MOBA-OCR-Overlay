@@ -499,6 +499,30 @@
 </style>
 </head>
 <body>
+<!-- SIGN IN. A form, not window.prompt(): embedded browsers (vMix, OBS
+     docks, app browsers) block prompt(), and where it threw it stopped the
+     whole script -- the dashboard came up with no tab working. -->
+<div id="loginGate" style="display:none;position:fixed;inset:0;z-index:100000;background:rgba(4,7,11,.94);
+     align-items:center;justify-content:center;">
+  <form id="loginForm" autocomplete="on" style="background:#0d1319;border:1px solid #1b2430;border-radius:12px;
+        padding:22px 24px;width:400px;max-width:92vw;color:#e8edf2;box-shadow:0 20px 60px rgba(0,0,0,.6);">
+    <h3 style="margin:0 0 4px;font-size:18px;">Sign in</h3>
+    <p class="hint" id="loginWhy" style="margin:0 0 14px;">The admin token for this relay. It is kept in this
+      browser until you log out.</p>
+    <label class="hint" for="loginRelay" style="display:block;margin:0 0 4px;">Relay</label>
+    <input type="text" id="loginRelay" placeholder="wss://...  (blank: the engine on this PC)"
+           style="width:100%;box-sizing:border-box;margin:0 0 10px;">
+    <label class="hint" for="loginToken" style="display:block;margin:0 0 4px;">Admin token</label>
+    <input type="password" id="loginToken" autocomplete="current-password"
+           style="width:100%;box-sizing:border-box;margin:0 0 14px;">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button type="submit">Sign in</button>
+      <button type="button" class="secondary" id="loginLocal">Use this PC's engine</button>
+      <button type="button" class="secondary" id="loginCancel">Cancel</button>
+    </div>
+    <div class="hint" id="loginErr" style="margin-top:10px;color:#f5a4a4;"></div>
+  </form>
+</div>
 <div class="entry-gate" id="entry_gate">
   <div class="entry-gate-box">
     <div class="entry-gate-eyebrow">⚠ Restricted Access</div>
@@ -3922,6 +3946,10 @@
   </div>
 </div>
 
+<!-- THE DASHBOARD'S CODE, one script block per game. A script that throws
+     stops only itself, so each game's start-up is isolated: the Free Fire tab
+     came up dead once because a missing button in another part threw. Shared
+     code (connection, sign-in, navigation, helpers) is this first block. -->
 <script>
 /* ---------- entry gate ---------- */
 document.getElementById("entry_gate_enter").addEventListener("click", () => {
@@ -4110,10 +4138,9 @@ const _sameOrigin = (location.protocol === "https:"
   ? "wss://" + location.host : "";
 const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || _sameOrigin;
 let _token = _params.get("token") || localStorage.getItem("moba_token") || "";
-if (_relay && !_token) {
-  _token = window.prompt("Enter your dashboard admin token:") || "";
-  if (_token) { try { localStorage.setItem("moba_token", _token); } catch(e) {} }
-}
+// No token for a relay: the sign-in form, which (unlike prompt()) cannot
+// throw and does not hold up the rest of the page.
+if (_relay && !_token) showLogin(true);
 const WS_URL = _relay
   ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token)
   : "ws://localhost:8765";
@@ -4141,21 +4168,67 @@ const DOTA2_WS_URL = _relay
   ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=dota2_dashboard"
   : "ws://localhost:8766";
 
-function changeConnection(){
-  const currentRelay = localStorage.getItem("moba_relay") || "";
-  const nextRelay = window.prompt("Relay URL (wss://...) — leave blank to use local instead:", currentRelay);
-  if (nextRelay === null) return;
-  try {
-    if (nextRelay) {
-      localStorage.setItem("moba_relay", nextRelay);
-      const nextToken = window.prompt("Admin token for that relay:", localStorage.getItem("moba_token") || "");
-      if (nextToken !== null) localStorage.setItem("moba_token", nextToken);
-    } else {
-      localStorage.removeItem("moba_relay");
-      localStorage.removeItem("moba_token");
+/* The sign-in form: relay and token. `forced` -- no token for the relay
+   this page is on -- hides Cancel, since there is nothing to go back to.
+   Saved to this browser and the page reloads onto the new connection. */
+function showLogin(forced){
+  const gate = document.getElementById("loginGate");
+  if (!gate) return;
+  let savedRelay = "";
+  try { savedRelay = localStorage.getItem("moba_relay") || ""; } catch(e) {}
+  document.getElementById("loginRelay").value = savedRelay || _relay || "";
+  document.getElementById("loginToken").value = "";
+  document.getElementById("loginCancel").style.display = forced ? "none" : "";
+  document.getElementById("loginWhy").textContent = forced
+    ? "This dashboard needs the relay's admin token. It is kept in this browser until you log out."
+    : "Change the relay or the token. Kept in this browser until you log out.";
+  gate.style.display = "flex";
+  setTimeout(() => document.getElementById(forced ? "loginToken" : "loginRelay").focus(), 0);
+}
+(function wireLogin(){
+  const form = document.getElementById("loginForm");
+  if (!form) return;
+  const save = (relay, token) => {
+    try {
+      if (relay) localStorage.setItem("moba_relay", relay); else localStorage.removeItem("moba_relay");
+      if (token) localStorage.setItem("moba_token", token); else localStorage.removeItem("moba_token");
+    } catch(e) {}
+  };
+  form.addEventListener("submit", e => {
+    e.preventDefault();
+    const relay = document.getElementById("loginRelay").value.trim();
+    const token = document.getElementById("loginToken").value.trim();
+    if (relay && !/^wss?:\/\//i.test(relay)) {
+      document.getElementById("loginErr").textContent = "The relay starts with wss:// (or ws://).";
+      return;
     }
-  } catch(e) {}
-  location.reload();
+    if ((relay || _sameOrigin) && !token) {
+      document.getElementById("loginErr").textContent = "Enter the admin token.";
+      return;
+    }
+    save(relay, token);
+    // an address-bar ?token= / ?relay= would win over what was just saved
+    reloadClean();
+  });
+  document.getElementById("loginLocal").addEventListener("click", () => {
+    save("", "");
+    reloadClean();
+  });
+  document.getElementById("loginCancel").addEventListener("click", () => {
+    document.getElementById("loginGate").style.display = "none";
+  });
+})();
+// Reloads onto what was just saved. An address-bar ?token= / ?relay= would
+// win over it, so the query goes; with none, a plain reload (setting the
+// same address only scrolls to its #tab, it does not reload).
+function reloadClean(){
+  if (location.search) location.href = location.pathname + location.hash;
+  else location.reload();
+}
+function changeConnection(){ showLogin(false); }
+function logOut(){
+  try { localStorage.removeItem("moba_token"); } catch(e) {}
+  reloadClean();
 }
 
 (function showConnectionMode(){
@@ -4164,7 +4237,10 @@ function changeConnection(){
   if (_relay) {
     let host = _relay;
     try { host = new URL(_relay.replace(/^ws/, "http")).host; } catch(e) {}
-    el.innerHTML = `Relay: ${host} &mdash; <a href="#" onclick="changeConnection();return false;" style="color:#4d9fff;">change</a>`;
+    el.innerHTML = `Relay: ${host} &mdash; ` +
+      (_token ? `<span style="color:#4ade80;">signed in</span> &middot; ` : `<span style="color:#fbbf24;">not signed in</span> &middot; `) +
+      `<a href="#" onclick="changeConnection();return false;" style="color:#4d9fff;">change</a>` +
+      (_token ? ` &middot; <a href="#" onclick="logOut();return false;" style="color:#4d9fff;">log out</a>` : "");
   } else {
     el.innerHTML = `Local &mdash; <a href="#" onclick="changeConnection();return false;" style="color:#4d9fff;">use relay instead</a>`;
   }
@@ -4752,6 +4828,10 @@ function sendManualUpdate(data, lock, unlock){
   }
 }
 
+</script>
+<!-- MOBA (Mobile Legends / MOBA engine): its own script block, so an error in another game's code
+     cannot stop this one starting (and an error here cannot stop the others). -->
+<script>
 /* ---------- in-game live ops ---------- */
 function buildStatGrid(){
   const grid = document.getElementById("statGrid");
@@ -6991,6 +7071,10 @@ function connect(){
   };
 }
 
+</script>
+<!-- FREE FIRE: its own script block, so an error in another game's code
+     cannot stop this one starting (and an error here cannot stop the others). -->
+<script>
 /* ---------- Free Fire Max (its own WebSocket -- see FF_WS_URL above --
    since freefire_engine.py's state has a totally different, flat shape
    from the MOBA server_state this page's main `ws`/`currentState` expect.
@@ -16064,6 +16148,10 @@ buildDraftSlots("pm_picks_team2", "team2", "picks");
 buildPlayerRows("pom_players_team1", "team1");
 buildPlayerRows("pom_players_team2", "team2");
 
+</script>
+<!-- VALORANT: its own script block, so an error in another game's code
+     cannot stop this one starting (and an error here cannot stop the others). -->
+<script>
 /* ========================= VALORANT ========================= *
  * Own WebSocket (VAL_WS_URL above), own state (valState -- a totally
  * different shape from both currentState and ffState), everything
@@ -17962,6 +18050,10 @@ Object.keys(VAL_GRAPHIC_PAGES).forEach(key => {
 document.getElementById("valgfx_page_characterfixing").addEventListener("click", valgfxShowCharacterFixingPanel);
 valgfxShowStagePage("ingame");
 
+</script>
+<!-- OVERLAY SOURCE LINKS (all games): its own script block, so an error in another game's code
+     cannot stop this one starting (and an error here cannot stop the others). -->
+<script>
 /* ---------- Overlay Browser Source Links (all games) ----------
  * Points at the Vercel-hosted copy (same origin this dashboard itself is
  * served from, when opened that way) rather than a local file path -- OBS
@@ -18188,6 +18280,10 @@ document.getElementById("overlayViewerTokenSave").addEventListener("click", () =
 renderOverlayViewerTokenNote();
 buildOverlayLinksTable();
 
+</script>
+<!-- DOTA 2: its own script block, so an error in another game's code
+     cannot stop this one starting (and an error here cannot stop the others). -->
+<script>
 /* ---------- Dota 2 (its own WebSocket -- see DOTA2_WS_URL above -- own
    port/relay page, own globals, post-match only). Roster is entered once
    (name, logo, 5 IGNs, 5 hero picks per team); capture happens in two
@@ -18890,6 +18986,10 @@ document.getElementById("dota2gfx_reset").addEventListener("click", () => {
   document.getElementById("dota2gfx_status").textContent = "Reset locally and pushed — all sections back to default.";
 });
 
+</script>
+<!-- BGMI: its own script block, so an error in another game's code
+     cannot stop this one starting (and an error here cannot stop the others). -->
+<script>
 /* ---------- BGMI (its own WebSocket, its own local port 8767 -- same
    isolation reasoning as FF/Valorant/Dota above, so running the BGMI
    engine never disturbs a Free Fire event. Over the relay it is just
@@ -19250,6 +19350,10 @@ function bgmiShowSheetResult(r){
   el.textContent = msg;
 }
 
+</script>
+<!-- FREE FIRE: result file and match analysis: its own script block, so an error in another game's code
+     cannot stop this one starting (and an error here cannot stop the others). -->
+<script>
 /* ---------- Free Fire: a match result file, read by hand ----------
    The engine already parses these when it finds them in the watched
    folder; this is the same file arriving the other way, for a match it
@@ -19768,6 +19872,10 @@ function ffAnLoad(file) {
   });
 })();
 
+</script>
+<!-- BGMI: teams and results: its own script block, so an error in another game's code
+     cannot stop this one starting (and an error here cannot stop the others). -->
+<script>
 /* ---------- BGMI: the sixteen teams, before the event ----------
    Slots 3 to 18, because that is what this lobby uses and what both
    sheets are ordered by.
