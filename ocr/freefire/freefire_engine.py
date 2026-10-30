@@ -5665,6 +5665,10 @@ def announce_elimination(row, finish_rank):
     own card as soon as the first has had its time.
     """
     settings = server_state.get("settings", {})
+    # Clash Squad (Event Setup -> Game mode): a squad goes out every round,
+    # and a TEAM ELIMINATED card each time would be wrong on air.
+    if (server_state.get("event") or {}).get("gameMode") == "cs":
+        return
     if settings.get("eliminationApproval", True):
         live = server_state.get("liveOps") or {}
         approved = {t.strip().upper() for t in (live.get("approvedEliminations") or [])}

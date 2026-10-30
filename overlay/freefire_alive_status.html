@@ -1574,6 +1574,9 @@ function aliveFolder(state){
 
 function layoutFor(state){
   const f = aliveFolder(state);
+  // Event Setup -> Game mode: Clash Squad -- the Clash Squad bar, whatever
+  // the alive graphic's folder (its own when it has one)
+  if(((state && state.event) || {}).gameMode === "cs") return (LAYOUTS[f] && LAYOUTS[f].clash) ? LAYOUTS[f] : LAYOUTS.CLASH_ENFEA;
   return LAYOUTS[f] || (/(^|[\s_-])cs([\s_-]|$)/i.test(f) ? LAYOUTS.CLASH_ENFEA : null) || LAYOUTS.CLT;
 }
 

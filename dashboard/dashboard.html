@@ -2114,6 +2114,13 @@
           <input type="text" id="ff_eventMap" placeholder="Bermuda">
         </div>
         <div class="team-form" style="max-width:220px;">
+          <label for="ff_eventGameMode" title="Clash Squad: two squads, rounds -- the in-game source shows the Clash Squad top bar (each player alive, knocked or dead, the rounds won) instead of the battle royale table, and no squad is announced eliminated (one is every round). Its controls are in In-Game -> Clash Squad.">Game mode</label>
+          <select id="ff_eventGameMode">
+            <option value="br">Battle Royale</option>
+            <option value="cs">Clash Squad</option>
+          </select>
+        </div>
+        <div class="team-form" style="max-width:220px;">
           <label for="ff_eventRoomType">Room type</label>
           <select id="ff_eventRoomType">
             <option value="league">League room</option>
@@ -8401,7 +8408,7 @@ function ffFlattenRosterPlayers(roster){
    Save could read it; a ticked checkbox flipped straight back. So a field
    the operator has touched is theirs until the engine echoes what Save
    sent (or Save is abandoned), the way the Room Slots grid already works. */
-const FF_EVENT_FIELDS = ["ff_eventTitle", "ff_eventRound", "ff_eventRoomType", "ff_eventTotalGames",
+const FF_EVENT_FIELDS = ["ff_eventTitle", "ff_eventRound", "ff_eventGameMode", "ff_eventRoomType", "ff_eventTotalGames",
   "ff_eventCurrentGame", "ff_eventMap", "ff_unmatchedPolicy", "ff_autoTeamEliminated", "ff_autoFetchOnMatchEnd",
   "ff_eventPackage"];
 const ffEventDirty = {};
@@ -8418,6 +8425,7 @@ function ffEventFormValues(){
   const v = id => document.getElementById(id);
   return {
     matchTitle: v("ff_eventTitle").value.trim(), roundName: v("ff_eventRound").value.trim(),
+    gameMode: v("ff_eventGameMode").value === "cs" ? "cs" : "br",
     roomType: v("ff_eventRoomType").value === "normal" ? "normal" : "league",
     totalGames: Math.max(1, Number(v("ff_eventTotalGames").value) || 6),
     currentGame: Number(v("ff_eventCurrentGame").value) || 1,
@@ -8434,6 +8442,7 @@ function ffEventEngineValues(ff){
   const current = Number(ev.currentGame) || 1;
   return {
     matchTitle: ev.matchTitle || "", roundName: ev.roundName || "",
+    gameMode: ev.gameMode === "cs" ? "cs" : "br",
     roomType: ev.roomType === "normal" ? "normal" : "league",
     totalGames: Number(ev.totalGames) || 6, currentGame: current,
     map: (ev.maps || [])[current - 1] || "",
@@ -8495,6 +8504,7 @@ function ffRenderEvent(ff){
   setIfFree("ff_eventTitle", ev.matchTitle || "");
   setIfFree("ff_eventRound", ev.roundName || "");
   setIfFree("ff_eventRoomType", ev.roomType === "normal" ? "normal" : "league");
+  setIfFree("ff_eventGameMode", ev.gameMode === "cs" ? "cs" : "br");
   setIfFree("ff_eventTotalGames", ev.totalGames || 6);
 
   if(free("ff_eventCurrentGame")){
@@ -8638,6 +8648,7 @@ document.getElementById("ff_eventSave").addEventListener("click", () => {
       // the alive table follows the package too, as Use This Package does
       aliveAssetFolder: form.assetFolder,
       roomType: form.roomType,
+      gameMode: form.gameMode,
     }),
     settings,
   }}}));
@@ -12599,7 +12610,7 @@ document.addEventListener("change", e => {
    one -- its folder named CS, as the in-game page decides. */
 function ffIsClashPackage(ff){
   const ev = (ff && ff.event) || {};
-  return /(^|[\s_-])cs([\s_-]|$)/i.test(ev.aliveAssetFolder || ev.assetFolder || "");
+  return ev.gameMode === "cs" || /(^|[\s_-])cs([\s_-]|$)/i.test(ev.aliveAssetFolder || ev.assetFolder || "");
 }
 function ffRenderClash(ff){
   const box = document.getElementById("ff_csBox");
