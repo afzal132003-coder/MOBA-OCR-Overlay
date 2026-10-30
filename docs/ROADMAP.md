@@ -49,12 +49,13 @@ or a decision only the owner has.
 
 ## 3D map analysis
 
-The replay `.bin` already gives every player's track in three dimensions
-(x, y, z in metres, with vertical speed -- `bin_decode.py`), so a 3D view
-needs nothing from the game's own files:
+**First version done** (`overlay/freefire_map3d.html`, `ocr/freefire/map3d.py`): the map draped over the
+ground learned from every decoded replay, each player's path at its real height, the zone, kills with
+names, the plane. In the dashboard (Post-Match, "3D Map") as an analysis you can turn and scrub; on air as
+its own 1920x1080 source with a camera script (the whole story, the drop, the zone, the final fight + Booyah).
 
-| Step | Effort |
+| Next | Effort |
 |---|---|
-| 3D replay viewer: the map image as the ground, orbit camera, each squad's track at its real height (plane, parachute, rooftops), zone cylinders, kills | 1–2 days |
-| Terrain: the ground's height learned from where players walk across many replays, the map image draped over it | +1 day (fills in as more matches are played) |
-| Broadcast page: scripted camera moves (the drop, the zone closing, the last fight) | +1 day |
+| Finer ground as more games are played (it learns by itself; "Learn Ground From All Replays" catches up) | -- |
+| Event-branded lower third on the on-air version (logos, the round) | ½ day |
+| Follow-a-squad camera on air; a picked fight replayed close up | 1 day |

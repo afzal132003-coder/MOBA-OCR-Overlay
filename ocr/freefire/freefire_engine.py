@@ -55,6 +55,7 @@ import keyboard
 
 import map_analysis
 import bin_decode
+import map3d
 
 
 # --- DNS that survives a bad minute ------------------------------------
@@ -9995,7 +9996,148 @@ def _bin_decoded(path, data):
             pass
     decoded = bin_decode.decode(binp, names=map_analysis.rj.player_names(data), data=data)
     cache.write_text(json.dumps(decoded), encoding="utf-8")
+    _bin_index_add(path.stem, data.get("MapID"))
     return decoded
+
+
+# Which map each decoded match was played on (bin_cache/_maps.json), so a
+# map's terrain can be learned from every match of it without opening each
+# replay again. Filled as matches are decoded and as replays are learned.
+def _bin_index():
+    try:
+        return json.loads((BIN_CACHE / "_maps.json").read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _bin_index_add(stem, map_id, index=None):
+    """Records one match's map; into `index` (saved by the caller) or the file."""
+    if map_id is None:
+        return
+    idx = _bin_index() if index is None else index
+    if idx.get(stem) != map_id:
+        idx[stem] = map_id
+        if index is None:
+            BIN_CACHE.mkdir(exist_ok=True)
+            (BIN_CACHE / "_maps.json").write_text(json.dumps(idx), encoding="utf-8")
+
+
+# ---- THE MAP IN 3D (map3d.py, overlay/freefire_map3d.html) ----------------
+# A finished match in three dimensions, for the dashboard's 3D analysis and
+# the on-air 3D map. Its own message, sent once: a few hundred KB.
+MAP3D_DEFAULTS = {"visible": False, "matchId": "", "script": "full", "speed": 1.0, "shownAt": 0}
+_map3d_msg = {"key": None, "msg": None}
+
+
+def map3d_state():
+    st = server_state.setdefault("map3d", dict(MAP3D_DEFAULTS))
+    for k, v in MAP3D_DEFAULTS.items():
+        st.setdefault(k, v)
+    return st
+
+
+def map3d_terrain(map_id, cal):
+    """The map's learned ground (map3d.terrain_for), from every match of it
+    decoded so far; its file is used as it is while no new match has been."""
+    idx = _bin_index()
+    stems = sorted(st for st, m in idx.items()
+                   if str(m) == str(map_id) and (BIN_CACHE / (st + ".json")).exists())
+    path = map3d.TERRAIN_DIR / ("%s.json" % map_id)
+    try:
+        held = json.loads(path.read_text(encoding="utf-8"))
+        if held.get("version") == map3d.TERRAIN_VERSION and held.get("stems") == stems:
+            return held
+    except Exception:
+        pass
+    decodes = {}
+    for st in stems:
+        try:
+            d = json.loads((BIN_CACHE / (st + ".json")).read_text(encoding="utf-8"))
+            if d.get("version") == bin_decode.VERSION:
+                decodes[st] = d
+        except Exception:
+            continue
+    return map3d.terrain_for(map_id, cal, decodes)
+
+
+def build_map3d(match_id=""):
+    """One finished match for the 3D map: the newest when no id is given."""
+    path = map_analysis.find_replay(replays_folder(), (match_id or "").strip() or None)
+    if not path:
+        raise ValueError("No finished replay%s in %s" % ((" for " + match_id) if match_id else "", replays_folder()))
+    data = map_analysis.rj.load(path)
+    decoded = _bin_decoded(path, data)
+    mid = path.name.split("_")[1]
+    view = build_map_view(mid)
+    map_id = view.get("mapId") or data.get("MapID")
+    cal = map_analysis.MAPS.get(int(map_id)) if map_id is not None else None
+    if not cal:
+        raise ValueError("No calibration for map %s" % map_id)
+    _bin_index_add(path.stem, map_id)
+    terrain = map3d_terrain(map_id, cal)
+    # the squads under the roster's names and tags where it knows them
+    roster_teams = (server_state.get("roster") or {}).get("teams") or []
+    names = {}
+    for q in view.get("squads") or []:
+        rt = match_roster_team(q.get("teamName") or "", roster_teams) if q.get("teamName") else None
+        if rt:
+            names[q.get("squad")] = ((rt.get("displayName") or rt.get("name") or "").strip(),
+                                     (rt.get("shortName") or "").strip())
+    kills, team_out = _bin_events(data)
+    image = cal.get("image") or ""
+    hd = Path(image).stem + ".jpg"
+    if (Path(__file__).parent.parent.parent / "overlay" / "assets" / "FF Maps" / "hd" / hd).exists():
+        image = "FF Maps/hd/" + hd
+    payload = map3d.build_payload(view, decoded, {"kills": kills, "teamOut": team_out}, cal, terrain,
+                                  squad_names=names, image=image)
+    payload["file"] = path.name
+    return payload
+
+
+def map3d_learn(limit=60):
+    """Every replay in the folder decoded (each only once -- they are
+    cached), then each map's terrain rebuilt from all of them."""
+    folder = replays_folder()
+    rows = map_analysis.list_replays(folder, limit) if folder else []
+    idx = _bin_index()
+    decoded = failed = 0
+    for r in rows:
+        try:
+            path = Path(r.get("path") or "")
+            data = map_analysis.rj.load(path)
+            _bin_decoded(path, data)
+            _bin_index_add(path.stem, data.get("MapID"), idx)
+            decoded += 1
+        except Exception:
+            failed += 1
+    BIN_CACHE.mkdir(exist_ok=True)
+    merged = _bin_index()
+    merged.update(idx)
+    (BIN_CACHE / "_maps.json").write_text(json.dumps(merged), encoding="utf-8")
+    maps = {}
+    for map_id, cal in map_analysis.MAPS.items():
+        t = map3d_terrain(map_id, cal)
+        maps[cal.get("name") or str(map_id)] = {"matches": t.get("matches"), "coverage": t.get("coverage")}
+    return {"ok": True, "decoded": decoded, "failed": failed, "maps": maps}
+
+
+async def send_map3d(only=None, rebuild=False):
+    """The 3D page's match, built once per match and sent to the page (or
+    to one socket that has just connected)."""
+    st = map3d_state()
+    key = st.get("matchId") or ""
+    if rebuild or _map3d_msg["key"] != key or _map3d_msg["msg"] is None:
+        try:
+            payload = await asyncio.get_running_loop().run_in_executor(None, build_map3d, key)
+            _map3d_msg.update(key=key, msg=dict(payload, type="map3d_data", ok=True))
+        except Exception as e:
+            print("[map3d] could not build: %s" % e)
+            _map3d_msg.update(key=key, msg={"type": "map3d_data", "ok": False, "error": str(e)})
+    if only is not None:
+        await _send_guarded(only, json.dumps(_map3d_msg["msg"]))
+    else:
+        await broadcast_to_page("freefire_map3d", _map3d_msg["msg"])
+    return _map3d_msg["msg"]
 
 
 def _bin_events(data):
@@ -12143,6 +12285,11 @@ async def handle_client(websocket, path=None):
             await send_map_bin(only=websocket)
         except Exception as e:
             print("[map] BIN replay not sent on connect: %s" % e)
+    if first_page == "freefire_map3d" and map3d_state().get("visible"):
+        try:
+            await send_map3d(only=websocket)
+        except Exception as e:
+            print("[map3d] not sent on connect: %s" % e)
 
     try:
         async for message in websocket:
@@ -12976,6 +13123,39 @@ async def handle_client(websocket, path=None):
                 for r in rows:
                     r.pop("path", None)
                 await websocket.send(json.dumps({"type": "map_view_list_result", "replays": rows}))
+            elif payload.get("type") in ("map3d_load", "map3d_learn"):
+                # THE 3D MAP's analysis, in the dashboard: one match, to the
+                # asking socket only -- or every replay decoded and each
+                # map's terrain learned again.
+                loop = asyncio.get_running_loop()
+                learn = payload["type"] == "map3d_learn"
+                try:
+                    if learn:
+                        reply = await loop.run_in_executor(None, map3d_learn)
+                    else:
+                        reply = await loop.run_in_executor(None, build_map3d, str(payload.get("matchId") or ""))
+                        reply["ok"] = True
+                except Exception as e:
+                    reply = {"ok": False, "error": str(e)}
+                reply["type"] = "map3d_learn_result" if learn else "map3d_tool_data"
+                await websocket.send(json.dumps(reply))
+            elif payload.get("type") in ("map3d_show", "map3d_hide"):
+                # THE 3D MAP on air: its match, its camera script and speed.
+                st = map3d_state()
+                if payload["type"] == "map3d_hide":
+                    st["visible"] = False
+                else:
+                    for k in ("matchId", "script", "speed"):
+                        if k in payload:
+                            st[k] = payload[k]
+                    st["visible"] = True
+                    st["shownAt"] = int(time.time() * 1000)
+                    sent = await send_map3d(rebuild=bool(payload.get("rebuild")))
+                    await websocket.send(json.dumps({"type": "map3d_status", "ok": sent.get("ok"),
+                                                     "error": sent.get("error"), "file": sent.get("file"),
+                                                     "players": len(sent.get("players") or [])}))
+                save_state()
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") in ("bin_list", "bin_load"):
                 # THE BIN TAB: a replay's .bin decoded into every player's
                 # movement, for the dashboard to play back. Sent to the

@@ -3810,6 +3810,40 @@
     </div>
 
     <div class="card">
+      <h2 data-ov="freefire_map3d.html">3D Map &mdash; analysis and on air</h2>
+      <p class="hint">A finished game in three dimensions: every player's path at its real height (the plane, the
+        parachutes, rooftops and hills), the zone closing, the kills -- over the map draped across the ground's height,
+        learned from where players have walked in every replay decoded so far. <strong>Load</strong> opens it here to
+        explore (drag to turn, scroll to zoom, right-drag to move; click a squad to follow it). On air it is its own
+        full-screen browser source, <code>overlay/freefire_map3d.html</code>, played with a camera script.</p>
+      <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;">
+        <select id="ff_m3Pick" style="min-width:300px;"><option value="">Latest finished game</option></select>
+        <button class="secondary" id="ff_m3List">List Games</button>
+        <button id="ff_m3Load">Load 3D</button>
+        <button class="secondary" id="ff_m3Learn" title="Decode every replay in the folder (each only once) and learn each map's ground again from all of them. A minute or two the first time.">Learn Ground From All Replays</button>
+        <span class="hint" id="ff_m3Status" style="margin:0;"></span>
+      </div>
+      <div id="ff_m3Wrap" style="display:none;margin-top:10px;">
+        <iframe id="ff_m3Frame" title="3D map" style="width:100%;height:640px;border:1px solid #1b2430;border-radius:8px;background:#070b10;"></iframe>
+      </div>
+      <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;">
+        <strong style="font-size:12px;">On air</strong>
+        <select id="ff_m3Script" title="Which part of the game the camera tells">
+          <option value="full">The whole story (about a minute)</option>
+          <option value="drop">The drop</option>
+          <option value="zone">The zone closing</option>
+          <option value="final">The final fight + Booyah</option>
+        </select>
+        <select id="ff_m3Speed" title="Faster or slower than the script's own pace">
+          <option value="0.75">Slower</option><option value="1" selected>Normal</option><option value="1.5">Faster</option><option value="2">Fastest</option>
+        </select>
+        <button id="ff_m3Show">Push 3D Map Up</button>
+        <button class="secondary" id="ff_m3Hide">Pull Down</button>
+        <span class="hint" id="ff_m3Air" style="margin:0;"></span>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>Match Analysis</h2>
       <p class="hint">Drop a <code>ReplayInfo_*.json</code> from
         <code>Free Fire_64_Data\Replays</code>. Every finished match leaves one, alongside a much larger
@@ -7436,6 +7470,9 @@ function ffOpen(url){
     } else if(msg.type === "map_view_list_result"){
       ffReplyArrived("mapList");
       ffMvFillPick(msg.replays || []);
+      ffM3FillPick(msg.replays || []);
+    } else if(msg.type === "map3d_tool_data" || msg.type === "map3d_learn_result" || msg.type === "map3d_status"){
+      ffM3Reply(msg);
     } else if(msg.type === "team_graph_games_result"){
       ffReplyArrived("tgGames");
       const el = document.getElementById("ff_tgGamesStatus");
@@ -12151,6 +12188,75 @@ function ffSyncMapView(){
     ffTgDirty = false;
     ffMvSay("Map pulled down -- Points Race up.", "#4ade80");
     ffTgSay("Points Race pushed up (from the map card).", "#4ade80");
+  });
+})();
+
+/* ---------- 3D map (overlay/freefire_map3d.html) ----------
+   The analysis: the page in the card's frame, fed the game by message
+   (it has no socket of its own there). On air: map3d_show / map3d_hide,
+   the engine sending the page its game. */
+let ffM3Pending = null, ffM3Ready = false;
+function ffM3Say(t, colour){
+  const el = document.getElementById("ff_m3Status");
+  if(el){ el.textContent = t; el.style.color = colour || ""; }
+}
+function ffM3FillPick(rows){
+  const sel = document.getElementById("ff_m3Pick");
+  if(!sel || document.activeElement === sel) return;
+  const keep = sel.value;
+  sel.innerHTML = `<option value="">Latest finished game</option>` + rows.map(r => {
+    const when = String(r.playedAt || "").replace(/^(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2}).*$/, "$3/$2 $4:$5");
+    return `<option value="${ffEscapeHtml(String(r.matchId))}">${ffEscapeHtml(when)} &middot; ${ffEscapeHtml(r.mapName || "")} &middot; ${ffEscapeHtml(String(r.matchId))}</option>`;
+  }).join("");
+  if(Array.from(sel.options).some(o => o.value === keep)) sel.value = keep;
+}
+function ffM3Post(msg){
+  const fr = document.getElementById("ff_m3Frame");
+  if(ffM3Ready && fr && fr.contentWindow) fr.contentWindow.postMessage(msg, "*");
+  else ffM3Pending = msg;
+}
+function ffM3Reply(msg){
+  if(msg.type === "map3d_tool_data"){
+    if(msg.ok === false){ ffM3Say("Could not load: " + (msg.error || "unknown"), "#f5a4a4"); return; }
+    const t = msg.terrain || {};
+    ffM3Say(`${msg.map && msg.map.name} · ${(msg.players || []).length} players · ${(msg.kills || []).length} kills · ` +
+            `ground from ${t.matches || 0} games (${Math.round((t.coverage || 0) * 100)}% walked)`, "#4ade80");
+    ffM3Post(msg);
+  } else if(msg.type === "map3d_learn_result"){
+    if(msg.ok === false){ ffM3Say("Could not learn: " + (msg.error || "unknown"), "#f5a4a4"); return; }
+    const maps = Object.entries(msg.maps || {}).map(([n, m]) => `${n} ${m.matches || 0} games`).join(", ");
+    ffM3Say(`${msg.decoded} replay(s) read. Ground: ${maps}.`, "#4ade80");
+  } else if(msg.type === "map3d_status"){
+    const el = document.getElementById("ff_m3Air");
+    if(el){
+      el.textContent = msg.ok ? `On air: ${msg.file || "the game"} (${msg.players} players).` : "Not on air: " + (msg.error || "unknown");
+      el.style.color = msg.ok ? "#4ade80" : "#f5a4a4";
+    }
+  }
+}
+(function ffWireMap3d(){
+  const send = m => { if(ffWs && ffWs.readyState === WebSocket.OPEN){ ffWs.send(JSON.stringify(m)); return true; }
+                      ffM3Say("Not connected to the engine.", "#f5a4a4"); return false; };
+  const fr = document.getElementById("ff_m3Frame");
+  fr.addEventListener("load", () => { ffM3Ready = true; if(ffM3Pending){ fr.contentWindow.postMessage(ffM3Pending, "*"); ffM3Pending = null; } });
+  document.getElementById("ff_m3List").addEventListener("click", () => { if(send({ type: "map_view_list" })) ffM3Say("Listing games..."); });
+  document.getElementById("ff_m3Load").addEventListener("click", () => {
+    document.getElementById("ff_m3Wrap").style.display = "";
+    if(!fr.getAttribute("src")){ ffM3Ready = false; fr.src = "../overlay/freefire_map3d.html?tool=1"; }
+    if(send({ type: "map3d_load", matchId: document.getElementById("ff_m3Pick").value }))
+      ffM3Say("Building the game in 3D... (a few seconds; longer the first time a game is read)");
+  });
+  document.getElementById("ff_m3Learn").addEventListener("click", () => {
+    if(send({ type: "map3d_learn" })) ffM3Say("Reading every replay and learning the ground... (a minute or two the first time)");
+  });
+  document.getElementById("ff_m3Show").addEventListener("click", () => {
+    if(send({ type: "map3d_show", matchId: document.getElementById("ff_m3Pick").value,
+              script: document.getElementById("ff_m3Script").value,
+              speed: Number(document.getElementById("ff_m3Speed").value) }))
+      document.getElementById("ff_m3Air").textContent = "Putting it up...";
+  });
+  document.getElementById("ff_m3Hide").addEventListener("click", () => {
+    if(send({ type: "map3d_hide" })){ const el = document.getElementById("ff_m3Air"); el.textContent = "Pulled down."; el.style.color = ""; }
   });
 })();
 
@@ -18078,6 +18184,7 @@ const OVERLAY_LINKS = [
   {game:"Free Fire", name:"★ IN-GAME SOURCE (alive status, team eliminated, headshot hunter)", file:"overlay/freefire_ingame.html"},
   {game:"Free Fire", name:"★ POST-MATCH SOURCE (scoreboard, graphs, H2H, Booyah stats, MVP...)", file:"overlay/freefire_postmatch.html"},
   {game:"Free Fire", name:"Zone Map & Drop Spots", file:"overlay/freefire_map.html"},
+  {game:"Free Fire", name:"3D Map (1920x1080, its own source)", file:"overlay/freefire_map3d.html"},
   {game:"Free Fire", name:"Player Head To Head", file:"overlay/freefire_player_h2h.html"},
   {game:"Free Fire", name:"Booyah Team Stats (two slides)", file:"overlay/freefire_booyah_stats.html"},
   {game:"Free Fire", name:"Lobby Join Status (1918x248 strip)", file:"overlay/freefire_lobby_status.html"},

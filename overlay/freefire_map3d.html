@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Free Fire 3D Map</title>
+<!--
+  THE MAP IN 3D: one finished match, every player's path at its real
+  height, the zone closing, the kills, the plane -- over the map image
+  draped across the ground's height as the matches have measured it
+  (ocr/freefire/map3d.py).
+
+  Two ways in:
+    on air      (default)   1920x1080 browser source; the engine sends the
+                            match (map3d_data) and the dashboard pushes it
+                            up with a camera script: the whole story, the
+                            drop, the zone, the final fight.
+    ?tool=1     the dashboard's 3D analysis: free camera, a timeline,
+                squads to show or follow. Fed by the dashboard
+                (postMessage), no socket of its own.
+  three.js r147, the classic build (vendor/three-r147): plain scripts, so
+  it also runs from a file and in OBS without a CDN.
+-->
+<style>
+  html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: transparent;
+               font-family: "Segoe UI", Arial, sans-serif; color: #fff; }
+  body.tool { width: 100vw; height: 100vh; background: #070b10; }
+  #view { position: absolute; inset: 0; opacity: 0; transition: opacity .6s ease; }
+  #view.on { opacity: 1; }
+  body.tool #view { opacity: 1; }
+  canvas { display: block; }
+  /* ---- on-air lettering ---- */
+  #title { position: absolute; left: 70px; top: 54px; opacity: 0; transform: translateX(-30px);
+           transition: opacity .6s ease, transform .6s ease; }
+  #title.on { opacity: 1; transform: none; }
+  #title .k { font-size: 18px; letter-spacing: 6px; font-weight: 800; color: var(--acc, #f7941d); }
+  #title .t { font-size: 52px; font-weight: 900; letter-spacing: 1px; line-height: 1.05; text-shadow: 0 4px 18px rgba(0,0,0,.6); }
+  #title .s { font-size: 20px; font-weight: 700; opacity: .85; margin-top: 4px; }
+  #clock { position: absolute; right: 70px; top: 54px; text-align: right; opacity: 0; transition: opacity .5s ease; }
+  #clock.on { opacity: 1; }
+  #clock .c { font-size: 46px; font-weight: 900; font-variant-numeric: tabular-nums; text-shadow: 0 4px 18px rgba(0,0,0,.6); }
+  #clock .l { font-size: 16px; letter-spacing: 3px; font-weight: 800; color: var(--acc, #f7941d); }
+  #feed { position: absolute; right: 70px; top: 170px; width: 470px; display: flex; flex-direction: column; gap: 6px; }
+  #feed .k { display: flex; align-items: center; gap: 10px; padding: 7px 12px; font-size: 17px; font-weight: 700;
+             background: linear-gradient(90deg, rgba(0,0,0,0), rgba(0,0,0,.62) 18%); justify-content: flex-end;
+             animation: feed-in .35s ease both; white-space: nowrap; }
+  #feed .x { color: var(--acc, #f7941d); font-weight: 900; }
+  #feed i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; flex: none; }
+  @keyframes feed-in { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; transform: none; } }
+  #left { position: absolute; left: 70px; bottom: 60px; font-size: 22px; font-weight: 900; letter-spacing: 2px;
+          opacity: 0; transition: opacity .5s ease; text-shadow: 0 3px 12px rgba(0,0,0,.7); }
+  #left.on { opacity: 1; }
+  #left b { color: var(--acc, #f7941d); font-size: 38px; }
+  #banner { position: absolute; left: 50%; bottom: 120px; transform: translate(-50%, 30px); opacity: 0; text-align: center;
+            transition: opacity .6s ease, transform .6s ease; padding: 14px 46px;
+            background: linear-gradient(120deg, var(--a, #1d2733), var(--b, #0b1016)); border-bottom: 5px solid var(--acc, #f7941d); }
+  #banner.on { opacity: 1; transform: translate(-50%, 0); }
+  #banner .k { font-size: 18px; letter-spacing: 6px; font-weight: 800; color: var(--acc, #f7941d); }
+  #banner .t { font-size: 58px; font-weight: 900; letter-spacing: 1px; }
+  #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; font-size: 20px;
+         color: #9aa7b5; text-align: center; padding: 20px; }
+  body.tool #msg.on { display: flex; }
+  /* ---- the analysis tool's controls ---- */
+  #ui { display: none; }
+  body.tool #ui { display: block; }
+  body.tool #title, body.tool #clock, body.tool #left, body.tool #banner { display: none; }
+  body.tool #feed { top: 14px; right: 14px; width: 380px; }
+  body.tool #feed .k { font-size: 13px; padding: 4px 9px; }
+  #bar { position: absolute; left: 0; right: 0; bottom: 0; padding: 10px 14px; display: flex; gap: 10px; align-items: center;
+         flex-wrap: wrap; background: linear-gradient(0deg, rgba(5,8,12,.95), rgba(5,8,12,.75)); font-size: 13px; }
+  #bar button, #bar select { background: #121a24; color: #e8edf2; border: 1px solid #263241; border-radius: 6px;
+                             padding: 5px 10px; font: inherit; cursor: pointer; }
+  #bar button.on { border-color: #4d9fff; color: #4d9fff; }
+  #bar input[type=range] { flex: 1; min-width: 200px; }
+  #bar label { display: flex; gap: 4px; align-items: center; color: #9aa7b5; }
+  #time { font-variant-numeric: tabular-nums; min-width: 92px; text-align: center; font-weight: 700; }
+  #squads { position: absolute; left: 14px; top: 14px; width: 250px; max-height: calc(100% - 90px); overflow: auto;
+            background: rgba(5,8,12,.82); border: 1px solid #1b2430; border-radius: 8px; padding: 8px; font-size: 12.5px; }
+  #squads .q { display: flex; align-items: center; gap: 6px; padding: 3px 2px; cursor: pointer; border-radius: 4px; }
+  #squads .q:hover { background: #121a24; }
+  #squads .q.sel { background: #16304d; }
+  #squads .q.off { opacity: .4; }
+  #squads .q i { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  #squads .q span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #squads .q small { color: #9aa7b5; }
+  #squads h4 { margin: 0 0 6px; font-size: 12px; letter-spacing: 1px; color: #9aa7b5; }
+  #info { position: absolute; left: 280px; top: 14px; font-size: 12px; color: #9aa7b5; }
+</style>
+<script src="vendor/three-r147/three.min.js"></script>
+<script src="vendor/three-r147/OrbitControls.js"></script>
+<script src="vendor/three-r147/LineSegmentsGeometry.js"></script>
+<script src="vendor/three-r147/LineGeometry.js"></script>
+<script src="vendor/three-r147/LineMaterial.js"></script>
+<script src="vendor/three-r147/LineSegments2.js"></script>
+<script src="vendor/three-r147/Line2.js"></script>
+</head>
+<body>
+<div id="view"></div>
+<div id="title"><div class="k">MATCH REPLAY</div><div class="t"></div><div class="s"></div></div>
+<div id="clock"><div class="l">MATCH TIME</div><div class="c">0:00</div></div>
+<div id="feed"></div>
+<div id="left"><b>12</b> <span>SQUADS</span> LEFT</div>
+<div id="banner"><div class="k">BOOYAH</div><div class="t"></div></div>
+<div id="msg" class="on">Pick a game and press Load 3D.</div>
+<div id="ui">
+  <div id="squads"><h4>SQUADS &middot; click to follow, double-click to show only</h4><div id="sqList"></div></div>
+  <div id="info"></div>
+  <div id="bar">
+    <button id="play">&#9654; Play</button>
+    <select id="speed"><option value="1">1x</option><option value="5">5x</option><option value="10" selected>10x</option>
+      <option value="20">20x</option><option value="40">40x</option></select>
+    <input type="range" id="scrub" min="0" max="1000" value="0" step="0.1">
+    <span id="time">0:00 / 0:00</span>
+    <button id="camOver">Overview</button><button id="camTop">Top</button><button id="camFollow">Follow</button>
+    <label><input type="checkbox" id="lyTracks" checked> Paths</label>
+    <label><input type="checkbox" id="lyZones" checked> Zone</label>
+    <label><input type="checkbox" id="lyKills" checked> Kills</label>
+    <label><input type="checkbox" id="lyPlane" checked> Plane</label>
+    <label><input type="checkbox" id="lyLabels" checked> Names</label>
+    <label>Height <select id="exag"><option value="1">1x</option><option value="1.6" selected>1.6x</option><option value="2.5">2.5x</option></select></label>
+  </div>
+</div>
+<script>
+const _params = new URLSearchParams(location.search);
+const TOOL = _params.get("tool") === "1";
+const PREVIEW = _params.get("preview") === "1";
+if(TOOL) document.body.classList.add("tool");
+const $ = id => document.getElementById(id);
+
+/* Twelve squad colours that stay apart on a map (the 2D map graphic's). */
+const SQUAD_COLOURS = ["#ff3b30", "#ffea00", "#2979ff", "#00e676", "#ff40c4", "#ff9100",
+                       "#00e5ff", "#b388ff", "#ffffff", "#aeea00", "#ff8a80", "#1de9b6"];
+const colourOf = sq => SQUAD_COLOURS[((Number(sq) || 1) - 1) % SQUAD_COLOURS.length];
+/* The event's package colours, for the lettering (as the zone bug's). */
+const THEMES = {
+  gamercult: { acc: "#feea3c", a: "#e30000", b: "#8c0000" }, enfea: { acc: "#ffcc00", a: "#3d0c80", b: "#180044" },
+  rnx: { acc: "#fcd02c", a: "#6c1694", b: "#3a0852" }, ss3: { acc: "#ff1e1e", a: "#3a0808", b: "#0b0b0b" },
+  gng: { acc: "#ffa976", a: "#5c2d12", b: "#2f1307" }, chirayu: { acc: "#e8a33a", a: "#1d2a44", b: "#0d1424" },
+};
+function applyTheme(folder){
+  const f = String(folder || "").toLowerCase();
+  const t = THEMES[f] || THEMES[Object.keys(THEMES).find(k => f.startsWith(k))] || { acc: "#f7941d", a: "#1d2733", b: "#0b1016" };
+  for(const [k, v] of Object.entries(t)) document.documentElement.style.setProperty("--" + k, v);
+}
+
+/* ---- the scene ---------------------------------------------------------- */
+let W = TOOL ? innerWidth : 1920, H = TOOL ? innerHeight : 1080;
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(TOOL ? Math.min(2, devicePixelRatio || 1) : 1);
+renderer.setSize(W, H);
+renderer.outputEncoding = THREE.sRGBEncoding;
+$("view").appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(40, W / H, 5, 30000);
+camera.position.set(0, 1800, 1800);
+const controls = TOOL ? new THREE.OrbitControls(camera, renderer.domElement) : null;
+if(controls){ controls.enableDamping = true; controls.maxPolarAngle = Math.PI * 0.49; }
+scene.add(new THREE.HemisphereLight(0xe8f0ff, 0x1a2230, 0.95));
+const sun = new THREE.DirectionalLight(0xffffff, 0.55);
+sun.position.set(-900, 1600, 700);
+scene.add(sun);
+if(TOOL) addEventListener("resize", () => {
+  W = innerWidth; H = innerHeight;
+  renderer.setSize(W, H); camera.aspect = W / H; camera.updateProjectionMatrix();
+  allLineMaterials.forEach(m => m.resolution.set(W, H));
+});
+
+const AIR = 150;                  // metres: above this, in the air (as the engine)
+let EX = 1.6;                     // the ground's relief, exaggerated so it reads
+const AIR_SCALE = 0.7;            // flight heights compressed above the air line
+let D = null;                     // the match
+let M = 1500;                     // the map's width, metres
+const groups = {};                // layers
+const allLineMaterials = [];
+let tracks = [], heads = [], squadLabels = {}, killMarks = [], zoneWall = null, zoneRing = null, nextRing = null;
+let planeLine = null, planeMesh = null, ground = null;
+const hidden = new Set();         // squads switched off (tool)
+let follow = null;                // squad the camera follows (tool)
+
+const X = u => (u - 0.5) * M, Z = v => (v - 0.5) * M;
+function dispY(metres){ return metres <= AIR ? metres * EX : AIR * EX + (metres - AIR) * AIR_SCALE; }
+function terrainAt(u, v){
+  const T = D && D.terrain;
+  if(!T || !T.h) return 0;
+  const n = T.n, x = Math.min(1, Math.max(0, u)) * (n - 1), y = Math.min(1, Math.max(0, v)) * (n - 1);
+  const i0 = Math.floor(x), j0 = Math.floor(y), i1 = Math.min(n - 1, i0 + 1), j1 = Math.min(n - 1, j0 + 1);
+  const fx = x - i0, fy = y - j0, h = T.h;
+  const a = h[j0 * n + i0], b = h[j0 * n + i1], c = h[j1 * n + i0], d = h[j1 * n + i1];
+  return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
+}
+
+function clearScene(){
+  for(const k of Object.keys(groups)){ scene.remove(groups[k]); delete groups[k]; }
+  tracks = []; heads = []; squadLabels = {}; killMarks = []; allLineMaterials.length = 0;
+  zoneWall = zoneRing = nextRing = planeLine = planeMesh = ground = null;
+}
+function group(name){ const g = new THREE.Group(); groups[name] = g; scene.add(g); return g; }
+
+function buildGround(){
+  const g = group("ground");
+  const T = D.terrain;
+  const n = (T && T.n) || 2;
+  const pos = [], uvs = [], idx = [];
+  for(let j = 0; j < n; j++) for(let i = 0; i < n; i++){
+    const u = i / (n - 1), v = j / (n - 1);
+    pos.push(X(u), (T ? T.h[j * n + i] : 0) * EX, Z(v));
+    uvs.push(u, 1 - v);
+  }
+  for(let j = 0; j < n - 1; j++) for(let i = 0; i < n - 1; i++){
+    const a = j * n + i, b = a + 1, c = a + n, d = c + 1;
+    idx.push(a, c, b, b, c, d);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const tex = new THREE.TextureLoader().load("assets/" + encodeURI(D.map.image));
+  tex.encoding = THREE.sRGBEncoding;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  ground = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: tex }));
+  g.add(ground);
+  // a skirt round the edge, so the map reads as a slab, not a sheet
+  // (its top under the lowest ground: the coasts dip below the sea's level)
+  const low = T && T.h ? Math.min(...T.h) * EX : 0;
+  const edge = new THREE.Mesh(new THREE.BoxGeometry(M, 40, M),
+    new THREE.MeshLambertMaterial({ color: 0x0b1118 }));
+  edge.position.y = low - 24;
+  g.add(edge);
+}
+
+function lineMat(colour, width, opacity){
+  const m = new THREE.LineMaterial({ color: new THREE.Color(colour).getHex(), linewidth: width,
+    transparent: opacity < 1, opacity: opacity == null ? 1 : opacity, depthWrite: opacity >= 1 });
+  m.resolution.set(W, H);
+  allLineMaterials.push(m);
+  return m;
+}
+
+function buildTracks(){
+  const g = group("tracks"), gh = group("heads");
+  for(const p of D.players){
+    const n = p.t.length;
+    if(n < 2) continue;
+    // The drop (from the jump to the landing) and the ground, apart: the
+    // drop is drawn in the air above the map and fades once they land.
+    // where the decode found no landing, the first sample under the air line
+    let landIdx = p.land == null ? -1 : p.t.findIndex(x => x >= p.land);
+    if(landIdx < 0) landIdx = p.land == null ? Math.max(0, p.h.findIndex(x => x < AIR * 10)) : n - 1;
+    // after landing nobody is above the rooftops: a higher sample is a
+    // bad reading or a moment's jump, and drew a spike into the sky
+    const pts = [];
+    for(let k = 0; k < n; k++){
+      const m = p.h[k] / 10;
+      pts.push(X(p.u[k] / 1e4), dispY(k >= landIdx ? Math.min(m, AIR) : m) + 2, Z(p.v[k] / 1e4));
+    }
+    const mk = (from, to, width, opacity) => {
+      if(to - from < 1) return null;
+      const geo = new THREE.LineGeometry();
+      geo.setPositions(pts.slice(from * 3, (to + 1) * 3));
+      const l = new THREE.Line2(geo, lineMat(colourOf(p.squad), width, opacity));
+      l.geometry.instanceCount = 0;
+      g.add(l);
+      return l;
+    };
+    const air = mk(0, landIdx, TOOL ? 1.4 : 2, 0.6);
+    const line = mk(landIdx, n - 1, TOOL ? 2.2 : 3.2, 0.95);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(TOOL ? 9 : 12, 14, 10),
+      new THREE.MeshBasicMaterial({ color: colourOf(p.squad) }));
+    head.visible = false;
+    gh.add(head);
+    tracks.push({ p, line, air, landIdx, landT: p.t[landIdx], pts });
+    heads.push({ p, head });
+  }
+}
+
+function textSprite(text, colour){
+  const c = document.createElement("canvas");
+  const ctx = c.getContext("2d");
+  const fs = 44;
+  ctx.font = "900 " + fs + "px Segoe UI, Arial";
+  const w = Math.ceil(ctx.measureText(text).width) + 30;
+  c.width = w; c.height = fs + 24;
+  ctx.font = "900 " + fs + "px Segoe UI, Arial";
+  ctx.fillStyle = "rgba(0,0,0,.62)";
+  ctx.fillRect(0, 0, w, c.height);
+  ctx.fillStyle = colour;
+  ctx.fillRect(0, c.height - 6, w, 6);
+  ctx.fillStyle = "#fff";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, 15, c.height / 2 - 2);
+  const tex = new THREE.CanvasTexture(c);
+  tex.encoding = THREE.sRGBEncoding;
+  // the same size on screen however near the camera is: TOOL ~30px tall, on air ~44px
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, sizeAttenuation: false }));
+  const px = TOOL ? 30 : 44, k = px / c.height * 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / (TOOL ? H : 1080);
+  s.scale.set(w * k, c.height * k, 1);
+  s.renderOrder = 10;
+  return s;
+}
+function shortOf(q){
+  if(q.short) return q.short;
+  const words = String(q.name || "").trim().split(/\s+/).filter(Boolean);
+  return words.length > 1 ? words.map(w => w[0]).join("").slice(0, 4).toUpperCase() : String(q.name || ("SQ " + q.squad)).slice(0, 6).toUpperCase();
+}
+function buildLabels(){
+  const g = group("labels");
+  for(const q of D.squads){
+    const s = textSprite(shortOf(q), colourOf(q.squad));
+    s.visible = false;
+    g.add(s);
+    squadLabels[q.squad] = s;
+  }
+}
+
+function buildKills(){
+  const g = group("kills");
+  const geo = new THREE.OctahedronGeometry(10, 0);
+  for(const k of D.kills){
+    if(!k.at) continue;
+    const u = k.at[0], v = k.at[1];
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xff2a2a, transparent: true }));
+    m.position.set(X(u), terrainAt(u, v) * EX + 14, Z(v));
+    m.visible = false;
+    g.add(m);
+    killMarks.push({ k, m });
+  }
+}
+
+function ringPoints(cu, cv, r, lift){
+  const pts = [];
+  for(let i = 0; i <= 128; i++){
+    const a = i / 128 * Math.PI * 2;
+    const u = cu + Math.cos(a) * r, v = cv + Math.sin(a) * r;
+    pts.push(X(u), terrainAt(u, v) * EX + (lift || 4), Z(v));
+  }
+  return pts;
+}
+function buildZones(){
+  const g = group("zones");
+  zoneWall = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 96, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0x3da5ff, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false }));
+  zoneWall.visible = false;
+  g.add(zoneWall);
+  zoneRing = new THREE.Line2(new THREE.LineGeometry(), lineMat("#5ab8ff", TOOL ? 2.5 : 4, 1));
+  nextRing = new THREE.Line2(new THREE.LineGeometry(), lineMat("#ffffff", TOOL ? 2 : 3, 0.9));
+  zoneRing.visible = nextRing.visible = false;
+  g.add(zoneRing); g.add(nextRing);
+}
+
+function buildPlane(){
+  if(!D.plane) return;
+  const g = group("plane");
+  const a = D.plane.from, b = D.plane.to;
+  const y = dispY(560);
+  const geo = new THREE.LineGeometry();
+  geo.setPositions([X(a[0]), y, Z(a[1]), X(b[0]), y, Z(b[1])]);
+  planeLine = new THREE.Line2(geo, lineMat("#ffffff", TOOL ? 1.5 : 2.5, 0.55));
+  g.add(planeLine);
+  planeMesh = new THREE.Mesh(new THREE.ConeGeometry(14, 46, 10), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  const dir = new THREE.Vector3(X(b[0]) - X(a[0]), 0, Z(b[1]) - Z(a[1])).normalize();
+  planeMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+  g.add(planeMesh);
+}
+
+/* ---- the match's clock ---------------------------------------------- */
+let T = 0;
+const sampleAt = (p, t) => {
+  const ts = p.t;
+  if(t < ts[0]) return null;
+  let lo = 0, hi = ts.length - 1;
+  if(t >= ts[hi]) return [hi, 0];
+  while(hi - lo > 1){ const mid = (lo + hi) >> 1; if(ts[mid] <= t) lo = mid; else hi = mid; }
+  return [lo, (t - ts[lo]) / Math.max(0.001, ts[lo + 1] - ts[lo])];
+};
+function posAt(tr, t){
+  const s = sampleAt(tr.p, t);
+  if(!s) return null;
+  const [k, f] = s, P = tr.pts, i = k * 3, j = Math.min(tr.p.t.length - 1, k + 1) * 3;
+  return [P[i] + (P[j] - P[i]) * f, P[i + 1] + (P[j + 1] - P[i + 1]) * f, P[i + 2] + (P[j + 2] - P[i + 2]) * f, k];
+}
+const isOut = (p, t) => (p.out != null && t >= p.out) || t > p.t[p.t.length - 1] + 6;
+
+/* The zone at time t: the edge closing from one circle to the next, and
+   the next circle once announced. */
+function zoneAt(t){
+  const zs = D.zones || [];
+  if(!zs.length) return null;
+  let edge = null, next = null;
+  for(let i = 0; i < zs.length; i++){
+    const z = zs[i];
+    if(z.closing != null && t >= z.closing){
+      const prev = i ? zs[i - 1] : { at: z.at, r: Math.max(0.75, z.r * 2.2) };
+      const end = (zs[i + 1] && zs[i + 1].announced != null) ? zs[i + 1].announced : z.closing + 90;
+      const f = Math.min(1, (t - z.closing) / Math.max(10, (end - z.closing) * 0.85));
+      edge = { u: prev.at[0] + (z.at[0] - prev.at[0]) * f, v: prev.at[1] + (z.at[1] - prev.at[1]) * f,
+               r: prev.r + (z.r - prev.r) * f, stage: i };
+    }
+    if(z.announced != null && t >= z.announced && (z.closing == null || t < z.closing)) next = z;
+  }
+  return { edge, next };
+}
+
+function update(t){
+  if(!D) return;
+  T = t;
+  const show = id => !TOOL || $(id).checked;
+  // heads first: which squads still have someone standing
+  const alive = new Set();
+  for(const h of heads){
+    const pos = posAt(tracks.find(x => x.p === h.p), t);
+    const out = isOut(h.p, t);
+    h.head.visible = !!pos && !out && !hidden.has(h.p.squad);
+    if(pos) h.head.position.set(pos[0], pos[1] + 6, pos[2]);
+    if(pos && !out) alive.add(h.p.squad);
+  }
+  // paths: the drop fades once landed; on air a squad that is out fades,
+  // and at the end everyone but the winner
+  for(const tr of tracks){
+    const s = sampleAt(tr.p, t);
+    const off = hidden.has(tr.p.squad);
+    const k = s ? s[0] : -1;
+    if(tr.line){
+      tr.line.visible = show("lyTracks") && !off && k > tr.landIdx;
+      tr.line.geometry.instanceCount = Math.max(0, k - tr.landIdx);
+      tr.line.material.opacity = winner != null && tr.p.squad !== winner ? 0.12
+        : (!TOOL && !alive.has(tr.p.squad) ? 0.18 : 0.95);
+    }
+    if(tr.air){
+      const landed = t > tr.landT + 20;
+      tr.air.visible = show("lyTracks") && show("lyPlane") && !off && k > 0 && (TOOL || !landed);
+      tr.air.geometry.instanceCount = Math.max(0, Math.min(k, tr.landIdx));
+      tr.air.material.opacity = landed ? 0.18 : 0.6;
+    }
+  }
+  // squad labels over each squad's standing players
+  for(const [sq, s] of Object.entries(squadLabels)){
+    const mine = heads.filter(h => String(h.p.squad) === sq && h.head.visible);
+    s.visible = show("lyLabels") && mine.length > 0 && !hidden.has(Number(sq));
+    if(mine.length){
+      const c = mine.reduce((a, h) => [a[0] + h.head.position.x, Math.max(a[1], h.head.position.y), a[2] + h.head.position.z], [0, 0, 0]);
+      s.position.set(c[0] / mine.length, c[1] + 30, c[2] / mine.length);
+    }
+  }
+  // kills: up at their moment; on air they fade after half a minute
+  for(const km of killMarks){
+    const age = t - km.k.t;
+    km.m.visible = show("lyKills") && age >= 0 && (TOOL || age < 30);
+    if(km.m.visible){
+      const pop = Math.min(1, age / 0.8);
+      km.m.scale.setScalar(0.4 + pop * 0.6 + (age < 1.2 ? (1.2 - age) * 0.8 : 0));
+      km.m.material.opacity = TOOL ? 0.9 : Math.max(0, Math.min(1, (30 - age) / 6));
+      km.m.rotation.y = t * 1.5;
+    }
+  }
+  // the zone
+  const z = zoneAt(t);
+  const zon = show("lyZones") && !!z;
+  if(zoneWall){
+    zoneWall.visible = zon && !!(z && z.edge);
+    zoneRing.visible = zoneWall.visible;
+    if(zoneWall.visible){
+      const e = z.edge, r = e.r * M, h = 260;
+      zoneWall.scale.set(r, h, r);
+      zoneWall.position.set(X(e.u), h / 2 - 10, Z(e.v));
+      const key = [e.u, e.v, e.r].map(x => x.toFixed(4)).join();
+      if(zoneRing.userData.key !== key){ zoneRing.geometry.setPositions(ringPoints(e.u, e.v, e.r, 5)); zoneRing.userData.key = key; }
+    }
+    nextRing.visible = zon && !!(z && z.next);
+    if(nextRing.visible){
+      const key = z.next.at.join() + z.next.r;
+      if(nextRing.userData.key !== key){ nextRing.geometry.setPositions(ringPoints(z.next.at[0], z.next.at[1], z.next.r, 6)); nextRing.userData.key = key; }
+    }
+  }
+  // the plane, across while the squads jump
+  if(planeMesh){
+    const f = t / Math.max(30, planeSpan);
+    planeMesh.visible = show("lyPlane") && f >= 0 && f <= 1.05;
+    planeLine.visible = show("lyPlane") && t < planeSpan + 25;
+    const a = D.plane.from, b = D.plane.to;
+    planeMesh.position.set(X(a[0] + (b[0] - a[0]) * f), dispY(560), Z(a[1] + (b[1] - a[1]) * f));
+  }
+  // lettering
+  const clock = fmt(t);
+  if(TOOL){
+    $("time").textContent = clock + " / " + fmt(D.duration || 0);
+    if(document.activeElement !== $("scrub")) $("scrub").value = t;
+  } else {
+    $("clock").querySelector(".c").textContent = clock;
+    $("left").querySelector("b").textContent = alive.size;
+    $("left").querySelector("span").textContent = alive.size === 1 ? "SQUAD" : "SQUADS";
+  }
+  drawFeed(t);
+}
+const fmt = s => Math.floor(Math.max(0, s) / 60) + ":" + String(Math.floor(Math.max(0, s) % 60)).padStart(2, "0");
+let feedKey = "";
+function drawFeed(t){
+  const recent = D.kills.filter(k => k.t <= t && (TOOL ? true : t - k.t < 12)).slice(-(TOOL ? 9 : 4)).reverse();
+  const key = recent.map(k => k.t).join();
+  if(key === feedKey) return;
+  feedKey = key;
+  $("feed").innerHTML = recent.map(k =>
+    `<div class="k"><i style="background:${colourOf(k.ks)}"></i>${esc(k.kn || "?")}<span class="x">&#10005;</span>` +
+    `${esc(k.vn || "?")}<i style="background:${colourOf(k.vs)}"></i></div>`).join("");
+}
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+/* ---- loading a match ----------------------------------------------------- */
+let planeSpan = 90, dropEnd = 120, finalStart = 600, winner = null;
+function load(data){
+  D = data;
+  M = (data.map && data.map.metres) || 1500;
+  clearScene();
+  buildGround(); buildTracks(); buildLabels(); buildKills(); buildZones(); buildPlane();
+  // the story's beats, from the match itself
+  const lands = data.players.map(p => p.land).filter(x => x != null).sort((a, b) => a - b);
+  const jumps = data.players.map(p => p.t[0]).sort((a, b) => a - b);
+  planeSpan = (jumps.length ? jumps[Math.floor(jumps.length * 0.95)] : 60) + 15;
+  dropEnd = lands.length ? lands[Math.floor(lands.length * 0.9)] + 15 : 120;
+  const zs = data.zones || [];
+  finalStart = zs.length >= 2 ? (zs[zs.length - 2].closing || zs[zs.length - 2].announced || 600)
+                              : (data.duration || 900) * 0.72;
+  finalStart = Math.max(dropEnd + 60, Math.min(finalStart, (data.duration || 900) - 60));
+  winner = null;
+  const w = (data.squads || []).find(q => q.place === 1);
+  // tool: the squad list and the timeline
+  if(TOOL){
+    $("msg").classList.remove("on");
+    $("scrub").max = data.duration || 900;
+    $("info").textContent = `${data.map.name} · ${data.file || ""} · ground from ${(data.terrain || {}).matches || 0} matches (${Math.round(((data.terrain || {}).coverage || 0) * 100)}% walked)`;
+    drawSquads();
+    camOverview(true);
+  }
+  $("title").querySelector(".t").textContent = (data.map.name || "").toUpperCase();
+  $("title").querySelector(".s").textContent = data.playedAt ? playedAtText(data.playedAt) : "";
+  $("banner").querySelector(".t").textContent = w ? (w.name || shortOf(w)).toUpperCase() : "";
+  update(0);
+}
+function playedAtText(s){
+  const m = String(s).match(/^(\d{4})-(\d\d)-(\d\d)-(\d\d)-(\d\d)/);
+  return m ? `${m[3]}/${m[2]} ${m[4]}:${m[5]}` : "";
+}
+
+/* ---- the analysis tool --------------------------------------------------- */
+let playing = false, lastNow = 0;
+function drawSquads(){
+  const list = [...(D.squads || [])].sort((a, b) => (a.place || 99) - (b.place || 99));
+  $("sqList").innerHTML = list.map(q =>
+    `<div class="q${hidden.has(q.squad) ? " off" : ""}${follow === q.squad ? " sel" : ""}" data-sq="${q.squad}">` +
+    `<i style="background:${colourOf(q.squad)}"></i><span>${esc(q.name || ("Squad " + q.squad))}</span>` +
+    `<small>#${q.place || "-"} · ${q.kills || 0}k</small></div>`).join("");
+}
+function camOverview(snap){
+  const d = M * 0.95;
+  setShot([0, d * 0.95, d * 0.72], [0, 0, M * 0.04], snap);
+}
+function camTop(){ setShot([0, M * 1.35, 1], [0, 0, 0], false); }
+if(TOOL){
+  $("play").onclick = () => { playing = !playing; $("play").innerHTML = playing ? "&#10074;&#10074; Pause" : "&#9654; Play";
+                              if(playing && T >= (D && D.duration || 0)) T = 0; };
+  $("scrub").oninput = e => { T = Number(e.target.value); if(D) update(T); };
+  $("camOver").onclick = () => { follow = null; drawSquads(); camOverview(false); };
+  $("camTop").onclick = () => { follow = null; drawSquads(); camTop(); };
+  $("camFollow").onclick = () => { if(D && follow == null){ const w = D.squads.find(q => q.place === 1); follow = w ? w.squad : null; drawSquads(); } };
+  ["lyTracks", "lyZones", "lyKills", "lyPlane", "lyLabels"].forEach(id => $(id).onchange = () => D && update(T));
+  $("exag").onchange = e => { EX = Number(e.target.value); if(D){ const t = T; load(D); update(t); } };
+  let clickTimer = null;
+  $("sqList").onclick = e => {
+    const el = e.target.closest(".q"); if(!el) return;
+    const sq = Number(el.dataset.sq);
+    clearTimeout(clickTimer);
+    clickTimer = setTimeout(() => { follow = follow === sq ? null : sq; drawSquads(); }, 220);
+  };
+  $("sqList").ondblclick = e => {
+    const el = e.target.closest(".q"); if(!el) return;
+    clearTimeout(clickTimer);
+    const sq = Number(el.dataset.sq);
+    const only = D.squads.length - hidden.size === 1 && !hidden.has(sq);
+    hidden.clear();
+    if(!only) D.squads.forEach(q => { if(q.squad !== sq) hidden.add(q.squad); });
+    drawSquads(); update(T);
+  };
+  addEventListener("message", e => {
+    const m = e.data;
+    if(!m || typeof m !== "object") return;
+    if(m.type === "map3d_tool_data"){
+      if(m.ok === false){ $("msg").textContent = "Could not load: " + (m.error || "unknown"); $("msg").classList.add("on"); return; }
+      hidden.clear(); follow = null; T = 0; playing = false; $("play").innerHTML = "&#9654; Play";
+      load(m);
+    } else if(m.type === "map3d_tool_message"){
+      $("msg").textContent = m.text || ""; $("msg").classList.toggle("on", !!m.text);
+    }
+  });
+}
+
+/* ---- the camera ---------------------------------------------------------- */
+const camGoal = { pos: new THREE.Vector3(0, 1800, 1800), target: new THREE.Vector3() };
+const camTarget = new THREE.Vector3();
+let snapNext = true;
+function setShot(pos, target, snap){
+  camGoal.pos.set(pos[0], pos[1], pos[2]);
+  camGoal.target.set(target[0], target[1], target[2]);
+  if(snap){ camera.position.copy(camGoal.pos); camTarget.copy(camGoal.target); if(controls){ controls.target.copy(camTarget); } }
+  if(controls && !snap){ flyTo = 1; }
+}
+let flyTo = 0;
+function squadCentre(sq){
+  const mine = heads.filter(h => h.p.squad === sq && h.head.visible);
+  if(!mine.length) return null;
+  const c = mine.reduce((a, h) => a.add(h.head.position), new THREE.Vector3());
+  return c.multiplyScalar(1 / mine.length);
+}
+
+/* ---- on air: the camera script ------------------------------------------ */
+/* The story in shots, each a stretch of match time played in a set number
+   of seconds, its camera worked out from the match as it plays:
+     intro   the map from high, the title up (the clock still)
+     drop    behind the plane's line, then down onto where they landed
+     zone    circling the closing zone, as far out as it is wide
+     final   low and close on the last circle
+     winner  the Booyah squad, everyone else dimmed */
+let script = null, scriptAt = 0, speed = 1;
+function buildScript(kind){
+  const dur = D.duration || 900;
+  const shots = {
+    intro:  { from: 0, to: 0, secs: 5 },
+    drop:   { from: 0, to: dropEnd, secs: 14 },
+    zone:   { from: dropEnd, to: finalStart, secs: 22 },
+    final:  { from: finalStart, to: dur, secs: 18 },
+    winner: { from: dur, to: dur, secs: 7 },
+  };
+  const order = { full: ["intro", "drop", "zone", "final", "winner"], drop: ["intro", "drop"],
+                  zone: ["zone"], final: ["final", "winner"] }[kind] || ["intro", "drop", "zone", "final", "winner"];
+  return order.map(k => Object.assign({ kind: k }, shots[k]));
+}
+function startScript(kind){
+  script = buildScript(kind || "full");
+  scriptAt = performance.now();
+  winner = null;
+  $("banner").classList.remove("on");
+  snapNext = true;
+}
+function scriptFrame(now){
+  let el = (now - scriptAt) / 1000 * speed;
+  let shot = null, k = 0;
+  for(const s of script){ if(el < s.secs){ shot = s; k = el / s.secs; break; } el -= s.secs; }
+  if(!shot){ shot = script[script.length - 1]; k = 1; }
+  const ease = x => x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
+  const t = shot.from + (shot.to - shot.from) * (shot.kind === "zone" ? k : ease(k));
+  const d = M;
+  const ang = now / 1000 * 0.06;
+  $("title").classList.toggle("on", shot.kind === "intro" || (shot.kind === "drop" && k < 0.35));
+  $("clock").classList.toggle("on", shot.kind !== "intro");
+  $("left").classList.toggle("on", shot.kind === "zone" || shot.kind === "final");
+  if(shot.kind === "winner"){
+    const w = (D.squads || []).find(q => q.place === 1);
+    winner = w ? w.squad : null;
+    $("banner").classList.add("on");
+  }
+  update(t);
+  if(shot.kind === "intro"){
+    const a = -0.6 + k * 0.5;
+    setShot([Math.sin(a) * d * 0.8, d * (0.95 - k * 0.2), Math.cos(a) * d * 0.8], [0, 0, M * 0.04], snapNext);
+  } else if(shot.kind === "drop"){
+    // from behind the plane and above it, looking between the plane and the
+    // map's middle: the line it flies and the parachutes coming down from it
+    const a = D.plane ? D.plane.from : [0.15, 0.5], b = D.plane ? D.plane.to : [0.85, 0.5];
+    const f = Math.min(1, t / Math.max(30, planeSpan));
+    const pu = a[0] + (b[0] - a[0]) * f, pv = a[1] + (b[1] - a[1]) * f;
+    const dir = new THREE.Vector2(b[0] - a[0], b[1] - a[1]).normalize();
+    const side = new THREE.Vector2(-dir.y, dir.x);
+    const lu = (pu + 0.5) / 2, lv = (pv + 0.5) / 2;
+    setShot([X(lu - dir.x * 0.42 + side.x * 0.22), d * 0.6, Z(lv - dir.y * 0.42 + side.y * 0.22)],
+            [X(lu), 40, Z(lv)], snapNext);
+  } else if(shot.kind === "zone" || shot.kind === "final"){
+    const z = zoneAt(t), e = z && (z.edge || z.next);
+    const cu = e ? (e.u != null ? e.u : e.at[0]) : 0.5, cv = e ? (e.v != null ? e.v : e.at[1]) : 0.5;
+    const r = e ? e.r * M : M * 0.4;
+    const far = shot.kind === "final" ? Math.max(480, r * 3) : Math.max(560, r * 2.3);
+    const lift = shot.kind === "final" ? 0.8 : 0.85;
+    const y0 = terrainAt(cu, cv) * EX;
+    setShot([X(cu) + Math.sin(ang) * far, y0 + far * lift, Z(cv) + Math.cos(ang) * far], [X(cu), y0, Z(cv)], snapNext);
+  } else if(shot.kind === "winner"){
+    const c = winner != null ? squadCentre(winner) : null;
+    const lastPos = c || camTarget.clone();
+    setShot([lastPos.x + Math.sin(ang) * 380, lastPos.y + 260, lastPos.z + Math.cos(ang) * 380], [lastPos.x, lastPos.y, lastPos.z], snapNext);
+  }
+  snapNext = false;
+}
+
+/* ---- on air: the engine ------------------------------------------------- */
+let shownAt = 0, onAir = false, pending = null;
+function onState(st){
+  applyTheme((st.event || {}).aliveAssetFolder || (st.event || {}).assetFolder);
+  const m = st.map3d || {};
+  const visible = !!m.visible || PREVIEW;
+  speed = Math.max(0.25, Number(m.speed) || 1);
+  if(visible && (!onAir || m.shownAt !== shownAt)){
+    shownAt = m.shownAt;
+    onAir = true;
+    if(D) startScript(m.script);
+    else pending = m.script;
+  }
+  if(!visible && onAir){ onAir = false; script = null; }
+  $("view").classList.toggle("on", onAir);
+  if(!onAir) ["title", "clock", "left", "banner"].forEach(id => $(id).classList.remove("on"));
+  if(!onAir) $("feed").innerHTML = "";
+}
+if(!TOOL){
+  const _sameOrigin = (location.host ? (location.protocol === "https:" ? "wss://" : "ws://") + location.host : "");
+  const _relay = _params.get("relay") || localStorage.getItem("moba_relay") || _sameOrigin;
+  const _token = _params.get("token") || localStorage.getItem("moba_token") || "";
+  const WS_URL = _relay
+    ? _relay + (_relay.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(_token) + "&page=freefire_map3d&rostercache=1"
+    : "ws://localhost:8765?page=freefire_map3d&rostercache=1";
+  let ws, lastState = null;
+  const connect = () => {
+    ws = new WebSocket(WS_URL);
+    ws.onmessage = evt => {
+      const msg = JSON.parse(evt.data);
+      if(msg.type === "map3d_data"){
+        if(msg.ok === false) return;
+        load(msg);
+        if(onAir) startScript((lastState && lastState.map3d && lastState.map3d.script) || pending);
+        return;
+      }
+      if(msg.type === "state_sync" && msg.data){ lastState = msg.data; onState(msg.data); }
+    };
+    ws.onclose = () => setTimeout(connect, 2000);
+    ws.onerror = () => ws.close();
+  };
+  connect();
+}
+
+/* ---- every frame ---------------------------------------------------------- */
+function frame(now){
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.1, (now - (lastNow || now)) / 1000);
+  lastNow = now;
+  if(TOOL && D && playing){
+    T = Math.min(D.duration || 0, T + dt * Number($("speed").value));
+    if(T >= (D.duration || 0)){ playing = false; $("play").innerHTML = "&#9654; Play"; }
+    update(T);
+  }
+  if(!TOOL && onAir && D && script) scriptFrame(now);
+  if(TOOL && D && follow != null){
+    const c = squadCentre(follow);
+    if(c){ const off = camera.position.clone().sub(controls.target); controls.target.lerp(c, 0.08); camera.position.copy(controls.target).add(off); }
+  }
+  if(controls){
+    if(flyTo){
+      camera.position.lerp(camGoal.pos, 0.08); controls.target.lerp(camGoal.target, 0.08);
+      if(camera.position.distanceTo(camGoal.pos) < 5) flyTo = 0;
+    }
+    controls.update();
+  } else {
+    camera.position.lerp(camGoal.pos, 0.06);
+    camTarget.lerp(camGoal.target, 0.06);
+    camera.lookAt(camTarget);
+  }
+  renderer.render(scene, camera);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

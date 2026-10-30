@@ -91,3 +91,6 @@ overlay/assets/freefire/GamerCult/BG-Raw.png
 
 # npm (the dashboard tests install jsdom locally / in CI)
 node_modules/
+
+# the 3D map's learned ground (map3d.py): rebuilt from this PC's replays
+ocr/freefire/terrain/
