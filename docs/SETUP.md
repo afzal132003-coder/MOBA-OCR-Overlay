@@ -103,7 +103,8 @@ refresh that source.
   `freefire_headshot_hunter`.
 - Post-match: `freefire_scoreboard`, `freefire_team_graphs`,
   `freefire_booyah_stats`, `freefire_player_h2h`, `freefire_mvp`,
-  `freefire_game_summary`, `freefire_damage_report`, `freefire_map`.
+  `freefire_game_summary`, `freefire_damage_report`, `freefire_map`,
+  `freefire_map3d` (the 3D map, its own source; pushed from Post-Match -> 3D Map).
 - Sound (the SHUTDOWN call on the elimination card): tick "Control audio
   via OBS" on the in-game source.
 
