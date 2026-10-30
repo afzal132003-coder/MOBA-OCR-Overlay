@@ -10060,8 +10060,31 @@ def map3d_terrain(map_id, cal):
     return map3d.terrain_for(map_id, cal, decodes)
 
 
-def build_map3d(match_id=""):
-    """One finished match for the 3D map: the newest when no id is given."""
+_map3d_images = {}
+
+
+def map3d_image_data(rel, size=2048):
+    """The map picture itself, as a data URL (JPEG, at most `size` across).
+    A dashboard opened from a file cannot use an image from disk as a 3D
+    texture -- the browser treats it as another origin's and the ground
+    came up black -- but an image in the message is its own."""
+    path = Path(__file__).parent.parent.parent / "overlay" / "assets" / rel
+    key = (str(path), path.stat().st_mtime if path.exists() else 0, size)
+    if key not in _map3d_images:
+        from PIL import Image as _Img
+        im = _Img.open(path).convert("RGB")
+        im.thumbnail((size, size), _Img.LANCZOS)
+        buf = io.BytesIO()
+        im.save(buf, format="JPEG", quality=85)
+        _map3d_images.clear()
+        _map3d_images[key] = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+    return _map3d_images[key]
+
+
+def build_map3d(match_id="", inline_image=False):
+    """One finished match for the 3D map: the newest when no id is given.
+    inline_image: the map picture rides in the message (a dashboard opened
+    from a file -- see map3d_image_data)."""
     path = map_analysis.find_replay(replays_folder(), (match_id or "").strip() or None)
     if not path:
         raise ValueError("No finished replay%s in %s" % ((" for " + match_id) if match_id else "", replays_folder()))
@@ -10091,6 +10114,8 @@ def build_map3d(match_id=""):
     payload = map3d.build_payload(view, decoded, {"kills": kills, "teamOut": team_out}, cal, terrain,
                                   squad_names=names, image=image)
     payload["file"] = path.name
+    if inline_image:
+        payload["map"]["imageData"] = map3d_image_data(image)
     return payload
 
 
@@ -13133,7 +13158,8 @@ async def handle_client(websocket, path=None):
                     if learn:
                         reply = await loop.run_in_executor(None, map3d_learn)
                     else:
-                        reply = await loop.run_in_executor(None, build_map3d, str(payload.get("matchId") or ""))
+                        reply = await loop.run_in_executor(None, build_map3d, str(payload.get("matchId") or ""),
+                                                           bool(payload.get("inlineImage")))
                         reply["ok"] = True
                 except Exception as e:
                     reply = {"ok": False, "error": str(e)}

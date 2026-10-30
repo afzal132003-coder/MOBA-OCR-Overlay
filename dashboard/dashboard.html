@@ -12243,7 +12243,10 @@ function ffM3Reply(msg){
   document.getElementById("ff_m3Load").addEventListener("click", () => {
     document.getElementById("ff_m3Wrap").style.display = "";
     if(!fr.getAttribute("src")){ ffM3Ready = false; fr.src = "../overlay/freefire_map3d.html?tool=1"; }
-    if(send({ type: "map3d_load", matchId: document.getElementById("ff_m3Pick").value }))
+    // opened from a file, the picture has to come in the message (see
+    // map3d_image_data in the engine): a file's image cannot texture 3D
+    if(send({ type: "map3d_load", matchId: document.getElementById("ff_m3Pick").value,
+              inlineImage: location.protocol === "file:" }))
       ffM3Say("Building the game in 3D... (a few seconds; longer the first time a game is read)");
   });
   document.getElementById("ff_m3Learn").addEventListener("click", () => {

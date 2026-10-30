@@ -214,7 +214,9 @@ function buildGround(){
   geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
   geo.setIndex(idx);
   geo.computeVertexNormals();
-  const tex = new THREE.TextureLoader().load("assets/" + encodeURI(D.map.image));
+  // the picture in the message when there is one (a dashboard opened from
+  // a file: a file's image cannot texture 3D), else from the assets
+  const tex = new THREE.TextureLoader().load(D.map.imageData || ("assets/" + encodeURI(D.map.image)));
   tex.encoding = THREE.sRGBEncoding;
   tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
   ground = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: tex }));
@@ -299,8 +301,19 @@ function textSprite(text, colour){
 }
 function shortOf(q){
   if(q.short) return q.short;
-  const words = String(q.name || "").trim().split(/\s+/).filter(Boolean);
-  return words.length > 1 ? words.map(w => w[0]).join("").slice(0, 4).toUpperCase() : String(q.name || ("SQ " + q.squad)).slice(0, 6).toUpperCase();
+  if(!q.name){
+    // unnamed (a lobby nobody registered): the clan tag its players share
+    // -- "TSG" from TSG-ICONIC30 and TSG.BLOOD14! -- else SQUAD n
+    const tags = {};
+    for(const p of (D.players || []).filter(p => p.squad === q.squad)){
+      const m = String(p.name || "").match(/^([A-Za-z0-9]{2,6})[.\-_ ]/);
+      if(m) tags[m[1].toUpperCase()] = (tags[m[1].toUpperCase()] || 0) + 1;
+    }
+    const best = Object.entries(tags).sort((a, b) => b[1] - a[1])[0];
+    return best && best[1] >= 2 ? best[0] : "SQUAD " + q.squad;
+  }
+  const words = String(q.name).trim().split(/\s+/).filter(Boolean);
+  return words.length > 1 ? words.map(w => w[0]).join("").slice(0, 4).toUpperCase() : String(q.name).slice(0, 6).toUpperCase();
 }
 function buildLabels(){
   const g = group("labels");
@@ -546,7 +559,7 @@ function drawSquads(){
   const list = [...(D.squads || [])].sort((a, b) => (a.place || 99) - (b.place || 99));
   $("sqList").innerHTML = list.map(q =>
     `<div class="q${hidden.has(q.squad) ? " off" : ""}${follow === q.squad ? " sel" : ""}" data-sq="${q.squad}">` +
-    `<i style="background:${colourOf(q.squad)}"></i><span>${esc(q.name || ("Squad " + q.squad))}</span>` +
+    `<i style="background:${colourOf(q.squad)}"></i><span>${esc(q.name || shortOf(q))}</span>` +
     `<small>#${q.place || "-"} · ${q.kills || 0}k</small></div>`).join("");
 }
 function camOverview(snap){
