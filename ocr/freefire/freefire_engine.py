@@ -1349,6 +1349,98 @@ DEBUGGER_MATCH_END_REGEX = re.compile(r"matchend matchid = (?P<match_id>\d+)")
 GS_TEAM_SHIFT = 24
 
 
+# ---- CLASH SQUAD --------------------------------------------------------
+# Two squads, rounds: everyone back each round, the round to the squad left
+# standing. Kept per player from the same log lines the battle royale table
+# reads -- a knock leaves a player KNOCKED, a death DEAD, a revive ALIVE --
+# because the Clash Squad bar shows each player, not a count.
+#
+# A round is over when a squad has nobody standing (all knocked or dead):
+# the other squad takes it. The next round begins at the first sign of it
+# in the log -- a player who ended the round dead knocking or killing, or
+# being knocked again -- or CLASH_ROUND_RESET seconds on (the live tick),
+# whichever is first. A round that ends on the clock (no wipe) is not in
+# the log as such: the next round still starts on its first fight, and the
+# operator corrects the score from the dashboard (freefire_cs).
+#
+# NOT YET SEEN ON A REAL CLASH SQUAD LOG: every log on this PC is battle
+# royale (game_mode 1). Built on the lines both modes share.
+CLASH_ROUND_RESET = 8.0
+
+
+def clash_state(live):
+    return live.setdefault("cs", {"p": {}, "wins": {}, "adjust": {}, "round": 1,
+                                  "overAt": None, "winner": None})
+
+
+def clash_new_round(live):
+    cs = clash_state(live)
+    for squad in (live.get("gsIgns") or {}).values():
+        for pid in squad:
+            cs["p"][pid] = "alive"
+    cs["round"] = cs.get("round", 1) + 1
+    cs["overAt"] = None
+    cs["winner"] = None
+
+
+def clash_event(live, killer_id, victim_id, kill, when, self_inflicted):
+    """One knock or kill, for the Clash Squad bar."""
+    cs = clash_state(live)
+    p = cs["p"]
+    started = (cs["overAt"] is not None and when is not None and when - cs["overAt"] >= CLASH_ROUND_RESET)
+    acting_dead = not self_inflicted and p.get(killer_id) == "dead"
+    if started or p.get(victim_id) == "dead" or acting_dead:
+        # a player who was out is in it again: a new round has begun
+        clash_new_round(live)
+    p[victim_id] = "dead" if kill else "knocked"
+    if not self_inflicted:
+        p[killer_id] = "alive"
+    gs = gs_team_of(victim_id)
+    squad = (live.get("gsIgns") or {}).get(gs) or {}
+    if cs["overAt"] is None and squad and all(p.get(pid) in ("dead", "knocked") for pid in squad):
+        others = [g for g, sq in (live.get("gsIgns") or {}).items() if g != gs and sq]
+        if len(others) == 1:
+            cs["wins"][others[0]] = cs["wins"].get(others[0], 0) + 1
+            cs["winner"] = others[0]
+        cs["overAt"] = when if when is not None else time.time()
+
+
+def clash_tick(live, now=None):
+    """The next round on the clock, when the log has not shown it yet."""
+    cs = live.get("cs")
+    if cs and cs.get("overAt") is not None and (now or time.time()) - cs["overAt"] >= CLASH_ROUND_RESET:
+        clash_new_round(live)
+        return True
+    return False
+
+
+def clash_view(live, linked=None):
+    """liveOps.clash: the two squads, left and right, each player's state
+    and the score -- None unless the match has exactly two squads."""
+    squads = {g: sq for g, sq in (live.get("gsIgns") or {}).items() if sq}
+    if len(squads) != 2:
+        return None
+    cs = clash_state(live)
+    names = (linked or {}).get("gsNames") or {}
+    roster = ((server_state.get("roster") or {}).get("teams") or [])
+    order = sorted(squads)
+    if (server_state.get("settings") or {}).get("csSwap"):
+        order.reverse()
+    out = []
+    for g in order:
+        name = names.get(g) or ""
+        rt = next((t for t in roster if (t.get("name") or "").strip() == name), None) if name else None
+        out.append({
+            "gs": g, "name": name, "short": ((rt or {}).get("shortName") or "").strip(),
+            "logo": (rt or {}).get("logo") or "",
+            "wins": max(0, cs["wins"].get(g, 0) + cs["adjust"].get(g, 0)),
+            "players": [{"pid": pid, "ign": ign, "state": cs["p"].get(pid, "alive")}
+                        for pid, ign in sorted(squads[g].items())],
+        })
+    return {"round": cs.get("round", 1), "over": cs.get("overAt") is not None,
+            "winner": cs.get("winner"), "squads": out}
+
+
 def gs_team_of(player_id):
     """The squad number encoded in a runtime player id."""
     try:
@@ -1765,6 +1857,7 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
         if revive:
             pid = revive.group("pid")
             live["gsDown"].get(gs_team_of(pid), set()).discard(pid)
+            clash_state(live)["p"][pid] = "alive"
             spot = DEBUGGER_REVIVE_POS_REGEX.search(line)
             stamp = DEBUGGER_TS_REGEX.match(line.strip())
             # Held for the teammate's line that names the reviver; one
@@ -1922,6 +2015,9 @@ def read_debugger_events(log_path, offset, id_map, live=None, emit=True):
 
         killer_id, victim_id = match.group("killer"), match.group("victim")
         live["freshJoins"] = set()
+        _cs_ts = DEBUGGER_TS_REGEX.match(line.strip())
+        clash_event(live, killer_id, victim_id, bool(kill),
+                    _debugger_epoch(_cs_ts.group("ts")) if _cs_ts else None, killer_id == victim_id)
         # The client writes zone, fall and other self-inflicted deaths as
         # "killed by" the victim themselves. They are real deaths, so they
         # still count toward being knocked out, but they are NOT kills:
@@ -13007,6 +13103,29 @@ async def handle_client(websocket, path=None):
                     save_state()
                     await broadcast({"type": "state_sync", "data": server_state,
                                      "locked": list(locked_fields)})
+            elif payload.get("type") == "freefire_cs":
+                # CLASH SQUAD, by hand: the score (a round won on the clock
+                # is not in the log), a new round, the sides swapped, the
+                # score cleared.
+                op = payload.get("op")
+                cs = clash_state(_live_match)
+                view = server_state["liveOps"].get("clash") or {}
+                sides = [q.get("gs") for q in view.get("squads") or []]
+                side = payload.get("side")
+                gs = sides[0 if side == "left" else 1] if side in ("left", "right") and len(sides) == 2 else None
+                if op == "score" and gs is not None:
+                    cs["adjust"][gs] = cs["adjust"].get(gs, 0) + int(payload.get("delta") or 0)
+                elif op == "newRound":
+                    clash_new_round(_live_match)
+                elif op == "resetScore":
+                    cs["wins"], cs["adjust"] = {}, {}
+                    cs["round"] = 1
+                elif op == "swap":
+                    st = server_state.setdefault("settings", {})
+                    st["csSwap"] = not st.get("csSwap")
+                    save_state()
+                server_state["liveOps"]["clash"] = clash_view(_live_match, link_live_teams(_live_match, server_state.get("roster")))
+                await broadcast({"type": "state_sync", "data": server_state, "locked": list(locked_fields)})
             elif payload.get("type") in ("top4_show", "top4_hide"):
                 # The TOP 4 bar across the top of the alive-stats source --
                 # its own switch, so the side table can be pulled down once
@@ -14694,6 +14813,12 @@ async def ocr_loop():
                     # The elimination race: republished when it changes,
                     # and its photos sent when who is in it changes.
                     global _race_photo_key
+                    # CLASH SQUAD: two squads, each player's state, the rounds
+                    clash_tick(_live_match)
+                    clash = clash_view(_live_match, linked)
+                    if clash != server_state["liveOps"].get("clash"):
+                        server_state["liveOps"]["clash"] = clash
+                        changed = True
                     race = frag_race(_live_match, linked, _debugger_id_map)
                     if race != server_state["liveOps"].get("fragRace"):
                         server_state["liveOps"]["fragRace"] = race

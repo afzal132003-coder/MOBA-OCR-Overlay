@@ -185,6 +185,11 @@
      of its heavy lettering (leaned by the browser where the art leans). */
   @font-face{font-family:'GC Sans';src:url('assets/fonts/bricolage-grotesque/BricolageGrotesque_24pt-SemiBold.ttf') format('truetype');font-weight:100 900;font-display:block;}
   @font-face{font-family:'GC Black';src:url('assets/fonts/bricolage-grotesque/BricolageGrotesque_48pt-ExtraBold.ttf') format('truetype');font-weight:100 900;font-display:block;}
+  /* The Clash Squad bar's round count: GFF Latin Bold, the game's own face, as
+     the event's art sets it -- installed on the PC, or its file dropped in
+     assets/fonts/winner-sans (the engine sends that folder to the relay
+     host); else Winner Sans Medium, the nearest the kit has. */
+  @font-face{font-family:'CS Digits';src:local('GFF Latin Bold'),local('GFF-Latin-Bold'),local('GFFLatin-Bold'),url('assets/fonts/winner-sans/GFF-Latin-Bold.ttf') format('truetype'),url('assets/fonts/winner-sans/GFF-Latin-Bold.otf') format('opentype'),url('assets/fonts/winner-sans/WinnerSans-Medium.otf') format('opentype');font-weight:100 900;font-display:block;}
   #backdrop, #backdropFoot { position: absolute; inset: 0; width: 1920px; height: 1080px; }
   #backdropFoot { display: none; }
 
@@ -781,6 +786,36 @@
   #leaders.out { animation: zb-out .3s cubic-bezier(.55,0,.85,.35) both; }
   .ld-row .val b.pop { animation: ld-pop .55s ease-out; }
   @keyframes ld-pop { from { transform: scale(1.6); } to { transform: none; } }
+  /* ---- CLASH SQUAD: the top bar ("enfea cs evemt") ---------------------
+     Two squads, a bar a player out from each score box: alive in the
+     squad's colour, KNOCKED emptied with only its corner in the colour,
+     dead grey -- standing players nearest the box, as the art has them.
+     Drawn on the art's own outlines (flat colours), so each bar can change
+     on its own. */
+  #clash { position: absolute; inset: 0; pointer-events: none; display: none; z-index: 3; }
+  #clash.show { display: block; }
+  #clash .cbox, #clash .cbar { position: absolute; }
+  #clash.in .cbox { animation: cs-drop .5s cubic-bezier(.2,.8,.25,1) both; }
+  #clash.in .cbar { animation: cs-slide .4s cubic-bezier(.2,.8,.25,1) both; animation-delay: calc(.25s + var(--i) * 70ms); }
+  #clash.out { animation: cs-out .35s ease-in both; }
+  @keyframes cs-drop { from { transform: translateY(-75px); } to { transform: none; } }
+  @keyframes cs-slide { from { opacity: 0; transform: translateX(var(--from, 0)); } to { opacity: 1; transform: none; } }
+  @keyframes cs-out { to { opacity: 0; transform: translateY(-40px); } }
+  #clash .cbox { display: flex; align-items: center; justify-content: center;
+                 font-family: 'CS Digits', 'Winner Sans M', Arial, sans-serif; font-weight: 500; }
+  #clash .cbox b { font-weight: inherit; font-size: var(--cs-digit, 46px); line-height: 1; display: inline-block; }
+  #clash .cbox b.bump { animation: cs-bump .6s ease-out; }
+  @keyframes cs-bump { 0% { transform: scale(1.6); } 100% { transform: none; } }
+  #clash .cbar { transition: background .25s ease; }
+  #clash .cbar.alive { background: var(--cs-team); }
+  #clash .cbar.dead { background: var(--cs-dead, #cbcbcb); }
+  /* knocked: the bar emptied, its corner nearest the box in the colour */
+  #clash .cbar.knocked { background: var(--cs-empty, rgba(22, 12, 48, .62)); }
+  #clash .cbar i { position: absolute; inset: 0; display: none; background: var(--cs-team); }
+  #clash .cbar.knocked i { display: block; animation: cs-knock 1.1s ease-in-out infinite; }
+  @keyframes cs-knock { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+  #clash .cbar.flash::after { content: ""; position: absolute; inset: 0; background: #fff; animation: cs-flash .45s ease-out both; }
+  @keyframes cs-flash { from { opacity: .9; } to { opacity: 0; } }
 </style>
 </head>
 <body>
@@ -801,6 +836,8 @@
   <div class="pp" id="popLabel"></div><div class="pp" id="popLogo"><img alt=""></div>
   <div class="pp" id="popName"></div>
 </div></div>
+
+<div id="clash"></div>
 
 <div id="leaders"><div class="ld-head"><span class="k">TOP 5</span><span class="t">ELIMINATION LEADERS</span></div>
   <div class="ld-rows"></div></div>
@@ -1479,6 +1516,38 @@ LAYOUTS.GamerCult = (() => {
   return c;
 })();
 
+/* ENFEA CLASH SQUAD ("enfea cs evemt"): the event's top bar, measured
+   against "INGAME OVERLAY TOP BOX - DEMO":
+     the left squad yellow #ffeb43, the right purple #6415e1, out grey
+     #cbcbcb; each side four bars, 65 x 21 from y 7, leaning as the art
+     does (4 px over their height: in at the bottom on the left, out on
+     the right), left x 721 / 652 / 584 / 515 out from the box, right
+     1085 / 1154 / 1223 / 1291; the score boxes the art's full 65 px,
+     x 787.6..861.2 (left) and 1008.8..1082.4 (right), the round count
+     Winner Sans in them, purple #270955 on the yellow, white on the purple.
+   Everything else (side pop-ups, the zone bug, the leaders board) is
+   ENFEA STAN's; no elimination card -- a squad goes out every round. */
+LAYOUTS.CLASH_ENFEA = (() => {
+  const c = JSON.parse(JSON.stringify(LAYOUTS["ENFEA STAN"]));
+  c.placementKey = "enfeacs";
+  c.elimCard = null;
+  c.top4 = null;
+  c.clash = {
+    sides: [
+      { team: "#ffeb43", ink: "#270955", lean: 1,
+        box: [[787.6, 0], [848.6, 0], [861.2, 65], [800.2, 65]], digit: [824.4, 31],
+        bars: [721, 652, 584, 515] },
+      { team: "#6415e1", ink: "#ffffff", lean: -1,
+        box: [[1021.4, 0], [1082.4, 0], [1069.8, 65], [1008.8, 65]], digit: [1045.6, 31],
+        bars: [1085, 1154, 1223, 1291] },
+    ],
+    bar: { y: 7, w: 65, h: 21, lean: 4 },
+    dead: "#cbcbcb", digit: 46,
+  };
+  return c;
+})();
+LAYOUTS["enfea cs evemt"] = LAYOUTS.CLASH_ENFEA;
+
 LAYOUTS.CHIRAYU = (() => {
   const c = JSON.parse(JSON.stringify(LAYOUTS.ss3));
   // its legend is joined to the last row: the art stays whole
@@ -1504,7 +1573,8 @@ function aliveFolder(state){
 }
 
 function layoutFor(state){
-  return LAYOUTS[aliveFolder(state)] || LAYOUTS.CLT;
+  const f = aliveFolder(state);
+  return LAYOUTS[f] || (/(^|[\s_-])cs([\s_-]|$)/i.test(f) ? LAYOUTS.CLASH_ENFEA : null) || LAYOUTS.CLT;
 }
 
 let activeLayout = null;
@@ -2446,6 +2516,82 @@ function renderLeaders(state){
   return true;
 }
 
+/* ---- CLASH SQUAD ------------------------------------------------------
+   liveOps.clash from the engine (clash_view): the two squads left and
+   right, each player's state, the rounds won. Standing players nearest
+   the box, then the knocked, the dead outermost -- the art's own order. */
+let clashUp = false, clashBuilt = "", clashWins = [null, null], clashPrev = {};
+const CLASH_ORDER = { alive: 0, knocked: 1, dead: 2 };
+function clashBuild(C){
+  const box = document.getElementById("clash");
+  const key = JSON.stringify(C);
+  if(clashBuilt === key) return;
+  clashBuilt = key;
+  const poly = pts => "polygon(" + pts.map(([x, y]) => x + "px " + y + "px").join(", ") + ")";
+  let html = "";
+  C.sides.forEach((S, si) => {
+    const xs = S.box.map(p => p[0]), ys = S.box.map(p => p[1]);
+    const L = Math.min(...xs), T = Math.min(...ys);
+    html += `<div class="cbox" data-s="${si}" style="left:${L}px;top:${T}px;width:${Math.max(...xs) - L}px;` +
+            `height:${Math.max(...ys) - T}px;background:${S.team};color:${S.ink};` +
+            `clip-path:${poly(S.box.map(([x, y]) => [x - L, y - T]))}">` +
+            `<b style="position:absolute;left:${S.digit[0] - L}px;top:${S.digit[1] - T}px;transform:translate(-50%,-50%)"></b></div>`;
+    const B = C.bar, lean = B.lean * S.lean;
+    S.bars.forEach((x, i) => {
+      // the outline: in at the bottom (left side) or out (right side)
+      const left = lean < 0 ? x + lean : x;
+      const shape = lean >= 0 ? [[0, 0], [B.w, 0], [B.w + lean, B.h], [lean, B.h]]
+                              : [[-lean, 0], [B.w - lean, 0], [B.w, B.h], [0, B.h]];
+      // knocked: the corner nearest the box
+      const inner = si === 0 ? [[B.w * 0.62, 0], [B.w, 0], [B.w + Math.max(lean, 0) * 0.7, B.h * 0.7]]
+                             : [[-lean, 0], [-lean + B.w * 0.38, 0], [Math.max(-lean, 0) * 0.3, B.h * 0.7]];
+      html += `<div class="cbar dead" data-s="${si}" data-i="${i}" style="left:${left}px;top:${B.y}px;` +
+              `width:${B.w + Math.abs(lean)}px;height:${B.h}px;--cs-team:${S.team};--i:${i};` +
+              `--from:${si === 0 ? 30 : -30}px;clip-path:${poly(shape)}"><i style="clip-path:${poly(inner)}"></i></div>`;
+    });
+  });
+  box.innerHTML = html;
+  box.style.setProperty("--cs-dead", C.dead);
+  box.style.setProperty("--cs-digit", C.digit + "px");
+}
+function renderClash(state, L, visible){
+  const box = document.getElementById("clash");
+  const C = L && L.clash;
+  const v = (state.liveOps || {}).clash;
+  const on = !!(C && visible && (v || PREVIEW));
+  if(!on){
+    if(clashUp){ clashUp = false; box.classList.remove("in"); box.classList.add("out");
+                 setTimeout(() => { if(!clashUp) box.classList.remove("show", "out"); }, 360); }
+    return;
+  }
+  clashBuild(C);
+  if(!clashUp){ clashUp = true; box.classList.remove("out"); void box.offsetWidth; box.classList.add("show", "in"); }
+  C.sides.forEach((S, si) => {
+    const q = v && v.squads && v.squads[si];
+    const states = ((q && q.players) || []).map(p => p.state || "alive")
+      .sort((a, b) => CLASH_ORDER[a] - CLASH_ORDER[b]);
+    while(states.length < S.bars.length) states.push(q ? "dead" : "alive");
+    box.querySelectorAll(`.cbar[data-s="${si}"]`).forEach(el => {
+      const st = states[Number(el.dataset.i)] || "dead";
+      const k = si + ":" + el.dataset.i;
+      if(clashPrev[k] && clashPrev[k] !== st && st !== "alive"){
+        el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+      }
+      clashPrev[k] = st;
+      el.classList.toggle("alive", st === "alive");
+      el.classList.toggle("knocked", st === "knocked");
+      el.classList.toggle("dead", st === "dead");
+    });
+    const b = box.querySelector(`.cbox[data-s="${si}"] b`);
+    const wins = q ? q.wins : 0;
+    if(b && b.textContent !== String(wins)){
+      b.textContent = wins;
+      if(clashWins[si] != null && wins > clashWins[si]){ b.classList.remove("bump"); void b.offsetWidth; b.classList.add("bump"); }
+    }
+    clashWins[si] = wins;
+  });
+}
+
 /* "TSG WIPED NG": the wiping squad's logo and short name, WIPED in the
    package's colour, the wiped squad's; up for WIPE_MS, then `next`. */
 function playWipeBanner(state, byName, row, next){
@@ -3074,6 +3220,13 @@ function apply(state){
   // which is the entire reason to have one. OBS sources never pass it,
   // so nothing reaches air from this.
   const visible = PREVIEW_MODE || (state.display && state.display.aliveStatusVisible);
+  // CLASH SQUAD: the top bar instead of the table (and no table at all)
+  const Lclash = layoutFor(state);
+  try { renderClash(state, Lclash, visible); } catch(e){ console.error("clash:", e); }
+  if(Lclash.clash){
+    document.getElementById("stage").classList.remove("show");
+    return;
+  }
 
   // The top bar has its own switch, so it can stay up with the side table
   // pulled down.

@@ -94,3 +94,6 @@ node_modules/
 
 # the 3D map's learned ground (map3d.py): rebuilt from this PC's replays
 ocr/freefire/terrain/
+
+# enfea cs evemt (Clash Squad): its PSD stays on this PC
+overlay/assets/freefire/enfea cs evemt/*.psd

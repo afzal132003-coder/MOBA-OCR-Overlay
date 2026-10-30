@@ -2434,6 +2434,22 @@
           <input type="checkbox" id="ff_aliveReadTeams" checked> Read the team names off the screen
         </label>
       </div>
+      <div id="ff_csBox" style="display:none;border:1px solid #3a2a66;border-radius:6px;padding:8px 10px;margin:0 0 10px;">
+        <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;">
+          <strong style="font-size:12px;" title="The Clash Squad top bar (an alive graphic whose folder is named CS, e.g. enfea cs evemt): each player a bar -- alive in the squad's colour, knocked emptied with its corner coloured, dead grey -- and the rounds won in the boxes. Read from the game's log: a round goes to the squad left standing. A round won on the clock is not in the log -- add it here.">Clash Squad</strong>
+          <span id="ff_csNow" class="hint" style="margin:0;min-width:260px;"></span>
+          <span class="hint" style="margin:0;">Left</span>
+          <button class="secondary ff-cs" data-op="score" data-side="left" data-delta="1" style="margin:0;min-width:34px;">+1</button>
+          <button class="secondary ff-cs" data-op="score" data-side="left" data-delta="-1" style="margin:0;min-width:34px;">&minus;1</button>
+          <span class="hint" style="margin:0 0 0 6px;">Right</span>
+          <button class="secondary ff-cs" data-op="score" data-side="right" data-delta="1" style="margin:0;min-width:34px;">+1</button>
+          <button class="secondary ff-cs" data-op="score" data-side="right" data-delta="-1" style="margin:0;min-width:34px;">&minus;1</button>
+          <button class="secondary ff-cs" data-op="newRound" style="margin:0 0 0 6px;" title="Everyone back to alive -- for a round the log has not started yet">New Round</button>
+          <button class="secondary ff-cs" data-op="swap" style="margin:0;" title="Left and right squads change places (it stays swapped until pressed again)">Swap Sides</button>
+          <button class="danger ff-cs" data-op="resetScore" style="margin:0;" title="Both scores back to 0, round 1">Reset Score</button>
+        </div>
+        <div id="ff_csPlayers" class="hint" style="margin:6px 0 0;"></div>
+      </div>
       <div id="ff_ptsGamesBox" style="display:none;border:1px solid #1b2430;border-radius:6px;padding:8px 10px;margin:0 0 10px;">
         <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;">
           <strong style="font-size:12px;">PTS. column &mdash; games before this one</strong>
@@ -12578,8 +12594,48 @@ document.addEventListener("change", e => {
   const n = document.getElementById("ff_popupNote");
   if(n) n.textContent = el.dataset.team + (el.checked ? ": no photo on its card." : ": photo back on its card.");
 });
+/* Clash Squad: what the engine reads (liveOps.clash) and the operator's
+   corrections (freefire_cs). Shown when the alive graphic is a Clash Squad
+   one -- its folder named CS, as the in-game page decides. */
+function ffIsClashPackage(ff){
+  const ev = (ff && ff.event) || {};
+  return /(^|[\s_-])cs([\s_-]|$)/i.test(ev.aliveAssetFolder || ev.assetFolder || "");
+}
+function ffRenderClash(ff){
+  const box = document.getElementById("ff_csBox");
+  if(!box) return;
+  const on = ffIsClashPackage(ff);
+  box.style.display = on ? "" : "none";
+  if(!on) return;
+  const v = (ff.liveOps || {}).clash;
+  const now = document.getElementById("ff_csNow");
+  const pl = document.getElementById("ff_csPlayers");
+  if(!v || !(v.squads || []).length){
+    now.textContent = "Waiting for a two-squad match in the log.";
+    pl.textContent = "";
+    return;
+  }
+  const [L, R] = v.squads;
+  const nm = q => (q && (q.short || q.name)) || ("Squad " + (q && q.gs));
+  now.innerHTML = `Round <b>${v.round}</b>${v.over ? " (over)" : ""} &middot; <b style="color:#ffeb43;">${ffEscapeHtml(nm(L))} ${L.wins}</b> &ndash; ` +
+                  `<b style="color:#a98bff;">${R ? R.wins : 0} ${ffEscapeHtml(nm(R))}</b>`;
+  const chip = p => `<span style="display:inline-block;margin:0 6px 2px 0;padding:1px 6px;border-radius:4px;` +
+    `background:${p.state === "alive" ? "#1f3b25" : p.state === "knocked" ? "#4a3a10" : "#2a2a2a"};">` +
+    `${ffEscapeHtml(p.ign || "?")} &middot; ${p.state}</span>`;
+  pl.innerHTML = [L, R].filter(Boolean).map(q => `<div>${ffEscapeHtml(nm(q))}: ${(q.players || []).map(chip).join("")}</div>`).join("");
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest && e.target.closest(".ff-cs");
+  if(!b || !(ffWs && ffWs.readyState === WebSocket.OPEN)) return;
+  const msg = { type: "freefire_cs", op: b.dataset.op };
+  if(b.dataset.side) msg.side = b.dataset.side;
+  if(b.dataset.delta) msg.delta = Number(b.dataset.delta);
+  if(msg.op === "resetScore" && !confirm("Reset both Clash Squad scores to 0?")) return;
+  ffWs.send(JSON.stringify(msg));
+});
 function ffRenderPopupControls(ff){
   try { ffRenderCrTiles(ff); } catch(e){ console.error("cr tiles:", e); }
+  try { ffRenderClash(ff); } catch(e){ console.error("clash:", e); }
   try { ffRenderPhotoOff(ff); } catch(e){ console.error("photo off:", e); }
   const st = (ff && ff.settings) || {};
   const sw = st.sidePopups || {};
